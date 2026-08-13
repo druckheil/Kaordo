@@ -7,6 +7,7 @@ import java.io.File
 /** Durable outbox for coordinator cleanup acknowledgements. */
 class PublicReconciliationStore(root: File) {
     private val file = File(root, "public-reconciliation.json")
+    private val ligoMessageIds = linkedSetOf<String>()
     private val postIds = linkedSetOf<String>()
     private val reservationIds = linkedSetOf<String>()
 
@@ -14,6 +15,7 @@ class PublicReconciliationStore(root: File) {
         runCatching {
             if (!file.isFile) return@runCatching
             val value = JSONObject(file.readText())
+            readIds(value.optJSONArray("ligoMessageIds"), ligoMessageIds)
             readIds(value.optJSONArray("postIds"), postIds)
             readIds(value.optJSONArray("reservationIds"), reservationIds)
         }
@@ -25,12 +27,18 @@ class PublicReconciliationStore(root: File) {
     }
 
     @Synchronized
+    fun recordLigoMessageDeletion(id: String) {
+        if (ID.matches(id)) persistChange { ligoMessageIds.add(id) }
+    }
+
+    @Synchronized
     fun recordReservationRelease(id: String) {
         if (ID.matches(id)) persistChange { reservationIds.add(id) }
     }
 
     @Synchronized
     fun pending(limit: Int = MAX_BATCH): Pending = Pending(
+        ligoMessageIds.take(limit),
         postIds.take(limit),
         reservationIds.take(limit),
     )
@@ -38,18 +46,22 @@ class PublicReconciliationStore(root: File) {
     @Synchronized
     fun acknowledge(pending: Pending) {
         persistChange {
-            postIds.removeAll(pending.postIds.toSet()) or
+            ligoMessageIds.removeAll(pending.ligoMessageIds.toSet()) or
+                postIds.removeAll(pending.postIds.toSet()) or
                 reservationIds.removeAll(pending.reservationIds.toSet())
         }
     }
 
     private fun persistChange(change: () -> Boolean) {
+        val previousLigoMessageIds = ligoMessageIds.toList()
         val previousPostIds = postIds.toList()
         val previousReservationIds = reservationIds.toList()
         if (!change()) return
         try {
             persist()
         } catch (error: Throwable) {
+            ligoMessageIds.clear()
+            ligoMessageIds.addAll(previousLigoMessageIds)
             postIds.clear()
             postIds.addAll(previousPostIds)
             reservationIds.clear()
@@ -62,6 +74,7 @@ class PublicReconciliationStore(root: File) {
         file.parentFile?.mkdirs()
         val temporary = File(file.parentFile, ".${file.name}.tmp")
         temporary.writeText(JSONObject()
+            .put("ligoMessageIds", JSONArray(ligoMessageIds.toList()))
             .put("postIds", JSONArray(postIds.toList()))
             .put("reservationIds", JSONArray(reservationIds.toList()))
             .toString())
@@ -75,7 +88,11 @@ class PublicReconciliationStore(root: File) {
         }
     }
 
-    data class Pending(val postIds: List<String>, val reservationIds: List<String>)
+    data class Pending(
+        val ligoMessageIds: List<String>,
+        val postIds: List<String>,
+        val reservationIds: List<String>,
+    )
 
     private companion object {
         const val MAX_BATCH = 64

@@ -25,6 +25,7 @@ class NodeCoordinatorClient {
         publicUsedBytes: Long,
         metrics: NodeMetrics,
         testCompletedAt: Long?,
+        deletedLigoMessageIds: List<String>,
         deletedPublicPostIds: List<String>,
         releasedPublicReservationIds: List<String>,
     ): HeartbeatResult {
@@ -57,6 +58,7 @@ class NodeCoordinatorClient {
                 .put("networkUpBps", metrics.networkUpBps)
                 .put("storageAvailableBytes", metrics.storageAvailableBytes))
             .put("testCompletedAt", testCompletedAt)
+            .put("deletedLigoMessageIds", JSONArray(deletedLigoMessageIds))
             .put("deletedPublicPostIds", JSONArray(deletedPublicPostIds))
             .put("releasedPublicReservationIds", JSONArray(releasedPublicReservationIds))
             .toString()
@@ -82,6 +84,11 @@ class NodeCoordinatorClient {
                 ),
                 privateQuotaBytes = spaces.getJSONObject("private").getLong("quotaBytes"),
                 publicQuotaBytes = spaces.getJSONObject("public").getLong("quotaBytes"),
+                ligoDeleteMessages = value.optJSONArray("ligoDeleteMessages")?.let { items ->
+                    List(items.length()) { index -> items.getJSONObject(index).let {
+                        LigoDeletion(it.getString("id"), it.getString("storage"))
+                    } }
+                }.orEmpty(),
                 publicDeletePostIds = value.optJSONArray("publicDeletePostIds")?.let { items ->
                     List(items.length()) { items.getString(it) }
                 }.orEmpty(),
@@ -97,9 +104,12 @@ class NodeCoordinatorClient {
         val policy: NodePolicy,
         val privateQuotaBytes: Long,
         val publicQuotaBytes: Long,
+        val ligoDeleteMessages: List<LigoDeletion>,
         val publicDeletePostIds: List<String>,
         val runQuickTest: Boolean,
     )
+
+    data class LigoDeletion(val id: String, val storage: String)
 
     private companion object {
         val JSON = "application/json; charset=utf-8".toMediaType()

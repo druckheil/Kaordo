@@ -5,8 +5,9 @@ import {
   PUBLIC_NODE_RETIRE_SECONDS,
   retireNodePublicPosts,
 } from '../fluo/public-storage';
+import { acknowledgeCloudCleanup } from '../ligo/routes';
 
-const MAX_REQUEST_BYTES = 8_192;
+const MAX_REQUEST_BYTES = 16_384;
 const NODE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const IPV4 = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
 const ONLINE_SECONDS = 300;
@@ -170,17 +171,29 @@ export async function nodeHeartbeat(request: Request, env: Env): Promise<Respons
       input.deletedPublicPostIds,
       input.releasedPublicReservationIds,
     );
+    await acknowledgeCloudCleanup(env, input.deletedLigoMessageIds, nodeId);
     const row = await ownedNode(env, nodeId, session.userId);
     if (!row) return json({ error: 'Node not found.' }, 404);
     const tombstones = await env.DB.prepare(
       `SELECT post_id FROM fluo_public_tombstones
         WHERE node_id = ?1 ORDER BY created_at ASC, post_id ASC LIMIT ?2`,
     ).bind(nodeId, MAX_RECONCILIATION_IDS).all<{ post_id: string }>();
+    const ligoTombstones = await env.DB.prepare(
+      `SELECT message_id, storage_kind FROM ligo_cloud_tombstones
+        WHERE node_id = ?1 ORDER BY created_at ASC, message_id ASC LIMIT ?2`,
+    ).bind(nodeId, MAX_RECONCILIATION_IDS).all<{
+      message_id: string;
+      storage_kind: number;
+    }>();
     return json({
       heartbeatAfterSeconds: 120,
       nodeId,
       observedAddress,
       policy: policy(row),
+      ligoDeleteMessages: ligoTombstones.results.map((item) => ({
+        id: item.message_id,
+        storage: item.storage_kind === 1 ? 'public' : 'private',
+      })),
       publicDeletePostIds: tombstones.results.map(({ post_id }) => post_id),
       spaces: spaces(row),
       runQuickTest: (row.test_requested_at ?? 0) > (row.test_completed_at ?? 0),
@@ -577,6 +590,7 @@ async function readHeartbeat(request: Request) {
   }
   const spaces = readHeartbeatSpaces(value.spaces, value.usedBytes as number);
   const deletedPublicPostIds = reconciliationIds(value.deletedPublicPostIds);
+  const deletedLigoMessageIds = reconciliationIds(value.deletedLigoMessageIds);
   const releasedPublicReservationIds = reconciliationIds(value.releasedPublicReservationIds);
   if (!Array.isArray(value.localAddresses) || value.localAddresses.length > 16 ||
       value.localAddresses.some((address) => typeof address !== 'string' || !validIpv4(address))) {
@@ -596,6 +610,7 @@ async function readHeartbeat(request: Request) {
     ? null
     : safeTimestamp(value.testCompletedAt);
   return {
+    deletedLigoMessageIds,
     deletedPublicPostIds,
     deviceName: value.deviceName.trim(),
     deviceKey,

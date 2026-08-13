@@ -1034,6 +1034,12 @@ describe('authentication API', () => {
       method: 'POST',
     });
     const nodeId = (await heartbeat.json<{ nodeId: string }>()).nodeId;
+    const storage = await api('/api/ligo/storage', {
+      body: JSON.stringify({ selectedNodeId: nodeId, stackLimitBytes: 104_857_600 }),
+      headers: { ...senderAuthorization, 'content-type': 'application/json' },
+      method: 'PATCH',
+    });
+    expect(storage.status).toBe(200);
     const search = await api('/api/ligo/users?q=ligo_rec', { headers: senderAuthorization });
     await expect(search.json()).resolves.toMatchObject({
       users: [{ username: 'ligo_recipient' }],
@@ -1078,6 +1084,48 @@ describe('authentication API', () => {
     expect(acknowledged.status).toBe(200);
     await expect(api('/api/ligo/inbox', { headers: recipientAuthorization }).then((response) => response.json()))
       .resolves.toEqual({ deliveries: [], nextCursor: null });
+
+    const smallerWindow = await api('/api/ligo/storage', {
+      body: JSON.stringify({ selectedNodeId: nodeId, stackLimitBytes: 1_048_576 }),
+      headers: { ...senderAuthorization, 'content-type': 'application/json' },
+      method: 'PATCH',
+    });
+    expect(smallerWindow.status).toBe(200);
+    const retainedId = '223e4567-e89b-42d3-a456-426614174078';
+    const newestId = '323e4567-e89b-42d3-a456-426614174079';
+    for (const id of [retainedId, newestId]) {
+      const response = await api('/api/ligo/deliveries', {
+        body: JSON.stringify({
+          id,
+          nodeId,
+          preview: `Cloud message ${id}`,
+          recipientUsername: 'ligo_recipient',
+          sizeBytes: 700_000,
+          storage: 'private',
+        }),
+        headers: { ...senderAuthorization, 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      expect(response.status).toBe(201);
+      if (id === newestId) {
+        await expect(response.json()).resolves.toMatchObject({
+          evicted: expect.arrayContaining([{ id: retainedId, nodeId, storage: 'private' }]),
+          storage: { selectedNodeId: nodeId, stackLimitBytes: 1_048_576, stackUsedBytes: 700_000 },
+        });
+      }
+    }
+    const peerHistory = await api('/api/ligo/history/ligo_sender?owner=peer', {
+      headers: recipientAuthorization,
+    });
+    await expect(peerHistory.json()).resolves.toMatchObject({
+      messages: [{ id: newestId, sender: { username: 'ligo_sender' } }],
+    });
+    const cleanup = await api('/api/ligo/cloud-cleanup', {
+      body: JSON.stringify({ messageIds: [messageId, retainedId] }),
+      headers: { ...senderAuthorization, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    expect(cleanup.status).toBe(200);
     liveSocket.close(1000, 'Test complete.');
   });
 });

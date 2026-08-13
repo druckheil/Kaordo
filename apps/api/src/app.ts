@@ -50,10 +50,13 @@ import {
 } from './rondo/routes';
 import {
   acknowledgeLigoDelivery,
+  confirmLigoCloudCleanup,
   createLigoDelivery,
   ligoBootstrap,
+  ligoHistory,
   ligoInbox,
   searchLigoUsers,
+  updateLigoStorage,
 } from './ligo/routes';
 import { createLigoLiveTicket, openLigoLive } from './ligo/live';
 
@@ -105,6 +108,16 @@ export function handleRequest(
   }
   if (request.method === 'GET' && pathname === '/api/ligo/inbox') {
     return ligoInbox(request, env);
+  }
+  if (request.method === 'PATCH' && pathname === '/api/ligo/storage') {
+    return updateLigoStorage(request, env);
+  }
+  if (request.method === 'POST' && pathname === '/api/ligo/cloud-cleanup') {
+    return confirmLigoCloudCleanup(request, env);
+  }
+  const ligoHistoryMatch = pathname.match(/^\/api\/ligo\/history\/([a-z0-9_]+)$/u);
+  if (request.method === 'GET' && ligoHistoryMatch?.[1]) {
+    return ligoHistory(request, env, ligoHistoryMatch[1]);
   }
   if (request.method === 'POST' && pathname === '/api/ligo/live-ticket') {
     return createLigoLiveTicket(request, env);

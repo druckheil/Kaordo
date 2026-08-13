@@ -8,6 +8,12 @@ const USERNAME = /^[a-z0-9](?:[a-z0-9_]{1,30}[a-z0-9])?$/u;
 const MAX_BODY_BYTES = 4_096;
 const ONLINE_SECONDS = 300;
 const PUBLIC = 1;
+const PUBLIC_DESTINATION = 'public';
+const DEFAULT_STACK_BYTES = 100 * 1_048_576;
+const MIN_STACK_BYTES = 1_048_576;
+const MAX_PRIVATE_STACK_BYTES = 10 * 1_073_741_824;
+const MAX_PUBLIC_STACK_BYTES = 1_073_741_824;
+const PRUNE_BATCH = 64;
 
 type ConversationRow = {
   id: ArrayBuffer;
@@ -25,7 +31,7 @@ export async function ligoBootstrap(request: Request, env: Env): Promise<Respons
   const url = new URL(request.url);
   const limit = pageLimit(url.searchParams.get('limit'), 30);
   const before = cursor(url.searchParams.get('before'));
-  const rows = await env.DB.prepare(
+  const [rows, storage] = await Promise.all([env.DB.prepare(
     `SELECT users.id, users.display_username AS username, users.last_seen_at,
             conversations.last_message_id, conversations.last_sender_id,
             conversations.last_preview, conversations.updated_at
@@ -38,7 +44,9 @@ export async function ligoBootstrap(request: Request, env: Env): Promise<Respons
           (conversations.updated_at = ?2 AND conversations.last_message_id < ?3))
       ORDER BY conversations.updated_at DESC, conversations.last_message_id DESC
       LIMIT ?4`,
-  ).bind(session.userId, before?.at ?? null, before?.id ?? '', limit + 1).all<ConversationRow>();
+  ).bind(session.userId, before?.at ?? null, before?.id ?? '', limit + 1).all<ConversationRow>(),
+  storageForUser(env, session.userId),
+  ]);
   const hasMore = rows.results.length > limit;
   const page = rows.results.slice(0, limit);
   return json({
@@ -46,6 +54,7 @@ export async function ligoBootstrap(request: Request, env: Env): Promise<Respons
     nextCursor: hasMore && page.length
       ? `${page[page.length - 1]!.updated_at}:${page[page.length - 1]!.last_message_id}`
       : null,
+    storage,
   });
 }
 
@@ -72,6 +81,122 @@ export async function searchLigoUsers(request: Request, env: Env): Promise<Respo
     online: now - row.last_seen_at <= ONLINE_SECONDS,
     username: row.display_username,
   })) });
+}
+
+export async function ligoHistory(
+  request: Request,
+  env: Env,
+  peerUsername: string,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  if (!USERNAME.test(peerUsername)) return json({ error: 'Conversation not found.' }, 404);
+  const url = new URL(request.url);
+  const source = url.searchParams.get('owner');
+  if (source !== 'peer' && source !== 'self') return json({ error: 'History source is invalid.' }, 400);
+  const peer = await env.DB.prepare(
+    'SELECT id, display_username FROM users WHERE username = ?1 AND status = 1 LIMIT 1',
+  ).bind(peerUsername).first<{ display_username: string; id: ArrayBuffer }>();
+  if (!peer || equalBytes(peer.id, session.userId)) return json({ error: 'Conversation not found.' }, 404);
+  const ownerId = source === 'peer' ? peer.id : session.userId;
+  const otherId = source === 'peer' ? session.userId : peer.id;
+  const ownerUsername = source === 'peer' ? peer.display_username : session.publicUser.username;
+  const otherUsername = source === 'peer' ? session.publicUser.username : peer.display_username;
+  const before = cursor(url.searchParams.get('before'));
+  const limit = pageLimit(url.searchParams.get('limit'), 40);
+  const rows = await env.DB.prepare(
+    `SELECT id, node_id, storage_kind, size_bytes, created_at
+       FROM ligo_cloud_messages
+      WHERE owner_id = ?1 AND peer_id = ?2
+        AND (?3 IS NULL OR created_at < ?3 OR (created_at = ?3 AND id < ?4))
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?5`,
+  ).bind(ownerId, otherId, before?.at ?? null, before?.id ?? '', limit + 1).all<{
+    created_at: number;
+    id: string;
+    node_id: string;
+    size_bytes: number;
+    storage_kind: number;
+  }>();
+  const hasMore = rows.results.length > limit;
+  const page = rows.results.slice(0, limit);
+  const last = page.at(-1);
+  return json({
+    messages: page.map((row) => ({
+      createdAt: row.created_at,
+      id: row.id,
+      nodeId: row.node_id,
+      recipient: { id: base64Url(otherId), username: otherUsername },
+      sender: { id: base64Url(ownerId), username: ownerUsername },
+      sizeBytes: row.size_bytes,
+      storage: row.storage_kind === PUBLIC ? 'public' : 'private',
+    })),
+    nextCursor: hasMore && last ? `${last.created_at}:${last.id}` : null,
+  });
+}
+
+export async function updateLigoStorage(request: Request, env: Env): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  try {
+    const input = await body(request);
+    const selectedNodeId = input.selectedNodeId;
+    const stackLimitBytes = Number(input.stackLimitBytes);
+    if (!Number.isSafeInteger(stackLimitBytes) || stackLimitBytes < MIN_STACK_BYTES ||
+        stackLimitBytes > MAX_PRIVATE_STACK_BYTES ||
+        (selectedNodeId !== PUBLIC_DESTINATION &&
+          (typeof selectedNodeId !== 'string' || !ID.test(selectedNodeId)))) {
+      throw new InputError('Ligo storage settings are invalid.');
+    }
+    const storageKind = selectedNodeId === PUBLIC_DESTINATION ? PUBLIC : 0;
+    if (storageKind === PUBLIC && stackLimitBytes > MAX_PUBLIC_STACK_BYTES) {
+      throw new InputError('Public Ligo storage can use up to 1 GB.');
+    }
+    if (storageKind === 0) {
+      const node = await env.DB.prepare(
+        `SELECT private_quota_bytes FROM nodes
+          WHERE id = ?1 AND user_id = ?2 AND private_quota_bytes > 0 LIMIT 1`,
+      ).bind(selectedNodeId, session.userId).first<{ private_quota_bytes: number }>();
+      if (!node) return json({ error: 'Choose one of your private Nodo devices.' }, 409);
+      if (stackLimitBytes > node.private_quota_bytes) {
+        return json({ error: 'The cloud window cannot exceed this private space.' }, 409);
+      }
+    }
+    const now = unixNow();
+    await env.DB.prepare(
+      `INSERT INTO ligo_storage_settings
+        (user_id, storage_kind, node_id, stack_limit_bytes, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(user_id) DO UPDATE SET
+         storage_kind = excluded.storage_kind,
+         node_id = excluded.node_id,
+         stack_limit_bytes = excluded.stack_limit_bytes,
+         updated_at = excluded.updated_at`,
+    ).bind(
+      session.userId,
+      storageKind,
+      storageKind === PUBLIC ? null : selectedNodeId,
+      stackLimitBytes,
+      now,
+    ).run();
+    const evicted = await pruneCloudHistory(env, session.userId, stackLimitBytes, now);
+    return json({ evicted, storage: await storageForUser(env, session.userId) });
+  } catch (error) {
+    return json({ error: error instanceof InputError ? error.message : 'Ligo storage settings are invalid.' }, 400);
+  }
+}
+
+export async function confirmLigoCloudCleanup(request: Request, env: Env): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  try {
+    const input = await body(request);
+    const messageIds = requiredIds(input.messageIds);
+    await acknowledgeCloudCleanup(env, messageIds, null, session.userId);
+    return json({ ok: true });
+  } catch (error) {
+    return json({ error: error instanceof InputError ? error.message : 'Ligo cleanup is invalid.' }, 400);
+  }
 }
 
 export async function ligoInbox(request: Request, env: Env): Promise<Response> {
@@ -108,6 +233,7 @@ export async function ligoInbox(request: Request, env: Env): Promise<Response> {
       createdAt: row.created_at * 1_000,
       id: row.id,
       nodeId: row.node_id,
+      recipient: { id: base64Url(session.userId), username: session.publicUser.username },
       sender: { id: base64Url(row.sender_id), username: row.sender_username },
       sizeBytes: row.size_bytes,
       storage: row.storage_kind === PUBLIC ? 'public' : 'private',
@@ -133,7 +259,7 @@ export async function createLigoDelivery(
         Number(input.sizeBytes) > 1_073_741_824) throw new InputError('Message size is invalid.');
     const preview = typeof input.preview === 'string' ? input.preview.trim().slice(0, 160) : '';
     const now = unixNow();
-    const [recipient, node] = await Promise.all([
+    const [recipient, node, selectedStorage] = await Promise.all([
       env.DB.prepare('SELECT id FROM users WHERE username = ?1 AND status = 1 LIMIT 1')
         .bind(recipientUsername).first<{ id: ArrayBuffer }>(),
       env.DB.prepare(
@@ -146,6 +272,7 @@ export async function createLigoDelivery(
         public_quota_bytes: number;
         user_id: ArrayBuffer;
       }>(),
+      storageForUser(env, session.userId),
     ]);
     if (!recipient || equalBytes(recipient.id, session.userId)) {
       return json({ error: 'Recipient not found.' }, 404);
@@ -154,6 +281,14 @@ export async function createLigoDelivery(
         (storageKind === PUBLIC ? node.public_quota_bytes <= 0 :
           node.private_quota_bytes <= 0 || !equalBytes(node.user_id, session.userId))) {
       return json({ error: 'The selected Nodo is unavailable for this message.' }, 409);
+    }
+    if ((selectedStorage.selectedNodeId === PUBLIC_DESTINATION && storageKind !== PUBLIC) ||
+        (selectedStorage.selectedNodeId !== PUBLIC_DESTINATION &&
+          (storageKind === PUBLIC || selectedStorage.selectedNodeId !== nodeId))) {
+      return json({ error: 'The selected Ligo storage changed. Reopen its storage panel.' }, 409);
+    }
+    if (Number(input.sizeBytes) > selectedStorage.stackLimitBytes) {
+      return json({ error: 'This message is larger than your Ligo cloud window.' }, 413);
     }
     const lowFirst = compareBytes(session.userId, recipient.id) < 0;
     const low = lowFirst ? session.userId : recipient.id;
@@ -175,7 +310,18 @@ export async function createLigoDelivery(
            updated_at = excluded.updated_at
          WHERE excluded.updated_at >= ligo_conversations.updated_at`,
       ).bind(low, high, id, session.userId, preview, now),
+      env.DB.prepare(
+        `INSERT INTO ligo_cloud_messages
+          (id, owner_id, peer_id, node_id, storage_kind, size_bytes, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      ).bind(id, session.userId, recipient.id, nodeId, storageKind, input.sizeBytes, Date.now()),
     ]);
+    const evicted = await pruneCloudHistory(
+      env,
+      session.userId,
+      selectedStorage.stackLimitBytes,
+      now,
+    );
     ctx.waitUntil(env.LIGO_LIVE.getByName(base64Url(recipient.id)).notify(id).catch((error: unknown) => {
       console.error(JSON.stringify({
         error: error instanceof Error ? error.message : String(error),
@@ -183,7 +329,10 @@ export async function createLigoDelivery(
         messageId: id,
       }));
     }));
-    return json({ id }, 201);
+    return json({
+      evicted,
+      storage: await storageForUser(env, session.userId),
+    }, 201);
   } catch (error) {
     if (isUnique(error)) return json({ error: 'This message was already queued.' }, 409);
     return json({ error: error instanceof InputError ? error.message : 'Message delivery is invalid.' }, 400);
@@ -198,19 +347,9 @@ export async function acknowledgeLigoDelivery(
   const session = await authenticate(request, env);
   if (!session) return json({ error: 'Authentication required.' }, 401);
   if (!ID.test(deliveryId)) return json({ error: 'Delivery not found.' }, 404);
-  const delivery = await env.DB.prepare(
-    'SELECT node_id, storage_kind FROM ligo_deliveries WHERE id = ?1 AND recipient_id = ?2 LIMIT 1',
-  ).bind(deliveryId, session.userId).first<{ node_id: string; storage_kind: number }>();
-  if (!delivery) return json({ ok: true });
-  const statements = [env.DB.prepare(
+  await env.DB.prepare(
     'DELETE FROM ligo_deliveries WHERE id = ?1 AND recipient_id = ?2',
-  ).bind(deliveryId, session.userId)];
-  if (delivery.storage_kind === PUBLIC) {
-    statements.push(env.DB.prepare(
-      'DELETE FROM fluo_public_allocations WHERE node_id = ?1 AND post_id = ?2 AND committed = 1',
-    ).bind(delivery.node_id, deliveryId));
-  }
-  await env.DB.batch(statements);
+  ).bind(deliveryId, session.userId).run();
   return json({ ok: true });
 }
 
@@ -248,7 +387,7 @@ function pageLimit(value: string | null, fallback: number): number {
 
 function cursor(value: string | null): { at: number; id: string } | null {
   if (!value) return null;
-  const match = /^(\d{1,12}):([0-9a-f-]{36})$/u.exec(value);
+  const match = /^(\d{1,13}):([0-9a-f-]{36})$/u.exec(value);
   if (!match?.[1] || !match[2] || !ID.test(match[2])) return null;
   return { at: Number(match[1]), id: match[2] };
 }
@@ -262,6 +401,121 @@ function requiredUsername(value: unknown): string {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (!USERNAME.test(normalized)) throw new InputError('Recipient is invalid.');
   return normalized;
+}
+
+function requiredIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > PRUNE_BATCH ||
+      value.some((item) => typeof item !== 'string' || !ID.test(item))) {
+    throw new InputError('Ligo cleanup identifiers are invalid.');
+  }
+  return [...new Set(value as string[])];
+}
+
+async function storageForUser(env: Env, userId: ArrayBuffer) {
+  const [settings, usage] = await Promise.all([
+    env.DB.prepare(
+      `SELECT storage_kind, node_id, stack_limit_bytes
+         FROM ligo_storage_settings WHERE user_id = ?1 LIMIT 1`,
+    ).bind(userId).first<{
+      node_id: string | null;
+      stack_limit_bytes: number;
+      storage_kind: number;
+    }>(),
+    env.DB.prepare(
+      'SELECT COALESCE(SUM(size_bytes), 0) AS bytes FROM ligo_cloud_messages WHERE owner_id = ?1',
+    ).bind(userId).first<{ bytes: number }>(),
+  ]);
+  return {
+    selectedNodeId: settings?.storage_kind === 0 && settings.node_id
+      ? settings.node_id
+      : PUBLIC_DESTINATION,
+    stackLimitBytes: settings?.stack_limit_bytes ?? DEFAULT_STACK_BYTES,
+    stackUsedBytes: usage?.bytes ?? 0,
+  };
+}
+
+type EvictedCloudMessage = { id: string; nodeId: string; storage: 'private' | 'public' };
+
+async function pruneCloudHistory(
+  env: Env,
+  ownerId: ArrayBuffer,
+  limitBytes: number,
+  now: number,
+): Promise<EvictedCloudMessage[]> {
+  const evicted: EvictedCloudMessage[] = [];
+  for (;;) {
+    const rows = await env.DB.prepare(
+      `SELECT id, node_id, storage_kind FROM (
+         SELECT id, node_id, storage_kind, created_at,
+                SUM(size_bytes) OVER (ORDER BY created_at DESC, id DESC) AS retained_bytes
+           FROM ligo_cloud_messages WHERE owner_id = ?1
+       ) WHERE retained_bytes > ?2
+       ORDER BY created_at ASC, id ASC LIMIT ?3`,
+    ).bind(ownerId, limitBytes, PRUNE_BATCH).all<{
+      id: string;
+      node_id: string;
+      storage_kind: number;
+    }>();
+    if (!rows.results.length) break;
+    const ids = rows.results.map(({ id }) => id);
+    const placeholders = ids.map((_, index) => `?${index + 2}`).join(', ');
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO ligo_cloud_tombstones
+          (node_id, message_id, owner_id, storage_kind, created_at)
+         SELECT node_id, id, owner_id, storage_kind, ?1
+           FROM ligo_cloud_messages
+          WHERE owner_id = ?2 AND id IN (${ids.map((_, index) => `?${index + 3}`).join(', ')})`,
+      ).bind(now, ownerId, ...ids),
+      env.DB.prepare(
+        `DELETE FROM ligo_deliveries WHERE sender_id = ?1 AND id IN (${placeholders})`,
+      ).bind(ownerId, ...ids),
+      env.DB.prepare(
+        `DELETE FROM ligo_cloud_messages WHERE owner_id = ?1 AND id IN (${placeholders})`,
+      ).bind(ownerId, ...ids),
+    ]);
+    evicted.push(...rows.results.map((row) => ({
+      id: row.id,
+      nodeId: row.node_id,
+      storage: row.storage_kind === PUBLIC ? 'public' as const : 'private' as const,
+    })));
+    if (rows.results.length < PRUNE_BATCH) break;
+  }
+  return evicted;
+}
+
+export async function acknowledgeCloudCleanup(
+  env: Env,
+  messageIds: readonly string[],
+  nodeId: string | null,
+  ownerId: ArrayBuffer | null = null,
+): Promise<void> {
+  if (!messageIds.length) return;
+  const values: unknown[] = [...messageIds];
+  const idPlaceholders = messageIds.map((_, index) => `?${index + 1}`).join(', ');
+  let filters = `tombstones.message_id IN (${idPlaceholders})`;
+  if (nodeId) {
+    values.push(nodeId);
+    filters += ` AND tombstones.node_id = ?${values.length}`;
+  }
+  if (ownerId) {
+    values.push(ownerId);
+    filters += ` AND tombstones.owner_id = ?${values.length}`;
+  }
+  await env.DB.batch([
+    env.DB.prepare(
+      `DELETE FROM fluo_public_allocations AS allocations
+        WHERE allocations.committed = 1 AND EXISTS (
+          SELECT 1 FROM ligo_cloud_tombstones AS tombstones
+           WHERE tombstones.node_id = allocations.node_id
+             AND tombstones.message_id = allocations.post_id
+             AND tombstones.storage_kind = 1 AND ${filters}
+        )`,
+    ).bind(...values),
+    env.DB.prepare(
+      `DELETE FROM ligo_cloud_tombstones AS tombstones WHERE ${filters}`,
+    ).bind(...values),
+  ]);
 }
 
 function escapeLike(value: string): string {

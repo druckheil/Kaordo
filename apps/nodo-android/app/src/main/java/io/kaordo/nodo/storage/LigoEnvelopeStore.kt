@@ -66,6 +66,15 @@ class LigoEnvelopeStore(root: File, private val uploads: TusUploadStore) {
     }
 
     @Synchronized
+    fun deleteForCleanup(id: String): Boolean {
+        if (!ID.matches(id)) return false
+        val target = file(id)
+        val envelope = parseFile(target) ?: return true
+        envelope.attachments.forEach { uploads.delete(it.id, null, true) }
+        return !target.exists() || target.delete()
+    }
+
+    @Synchronized
     fun clearAll(): Long {
         val bytes = directory.listFiles().orEmpty().filter { it.isFile }.sumOf { it.length() }
         if (directory.exists() && !directory.deleteRecursively()) throw ClearFailed()

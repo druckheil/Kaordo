@@ -1,4 +1,11 @@
-import type { LigoBootstrap, LigoInbox, LigoLiveTicket, LigoUser } from '../domain/ligo';
+import type {
+  LigoBootstrap,
+  LigoCloudPage,
+  LigoInbox,
+  LigoLiveTicket,
+  LigoStorageUpdate,
+  LigoUser,
+} from '../domain/ligo';
 
 export type LigoDeliveryInput = {
   id: string;
@@ -12,8 +19,11 @@ export type LigoDeliveryInput = {
 export interface LigoGateway {
   acknowledge(deliveryId: string): Promise<void>;
   bootstrap(cursor?: string | null, limit?: number): Promise<LigoBootstrap>;
-  createDelivery(input: LigoDeliveryInput): Promise<void>;
+  confirmCleanup(messageIds: readonly string[]): Promise<void>;
+  createDelivery(input: LigoDeliveryInput): Promise<LigoStorageUpdate>;
+  history(username: string, owner: 'peer' | 'self', cursor?: string | null, limit?: number): Promise<LigoCloudPage>;
   inbox(cursor?: string | null, limit?: number): Promise<LigoInbox>;
   liveTicket(): Promise<LigoLiveTicket>;
   searchUsers(query: string): Promise<LigoUser[]>;
+  updateStorage(selectedNodeId: string, stackLimitBytes: number): Promise<LigoStorageUpdate>;
 }

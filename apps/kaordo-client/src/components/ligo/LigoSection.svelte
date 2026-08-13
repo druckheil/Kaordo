@@ -3,6 +3,7 @@
   import type { LigoAttachment, LigoConversation, LigoMessage, LigoUser } from '../../lib/domain/ligo';
   import { PUBLIC_LIGO_DESTINATION } from '../../lib/gateways/NodeLigoTransport';
   import type { LigoGState, LigoSnapshot } from '../../lib/states/LigoGState';
+  import LigoStorageDialog from './LigoStorageDialog.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
 
   type Props = { snapshot: Readonly<LigoSnapshot>; state: LigoGState };
@@ -13,12 +14,11 @@
   let conversationList = $state<HTMLElement>();
   let conversationStart = $state(0);
   let conversationEnd = $state(24);
+  let storageOpen = $state(false);
   let latestMessageId = '';
   const conversationHeight = 62;
   let visibleConversations = $derived(snapshot.conversations.slice(conversationStart, conversationEnd));
   let urls = new Map<string, string>();
-  let privateNodes = $derived(snapshot.nodes.filter(({ online, policy, spaces }) =>
-    online && policy.allowUploads && spaces.private.quotaBytes > spaces.private.usedBytes));
   let publicAvailable = $derived(Boolean(snapshot.publicStorage?.nodeCandidates.length));
   let selectedPrivate = $derived(snapshot.nodes.find(({ id }) => id === snapshot.selectedNodeId));
   let destinationReady = $derived(snapshot.selectedNodeId === PUBLIC_LIGO_DESTINATION
@@ -102,21 +102,20 @@
 <main class="ligo-shell" aria-label="Ligo messenger">
   <aside class="conversation-panel">
     <header class="conversation-header">
-      <div class="title-row"><div><span>DIRECT MESSAGES</span><h1>Ligo</h1></div>{#if snapshot.syncing}<LoadingSpinner compact />{/if}</div>
-      <label class="node-picker">
-        <span>Message storage</span>
-        <select
-          disabled={snapshot.sending || snapshot.phase === 'loading'}
-          bind:value={() => snapshot.selectedNodeId, (nodeId) => ligoState.selectNode(nodeId)}
-        >
-          <option value={PUBLIC_LIGO_DESTINATION}>Public Nodo · shared 1 GB</option>
-          {#if privateNodes.length}<optgroup label="Your private Nodo">
-            {#each privateNodes as node (node.id)}
-              <option value={node.id}>{node.deviceName} · {formatBytes(node.spaces.private.quotaBytes - node.spaces.private.usedBytes)} free</option>
-            {/each}
-          </optgroup>{/if}
-        </select>
-      </label>
+      <div class="title-row">
+        <div><span>DIRECT MESSAGES</span><h1>Ligo</h1></div>
+        <div class="title-actions">
+          {#if snapshot.syncing}<LoadingSpinner compact />{/if}
+          <button class="storage-button" type="button" aria-label="Open message storage"
+            title="Message cloud" disabled={snapshot.phase === 'loading'} onclick={() => {
+              storageOpen = true;
+              void ligoState.refreshStorage();
+            }}>
+            <svg viewBox="0 0 28 28" aria-hidden="true"><rect x="4" y="4.5" width="20" height="19" rx="3"/><circle cx="10" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M8 21l2-5h8l2 5M10 12h8"/></svg>
+            <i style={`--stack-fill:${Math.min(100,snapshot.stackUsedBytes/Math.max(1,snapshot.stackLimitBytes)*100)}%`}></i>
+          </button>
+        </div>
+      </div>
       <label class="search-box">
         <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m12.7 12.7 4 4"/></svg>
         <input value={snapshot.searchQuery} oninput={updateSearch} placeholder="Search by username" aria-label="Search users" />
@@ -165,7 +164,7 @@
       </header>
 
       <div bind:this={messageList} class="message-list" onscroll={onScroll}>
-        {#if snapshot.loadingOlder}<div class="history-loader"><LoadingSpinner compact /> Loading older messages</div>{/if}
+        {#if snapshot.loadingOlder || snapshot.loadingHistory}<div class="history-loader"><LoadingSpinner compact /> {snapshot.loadingHistory ? 'Checking message clouds' : 'Loading older messages'}</div>{/if}
         {#if !snapshot.messages.length}<div class="chat-empty">
           <span class="avatar avatar--hero">{avatar(snapshot.activeUser.username)}</span>
           <h2>Start a conversation with {snapshot.activeUser.username}</h2>
@@ -231,12 +230,24 @@
   </section>
 </main>
 
+{#if storageOpen}
+  <LigoStorageDialog
+    busy={snapshot.storageSaving}
+    nodes={snapshot.nodes}
+    onClose={() => { if (!snapshot.storageSaving) storageOpen = false; }}
+    onSave={(nodeId, bytes) => ligoState.saveStorage(nodeId, bytes)}
+    publicStorage={snapshot.publicStorage}
+    selectedNodeId={snapshot.selectedNodeId}
+    stackLimitBytes={snapshot.stackLimitBytes}
+    stackUsedBytes={snapshot.stackUsedBytes}
+  />
+{/if}
+
 <style>
   .ligo-shell{display:grid;grid-template-columns:minmax(280px,340px) minmax(0,1fr);min-width:0;min-height:0;background:var(--canvas);color:var(--ink)}
   .conversation-panel{display:grid;grid-template-rows:auto minmax(0,1fr);min-width:0;border-right:1px solid var(--line);background:color-mix(in srgb,var(--panel) 94%,var(--accent) 6%)}
   .conversation-header{display:grid;gap:14px;padding:22px 18px 16px;border-bottom:1px solid var(--line)}
-  .title-row{display:flex;align-items:center;justify-content:space-between}.title-row span,.list-label,.node-picker>span{color:var(--muted);font-size:calc(10px * var(--text-scale));font-weight:700;letter-spacing:.11em}.title-row h1{margin:3px 0 0;font-size:calc(24px * var(--text-scale));letter-spacing:-.04em}
-  .node-picker{display:grid;gap:6px}.node-picker select{width:100%;height:36px;padding:0 32px 0 11px;color:var(--ink);background:var(--panel);border:1px solid var(--line-strong);border-radius:10px;font:inherit;font-size:calc(12px * var(--text-scale));outline:none}
+  .title-row{display:flex;align-items:center;justify-content:space-between}.title-row span,.list-label{color:var(--muted);font-size:calc(10px * var(--text-scale));font-weight:700;letter-spacing:.11em}.title-row h1{margin:3px 0 0;font-size:calc(24px * var(--text-scale));letter-spacing:-.04em}.title-actions{display:flex;align-items:center;gap:9px}.storage-button{position:relative;display:grid;width:42px;height:42px;padding:0;color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel));border:1px solid color-mix(in srgb,var(--accent) 22%,var(--line));border-radius:12px;cursor:pointer;place-items:center;box-shadow:0 4px 12px rgb(20 48 39 / 6%);transition:transform 120ms ease,background 120ms ease}.storage-button:hover:not(:disabled){transform:translateY(-1px);background:color-mix(in srgb,var(--accent) 13%,var(--panel))}.storage-button:disabled{opacity:.45;cursor:default}.storage-button svg{width:25px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.45}.storage-button i{position:absolute;right:4px;bottom:4px;width:7px;height:7px;background:conic-gradient(#4cab7d var(--stack-fill),color-mix(in srgb,var(--muted) 22%,transparent) 0);border:1px solid var(--panel);border-radius:50%}
   .search-box{display:flex;align-items:center;gap:8px;height:38px;padding:0 11px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 14px rgb(25 53 43 / 4%)}.search-box:focus-within{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 11%,transparent)}.search-box svg{width:17px;fill:none;stroke:var(--muted);stroke-width:1.6}.search-box input{min-width:0;flex:1;background:none;border:0;outline:0;color:var(--ink);font:inherit;font-size:calc(12px * var(--text-scale))}
   .conversation-list{overflow:auto;padding:10px}.list-label{padding:5px 9px 8px}.conversation{display:flex;align-items:center;gap:11px;width:100%;min-height:62px;padding:8px;color:inherit;text-align:left;background:transparent;border:0;border-radius:13px;cursor:pointer}.conversation:hover{background:color-mix(in srgb,var(--accent) 7%,transparent)}.conversation.active{background:color-mix(in srgb,var(--accent) 13%,transparent)}
   .virtual-spacer{width:1px;pointer-events:none}

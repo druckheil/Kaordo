@@ -100,11 +100,17 @@
 
   const EMPTY_LIGO_GATEWAY: LigoGateway = {
     acknowledge: async () => {},
-    bootstrap: async () => ({ conversations: [], nextCursor: null }),
+    bootstrap: async () => ({
+      conversations: [], nextCursor: null,
+      storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
+    }),
+    confirmCleanup: async () => {},
     createDelivery: async () => { throw new Error('Ligo service is unavailable.'); },
+    history: async () => ({ messages: [], nextCursor: null }),
     inbox: async () => ({ deliveries: [], nextCursor: null }),
     liveTicket: async () => { throw new Error('Ligo live service is unavailable.'); },
     searchUsers: async () => [],
+    updateStorage: async () => { throw new Error('Ligo storage is unavailable.'); },
   };
 
   type AppProps = {

@@ -1,4 +1,4 @@
-import type { LigoBootstrap, LigoInbox, LigoLiveTicket, LigoUser } from '../domain/ligo';
+import type { LigoBootstrap, LigoCloudPage, LigoInbox, LigoLiveTicket, LigoStorageUpdate, LigoUser } from '../domain/ligo';
 import type { LigoDeliveryInput, LigoGateway } from './LigoGateway';
 import { requestJson } from './WebApiClient';
 
@@ -9,8 +9,15 @@ export class WebLigoGateway implements LigoGateway {
   bootstrap(cursor: string | null = null, limit = 30): Promise<LigoBootstrap> {
     return requestJson(`/api/ligo/bootstrap?${pageQuery('before', cursor, limit)}`, {}, LIGO_UNAVAILABLE);
   }
-  createDelivery(input: LigoDeliveryInput): Promise<void> {
+  confirmCleanup(messageIds: readonly string[]): Promise<void> {
+    return requestJson('/api/ligo/cloud-cleanup', jsonRequest('POST', { messageIds }), LIGO_UNAVAILABLE);
+  }
+  createDelivery(input: LigoDeliveryInput): Promise<LigoStorageUpdate> {
     return requestJson('/api/ligo/deliveries', jsonRequest('POST', input), LIGO_UNAVAILABLE);
+  }
+  history(username: string, owner: 'peer' | 'self', cursor: string | null = null, limit = 40): Promise<LigoCloudPage> {
+    const query = pageQuery('before', cursor, limit);
+    return requestJson(`/api/ligo/history/${encodeURIComponent(username)}?owner=${owner}&${query}`, {}, LIGO_UNAVAILABLE);
   }
   inbox(cursor: string | null = null, limit = 24): Promise<LigoInbox> {
     return requestJson(`/api/ligo/inbox?${pageQuery('after', cursor, limit)}`, {}, LIGO_UNAVAILABLE);
@@ -20,6 +27,9 @@ export class WebLigoGateway implements LigoGateway {
   }
   async searchUsers(query: string): Promise<LigoUser[]> {
     return (await requestJson<{ users: LigoUser[] }>(`/api/ligo/users?q=${encodeURIComponent(query)}`, {}, LIGO_UNAVAILABLE)).users;
+  }
+  updateStorage(selectedNodeId: string, stackLimitBytes: number): Promise<LigoStorageUpdate> {
+    return requestJson('/api/ligo/storage', jsonRequest('PATCH', { selectedNodeId, stackLimitBytes }), LIGO_UNAVAILABLE);
   }
 }
 

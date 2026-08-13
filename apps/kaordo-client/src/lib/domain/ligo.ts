@@ -24,10 +24,25 @@ export type LigoDelivery = {
   createdAt: number;
   id: string;
   nodeId: string;
+  recipient: { id: string; username: string };
   sender: { id: string; username: string };
   sizeBytes: number;
   storage: 'private' | 'public';
 };
-export type LigoBootstrap = { conversations: LigoConversation[]; nextCursor: string | null };
+export type LigoStorageSettings = {
+  selectedNodeId: string;
+  stackLimitBytes: number;
+  stackUsedBytes: number;
+};
+export type LigoCloudPage = { messages: LigoDelivery[]; nextCursor: string | null };
+export type LigoStorageUpdate = {
+  evicted: Array<Pick<LigoDelivery, 'id' | 'nodeId' | 'storage'>>;
+  storage: LigoStorageSettings;
+};
+export type LigoBootstrap = {
+  conversations: LigoConversation[];
+  nextCursor: string | null;
+  storage: LigoStorageSettings;
+};
 export type LigoInbox = { deliveries: LigoDelivery[]; nextCursor: string | null };
 export type LigoLiveTicket = { url: string };

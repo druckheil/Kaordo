@@ -1,4 +1,4 @@
-import type { LigoConversation, LigoMessage, LigoUser } from '../domain/ligo';
+import type { LigoConversation, LigoMessage, LigoStorageSettings, LigoUser } from '../domain/ligo';
 import type { NodoNode, PublicNodoStorage } from '../domain/nodo';
 import type { LigoGateway } from '../gateways/LigoGateway';
 import {
@@ -39,6 +39,7 @@ export type LigoSnapshot = {
   error: string | null;
   hasOlder: boolean;
   loadingOlder: boolean;
+  loadingHistory: boolean;
   loadingMoreConversations: boolean;
   messages: LigoMessage[];
   nodes: NodoNode[];
@@ -49,6 +50,9 @@ export type LigoSnapshot = {
   searchResults: LigoUser[];
   selectedNodeId: string;
   sending: boolean;
+  stackLimitBytes: number;
+  stackUsedBytes: number;
+  storageSaving: boolean;
   syncing: boolean;
   uploadProgress: LigoUploadProgress | null;
 };
@@ -60,11 +64,14 @@ export class LigoGState extends GState<LigoSnapshot> {
   #conversationRequestId = 0;
   #searchRequestId = 0;
   #messageCursor: string | null = null;
+  #peerCloudCursor: string | null = null;
+  #ownCloudCursor: string | null = null;
   #searchTimer: ReturnType<typeof setTimeout> | null = null;
   #pollTimer: ReturnType<typeof setTimeout> | null = null;
   #liveReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   #liveConnectTimer: ReturnType<typeof setTimeout> | null = null;
   #liveSocket: LigoLiveSocket | null = null;
+  #storageRefresh: Promise<void> | null = null;
   #liveGeneration = 0;
   #liveFailures = 0;
   #syncRequested = false;
@@ -105,6 +112,7 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#searchRequestId += 1;
     this.publish({
       ...this.snapshot,
+      loadingHistory: false,
       loadingMoreConversations: false,
       loadingOlder: false,
       searchPhase: 'idle',
@@ -122,6 +130,9 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#emptyPolls = 0;
     this.#syncRequested = false;
     this.#messageCursor = null;
+    this.#peerCloudCursor = null;
+    this.#ownCloudCursor = null;
+    this.#storageRefresh = null;
     this.transport.reset();
     this.publish(emptySnapshot());
   }
@@ -142,6 +153,9 @@ export class LigoGState extends GState<LigoSnapshot> {
         nodes,
         phase: 'ready',
         publicStorage,
+        selectedNodeId: bootstrap.storage.selectedNodeId,
+        stackLimitBytes: bootstrap.storage.stackLimitBytes,
+        stackUsedBytes: bootstrap.storage.stackUsedBytes,
       });
       this.requestInboxSync();
     } catch (error) {
@@ -198,31 +212,60 @@ export class LigoGState extends GState<LigoSnapshot> {
     const requestId = ++this.#conversationRequestId;
     const ownerId = this.#ownerId;
     this.#messageCursor = null;
-    this.publish({ ...this.snapshot, activeUser: user, hasOlder: false, loadingOlder: false, messages: [], searchQuery: '', searchResults: [] });
+    this.#peerCloudCursor = null;
+    this.#ownCloudCursor = null;
+    this.publish({
+      ...this.snapshot,
+      activeUser: user,
+      hasOlder: false,
+      loadingHistory: true,
+      loadingOlder: false,
+      messages: [],
+      searchQuery: '',
+      searchResults: [],
+    });
     try {
+      await this.downloadCloudPage(ownerId, user, 'peer', null);
+      if (requestId !== this.#conversationRequestId) return;
+      await this.downloadCloudPage(ownerId, user, 'self', null);
+      if (requestId !== this.#conversationRequestId) return;
       const page = await this.local.page(ownerId, user.id, null, MESSAGE_PAGE);
       if (requestId !== this.#conversationRequestId || this.snapshot.activeUser?.id !== user.id) return;
       this.#messageCursor = page.nextCursor;
-      this.publish({ ...this.snapshot, hasOlder: page.nextCursor !== null, messages: [...page.messages].reverse() });
+      this.publish({
+        ...this.snapshot,
+        hasOlder: this.hasOlderMessages(),
+        loadingHistory: false,
+        messages: [...page.messages].reverse(),
+      });
     } catch (error) {
       if (requestId !== this.#conversationRequestId || this.snapshot.activeUser?.id !== user.id) return;
-      this.publish({ ...this.snapshot, error: readableError(error) });
+      this.publish({ ...this.snapshot, error: readableError(error), loadingHistory: false });
     }
   }
 
   async loadOlder(): Promise<void> {
-    if (!this.#ownerId || !this.snapshot.activeUser || !this.#messageCursor || this.snapshot.loadingOlder) return;
-    const userId = this.snapshot.activeUser.id;
+    const ownerId = this.#ownerId;
+    const user = this.snapshot.activeUser;
+    if (!ownerId || !user || this.snapshot.loadingOlder) return;
+    if (!this.#messageCursor && !this.#peerCloudCursor && !this.#ownCloudCursor) return;
+    const userId = user.id;
     const requestId = this.#conversationRequestId;
     this.publish({ ...this.snapshot, loadingOlder: true });
     try {
-      const page = await this.local.page(this.#ownerId, userId, this.#messageCursor, MESSAGE_PAGE);
+      let cursor = this.#messageCursor;
+      if (!cursor) {
+        if (this.#peerCloudCursor) await this.downloadCloudPage(ownerId, user, 'peer', this.#peerCloudCursor);
+        if (this.#ownCloudCursor) await this.downloadCloudPage(ownerId, user, 'self', this.#ownCloudCursor);
+        cursor = this.snapshot.messages[0] ? messageCursor(this.snapshot.messages[0]) : null;
+      }
+      const page = await this.local.page(ownerId, userId, cursor, MESSAGE_PAGE);
       if (requestId !== this.#conversationRequestId || this.snapshot.activeUser?.id !== userId) return;
       this.#messageCursor = page.nextCursor;
       const combined = [...page.messages].reverse().concat(this.snapshot.messages);
       this.publish({
         ...this.snapshot,
-        hasOlder: page.nextCursor !== null,
+        hasOlder: this.hasOlderMessages(),
         loadingOlder: false,
         messages: combined.slice(0, MAX_MESSAGE_WINDOW),
       });
@@ -232,7 +275,37 @@ export class LigoGState extends GState<LigoSnapshot> {
     }
   }
 
-  selectNode(nodeId: string): void { this.publish({ ...this.snapshot, selectedNodeId: nodeId }); }
+  async saveStorage(selectedNodeId: string, stackLimitBytes: number): Promise<boolean> {
+    if (this.snapshot.storageSaving) return false;
+    this.publish({ ...this.snapshot, error: null, storageSaving: true });
+    try {
+      const update = await this.api.updateStorage(selectedNodeId, stackLimitBytes);
+      await this.transport.discard(update.evicted);
+      this.applyStorage(update.storage, false);
+      void this.refreshStorage();
+      return true;
+    } catch (error) {
+      this.publish({ ...this.snapshot, error: readableError(error), storageSaving: false });
+      return false;
+    }
+  }
+
+  async refreshStorage(): Promise<void> {
+    if (this.#storageRefresh) return this.#storageRefresh;
+    const lifecycleId = this.#lifecycleId;
+    const refresh = Promise.all([this.loadNodes(), this.loadPublicStorage()])
+      .then(([nodes, publicStorage]) => {
+        if (lifecycleId !== this.#lifecycleId) return;
+        this.publish({ ...this.snapshot, nodes, publicStorage });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.#storageRefresh === refresh) this.#storageRefresh = null;
+      });
+    this.#storageRefresh = refresh;
+    return refresh;
+  }
+
   setDraft(value: string): void { this.publish({ ...this.snapshot, draft: value.slice(0, 16_000) }); }
 
   addFiles(files: readonly File[]): void {
@@ -264,15 +337,22 @@ export class LigoGState extends GState<LigoSnapshot> {
     const body = this.snapshot.draft.trim();
     if (!ownerId || !recipient || (!body && !this.snapshot.draftFiles.length) || this.snapshot.sending) return false;
     const files = this.snapshot.draftFiles;
+    const sizeBytes = Math.max(1, new TextEncoder().encode(body).byteLength +
+      files.reduce((sum, file) => sum + file.size, 0));
+    if (sizeBytes > this.snapshot.stackLimitBytes) {
+      this.publish({ ...this.snapshot, error: 'This message is larger than your Ligo cloud window.' });
+      return false;
+    }
     const lifecycleId = this.#lifecycleId;
     this.publish({ ...this.snapshot, error: null, sending: true });
     try {
-      const message = await this.transport.send(
+      const result = await this.transport.send(
         ownerId, recipient, this.snapshot.selectedNodeId, body, files,
         (uploadProgress) => {
           if (lifecycleId === this.#lifecycleId) this.publish({ ...this.snapshot, uploadProgress });
         },
       );
+      const message = result.message;
       await this.local.put(ownerId, message);
       if (lifecycleId !== this.#lifecycleId || this.#ownerId !== ownerId) return true;
       files.forEach(({ url }) => URL.revokeObjectURL(url));
@@ -286,9 +366,13 @@ export class LigoGState extends GState<LigoSnapshot> {
         draft: '',
         draftFiles: [],
         messages,
+        selectedNodeId: result.storage.selectedNodeId,
         sending: false,
+        stackLimitBytes: result.storage.stackLimitBytes,
+        stackUsedBytes: result.storage.stackUsedBytes,
         uploadProgress: null,
       });
+      void this.refreshStorage();
       return true;
     } catch (error) {
       if (lifecycleId !== this.#lifecycleId) return false;
@@ -356,6 +440,44 @@ export class LigoGState extends GState<LigoSnapshot> {
         }
       }
     }
+  }
+
+  private async downloadCloudPage(
+    ownerId: string,
+    user: LigoUser,
+    source: 'peer' | 'self',
+    cursor: string | null,
+  ): Promise<void> {
+    try {
+      const page = await this.api.history(user.username.toLowerCase(), source, cursor, MESSAGE_PAGE);
+      if (source === 'peer') this.#peerCloudCursor = page.nextCursor;
+      else this.#ownCloudCursor = page.nextCursor;
+      for (const remote of page.messages) {
+        if (await this.local.has(ownerId, remote.id)) continue;
+        try {
+          await this.local.put(ownerId, await this.transport.receive(ownerId, remote));
+        } catch {
+          // A temporarily unavailable Nodo is not allowed to hide local history.
+        }
+      }
+    } catch {
+      if (source === 'peer') this.#peerCloudCursor = null;
+      else this.#ownCloudCursor = null;
+    }
+  }
+
+  private hasOlderMessages(): boolean {
+    return Boolean(this.#messageCursor || this.#peerCloudCursor || this.#ownCloudCursor);
+  }
+
+  private applyStorage(storage: LigoStorageSettings, storageSaving: boolean): void {
+    this.publish({
+      ...this.snapshot,
+      selectedNodeId: storage.selectedNodeId,
+      stackLimitBytes: storage.stackLimitBytes,
+      stackUsedBytes: storage.stackUsedBytes,
+      storageSaving,
+    });
   }
 
   private requestInboxSync(): void {
@@ -461,9 +583,10 @@ export class LigoGState extends GState<LigoSnapshot> {
 function emptySnapshot(): LigoSnapshot {
   return {
     activeUser: null, attachmentError: null, conversations: [], conversationCursor: null, draft: '', draftFiles: [], error: null,
-    hasOlder: false, loadingOlder: false, loadingMoreConversations: false, messages: [], nodes: [], phase: 'idle', publicStorage: null,
+    hasOlder: false, loadingHistory: false, loadingOlder: false, loadingMoreConversations: false, messages: [], nodes: [], phase: 'idle', publicStorage: null,
     searchPhase: 'idle', searchQuery: '', searchResults: [], selectedNodeId: PUBLIC_LIGO_DESTINATION,
-    sending: false, syncing: false, uploadProgress: null,
+    sending: false, stackLimitBytes: 100 * 1_048_576, stackUsedBytes: 0, storageSaving: false,
+    syncing: false, uploadProgress: null,
   };
 }
 
@@ -478,6 +601,7 @@ function preview(body: string, files: readonly { name: string }[]): string {
   return (body.trim().replace(/\s+/gu, ' ') || (files.length === 1 ? `File: ${files[0]!.name}` : `${files.length} files`)).slice(0, 160);
 }
 function compareOldest(a: LigoMessage, b: LigoMessage): number { return a.createdAt - b.createdAt || a.id.localeCompare(b.id); }
+function messageCursor(message: LigoMessage): string { return `${message.createdAt}:${message.id}`; }
 function isInboxSignal(data: unknown): boolean {
   if (typeof data !== 'string') return false;
   try {
@@ -487,4 +611,7 @@ function isInboxSignal(data: unknown): boolean {
     return false;
   }
 }
-function readableError(error: unknown): string { return error instanceof Error ? error.message : 'Ligo is unavailable.'; }
+function readableError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return typeof error === 'string' && error.trim() ? error : 'Ligo is unavailable.';
+}

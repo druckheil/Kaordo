@@ -218,6 +218,7 @@ class NodeForegroundService : Service() {
                             publicUsedBytes = publicStore.usedBytes(),
                             metrics = metrics,
                             testCompletedAt = benchmark.get()?.completedAt,
+                            deletedLigoMessageIds = pendingReconciliation.ligoMessageIds,
                             deletedPublicPostIds = pendingReconciliation.postIds,
                             releasedPublicReservationIds = pendingReconciliation.reservationIds,
                         )
@@ -234,6 +235,18 @@ class NodeForegroundService : Service() {
                         }
                         configuration.setSpaceQuotas(it.publicQuotaBytes, it.privateQuotaBytes)
                         activePolicy.set(it.policy)
+                        var reconciledLigo = false
+                        it.ligoDeleteMessages.forEach { message ->
+                            val envelopes = when (message.storage) {
+                                "private" -> privateEnvelopes
+                                "public" -> publicEnvelopes
+                                else -> null
+                            }
+                            if (envelopes?.deleteForCleanup(message.id) == true) {
+                                reconciliation.recordLigoMessageDeletion(message.id)
+                                reconciledLigo = true
+                            }
+                        }
                         var reconciledPosts = false
                         it.publicDeletePostIds.forEach { postId ->
                             when (publicPosts.delete(postId, owner.username, true)) {
@@ -245,7 +258,7 @@ class NodeForegroundService : Service() {
                                 FluoPostStore.DeleteResult.FORBIDDEN -> Unit
                             }
                         }
-                        if (reconciledPosts) heartbeatSignal.trySend(Unit)
+                        if (reconciledLigo || reconciledPosts) heartbeatSignal.trySend(Unit)
                         if (it.runQuickTest) {
                             benchmark.set(synchronized(diagnostics) { diagnostics.quickDiskTest() })
                             waitSeconds = 1

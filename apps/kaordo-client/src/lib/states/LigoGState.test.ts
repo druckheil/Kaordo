@@ -38,10 +38,19 @@ class MemoryLigoGateway implements LigoGateway {
   liveTicketCalls = 0;
 
   acknowledge(): Promise<void> { return Promise.resolve(); }
+  confirmCleanup(): Promise<void> { return Promise.resolve(); }
   bootstrap(): Promise<LigoBootstrap> {
-    return Promise.resolve({ conversations: [], nextCursor: null });
+    return Promise.resolve({
+      conversations: [],
+      nextCursor: null,
+      storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
+    });
   }
-  createDelivery(): Promise<void> { return Promise.resolve(); }
+  createDelivery() { return Promise.resolve({
+    evicted: [],
+    storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
+  }); }
+  history() { return Promise.resolve({ messages: [], nextCursor: null }); }
   inbox(): Promise<LigoInbox> {
     this.inboxCalls += 1;
     return Promise.resolve({ deliveries: [], nextCursor: null });
@@ -51,6 +60,10 @@ class MemoryLigoGateway implements LigoGateway {
     return Promise.resolve({ url: 'wss://example.test/api/ligo/live?ticket=test' });
   }
   searchUsers(): Promise<LigoUser[]> { return Promise.resolve([]); }
+  updateStorage() { return Promise.resolve({
+    evicted: [],
+    storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
+  }); }
 }
 
 class TestWebSocket {
@@ -77,6 +90,7 @@ class TestWebSocket {
 
 const EMPTY_TRANSPORT: LigoTransport = {
   complete: async (_delivery: LigoDelivery) => {},
+  discard: async () => {},
   receive: async () => { throw new Error('Not used.'); },
   reset: () => {},
   send: async () => { throw new Error('Not used.'); },

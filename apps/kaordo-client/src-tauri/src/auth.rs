@@ -287,6 +287,20 @@ pub struct LigoDeliveryInput {
     storage: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LigoCleanupInput<'a> {
+    message_ids: &'a [String],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LigoStorageInput<'a> {
+    selected_node_id: &'a str,
+    stack_limit_bytes: u64,
+}
+
+
 #[derive(Deserialize)]
 struct LigoUsersResponse {
     users: Vec<Value>,
@@ -794,10 +808,42 @@ pub async fn ligo_inbox(
 }
 
 #[tauri::command]
+pub async fn ligo_history(
+    client: State<'_, AuthClient>,
+    username: String,
+    owner: String,
+    cursor: Option<String>,
+    limit: u32,
+) -> Result<Value, String> {
+    let username = username.trim().to_lowercase();
+    if username.is_empty()
+        || username.len() > 32
+        || !username
+            .chars()
+            .all(|value| value.is_ascii_lowercase() || value.is_ascii_digit() || value == '_')
+    {
+        return Err("Ligo history user is invalid.".to_owned());
+    }
+    if owner != "peer" && owner != "self" {
+        return Err("Ligo history owner is invalid.".to_owned());
+    }
+    let mut path = paged_path(
+        &format!("/api/ligo/history/{username}"),
+        "before",
+        cursor.as_deref(),
+        limit,
+    )?;
+    write!(path, "&owner={owner}").expect("writing an owner to a String cannot fail");
+    let response = authenticated_request(&client, Method::GET, &path).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
 pub async fn ligo_live_ticket(client: State<'_, AuthClient>) -> Result<Value, String> {
     let response = authenticated_request(&client, Method::POST, "/api/ligo/live-ticket").await?;
     decode_response(response).await
 }
+
 
 #[tauri::command]
 pub async fn ligo_search_users(
@@ -826,7 +872,7 @@ pub async fn ligo_search_users(
 pub async fn ligo_create_delivery(
     client: State<'_, AuthClient>,
     input: LigoDeliveryInput,
-) -> Result<(), String> {
+) -> Result<Value, String> {
     node_id_path(&input.id)?;
     node_id_path(&input.node_id)?;
     if input.storage != "public" && input.storage != "private" {
@@ -834,6 +880,41 @@ pub async fn ligo_create_delivery(
     }
     let response =
         authenticated_json_request(&client, Method::POST, "/api/ligo/deliveries", &input).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ligo_update_storage(
+    client: State<'_, AuthClient>,
+    selected_node_id: String,
+    stack_limit_bytes: u64,
+) -> Result<Value, String> {
+    if selected_node_id != "public" {
+        node_id_path(&selected_node_id)?;
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::PATCH,
+        "/api/ligo/storage",
+        &LigoStorageInput { selected_node_id: &selected_node_id, stack_limit_bytes },
+    ).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ligo_confirm_cleanup(
+    client: State<'_, AuthClient>,
+    message_ids: Vec<String>,
+) -> Result<(), String> {
+    if message_ids.len() > 64 || message_ids.iter().any(|id| node_id_path(id).is_err()) {
+        return Err("Ligo cleanup is invalid.".to_owned());
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::POST,
+        "/api/ligo/cloud-cleanup",
+        &LigoCleanupInput { message_ids: &message_ids },
+    ).await?;
     let _: Value = decode_response(response).await?;
     Ok(())
 }

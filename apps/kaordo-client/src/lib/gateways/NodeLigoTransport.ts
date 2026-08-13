@@ -1,4 +1,11 @@
-import type { LigoAttachment, LigoDelivery, LigoMessage, LigoUser } from '../domain/ligo';
+import type {
+  LigoAttachment,
+  LigoDelivery,
+  LigoMessage,
+  LigoStorageSettings,
+  LigoStorageUpdate,
+  LigoUser,
+} from '../domain/ligo';
 import type { NodoGateway } from './NodoGateway';
 import type { LigoGateway } from './LigoGateway';
 import { NodeConnection, NodeRequestError, uploadTus } from './NodeFluoGateway';
@@ -15,9 +22,11 @@ const PATHS = {
 
 export type LigoDraftFile = { blob: Blob; id: string; mimeType: string; name: string; size: number; url: string };
 export type LigoUploadProgress = { file: string; totalBytes: number; uploadedBytes: number };
+export type LigoSendResult = { message: LigoMessage; storage: LigoStorageSettings };
 
 export interface LigoTransport {
   complete(delivery: LigoDelivery): Promise<void>;
+  discard(evicted: LigoStorageUpdate['evicted']): Promise<void>;
   receive(ownerId: string, delivery: LigoDelivery): Promise<LigoMessage>;
   reset(): void;
   send(
@@ -27,7 +36,7 @@ export interface LigoTransport {
     body: string,
     files: readonly LigoDraftFile[],
     onProgress: (progress: LigoUploadProgress | null) => void,
-  ): Promise<LigoMessage>;
+  ): Promise<LigoSendResult>;
 }
 
 export class NodeLigoTransport implements LigoTransport {
@@ -44,7 +53,7 @@ export class NodeLigoTransport implements LigoTransport {
     body: string,
     files: readonly LigoDraftFile[],
     onProgress: (progress: LigoUploadProgress | null) => void,
-  ): Promise<LigoMessage> {
+  ): Promise<LigoSendResult> {
     const id = crypto.randomUUID();
     const sizeBytes = Math.max(1, new TextEncoder().encode(body).byteLength + files.reduce((sum, file) => sum + file.size, 0));
     if (destination === PUBLIC_DESTINATION) {
@@ -82,10 +91,10 @@ export class NodeLigoTransport implements LigoTransport {
     const message: LigoMessage = {
       attachments,
       body: envelope.body,
-      conversationId: delivery.sender.id,
+      conversationId: delivery.sender.id === ownerId ? delivery.recipient.id : delivery.sender.id,
       createdAt: envelope.createdAt,
       id: envelope.id,
-      recipientId: ownerId,
+      recipientId: delivery.recipient.id,
       senderId: delivery.sender.id,
       status: 'delivered',
     };
@@ -93,14 +102,24 @@ export class NodeLigoTransport implements LigoTransport {
   }
 
   async complete(delivery: LigoDelivery): Promise<void> {
-    const connection = await this.connection(delivery.nodeId);
-    const path = `${PATHS[delivery.storage].envelopes}/${encodeURIComponent(delivery.id)}`;
-    try {
-      await connection.json(path, { method: 'DELETE' });
-    } catch (error) {
-      if (!(error instanceof NodeRequestError) || error.status !== 404) throw error;
-    }
     await this.api.acknowledge(delivery.id);
+  }
+
+  async discard(evicted: LigoStorageUpdate['evicted']): Promise<void> {
+    const deleted: string[] = [];
+    for (const message of evicted) {
+      try {
+        const connection = await this.connection(message.nodeId);
+        await connection.json(
+          `${PATHS[message.storage].envelopes}/${encodeURIComponent(message.id)}`,
+          { method: 'DELETE' },
+        );
+        deleted.push(message.id);
+      } catch (error) {
+        if (error instanceof NodeRequestError && error.status === 404) deleted.push(message.id);
+      }
+    }
+    if (deleted.length) await this.api.confirmCleanup(deleted).catch(() => undefined);
   }
 
   private async sendToNode(
@@ -113,7 +132,7 @@ export class NodeLigoTransport implements LigoTransport {
     files: readonly LigoDraftFile[],
     sizeBytes: number,
     onProgress: (progress: LigoUploadProgress | null) => void,
-  ): Promise<LigoMessage> {
+  ): Promise<LigoSendResult> {
     const connection = await this.connection(nodeId);
     const paths = PATHS[storage];
     let reservationId: string | undefined;
@@ -148,7 +167,7 @@ export class NodeLigoTransport implements LigoTransport {
         await this.nodes.commitPublicStorage(reservationId, id);
         reservationCommitted = true;
       }
-      await this.api.createDelivery({
+      const update = await this.api.createDelivery({
         id,
         nodeId,
         preview: preview(body, files),
@@ -156,16 +175,20 @@ export class NodeLigoTransport implements LigoTransport {
         sizeBytes,
         storage,
       });
+      await this.discard(update.evicted);
       onProgress(null);
       return {
-        attachments: uploaded,
-        body,
-        conversationId: recipient.id,
-        createdAt: Date.now(),
-        id,
-        recipientId: recipient.id,
-        senderId: ownerId,
-        status: recipient.online ? 'delivered' : 'queued',
+        message: {
+          attachments: uploaded,
+          body,
+          conversationId: recipient.id,
+          createdAt: Date.now(),
+          id,
+          recipientId: recipient.id,
+          senderId: ownerId,
+          status: recipient.online ? 'delivered' : 'queued',
+        },
+        storage: update.storage,
       };
     } catch (error) {
       if (envelopeCreated) {
