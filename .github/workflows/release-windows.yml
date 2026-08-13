@@ -38,7 +38,7 @@ jobs:
           if (-not $nsis -or -not $msi) { throw "Tauri did not produce both Windows installers." }
           Copy-Item $nsis.FullName release/Kaordo_1.0.0_windows_x64-setup.exe
           Copy-Item $msi.FullName release/Kaordo_1.0.0_windows_x64.msi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kaordo-windows-v1.0.0
           path: release/*
