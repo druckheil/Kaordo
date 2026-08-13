@@ -25,6 +25,9 @@ export class WebLigoGateway implements LigoGateway {
   liveTicket(): Promise<LigoLiveTicket> {
     return requestJson('/api/ligo/live-ticket', { method: 'POST' }, LIGO_UNAVAILABLE);
   }
+  markRead(messageIds: readonly string[]): Promise<void> {
+    return requestJson('/api/ligo/read', jsonRequest('POST', { messageIds }), LIGO_UNAVAILABLE);
+  }
   async searchUsers(query: string): Promise<LigoUser[]> {
     return (await requestJson<{ users: LigoUser[] }>(`/api/ligo/users?q=${encodeURIComponent(query)}`, {}, LIGO_UNAVAILABLE)).users;
   }

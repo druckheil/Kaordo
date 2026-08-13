@@ -17,6 +17,21 @@ describe('LigoLocalStore', () => {
     expect(second.messages.map(({ id }) => id)).toEqual(['message-1', 'message-0']);
     expect(second.nextCursor).toBeNull();
   });
+
+  it('materializes attached files as standalone blobs for future app sessions', async () => {
+    const store = new MemoryLigoLocalStore();
+    const original = new File(['persistent bytes'], 'note.txt', { type: 'text/plain' });
+    await store.put('owner', {
+      ...message('attachment-message', 'friend', 2_000),
+      attachments: [{ blob: original, id: 'attachment', mimeType: original.type, name: original.name, size: original.size }],
+    });
+
+    const stored = await store.get('owner', 'attachment-message');
+
+    expect(stored?.attachments[0]?.blob).toBeInstanceOf(Blob);
+    expect(stored?.attachments[0]?.blob).not.toBeInstanceOf(File);
+    expect(await stored?.attachments[0]?.blob.text()).toBe('persistent bytes');
+  });
 });
 
 function message(id: string, conversationId: string, createdAt: number): LigoMessage {

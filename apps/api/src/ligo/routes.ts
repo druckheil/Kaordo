@@ -14,6 +14,7 @@ const MIN_STACK_BYTES = 1_048_576;
 const MAX_PRIVATE_STACK_BYTES = 10 * 1_073_741_824;
 const MAX_PUBLIC_STACK_BYTES = 1_073_741_824;
 const PRUNE_BATCH = 64;
+const MAX_RECEIPT_IDS = 64;
 
 type ConversationRow = {
   id: ArrayBuffer;
@@ -105,7 +106,7 @@ export async function ligoHistory(
   const before = cursor(url.searchParams.get('before'));
   const limit = pageLimit(url.searchParams.get('limit'), 40);
   const rows = await env.DB.prepare(
-    `SELECT id, node_id, storage_kind, size_bytes, created_at
+    `SELECT id, node_id, storage_kind, size_bytes, created_at, delivered_at, read_at
        FROM ligo_cloud_messages
       WHERE owner_id = ?1 AND peer_id = ?2
         AND (?3 IS NULL OR created_at < ?3 OR (created_at = ?3 AND id < ?4))
@@ -114,7 +115,9 @@ export async function ligoHistory(
   ).bind(ownerId, otherId, before?.at ?? null, before?.id ?? '', limit + 1).all<{
     created_at: number;
     id: string;
+    delivered_at: number | null;
     node_id: string;
+    read_at: number | null;
     size_bytes: number;
     storage_kind: number;
   }>();
@@ -129,6 +132,7 @@ export async function ligoHistory(
       recipient: { id: base64Url(otherId), username: otherUsername },
       sender: { id: base64Url(ownerId), username: ownerUsername },
       sizeBytes: row.size_bytes,
+      status: row.read_at !== null ? 'read' : row.delivered_at !== null ? 'delivered' : 'queued',
       storage: row.storage_kind === PUBLIC ? 'public' : 'private',
     })),
     nextCursor: hasMore && last ? `${last.created_at}:${last.id}` : null,
@@ -236,6 +240,7 @@ export async function ligoInbox(request: Request, env: Env): Promise<Response> {
       recipient: { id: base64Url(session.userId), username: session.publicUser.username },
       sender: { id: base64Url(row.sender_id), username: row.sender_username },
       sizeBytes: row.size_bytes,
+      status: 'queued',
       storage: row.storage_kind === PUBLIC ? 'public' : 'private',
     })),
     nextCursor: hasMore && last ? `${last.created_at}:${last.id}` : null,
@@ -322,7 +327,7 @@ export async function createLigoDelivery(
       selectedStorage.stackLimitBytes,
       now,
     );
-    ctx.waitUntil(env.LIGO_LIVE.getByName(base64Url(recipient.id)).notify(id).catch((error: unknown) => {
+    ctx.waitUntil(env.LIGO_LIVE.getByName(base64Url(recipient.id)).notifyInbox(id).catch((error: unknown) => {
       console.error(JSON.stringify({
         error: error instanceof Error ? error.message : String(error),
         message: 'Ligo live notification failed; inbox polling remains available.',
@@ -343,14 +348,80 @@ export async function acknowledgeLigoDelivery(
   request: Request,
   env: Env,
   deliveryId: string,
+  ctx: ExecutionContext,
 ): Promise<Response> {
   const session = await authenticate(request, env);
   if (!session) return json({ error: 'Authentication required.' }, 401);
   if (!ID.test(deliveryId)) return json({ error: 'Delivery not found.' }, 404);
-  await env.DB.prepare(
-    'DELETE FROM ligo_deliveries WHERE id = ?1 AND recipient_id = ?2',
-  ).bind(deliveryId, session.userId).run();
+  const delivery = await env.DB.prepare(
+    `SELECT deliveries.sender_id, messages.read_at
+       FROM ligo_deliveries AS deliveries
+       LEFT JOIN ligo_cloud_messages AS messages ON messages.id = deliveries.id
+      WHERE deliveries.id = ?1 AND deliveries.recipient_id = ?2 LIMIT 1`,
+  ).bind(deliveryId, session.userId).first<{ read_at: number | null; sender_id: ArrayBuffer }>();
+  if (!delivery) return json({ ok: true });
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE ligo_cloud_messages SET delivered_at = COALESCE(delivered_at, ?1)
+        WHERE id = ?2 AND peer_id = ?3`,
+    ).bind(now, deliveryId, session.userId),
+    env.DB.prepare(
+      'DELETE FROM ligo_deliveries WHERE id = ?1 AND recipient_id = ?2',
+    ).bind(deliveryId, session.userId),
+  ]);
+  const receiptStatus = delivery.read_at === null ? 'delivered' as const : 'read' as const;
+  ctx.waitUntil(env.LIGO_LIVE.getByName(base64Url(delivery.sender_id))
+    .notifyReceipts([deliveryId], receiptStatus).catch(logLiveFailure('receipt', deliveryId)));
   return json({ ok: true });
+}
+
+export async function markLigoRead(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  try {
+    const input = await body(request);
+    const messageIds = requiredIds(input.messageIds, MAX_RECEIPT_IDS);
+    if (!messageIds.length) return json({ ok: true });
+    const placeholders = messageIds.map((_, index) => `?${index + 2}`).join(', ');
+    const rows = await env.DB.prepare(
+      `SELECT id, owner_id FROM ligo_cloud_messages
+        WHERE peer_id = ?1 AND id IN (${placeholders}) AND read_at IS NULL`,
+    ).bind(session.userId, ...messageIds).all<{ id: string; owner_id: ArrayBuffer }>();
+    if (!rows.results.length) return json({ ok: true });
+    const changedIds = rows.results.map(({ id }) => id);
+    const changedPlaceholders = changedIds.map((_, index) => `?${index + 3}`).join(', ');
+    const now = Date.now();
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE ligo_cloud_messages SET delivered_at = COALESCE(delivered_at, ?1), read_at = ?1
+          WHERE peer_id = ?2 AND id IN (${changedPlaceholders})`,
+      ).bind(now, session.userId, ...changedIds),
+      env.DB.prepare(
+        `DELETE FROM ligo_deliveries WHERE recipient_id = ?1 AND id IN (${
+          changedIds.map((_, index) => `?${index + 2}`).join(', ')
+        })`,
+      ).bind(session.userId, ...changedIds),
+    ]);
+    const byOwner = new Map<string, { ids: string[]; userId: ArrayBuffer }>();
+    for (const row of rows.results) {
+      const key = base64Url(row.owner_id);
+      const group = byOwner.get(key) ?? { ids: [], userId: row.owner_id };
+      group.ids.push(row.id);
+      byOwner.set(key, group);
+    }
+    for (const [ownerKey, group] of byOwner) {
+      ctx.waitUntil(env.LIGO_LIVE.getByName(ownerKey).notifyReceipts(group.ids, 'read')
+        .catch(logLiveFailure('read receipt', group.ids[0] ?? 'unknown')));
+    }
+    return json({ ok: true });
+  } catch (error) {
+    return json({ error: error instanceof InputError ? error.message : 'Read receipt is invalid.' }, 400);
+  }
 }
 
 function conversation(row: ConversationRow, userId: ArrayBuffer, now: number) {
@@ -403,8 +474,8 @@ function requiredUsername(value: unknown): string {
   return normalized;
 }
 
-function requiredIds(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length > PRUNE_BATCH ||
+function requiredIds(value: unknown, maximum = PRUNE_BATCH): string[] {
+  if (!Array.isArray(value) || value.length > maximum ||
       value.some((item) => typeof item !== 'string' || !ID.test(item))) {
     throw new InputError('Ligo cleanup identifiers are invalid.');
   }
@@ -542,3 +613,11 @@ function isUnique(error: unknown): boolean {
 }
 
 class InputError extends Error {}
+
+function logLiveFailure(kind: string, messageId: string): (error: unknown) => void {
+  return (error) => console.error(JSON.stringify({
+    error: error instanceof Error ? error.message : String(error),
+    message: `Ligo ${kind} notification failed; history synchronization remains available.`,
+    messageId,
+  }));
+}

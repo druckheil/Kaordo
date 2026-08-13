@@ -22,6 +22,7 @@ export class TauriLigoGateway implements LigoGateway {
     return this.invoke('ligo_inbox', { cursor, limit });
   }
   liveTicket(): Promise<LigoLiveTicket> { return this.invoke('ligo_live_ticket'); }
+  markRead(messageIds: readonly string[]): Promise<void> { return this.invoke('ligo_mark_read', { messageIds }); }
   searchUsers(query: string): Promise<LigoUser[]> { return this.invoke('ligo_search_users', { query }); }
   updateStorage(selectedNodeId: string, stackLimitBytes: number): Promise<LigoStorageUpdate> {
     return this.invoke('ligo_update_storage', { selectedNodeId, stackLimitBytes });

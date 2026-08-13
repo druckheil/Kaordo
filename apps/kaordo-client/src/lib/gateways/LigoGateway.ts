@@ -24,6 +24,7 @@ export interface LigoGateway {
   history(username: string, owner: 'peer' | 'self', cursor?: string | null, limit?: number): Promise<LigoCloudPage>;
   inbox(cursor?: string | null, limit?: number): Promise<LigoInbox>;
   liveTicket(): Promise<LigoLiveTicket>;
+  markRead(messageIds: readonly string[]): Promise<void>;
   searchUsers(query: string): Promise<LigoUser[]>;
   updateStorage(selectedNodeId: string, stackLimitBytes: number): Promise<LigoStorageUpdate>;
 }

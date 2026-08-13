@@ -339,6 +339,7 @@ pub fn run() {
             auth::ligo_history,
             auth::ligo_inbox,
             auth::ligo_live_ticket,
+            auth::ligo_mark_read,
             auth::ligo_search_users,
             auth::ligo_update_storage,
             auth::nodo_delete,

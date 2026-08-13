@@ -28,8 +28,10 @@ export interface LigoTransport {
   complete(delivery: LigoDelivery): Promise<void>;
   discard(evicted: LigoStorageUpdate['evicted']): Promise<void>;
   receive(ownerId: string, delivery: LigoDelivery): Promise<LigoMessage>;
+  reconcile(ownerId: string, delivery: LigoDelivery, cached: LigoMessage): Promise<LigoMessage>;
   reset(): void;
   send(
+    messageId: string,
     ownerId: string,
     recipient: LigoUser,
     destination: string,
@@ -47,6 +49,7 @@ export class NodeLigoTransport implements LigoTransport {
   reset(): void { this.#connections.clear(); }
 
   async send(
+    messageId: string,
     ownerId: string,
     recipient: LigoUser,
     destination: string,
@@ -54,7 +57,6 @@ export class NodeLigoTransport implements LigoTransport {
     files: readonly LigoDraftFile[],
     onProgress: (progress: LigoUploadProgress | null) => void,
   ): Promise<LigoSendResult> {
-    const id = crypto.randomUUID();
     const sizeBytes = Math.max(1, new TextEncoder().encode(body).byteLength + files.reduce((sum, file) => sum + file.size, 0));
     if (destination === PUBLIC_DESTINATION) {
       const status = await this.nodes.publicStorage();
@@ -65,24 +67,57 @@ export class NodeLigoTransport implements LigoTransport {
       let lastError: unknown = null;
       for (const candidate of candidates) {
         try {
-          return await this.sendToNode(ownerId, recipient, id, candidate.nodeId, 'public', body, files, sizeBytes, onProgress);
+          return await this.sendToNode(ownerId, recipient, messageId, candidate.nodeId, 'public', body, files, sizeBytes, onProgress);
         } catch (error) { lastError = error; this.#connections.delete(candidate.nodeId); }
       }
       throw lastError ?? new Error('No Public Nodo can accept this message right now.');
     }
-    return this.sendToNode(ownerId, recipient, id, destination, 'private', body, files, sizeBytes, onProgress);
+    return this.sendToNode(ownerId, recipient, messageId, destination, 'private', body, files, sizeBytes, onProgress);
   }
 
   async receive(ownerId: string, delivery: LigoDelivery): Promise<LigoMessage> {
     const connection = await this.connection(delivery.nodeId);
     const paths = PATHS[delivery.storage];
-    const { envelope } = await connection.json<{ envelope: NodeEnvelope }>(
-      `${paths.envelopes}/${encodeURIComponent(delivery.id)}`,
-    );
+    const envelope = await this.envelope(connection, paths.envelopes, delivery.id);
+    return this.downloadMessage(connection, paths.content, ownerId, delivery, envelope);
+  }
+
+  async reconcile(ownerId: string, delivery: LigoDelivery, cached: LigoMessage): Promise<LigoMessage> {
+    const connection = await this.connection(delivery.nodeId);
+    const paths = PATHS[delivery.storage];
+    let envelope: NodeEnvelope;
+    try {
+      envelope = await this.envelope(connection, paths.envelopes, delivery.id);
+    } catch (error) {
+      // Transit copies are expected to disappear after retention cleanup. A
+      // valid local copy remains authoritative and must not be deleted.
+      if (error instanceof NodeRequestError && error.status === 404) {
+        return { ...cached, status: newestStatus(cached.status, delivery.status) };
+      }
+      throw error;
+    }
+    if (matchesEnvelope(cached, envelope)) {
+      return { ...cached, status: newestStatus(cached.status, delivery.status) };
+    }
+    return this.downloadMessage(connection, paths.content, ownerId, delivery, envelope);
+  }
+
+  private envelope(connection: NodeConnection, path: string, messageId: string): Promise<NodeEnvelope> {
+    return connection.json<{ envelope: NodeEnvelope }>(`${path}/${encodeURIComponent(messageId)}`)
+      .then(({ envelope }) => envelope);
+  }
+
+  private async downloadMessage(
+    connection: NodeConnection,
+    contentPath: string,
+    ownerId: string,
+    delivery: LigoDelivery,
+    envelope: NodeEnvelope,
+  ): Promise<LigoMessage> {
     const attachments: LigoAttachment[] = [];
     for (const attachment of envelope.attachments) {
       const blob = await connection.blob(
-        `${paths.content}/${encodeURIComponent(attachment.id)}`,
+        `${contentPath}/${encodeURIComponent(attachment.id)}`,
         attachment.mimeType,
         Math.max(60_000, Math.ceil(attachment.size / 64_000) * 1_000),
       );
@@ -92,11 +127,11 @@ export class NodeLigoTransport implements LigoTransport {
       attachments,
       body: envelope.body,
       conversationId: delivery.sender.id === ownerId ? delivery.recipient.id : delivery.sender.id,
-      createdAt: envelope.createdAt,
+      createdAt: delivery.createdAt,
       id: envelope.id,
       recipientId: delivery.recipient.id,
       senderId: delivery.sender.id,
-      status: 'delivered',
+      status: delivery.status,
     };
     return message;
   }
@@ -149,7 +184,13 @@ export class NodeLigoTransport implements LigoTransport {
           totalBytes: totalFileBytes,
           uploadedBytes: completed + offset,
         }), reservationId);
-        uploaded.push({ blob: file.blob, id: uploadedId, mimeType: file.mimeType, name: file.name, size: file.size });
+        uploaded.push({
+          blob: file.blob.slice(0, file.blob.size, file.mimeType),
+          id: uploadedId,
+          mimeType: file.mimeType,
+          name: file.name,
+          size: file.size,
+        });
         completed += file.size;
       }
       await connection.json(paths.envelopes, {
@@ -186,7 +227,7 @@ export class NodeLigoTransport implements LigoTransport {
           id,
           recipientId: recipient.id,
           senderId: ownerId,
-          status: recipient.online ? 'delivered' : 'queued',
+          status: 'queued',
         },
         storage: update.storage,
       };
@@ -234,6 +275,27 @@ function reservationHeader(id?: string): Record<string, string> {
 function preview(body: string, files: readonly LigoDraftFile[]): string {
   const normalized = body.trim().replace(/\s+/gu, ' ');
   return (normalized || (files.length === 1 ? `File: ${files[0]!.name}` : `${files.length} files`)).slice(0, 160);
+}
+
+function matchesEnvelope(message: LigoMessage, envelope: NodeEnvelope): boolean {
+  return message.body === envelope.body && message.attachments.length === envelope.attachments.length &&
+    message.attachments.every((local, index) => {
+      const remote = envelope.attachments[index];
+      return remote !== undefined && local.id === remote.id && local.name === remote.name &&
+        local.mimeType === remote.mimeType && local.size === remote.size &&
+        local.blob instanceof Blob && !isFile(local.blob) && local.blob.size === remote.size;
+    });
+}
+
+function newestStatus(current: LigoMessage['status'], remote: LigoDelivery['status']): LigoMessage['status'] {
+  const rank: Record<LigoMessage['status'], number> = {
+    failed: 0, sending: 1, queued: 2, delivered: 3, read: 4,
+  };
+  return rank[remote] >= rank[current] ? remote : current;
+}
+
+function isFile(blob: Blob): boolean {
+  return typeof File !== 'undefined' && blob instanceof File;
 }
 
 export { PUBLIC_DESTINATION as PUBLIC_LIGO_DESTINATION };

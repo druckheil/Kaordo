@@ -1,4 +1,11 @@
-import type { LigoConversation, LigoMessage, LigoStorageSettings, LigoUser } from '../domain/ligo';
+import type {
+  LigoConversation,
+  LigoMessage,
+  LigoMessageStatus,
+  LigoReceiptStatus,
+  LigoStorageSettings,
+  LigoUser,
+} from '../domain/ligo';
 import type { NodoNode, PublicNodoStorage } from '../domain/nodo';
 import type { LigoGateway } from '../gateways/LigoGateway';
 import {
@@ -28,6 +35,18 @@ type LigoLiveSocket = {
   onopen: ((event: Event) => void) | null;
   readonly readyState: number;
 };
+
+type PendingOutgoing = {
+  body: string;
+  createdAt: number;
+  destination: string;
+  files: LigoDraftFile[];
+  id: string;
+  ownerId: string;
+  recipient: LigoUser;
+};
+
+type CloudMessageUpdate = { message: LigoMessage; replacePayload: boolean };
 
 export type LigoSnapshot = {
   activeUser: LigoUser | null;
@@ -72,6 +91,9 @@ export class LigoGState extends GState<LigoSnapshot> {
   #liveConnectTimer: ReturnType<typeof setTimeout> | null = null;
   #liveSocket: LigoLiveSocket | null = null;
   #storageRefresh: Promise<void> | null = null;
+  #outgoingQueue: PendingOutgoing[] = [];
+  #processingOutgoing = false;
+  readonly #readInFlight = new Set<string>();
   #liveGeneration = 0;
   #liveFailures = 0;
   #syncRequested = false;
@@ -133,6 +155,10 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#peerCloudCursor = null;
     this.#ownCloudCursor = null;
     this.#storageRefresh = null;
+    for (const pending of this.#outgoingQueue.splice(0)) {
+      pending.files.forEach(({ url }) => URL.revokeObjectURL(url));
+    }
+    this.#readInFlight.clear();
     this.transport.reset();
     this.publish(emptySnapshot());
   }
@@ -225,19 +251,19 @@ export class LigoGState extends GState<LigoSnapshot> {
       searchResults: [],
     });
     try {
-      await this.downloadCloudPage(ownerId, user, 'peer', null);
-      if (requestId !== this.#conversationRequestId) return;
-      await this.downloadCloudPage(ownerId, user, 'self', null);
-      if (requestId !== this.#conversationRequestId) return;
       const page = await this.local.page(ownerId, user.id, null, MESSAGE_PAGE);
       if (requestId !== this.#conversationRequestId || this.snapshot.activeUser?.id !== user.id) return;
       this.#messageCursor = page.nextCursor;
       this.publish({
         ...this.snapshot,
         hasOlder: this.hasOlderMessages(),
-        loadingHistory: false,
+        // Local history is displayed first. The small cloud indexes and Nodo
+        // envelopes are reconciled in the background without blocking chat.
+        loadingHistory: true,
         messages: [...page.messages].reverse(),
       });
+      void this.markVisibleRead();
+      void this.reconcileConversation(ownerId, user, requestId);
     } catch (error) {
       if (requestId !== this.#conversationRequestId || this.snapshot.activeUser?.id !== user.id) return;
       this.publish({ ...this.snapshot, error: readableError(error), loadingHistory: false });
@@ -269,6 +295,7 @@ export class LigoGState extends GState<LigoSnapshot> {
         loadingOlder: false,
         messages: combined.slice(0, MAX_MESSAGE_WINDOW),
       });
+      void this.markVisibleRead();
     } catch (error) {
       if (requestId !== this.#conversationRequestId) return;
       this.publish({ ...this.snapshot, error: readableError(error), loadingOlder: false });
@@ -335,7 +362,7 @@ export class LigoGState extends GState<LigoSnapshot> {
     const ownerId = this.#ownerId;
     const recipient = this.snapshot.activeUser;
     const body = this.snapshot.draft.trim();
-    if (!ownerId || !recipient || (!body && !this.snapshot.draftFiles.length) || this.snapshot.sending) return false;
+    if (!ownerId || !recipient || (!body && !this.snapshot.draftFiles.length)) return false;
     const files = this.snapshot.draftFiles;
     const sizeBytes = Math.max(1, new TextEncoder().encode(body).byteLength +
       files.reduce((sum, file) => sum + file.size, 0));
@@ -343,42 +370,85 @@ export class LigoGState extends GState<LigoSnapshot> {
       this.publish({ ...this.snapshot, error: 'This message is larger than your Ligo cloud window.' });
       return false;
     }
-    const lifecycleId = this.#lifecycleId;
-    this.publish({ ...this.snapshot, error: null, sending: true });
-    try {
-      const result = await this.transport.send(
-        ownerId, recipient, this.snapshot.selectedNodeId, body, files,
-        (uploadProgress) => {
-          if (lifecycleId === this.#lifecycleId) this.publish({ ...this.snapshot, uploadProgress });
-        },
-      );
-      const message = result.message;
-      await this.local.put(ownerId, message);
-      if (lifecycleId !== this.#lifecycleId || this.#ownerId !== ownerId) return true;
-      files.forEach(({ url }) => URL.revokeObjectURL(url));
-      const conversation = toConversation(recipient, message, true, preview(body, files));
-      const messages = this.snapshot.activeUser?.id === recipient.id
+    const pending: PendingOutgoing = {
+      body,
+      createdAt: Date.now(),
+      destination: this.snapshot.selectedNodeId,
+      files,
+      id: crypto.randomUUID(),
+      ownerId,
+      recipient,
+    };
+    const message = pendingMessage(pending, 'sending');
+    this.#outgoingQueue.push(pending);
+    this.publish({
+      ...this.snapshot,
+      conversations: upsertConversation(
+        this.snapshot.conversations,
+        toConversation(recipient, message, true, preview(body, files)),
+      ),
+      draft: '',
+      draftFiles: [],
+      error: null,
+      messages: this.snapshot.activeUser?.id === recipient.id
         ? [...this.snapshot.messages, message].slice(-MAX_MESSAGE_WINDOW)
-        : this.snapshot.messages;
-      this.publish({
-        ...this.snapshot,
-        conversations: upsertConversation(this.snapshot.conversations, conversation),
-        draft: '',
-        draftFiles: [],
-        messages,
-        selectedNodeId: result.storage.selectedNodeId,
-        sending: false,
-        stackLimitBytes: result.storage.stackLimitBytes,
-        stackUsedBytes: result.storage.stackUsedBytes,
-        uploadProgress: null,
-      });
-      void this.refreshStorage();
-      return true;
-    } catch (error) {
-      if (lifecycleId !== this.#lifecycleId) return false;
-      this.publish({ ...this.snapshot, error: readableError(error), sending: false, uploadProgress: null });
-      return false;
+        : this.snapshot.messages,
+      sending: true,
+    });
+    void this.processOutgoing();
+    return true;
+  }
+
+  private async processOutgoing(): Promise<void> {
+    if (this.#processingOutgoing) return;
+    this.#processingOutgoing = true;
+    while (this.#outgoingQueue.length) {
+      const pending = this.#outgoingQueue.shift()!;
+      const lifecycleId = this.#lifecycleId;
+      try {
+        const result = await this.transport.send(
+          pending.id,
+          pending.ownerId,
+          pending.recipient,
+          pending.destination,
+          pending.body,
+          pending.files,
+          (uploadProgress) => {
+            if (lifecycleId === this.#lifecycleId && this.#ownerId === pending.ownerId) {
+              this.publish({ ...this.snapshot, uploadProgress });
+            }
+          },
+        );
+        const message = { ...result.message, createdAt: pending.createdAt, status: 'queued' as const };
+        await this.local.put(pending.ownerId, message);
+        if (lifecycleId === this.#lifecycleId && this.#ownerId === pending.ownerId) {
+          this.publish({
+            ...this.snapshot,
+            messages: replaceMessage(this.snapshot.messages, message),
+            selectedNodeId: result.storage.selectedNodeId,
+            stackLimitBytes: result.storage.stackLimitBytes,
+            stackUsedBytes: result.storage.stackUsedBytes,
+            uploadProgress: null,
+          });
+          void this.refreshStorage();
+        }
+      } catch (error) {
+        const failed = pendingMessage(pending, 'failed');
+        await this.local.put(pending.ownerId, failed).catch(() => undefined);
+        if (lifecycleId === this.#lifecycleId && this.#ownerId === pending.ownerId) {
+          this.publish({
+            ...this.snapshot,
+            error: readableError(error),
+            messages: replaceMessage(this.snapshot.messages, failed),
+            uploadProgress: null,
+          });
+        }
+      } finally {
+        pending.files.forEach(({ url }) => URL.revokeObjectURL(url));
+      }
     }
+    this.#processingOutgoing = false;
+    if (this.#ownerId) this.publish({ ...this.snapshot, sending: false, uploadProgress: null });
   }
 
   private async syncInbox(): Promise<void> {
@@ -401,16 +471,22 @@ export class LigoGState extends GState<LigoSnapshot> {
         for (const delivery of page.deliveries) {
           if (lifecycleId !== this.#lifecycleId || this.#ownerId !== ownerId) return;
           try {
-            if (await this.local.has(ownerId, delivery.id)) {
-              await this.transport.complete(delivery);
-              continue;
+            const cached = await this.local.get(ownerId, delivery.id);
+            const message = cached
+              ? await this.transport.reconcile(ownerId, delivery, cached)
+              : await this.transport.receive(ownerId, delivery);
+            const replacePayload = !cached || !sameLocalPayload(cached, message);
+            if (!replacePayload) {
+              await this.local.updateStatus(ownerId, message.id, message.status);
+            } else {
+              await this.local.put(ownerId, message);
             }
-            const message = await this.transport.receive(ownerId, delivery);
-            await this.local.put(ownerId, message);
             const user: LigoUser = { ...delivery.sender, online: true };
             const conversation = toConversation(user, message, false, preview(message.body, message.attachments));
+            const visibleMessage = messageForView(this.snapshot.messages, message, replacePayload);
             const visible = this.snapshot.activeUser?.id === user.id
-              ? [...this.snapshot.messages.filter(({ id }) => id !== message.id), message].sort(compareOldest).slice(-MAX_MESSAGE_WINDOW)
+              ? [...this.snapshot.messages.filter(({ id }) => id !== message.id), visibleMessage]
+                .sort(compareOldest).slice(-MAX_MESSAGE_WINDOW)
               : this.snapshot.messages;
             this.publish({
               ...this.snapshot,
@@ -427,6 +503,7 @@ export class LigoGState extends GState<LigoSnapshot> {
       if (lifecycleId !== this.#lifecycleId) return;
       this.#emptyPolls = deliveryCount ? 0 : Math.min(3, this.#emptyPolls + 1);
       this.publish({ ...this.snapshot, syncing: false });
+      void this.markVisibleRead();
     } catch (error) {
       if (lifecycleId !== this.#lifecycleId) return;
       this.publish({ ...this.snapshot, error: readableError(error), syncing: false });
@@ -447,22 +524,136 @@ export class LigoGState extends GState<LigoSnapshot> {
     user: LigoUser,
     source: 'peer' | 'self',
     cursor: string | null,
-  ): Promise<void> {
+    requestId = this.#conversationRequestId,
+  ): Promise<CloudMessageUpdate[]> {
+    const updates: CloudMessageUpdate[] = [];
     try {
       const page = await this.api.history(user.username.toLowerCase(), source, cursor, MESSAGE_PAGE);
-      if (source === 'peer') this.#peerCloudCursor = page.nextCursor;
-      else this.#ownCloudCursor = page.nextCursor;
+      if (requestId === this.#conversationRequestId && this.#ownerId === ownerId &&
+          this.snapshot.activeUser?.id === user.id) {
+        if (source === 'peer') this.#peerCloudCursor = page.nextCursor;
+        else this.#ownCloudCursor = page.nextCursor;
+      }
       for (const remote of page.messages) {
-        if (await this.local.has(ownerId, remote.id)) continue;
+        const cached = await this.local.get(ownerId, remote.id);
         try {
-          await this.local.put(ownerId, await this.transport.receive(ownerId, remote));
+          const message = cached
+            ? await this.transport.reconcile(ownerId, remote, cached)
+            : await this.transport.receive(ownerId, remote);
+          const replacePayload = !cached || !sameLocalPayload(cached, message);
+          if (!replacePayload) {
+            await this.local.updateStatus(ownerId, message.id, message.status);
+          } else {
+            await this.local.put(ownerId, message);
+          }
+          updates.push({ message, replacePayload });
         } catch {
           // A temporarily unavailable Nodo is not allowed to hide local history.
+          if (cached) {
+            if (source === 'self') {
+              await this.local.updateStatus(ownerId, remote.id, remote.status).catch(() => undefined);
+            }
+            updates.push({
+              message: { ...cached, status: advancedStatus(cached.status, remote.status) },
+              replacePayload: false,
+            });
+          }
         }
       }
     } catch {
-      if (source === 'peer') this.#peerCloudCursor = null;
-      else this.#ownCloudCursor = null;
+      if (requestId === this.#conversationRequestId && this.#ownerId === ownerId &&
+          this.snapshot.activeUser?.id === user.id) {
+        if (source === 'peer') this.#peerCloudCursor = null;
+        else this.#ownCloudCursor = null;
+      }
+    }
+    return updates;
+  }
+
+  private async reconcileConversation(ownerId: string, user: LigoUser, requestId: number): Promise<void> {
+    const pages = await Promise.all([
+      this.downloadCloudPage(ownerId, user, 'peer', null, requestId),
+      this.downloadCloudPage(ownerId, user, 'self', null, requestId),
+    ]);
+    if (requestId !== this.#conversationRequestId || this.#ownerId !== ownerId ||
+        this.snapshot.activeUser?.id !== user.id) return;
+    try {
+      let messages = this.snapshot.messages;
+      for (const update of pages.flat()) {
+        const visible = messageForView(messages, update.message, update.replacePayload);
+        messages = [...messages.filter(({ id }) => id !== visible.id), visible];
+      }
+      this.publish({
+        ...this.snapshot,
+        hasOlder: this.hasOlderMessages(),
+        loadingHistory: false,
+        messages: [...messages].sort(compareOldest).slice(-MAX_MESSAGE_WINDOW),
+      });
+      void this.markVisibleRead();
+    } catch (error) {
+      if (requestId !== this.#conversationRequestId || this.snapshot.activeUser?.id !== user.id) return;
+      this.publish({ ...this.snapshot, error: readableError(error), loadingHistory: false });
+    }
+  }
+
+  private async markVisibleRead(): Promise<void> {
+    const ownerId = this.#ownerId;
+    const activeUser = this.snapshot.activeUser;
+    if (!ownerId || !activeUser) return;
+    const ids = this.snapshot.messages
+      .filter(({ id, senderId, status }) => senderId === activeUser.id && status !== 'read' && !this.#readInFlight.has(id))
+      .map(({ id }) => id);
+    for (let offset = 0; offset < ids.length; offset += 64) {
+      const chunk = ids.slice(offset, offset + 64);
+      chunk.forEach((id) => this.#readInFlight.add(id));
+      try {
+        await this.api.markRead(chunk);
+        await Promise.all(chunk.map((id) => this.local.updateStatus(ownerId, id, 'read')));
+        if (this.#ownerId === ownerId && this.snapshot.activeUser?.id === activeUser.id) {
+          this.publish({
+            ...this.snapshot,
+            messages: updateMessageStatuses(this.snapshot.messages, chunk, 'read'),
+          });
+        }
+      } catch {
+        return;
+      } finally {
+        chunk.forEach((id) => this.#readInFlight.delete(id));
+      }
+    }
+  }
+
+  private async applyReceipts(messageIds: readonly string[], status: LigoReceiptStatus): Promise<void> {
+    const ownerId = this.#ownerId;
+    if (!ownerId || !messageIds.length) return;
+    await Promise.all(messageIds.map((id) => this.local.updateStatus(ownerId, id, status)));
+    if (this.#ownerId !== ownerId) return;
+    this.publish({
+      ...this.snapshot,
+      messages: updateMessageStatuses(this.snapshot.messages, messageIds, status),
+    });
+  }
+
+  private async syncActiveReceipts(): Promise<void> {
+    const ownerId = this.#ownerId;
+    const user = this.snapshot.activeUser;
+    if (!ownerId || !user) return;
+    try {
+      const page = await this.api.history(user.username.toLowerCase(), 'self', null, MESSAGE_PAGE);
+      for (const message of page.messages) {
+        await this.local.updateStatus(ownerId, message.id, message.status);
+      }
+      if (this.#ownerId !== ownerId || this.snapshot.activeUser?.id !== user.id) return;
+      const statuses = new Map(page.messages.map(({ id, status }) => [id, status]));
+      this.publish({
+        ...this.snapshot,
+        messages: this.snapshot.messages.map((message) => {
+          const status = statuses.get(message.id);
+          return status ? { ...message, status: advancedStatus(message.status, status) } : message;
+        }),
+      });
+    } catch {
+      // Live receipts remain the primary path; the next reconnect retries history.
     }
   }
 
@@ -508,10 +699,14 @@ export class LigoGState extends GState<LigoSnapshot> {
         this.#liveFailures = 0;
         this.#emptyPolls = 0;
         this.requestInboxSync();
+        void this.syncActiveReceipts();
       };
       socket.onmessage = ({ data }) => {
-        if (generation !== this.#liveGeneration || this.#liveSocket !== socket || !isInboxSignal(data)) return;
-        this.requestInboxSync();
+        if (generation !== this.#liveGeneration || this.#liveSocket !== socket) return;
+        const signal = liveSignal(data);
+        if (!signal) return;
+        if (signal.type === 'inbox') this.requestInboxSync();
+        else void this.applyReceipts(signal.messageIds, signal.status);
       };
       socket.onerror = () => { if (this.#liveSocket === socket) socket.close(); };
       socket.onclose = () => {
@@ -602,13 +797,77 @@ function preview(body: string, files: readonly { name: string }[]): string {
 }
 function compareOldest(a: LigoMessage, b: LigoMessage): number { return a.createdAt - b.createdAt || a.id.localeCompare(b.id); }
 function messageCursor(message: LigoMessage): string { return `${message.createdAt}:${message.id}`; }
-function isInboxSignal(data: unknown): boolean {
-  if (typeof data !== 'string') return false;
+function pendingMessage(pending: PendingOutgoing, status: 'sending' | 'failed'): LigoMessage {
+  return {
+    attachments: pending.files.map(({ url: _url, ...file }) => ({
+      ...file,
+      blob: file.blob.slice(0, file.blob.size, file.mimeType),
+    })),
+    body: pending.body,
+    conversationId: pending.recipient.id,
+    createdAt: pending.createdAt,
+    id: pending.id,
+    recipientId: pending.recipient.id,
+    senderId: pending.ownerId,
+    status,
+  };
+}
+function sameLocalPayload(left: LigoMessage, right: LigoMessage): boolean {
+  return left.id === right.id && left.body === right.body && left.createdAt === right.createdAt &&
+    left.senderId === right.senderId && left.recipientId === right.recipientId &&
+    left.attachments.length === right.attachments.length && left.attachments.every((attachment, index) => {
+      const next = right.attachments[index];
+      return next !== undefined && attachment.id === next.id && attachment.name === next.name &&
+        attachment.mimeType === next.mimeType && attachment.size === next.size && attachment.blob === next.blob;
+    });
+}
+function messageForView(
+  current: readonly LigoMessage[],
+  update: LigoMessage,
+  replacePayload: boolean,
+): LigoMessage {
+  const visible = current.find(({ id }) => id === update.id);
+  if (!visible || replacePayload) return update;
+  return { ...visible, status: advancedStatus(visible.status, update.status) };
+}
+function replaceMessage(messages: LigoMessage[], replacement: LigoMessage): LigoMessage[] {
+  return messages.map((message) => message.id === replacement.id ? replacement : message);
+}
+function updateMessageStatuses(
+  messages: LigoMessage[],
+  messageIds: readonly string[],
+  status: LigoMessageStatus,
+): LigoMessage[] {
+  const ids = new Set(messageIds);
+  return messages.map((message) => ids.has(message.id)
+    ? { ...message, status: advancedStatus(message.status, status) }
+    : message);
+}
+const STATUS_RANK: Record<LigoMessageStatus, number> = {
+  failed: 0, sending: 1, queued: 2, delivered: 3, read: 4,
+};
+function advancedStatus(current: LigoMessageStatus, next: LigoMessageStatus): LigoMessageStatus {
+  return STATUS_RANK[next] >= STATUS_RANK[current] ? next : current;
+}
+type LigoLiveSignal =
+  | { messageId: string; type: 'inbox' }
+  | { messageIds: string[]; status: LigoReceiptStatus; type: 'receipts' };
+function liveSignal(data: unknown): LigoLiveSignal | null {
+  if (typeof data !== 'string') return null;
   try {
     const value: unknown = JSON.parse(data);
-    return typeof value === 'object' && value !== null && 'type' in value && value.type === 'inbox';
+    if (typeof value !== 'object' || value === null || !('type' in value)) return null;
+    if (value.type === 'inbox' && 'messageId' in value && typeof value.messageId === 'string') {
+      return { messageId: value.messageId, type: 'inbox' };
+    }
+    if (value.type === 'receipts' && 'messageIds' in value && Array.isArray(value.messageIds) &&
+        value.messageIds.every((id) => typeof id === 'string') && 'status' in value &&
+        (value.status === 'delivered' || value.status === 'read')) {
+      return { messageIds: value.messageIds, status: value.status, type: 'receipts' };
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 function readableError(error: unknown): string {

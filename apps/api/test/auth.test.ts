@@ -1077,6 +1077,11 @@ describe('authentication API', () => {
       deliveries: [{ id: messageId, nodeId, sender: { username: 'ligo_sender' }, storage: 'private' }],
       nextCursor: null,
     });
+    await expect(api('/api/ligo/history/ligo_recipient?owner=self', {
+      headers: senderAuthorization,
+    }).then((response) => response.json())).resolves.toMatchObject({
+      messages: [{ id: messageId, status: 'queued' }],
+    });
     const acknowledged = await api(`/api/ligo/deliveries/${messageId}`, {
       headers: recipientAuthorization,
       method: 'DELETE',
@@ -1084,6 +1089,22 @@ describe('authentication API', () => {
     expect(acknowledged.status).toBe(200);
     await expect(api('/api/ligo/inbox', { headers: recipientAuthorization }).then((response) => response.json()))
       .resolves.toEqual({ deliveries: [], nextCursor: null });
+    await expect(api('/api/ligo/history/ligo_recipient?owner=self', {
+      headers: senderAuthorization,
+    }).then((response) => response.json())).resolves.toMatchObject({
+      messages: [{ id: messageId, status: 'delivered' }],
+    });
+    const read = await api('/api/ligo/read', {
+      body: JSON.stringify({ messageIds: [messageId] }),
+      headers: { ...recipientAuthorization, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    expect(read.status).toBe(200);
+    await expect(api('/api/ligo/history/ligo_recipient?owner=self', {
+      headers: senderAuthorization,
+    }).then((response) => response.json())).resolves.toMatchObject({
+      messages: [{ id: messageId, status: 'read' }],
+    });
 
     const smallerWindow = await api('/api/ligo/storage', {
       body: JSON.stringify({ selectedNodeId: nodeId, stackLimitBytes: 1_048_576 }),

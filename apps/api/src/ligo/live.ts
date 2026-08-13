@@ -63,8 +63,16 @@ export class LigoLiveSession extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
-  notify(messageId: string): void {
-    const payload = JSON.stringify({ messageId, type: 'inbox' });
+  notifyInbox(messageId: string): void {
+    this.broadcast({ messageId, type: 'inbox' });
+  }
+
+  notifyReceipts(messageIds: string[], status: 'delivered' | 'read'): void {
+    this.broadcast({ messageIds, status, type: 'receipts' });
+  }
+
+  private broadcast(event: Record<string, unknown>): void {
+    const payload = JSON.stringify(event);
     for (const socket of this.ctx.getWebSockets()) {
       try {
         socket.send(payload);

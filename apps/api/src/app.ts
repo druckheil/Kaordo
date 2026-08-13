@@ -55,6 +55,7 @@ import {
   ligoBootstrap,
   ligoHistory,
   ligoInbox,
+  markLigoRead,
   searchLigoUsers,
   updateLigoStorage,
 } from './ligo/routes';
@@ -115,6 +116,9 @@ export function handleRequest(
   if (request.method === 'POST' && pathname === '/api/ligo/cloud-cleanup') {
     return confirmLigoCloudCleanup(request, env);
   }
+  if (request.method === 'POST' && pathname === '/api/ligo/read') {
+    return markLigoRead(request, env, ctx);
+  }
   const ligoHistoryMatch = pathname.match(/^\/api\/ligo\/history\/([a-z0-9_]+)$/u);
   if (request.method === 'GET' && ligoHistoryMatch?.[1]) {
     return ligoHistory(request, env, ligoHistoryMatch[1]);
@@ -130,7 +134,7 @@ export function handleRequest(
   }
   const ligoDeliveryMatch = pathname.match(/^\/api\/ligo\/deliveries\/([0-9a-f-]+)$/u);
   if (request.method === 'DELETE' && ligoDeliveryMatch?.[1]) {
-    return acknowledgeLigoDelivery(request, env, ligoDeliveryMatch[1]);
+    return acknowledgeLigoDelivery(request, env, ligoDeliveryMatch[1], ctx);
   }
   if (request.method === 'GET' && pathname === '/api/rondo/voice/ice') {
     return rondoVoiceIce(request, env);

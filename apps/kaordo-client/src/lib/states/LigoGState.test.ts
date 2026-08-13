@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { LigoBootstrap, LigoDelivery, LigoInbox, LigoLiveTicket, LigoUser } from '../domain/ligo';
+import type {
+  LigoBootstrap,
+  LigoCloudPage,
+  LigoDelivery,
+  LigoInbox,
+  LigoLiveTicket,
+  LigoMessage,
+  LigoUser,
+} from '../domain/ligo';
 import type { LigoGateway } from '../gateways/LigoGateway';
 import type { LigoTransport } from '../gateways/NodeLigoTransport';
 import { MemoryLigoLocalStore } from '../services/LigoLocalStore';
@@ -31,6 +39,48 @@ describe('LigoGState live inbox', () => {
     state.exit();
     expect(socket.readyState).toBe(3);
   });
+
+  it('keeps the displayed local blob when background reconciliation finds no payload change', async () => {
+    const gateway = new GatedHistoryGateway();
+    const local = new MemoryLigoLocalStore();
+    const user: LigoUser = { id: 'friend', online: true, username: 'friend' };
+    const cached: LigoMessage = {
+      attachments: [{ blob: new Blob(['file']), id: 'file', mimeType: 'text/plain', name: 'file.txt', size: 4 }],
+      body: '',
+      conversationId: user.id,
+      createdAt: 1_000,
+      id: 'message',
+      recipientId: user.id,
+      senderId: 'owner',
+      status: 'queued',
+    };
+    await local.put('owner', cached);
+    const state = new LigoGState(
+      gateway,
+      EMPTY_TRANSPORT,
+      local,
+      async () => [],
+      async () => ({ limitBytes: 1_073_741_824, nodeCandidates: [], reservedBytes: 0, usedBytes: 0 }),
+    );
+    state.configure('owner');
+
+    await state.openConversation(user);
+    const displayedBlob = state.snapshot.messages[0]!.attachments[0]!.blob;
+    await vi.waitFor(() => expect(gateway.pending.length).toBe(2));
+    gateway.release({
+      createdAt: cached.createdAt,
+      id: cached.id,
+      nodeId: 'node',
+      recipient: { id: user.id, username: user.username },
+      sender: { id: 'owner', username: 'owner' },
+      sizeBytes: 4,
+      status: 'queued',
+      storage: 'private',
+    });
+
+    await vi.waitFor(() => expect(state.snapshot.loadingHistory).toBe(false));
+    expect(state.snapshot.messages[0]!.attachments[0]!.blob).toBe(displayedBlob);
+  });
 });
 
 class MemoryLigoGateway implements LigoGateway {
@@ -50,7 +100,12 @@ class MemoryLigoGateway implements LigoGateway {
     evicted: [],
     storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
   }); }
-  history() { return Promise.resolve({ messages: [], nextCursor: null }); }
+  history(
+    _username: string,
+    _owner: 'peer' | 'self',
+    _cursor?: string | null,
+    _limit?: number,
+  ): Promise<LigoCloudPage> { return Promise.resolve({ messages: [], nextCursor: null }); }
   inbox(): Promise<LigoInbox> {
     this.inboxCalls += 1;
     return Promise.resolve({ deliveries: [], nextCursor: null });
@@ -59,11 +114,31 @@ class MemoryLigoGateway implements LigoGateway {
     this.liveTicketCalls += 1;
     return Promise.resolve({ url: 'wss://example.test/api/ligo/live?ticket=test' });
   }
+  markRead(): Promise<void> { return Promise.resolve(); }
   searchUsers(): Promise<LigoUser[]> { return Promise.resolve([]); }
   updateStorage() { return Promise.resolve({
     evicted: [],
     storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
   }); }
+}
+
+class GatedHistoryGateway extends MemoryLigoGateway {
+  pending: Array<{ owner: 'peer' | 'self'; resolve: (page: LigoCloudPage) => void }> = [];
+
+  override history(
+    _username: string,
+    owner: 'peer' | 'self',
+    _cursor?: string | null,
+    _limit?: number,
+  ): Promise<LigoCloudPage> {
+    return new Promise((resolve) => this.pending.push({ owner, resolve }));
+  }
+
+  release(delivery: LigoDelivery): void {
+    for (const pending of this.pending.splice(0)) {
+      pending.resolve({ messages: pending.owner === 'self' ? [delivery] : [], nextCursor: null });
+    }
+  }
 }
 
 class TestWebSocket {
@@ -92,6 +167,7 @@ const EMPTY_TRANSPORT: LigoTransport = {
   complete: async (_delivery: LigoDelivery) => {},
   discard: async () => {},
   receive: async () => { throw new Error('Not used.'); },
+  reconcile: async (_ownerId, _delivery, cached) => cached,
   reset: () => {},
   send: async () => { throw new Error('Not used.'); },
 };

@@ -1,11 +1,12 @@
-import type { LigoMessage } from '../domain/ligo';
+import type { LigoMessage, LigoMessageStatus } from '../domain/ligo';
 
 export type LigoMessagePage = { messages: LigoMessage[]; nextCursor: string | null };
 
 export interface LigoLocalStore {
-  has(ownerId: string, messageId: string): Promise<boolean>;
+  get(ownerId: string, messageId: string): Promise<LigoMessage | null>;
   page(ownerId: string, conversationId: string, cursor: string | null, limit: number): Promise<LigoMessagePage>;
   put(ownerId: string, message: LigoMessage): Promise<void>;
+  updateStatus(ownerId: string, messageId: string, status: LigoMessageStatus): Promise<void>;
 }
 
 export function createLigoLocalStore(): LigoLocalStore {
@@ -15,8 +16,9 @@ export function createLigoLocalStore(): LigoLocalStore {
 export class MemoryLigoLocalStore implements LigoLocalStore {
   readonly #messages = new Map<string, LigoMessage>();
 
-  async has(ownerId: string, messageId: string): Promise<boolean> {
-    return this.#messages.has(`${ownerId}:${messageId}`);
+  async get(ownerId: string, messageId: string): Promise<LigoMessage | null> {
+    const message = this.#messages.get(`${ownerId}:${messageId}`);
+    return message ? durableMessage(message) : null;
   }
 
   async page(ownerId: string, conversationId: string, cursor: string | null, limit: number): Promise<LigoMessagePage> {
@@ -31,20 +33,26 @@ export class MemoryLigoLocalStore implements LigoLocalStore {
   }
 
   async put(ownerId: string, message: LigoMessage): Promise<void> {
-    this.#messages.set(`${ownerId}:${message.id}`, structuredClone(message));
+    this.#messages.set(`${ownerId}:${message.id}`, durableMessage(message));
+  }
+
+  async updateStatus(ownerId: string, messageId: string, status: LigoMessageStatus): Promise<void> {
+    const key = `${ownerId}:${messageId}`;
+    const message = this.#messages.get(key);
+    if (message) this.#messages.set(key, { ...message, status: advancedStatus(message.status, status) });
   }
 }
 
 class IndexedDbLigoLocalStore implements LigoLocalStore {
   readonly #database = openDatabase();
 
-  async has(ownerId: string, messageId: string): Promise<boolean> {
+  async get(ownerId: string, messageId: string): Promise<LigoMessage | null> {
     const database = await this.#database;
     return new Promise((resolve, reject) => {
       const request = database.transaction('messages', 'readonly').objectStore('messages')
-        .getKey(`${ownerId}:${messageId}`);
-      request.onsuccess = () => resolve(request.result !== undefined);
-      request.onerror = () => reject(request.error ?? new Error('Local messages could not be checked.'));
+        .get(`${ownerId}:${messageId}`);
+      request.onsuccess = () => resolve(request.result ? stripRecord(request.result as StoredMessage) : null);
+      request.onerror = () => reject(request.error ?? new Error('Local message could not be read.'));
     });
   }
 
@@ -73,16 +81,33 @@ class IndexedDbLigoLocalStore implements LigoLocalStore {
 
   async put(ownerId: string, message: LigoMessage): Promise<void> {
     const database = await this.#database;
+    const durable = durableMessage(message);
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction('messages', 'readwrite');
       transaction.objectStore('messages').put({
-        ...message,
-        localKey: `${ownerId}:${message.id}`,
+        ...durable,
+        localKey: `${ownerId}:${durable.id}`,
         ownerId,
       } satisfies StoredMessage);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error ?? new Error('Message could not be saved locally.'));
       transaction.onabort = () => reject(transaction.error ?? new Error('Message could not be saved locally.'));
+    });
+  }
+
+  async updateStatus(ownerId: string, messageId: string, status: LigoMessageStatus): Promise<void> {
+    const database = await this.#database;
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction('messages', 'readwrite');
+      const store = transaction.objectStore('messages');
+      const request = store.get(`${ownerId}:${messageId}`);
+      request.onsuccess = () => {
+        const message = request.result as StoredMessage | undefined;
+        if (message) store.put({ ...message, status: advancedStatus(message.status, status) });
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error('Message status could not be saved.'));
+      transaction.onabort = () => reject(transaction.error ?? new Error('Message status could not be saved.'));
     });
   }
 }
@@ -184,8 +209,27 @@ function stripRecord({ localKey: _localKey, ownerId: _ownerId, ...message }: Sto
   return message;
 }
 
+function durableMessage(message: LigoMessage): LigoMessage {
+  return {
+    ...message,
+    attachments: message.attachments.map((attachment) => ({
+      ...attachment,
+      // Store a standalone Blob instead of a File whose native backing path
+      // may no longer be available after a Windows WebView restart.
+      blob: attachment.blob.slice(0, attachment.blob.size, attachment.mimeType),
+    })),
+  };
+}
+
 function compareNewest(left: LigoMessage, right: LigoMessage): number {
   return right.createdAt - left.createdAt || right.id.localeCompare(left.id);
+}
+
+const STATUS_RANK: Record<LigoMessageStatus, number> = {
+  failed: 0, sending: 1, queued: 2, delivered: 3, read: 4,
+};
+function advancedStatus(current: LigoMessageStatus, next: LigoMessageStatus): LigoMessageStatus {
+  return STATUS_RANK[next] >= STATUS_RANK[current] ? next : current;
 }
 
 function encodeCursor(message: LigoMessage): string { return `${message.createdAt}:${message.id}`; }

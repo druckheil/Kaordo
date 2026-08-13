@@ -18,8 +18,10 @@ export type LigoMessage = {
   id: string;
   recipientId: string;
   senderId: string;
-  status: 'delivered' | 'queued';
+  status: LigoMessageStatus;
 };
+export type LigoMessageStatus = 'sending' | 'queued' | 'delivered' | 'read' | 'failed';
+export type LigoReceiptStatus = Extract<LigoMessageStatus, 'delivered' | 'read'>;
 export type LigoDelivery = {
   createdAt: number;
   id: string;
@@ -27,6 +29,7 @@ export type LigoDelivery = {
   recipient: { id: string; username: string };
   sender: { id: string; username: string };
   sizeBytes: number;
+  status: Extract<LigoMessageStatus, 'queued' | 'delivered' | 'read'>;
   storage: 'private' | 'public';
 };
 export type LigoStorageSettings = {

@@ -295,6 +295,12 @@ struct LigoCleanupInput<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct LigoReadInput<'a> {
+    message_ids: &'a [String],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct LigoStorageInput<'a> {
     selected_node_id: &'a str,
     stack_limit_bytes: u64,
@@ -842,6 +848,24 @@ pub async fn ligo_history(
 pub async fn ligo_live_ticket(client: State<'_, AuthClient>) -> Result<Value, String> {
     let response = authenticated_request(&client, Method::POST, "/api/ligo/live-ticket").await?;
     decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ligo_mark_read(
+    client: State<'_, AuthClient>,
+    message_ids: Vec<String>,
+) -> Result<(), String> {
+    if message_ids.len() > 64 || message_ids.iter().any(|id| node_id_path(id).is_err()) {
+        return Err("Ligo read receipts are invalid.".to_owned());
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::POST,
+        "/api/ligo/read",
+        &LigoReadInput { message_ids: &message_ids },
+    ).await?;
+    let _: Value = decode_response(response).await?;
+    Ok(())
 }
 
 

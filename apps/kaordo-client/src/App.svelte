@@ -109,6 +109,7 @@
     history: async () => ({ messages: [], nextCursor: null }),
     inbox: async () => ({ deliveries: [], nextCursor: null }),
     liveTicket: async () => { throw new Error('Ligo live service is unavailable.'); },
+    markRead: async () => { throw new Error('Ligo read receipts are unavailable.'); },
     searchUsers: async () => [],
     updateStorage: async () => { throw new Error('Ligo storage is unavailable.'); },
   };
