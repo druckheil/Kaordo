@@ -1,6 +1,7 @@
 import type { LigoGateway } from './gateways/LigoGateway';
 import type { NodoGateway } from './gateways/NodoGateway';
 import { NodeLigoTransport } from './gateways/NodeLigoTransport';
+import { createLigoFileArchive } from './services/LigoFileArchive';
 import { createLigoLocalStore } from './services/LigoLocalStore';
 import { Director, StateKey } from './state/Director';
 import type { GStateManager } from './state/GStateManager';
@@ -21,6 +22,8 @@ export class LigoController {
       createLigoLocalStore(),
       () => nodes.listNodes(),
       () => nodes.publicStorage(),
+      undefined,
+      createLigoFileArchive(),
     );
   }
   start(): void { this.manager.change(this.state); }

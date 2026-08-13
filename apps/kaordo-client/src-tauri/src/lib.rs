@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod auth;
+mod ligo_archive;
 
 use kaordo_workspace::{ObjectSummary, Workspace, WorkspaceDetail, WorkspaceLibrary};
 use serde::Serialize;
@@ -346,6 +347,9 @@ pub fn run() {
             auth::ligo_mark_read,
             auth::ligo_search_users,
             auth::ligo_update_storage,
+            ligo_archive::ligo_open_chat_files,
+            ligo_archive::ligo_prepare_chat_files,
+            ligo_archive::ligo_write_chat_file_chunk,
             auth::nodo_delete,
             auth::nodo_access,
             auth::nodo_list,

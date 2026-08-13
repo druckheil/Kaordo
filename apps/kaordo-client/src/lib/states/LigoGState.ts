@@ -17,6 +17,7 @@ import {
   type LigoUploadProgress,
 } from '../gateways/NodeLigoTransport';
 import type { LigoLocalStore } from '../services/LigoLocalStore';
+import { type LigoFileArchive, UNAVAILABLE_LIGO_FILE_ARCHIVE } from '../services/LigoFileArchive';
 import { ligoAttachmentUrls } from '../services/LigoAttachmentUrls';
 import { GState } from '../state/GState';
 
@@ -71,6 +72,7 @@ export type LigoSnapshot = {
   loadingOlder: boolean;
   loadingHistory: boolean;
   loadingMoreConversations: boolean;
+  openingLocalFiles: boolean;
   messages: LigoMessage[];
   nodes: NodoNode[];
   phase: 'idle' | 'loading' | 'ready';
@@ -125,6 +127,7 @@ export class LigoGState extends GState<LigoSnapshot> {
     private readonly loadNodes: () => Promise<NodoNode[]>,
     private readonly loadPublicStorage: () => Promise<PublicNodoStorage>,
     private readonly openLiveSocket: (url: string) => LigoLiveSocket = (url) => new WebSocket(url),
+    private readonly fileArchive: LigoFileArchive = UNAVAILABLE_LIGO_FILE_ARCHIVE,
   ) { super(emptySnapshot()); }
 
   configure(ownerId: string | null): void {
@@ -157,6 +160,27 @@ export class LigoGState extends GState<LigoSnapshot> {
       loadingOlder: false,
       searchPhase: 'idle',
     });
+  }
+
+  async openLocalFiles(): Promise<void> {
+    const ownerId = this.#ownerId;
+    const peer = this.snapshot.activeUser;
+    if (!ownerId || !peer || !this.fileArchive.available || this.snapshot.openingLocalFiles) return;
+    this.publish({ ...this.snapshot, error: null, openingLocalFiles: true });
+    try {
+      const attachments = await this.local.attachments(ownerId, peer.id);
+      if (this.#ownerId !== ownerId) return;
+      if (this.snapshot.activeUser?.id !== peer.id) {
+        this.publish({ ...this.snapshot, openingLocalFiles: false });
+        return;
+      }
+      await this.fileArchive.open(ownerId, peer, attachments);
+      if (this.#ownerId === ownerId) this.publish({ ...this.snapshot, openingLocalFiles: false });
+    } catch (error) {
+      if (this.#ownerId === ownerId) {
+        this.publish({ ...this.snapshot, error: readableError(error), openingLocalFiles: false });
+      }
+    }
   }
 
   reset(): void {
@@ -1047,7 +1071,7 @@ export class LigoGState extends GState<LigoSnapshot> {
 function emptySnapshot(): LigoSnapshot {
   return {
     activeUser: null, attachmentError: null, conversations: [], conversationCursor: null, draft: '', draftFiles: [], error: null,
-    hasOlder: false, loadingHistory: false, loadingOlder: false, loadingMoreConversations: false, messages: [], nodes: [], phase: 'idle', publicStorage: null,
+    hasOlder: false, loadingHistory: false, loadingOlder: false, loadingMoreConversations: false, messages: [], nodes: [], openingLocalFiles: false, phase: 'idle', publicStorage: null,
     searchPhase: 'idle', searchQuery: '', searchResults: [], selectedNodeId: PUBLIC_LIGO_DESTINATION,
     sending: false, stackLimitBytes: 100 * 1_048_576, stackUsedBytes: 0, storageSaving: false,
     syncing: false, uploadProgress: null,

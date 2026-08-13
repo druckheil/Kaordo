@@ -1,8 +1,13 @@
 import type { LigoMessage, LigoMessageStatus } from '../domain/ligo';
 
 export type LigoMessagePage = { messages: LigoMessage[]; nextCursor: string | null };
+export type LigoLocalAttachment = LigoMessage['attachments'][number] & {
+  createdAt: number;
+  messageId: string;
+};
 
 export interface LigoLocalStore {
+  attachments(ownerId: string, conversationId: string): Promise<LigoLocalAttachment[]>;
   delete(ownerId: string, messageId: string): Promise<LigoMessage | null>;
   deleteConversation(ownerId: string, conversationId: string): Promise<LigoMessage[]>;
   get(ownerId: string, messageId: string): Promise<LigoMessage | null>;
@@ -17,6 +22,17 @@ export function createLigoLocalStore(): LigoLocalStore {
 
 export class MemoryLigoLocalStore implements LigoLocalStore {
   readonly #messages = new Map<string, LigoMessage>();
+
+  async attachments(ownerId: string, conversationId: string): Promise<LigoLocalAttachment[]> {
+    return [...this.#messages.entries()]
+      .filter(([key, message]) => key.startsWith(`${ownerId}:`) && message.conversationId === conversationId)
+      .flatMap(([, message]) => message.attachments.map((attachment) => ({
+        ...attachment,
+        createdAt: message.createdAt,
+        messageId: message.id,
+      })))
+      .sort(compareAttachments);
+  }
 
   async delete(ownerId: string, messageId: string): Promise<LigoMessage | null> {
     const key = `${ownerId}:${messageId}`;
@@ -64,6 +80,34 @@ export class MemoryLigoLocalStore implements LigoLocalStore {
 
 class IndexedDbLigoLocalStore implements LigoLocalStore {
   readonly #database = openDatabase();
+
+  async attachments(ownerId: string, conversationId: string): Promise<LigoLocalAttachment[]> {
+    const database = await this.#database;
+    const range = IDBKeyRange.bound(
+      [ownerId, conversationId, 0, ''],
+      [ownerId, conversationId, Number.MAX_SAFE_INTEGER, '\uffff'],
+    );
+    return new Promise((resolve, reject) => {
+      const request = database.transaction('messages', 'readonly').objectStore('messages')
+        .index('byConversation').openCursor(range);
+      const attachments: LigoLocalAttachment[] = [];
+      request.onerror = () => reject(request.error ?? new Error('Local chat files could not be read.'));
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(attachments.sort(compareAttachments));
+          return;
+        }
+        const message = stripRecord(cursor.value as StoredMessage);
+        attachments.push(...message.attachments.map((attachment) => ({
+          ...attachment,
+          createdAt: message.createdAt,
+          messageId: message.id,
+        })));
+        cursor.continue();
+      };
+    });
+  }
 
   async delete(ownerId: string, messageId: string): Promise<LigoMessage | null> {
     const database = await this.#database;
@@ -284,6 +328,11 @@ function durableMessage(message: LigoMessage): LigoMessage {
 
 function compareNewest(left: LigoMessage, right: LigoMessage): number {
   return right.createdAt - left.createdAt || right.id.localeCompare(left.id);
+}
+
+function compareAttachments(left: LigoLocalAttachment, right: LigoLocalAttachment): number {
+  return left.createdAt - right.createdAt || left.messageId.localeCompare(right.messageId) ||
+    left.id.localeCompare(right.id);
 }
 
 const STATUS_RANK: Record<LigoMessageStatus, number> = {
