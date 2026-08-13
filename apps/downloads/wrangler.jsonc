@@ -1,0 +1,12 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "kaordo-downloads",
+  "compatibility_date": "2026-08-13",
+  "pages_build_output_dir": "./public",
+  "r2_buckets": [
+    {
+      "binding": "RELEASES",
+      "bucket_name": "kaordo-releases"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[package]
+name = "kaordo-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+kaordo-core = { path = "../kaordo-core" }
+
+[lints]
+workspace = true

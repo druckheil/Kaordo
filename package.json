@@ -1,0 +1,17 @@
+{
+  "name": "kaordo",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "api:check": "pnpm --filter @kaordo/api run check",
+    "api:deploy": "pnpm --filter @kaordo/api run deploy",
+    "api:dev": "pnpm --filter @kaordo/api run dev",
+    "api:test": "pnpm --filter @kaordo/api run test",
+    "build": "pnpm --filter @kaordo/client build:web",
+    "check": "pnpm --filter @kaordo/client check",
+    "dev": "pnpm --filter @kaordo/client dev",
+    "test": "pnpm --filter @kaordo/client test",
+    "test:wasm": "cargo test -p kaordo-sdk-wasm"
+  }
+}

@@ -1,0 +1,798 @@
+import { tick } from 'svelte';
+import type { CanvasPlacement } from '../domain/canvas';
+import type {
+  CanvasElement,
+  ObjectDocument,
+  ObjectSummary,
+  TextElement,
+  WorkspaceCanvasDocument,
+  WorkspaceDetail,
+} from '../domain/workspace';
+import { sanitizeTextHtml } from '../domain/workspace';
+import {
+  CANVAS_CARD_MIN_HEIGHT,
+  CANVAS_CARD_MIN_WIDTH,
+  CANVAS_HEIGHT,
+  CANVAS_WIDTH,
+} from '../features/canvas';
+import { CanvasGState } from '../states/CanvasGState';
+import { CanvasDragService } from './CanvasDragService';
+import { CanvasViewportService } from './CanvasViewportService';
+
+/** Stable component-facing facade for canvas state and DOM interactions. */
+export class CanvasService {
+  readonly #deleteObject: (
+    workspaceId: string,
+    objectId: string,
+  ) => Promise<boolean>;
+  readonly #drag: CanvasDragService;
+  readonly #getWorkspace: () => WorkspaceDetail | null;
+  readonly #loadCanvasDocument: (
+    workspaceId: string,
+  ) => Promise<WorkspaceCanvasDocument>;
+  readonly #saveCanvasDocument: (
+    workspaceId: string,
+    document: WorkspaceCanvasDocument,
+  ) => Promise<void>;
+  readonly #updateObjectDocument: (
+    workspaceId: string,
+    objectId: string,
+    document: ObjectDocument,
+  ) => Promise<ObjectSummary>;
+  readonly #viewport: CanvasViewportService;
+  readonly state: CanvasGState;
+  readonly #canvasSaves = new Map<string, Promise<void>>();
+  readonly #objectSaves = new Map<string, Promise<ObjectSummary>>();
+  readonly #pendingPlacements = new Map<string, CanvasPlacement>();
+  readonly #persistedCanvasDocuments = new Map<
+    string,
+    WorkspaceCanvasDocument
+  >();
+  #canvasLoadToken = 0;
+  #resize: ObjectResizeGesture | null = null;
+  readonly #textEditors = new Map<string, TextEditorController>();
+
+  constructor(
+    state: CanvasGState,
+    getWorkspace: () => WorkspaceDetail | null,
+    updateObjectDocument: (
+      workspaceId: string,
+      objectId: string,
+      document: ObjectDocument,
+    ) => Promise<ObjectSummary> = async () => {
+      throw new Error('Object editing is unavailable.');
+    },
+    loadCanvasDocument: (
+      workspaceId: string,
+    ) => Promise<WorkspaceCanvasDocument> = async () => ({
+      elements: [],
+      placements: [],
+      version: 1,
+    }),
+    saveCanvasDocument: (
+      workspaceId: string,
+      document: WorkspaceCanvasDocument,
+    ) => Promise<void> = async () => undefined,
+    deleteObject: (
+      workspaceId: string,
+      objectId: string,
+    ) => Promise<boolean> = async () => false,
+  ) {
+    this.state = state;
+    this.#getWorkspace = getWorkspace;
+    this.#updateObjectDocument = updateObjectDocument;
+    this.#loadCanvasDocument = loadCanvasDocument;
+    this.#saveCanvasDocument = saveCanvasDocument;
+    this.#deleteObject = deleteObject;
+    this.#viewport = new CanvasViewportService(state, getWorkspace);
+    this.#drag = new CanvasDragService(
+      state,
+      getWorkspace,
+      this.#viewport,
+      (placement) => this.persistPlacement(placement),
+    );
+  }
+
+  async saveWorkspaceCanvasDocument(
+    workspaceId: string,
+    document: WorkspaceCanvasDocument,
+  ): Promise<void> {
+    this.state.setCanvasDocument(workspaceId, document);
+    const previous = this.#canvasSaves.get(workspaceId);
+    const operation = (previous?.catch(() => undefined) ?? Promise.resolve())
+      .then(() => this.#saveCanvasDocument(workspaceId, document))
+      .then(() => {
+        this.#persistedCanvasDocuments.set(workspaceId, document);
+      });
+    this.#canvasSaves.set(workspaceId, operation);
+    try {
+      await operation;
+    } catch (error) {
+      if (
+        this.#canvasSaves.get(workspaceId) === operation &&
+        this.state.canvasDocumentFor(workspaceId) === document
+      ) {
+        this.state.setCanvasDocument(
+          workspaceId,
+          this.#persistedCanvasDocuments.get(workspaceId) ?? {
+            elements: [],
+            placements: [],
+            version: 1,
+          },
+        );
+      }
+      throw error;
+    } finally {
+      if (this.#canvasSaves.get(workspaceId) === operation) {
+        this.#canvasSaves.delete(workspaceId);
+      }
+    }
+  }
+
+  async saveObjectDocument(
+    workspaceId: string,
+    objectId: string,
+    document: ObjectDocument,
+  ): Promise<void> {
+    const key = `${workspaceId}:${objectId}`;
+    const previous = this.#objectSaves.get(key);
+    const operation = (previous?.catch(() => undefined) ?? Promise.resolve())
+      .then(() => this.#updateObjectDocument(workspaceId, objectId, document));
+    this.#objectSaves.set(key, operation);
+    try {
+      const updated = await operation;
+      this.state.updateObject(workspaceId, updated);
+    } finally {
+      if (this.#objectSaves.get(key) === operation) this.#objectSaves.delete(key);
+    }
+  }
+
+  async deleteWorkspaceObject(
+    workspaceId: string,
+    objectId: string,
+  ): Promise<boolean> {
+    await this.#objectSaves.get(`${workspaceId}:${objectId}`)?.catch(() => undefined);
+    return this.#deleteObject(workspaceId, objectId);
+  }
+
+  async settleWorkspaceWrites(workspaceId: string): Promise<void> {
+    const writes: Promise<unknown>[] = [];
+    const canvasWrite = this.#canvasSaves.get(workspaceId);
+    if (canvasWrite) writes.push(canvasWrite);
+    for (const [key, write] of this.#objectSaves) {
+      if (key.startsWith(`${workspaceId}:`)) writes.push(write);
+    }
+    await Promise.allSettled(writes);
+  }
+
+  forgetWorkspace(workspaceId: string): void {
+    this.#persistedCanvasDocuments.delete(workspaceId);
+    for (const key of this.#pendingPlacements.keys()) {
+      if (key.startsWith(`${workspaceId}:`)) this.#pendingPlacements.delete(key);
+    }
+    this.state.forgetWorkspace(workspaceId);
+  }
+
+  async removeObjectReferences(
+    workspaceId: string,
+    objectId: string,
+  ): Promise<void> {
+    this.state.removeObject(workspaceId, objectId);
+    await this.saveWorkspaceCanvasDocument(
+      workspaceId,
+      this.state.canvasDocumentFor(workspaceId),
+    );
+  }
+
+  async deleteCanvasElement(
+    workspaceId: string,
+    elementId: string,
+  ): Promise<void> {
+    const document = this.state.canvasDocumentFor(workspaceId);
+    if (!document.elements.some((element) => element.id === elementId)) return;
+    this.state.removeCanvasElement(workspaceId, elementId);
+    await this.saveWorkspaceCanvasDocument(
+      workspaceId,
+      this.state.canvasDocumentFor(workspaceId),
+    );
+    this.state.announce('Element deleted.');
+  }
+
+  selectedCanvasElement(): CanvasElement | null {
+    const workspace = this.#getWorkspace();
+    const id = this.state.snapshot.selectedGlobalElementId;
+    if (!workspace || !id) return null;
+    return this.state.canvasDocumentFor(workspace.id).elements
+      .find((element) => element.id === id) ?? null;
+  }
+
+  currentZoom(): number {
+    return this.state.zoomFor(this.#getWorkspace()?.id ?? '');
+  }
+
+  currentWorkspaceId(): string {
+    return this.#getWorkspace()?.id ?? '';
+  }
+
+  createTextElement(
+    workspaceId: string,
+    position: {
+      parentElementId?: string;
+      parentObjectId?: string;
+      width?: number;
+      x: number;
+      y: number;
+    },
+  ): TextElement {
+    const element: TextElement = {
+      color: '#25332d',
+      fontSize: 16,
+      height: 48,
+      html: '',
+      id: createCanvasElementId('text'),
+      textAlign: 'left',
+      type: 'text',
+      width: position.width ?? 260,
+      x: position.x,
+      y: position.y,
+    };
+    if (position.parentObjectId) {
+      element.parentObjectId = position.parentObjectId;
+    }
+    if (position.parentElementId) {
+      element.parentElementId = position.parentElementId;
+    }
+    const document = this.state.canvasDocumentFor(workspaceId);
+    void this.saveWorkspaceCanvasDocument(workspaceId, {
+      ...document,
+      elements: [...document.elements, element],
+    }).catch(() => this.state.announce('Text could not be created.'));
+    this.state.editText(element.id);
+    this.state.announce('Text added. Start typing.');
+    return element;
+  }
+
+  async updateCanvasElement(
+    workspaceId: string,
+    updated: CanvasElement,
+  ): Promise<void> {
+    const document = this.state.canvasDocumentFor(workspaceId);
+    await this.saveWorkspaceCanvasDocument(workspaceId, {
+      ...document,
+      elements: document.elements.map((element) =>
+        element.id === updated.id ? updated : element,
+      ),
+    });
+  }
+
+  attachTextEditor(
+    elementId: string,
+    editor: TextEditorController | null,
+  ): void {
+    if (editor) this.#textEditors.set(elementId, editor);
+    else this.#textEditors.delete(elementId);
+  }
+
+  async formatSelectedText(command: TextFormatCommand, value?: string): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    if (selected?.type !== 'text') return;
+    if (this.state.snapshot.editingTextId !== selected.id) {
+      this.state.editText(selected.id);
+      await tick();
+    }
+    this.#textEditors.get(selected.id)?.format(command, value);
+  }
+
+  async setTextFontSize(fontSize: number): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    const workspace = this.#getWorkspace();
+    if (!workspace || selected?.type !== 'text') return;
+    await this.updateCanvasElement(workspace.id, { ...selected, fontSize });
+  }
+
+  async setTextAlignment(textAlign: TextElement['textAlign']): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    const workspace = this.#getWorkspace();
+    if (!workspace || selected?.type !== 'text') return;
+    await this.updateCanvasElement(workspace.id, { ...selected, textAlign });
+  }
+
+  async focusTextElement(workspaceId: string, elementId: string): Promise<void> {
+    this.state.selectGlobalElement(elementId);
+    await this.#viewport.focusCanvasElement(workspaceId, elementId);
+  }
+
+  async setRectangleFill(color: string): Promise<void> {
+    this.state.setShapeFill(color);
+    await this.updateSelectedRectangle({ fill: color });
+  }
+
+  async setRectangleStroke(color: string): Promise<void> {
+    this.state.setShapeStroke(color);
+    await this.updateSelectedRectangle({ stroke: color });
+  }
+
+  startObjectResize(event: PointerEvent, placement: CanvasPlacement): void {
+    if (event.button !== 0 || this.#resize) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget as HTMLElement;
+    const positioner = handle.closest<HTMLElement>('.canvas-card-positioner');
+    if (!positioner) return;
+    this.state.clearEntering(
+      this.#getWorkspace()?.id ?? '',
+      placement.id,
+    );
+    positioner.style.willChange = 'width, height';
+    handle.setPointerCapture?.(event.pointerId);
+    this.#resize = {
+      handle,
+      height: placement.height,
+      object: placement,
+      pointerId: event.pointerId,
+      positioner,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      width: placement.width,
+    };
+    this.state.setResizingObject(placement.id);
+  }
+
+  continueObjectResize(event: PointerEvent): void {
+    const resize = this.#resize;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.applyResizeVisual(resize, latestPointerSample(event));
+  }
+
+  finishObjectResize(event: PointerEvent): void {
+    const resize = this.#resize;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const size = this.applyResizeVisual(resize, latestPointerSample(event), true);
+    this.#resize = null;
+    resize.positioner.style.removeProperty('will-change');
+    this.releaseResizePointer(resize);
+    this.state.setResizingObject(null);
+    const workspace = this.#getWorkspace();
+    if (!workspace) return;
+    this.state.resizeObject(workspace.id, resize.object.id, size);
+    this.persistPlacement({ ...resize.object, ...size });
+    void this.saveObjectDocument(workspace.id, resize.object.id, {
+      ...resize.object.document,
+      frame: size,
+    }).catch(() => this.state.announce('Object size could not be saved.'));
+  }
+
+  cancelObjectResize(event: PointerEvent): void {
+    const resize = this.#resize;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    event.stopPropagation();
+    this.cancelResize(resize);
+  }
+
+  handleObjectResizeCaptureLost(event: PointerEvent): void {
+    const resize = this.#resize;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    this.cancelResize(resize, false);
+  }
+
+  handleObjectResizeKeydown(
+    event: KeyboardEvent,
+    placement: CanvasPlacement,
+  ): void {
+    const step = event.shiftKey ? 80 : 16;
+    let width = placement.width;
+    let height = placement.height;
+    if (event.key === 'ArrowLeft') width -= step;
+    else if (event.key === 'ArrowRight') width += step;
+    else if (event.key === 'ArrowUp') height -= step;
+    else if (event.key === 'ArrowDown') height += step;
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
+    const size = constrainObjectSize(placement, { height, width });
+    const workspace = this.#getWorkspace();
+    if (!workspace) return;
+    this.state.resizeObject(workspace.id, placement.id, size);
+    this.persistPlacement({ ...placement, ...size });
+    void this.saveObjectDocument(workspace.id, placement.id, {
+      ...placement.document,
+      frame: size,
+    }).catch(() => this.state.announce('Object size could not be saved.'));
+  }
+
+  attachViewport(element: HTMLDivElement | null): void {
+    this.#viewport.attach(element);
+  }
+
+  attachFloatingCard(element: HTMLElement | null): void {
+    this.#drag.attachFloatingCard(element);
+  }
+
+  enterWorkspace(workspace: WorkspaceDetail): void {
+    this.#viewport.invalidateCameraRestore();
+    this.state.prepareWorkspace(workspace);
+    const token = ++this.#canvasLoadToken;
+    void this.#loadCanvasDocument(workspace.id)
+      .then((loadedDocument) => {
+        if (
+          token === this.#canvasLoadToken &&
+          this.#getWorkspace()?.id === workspace.id
+        ) {
+          const document = this.prepareCanvasDocument(
+            workspace,
+            loadedDocument,
+          );
+          this.state.setCanvasDocument(workspace.id, document);
+          this.state.restorePlacements(workspace, document);
+          this.#persistedCanvasDocuments.set(workspace.id, loadedDocument);
+          this.state.markCanvasDocumentReady();
+          for (const key of this.#pendingPlacements.keys()) {
+            if (key.startsWith(`${workspace.id}:`)) {
+              this.#pendingPlacements.delete(key);
+            }
+          }
+          if (document !== loadedDocument) {
+            void this.saveWorkspaceCanvasDocument(workspace.id, document)
+              .catch(() => this.state.announce('Canvas migration could not be saved.'));
+          }
+        }
+      })
+      .catch(() => {
+        if (token === this.#canvasLoadToken) {
+          this.state.setCanvasDocument(workspace.id, {
+            elements: [],
+            placements: [],
+            version: 1,
+          });
+          this.state.markCanvasDocumentReady();
+          this.state.announce('Canvas elements could not be loaded.');
+        }
+      });
+    void this.#viewport.restoreCamera(workspace.id);
+  }
+
+  leaveWorkspace(workspaceId = this.#getWorkspace()?.id): void {
+    this.#canvasLoadToken += 1;
+    if (workspaceId) this.#viewport.captureCamera(workspaceId);
+    this.clearInteractions();
+    this.#viewport.invalidateCameraRestore();
+    this.state.leaveWorkspace();
+  }
+
+  isObjectPlaced(workspaceId: string, objectId: string): boolean {
+    return this.state
+      .placementsFor(workspaceId)
+      .some((placement) => placement.id === objectId);
+  }
+
+  handleObjectSourceClick(object: ObjectSummary): void {
+    this.#drag.handleObjectSourceClick(object);
+  }
+
+  handleObjectSourceKeydown(event: KeyboardEvent, object: ObjectSummary): void {
+    this.#drag.handleObjectSourceKeydown(event, object);
+  }
+
+  startObjectPointerDrag(event: PointerEvent, object: ObjectSummary): void {
+    this.#drag.start(
+      event,
+      object,
+      this.state.snapshot.isPanning || this.#resize !== null,
+    );
+  }
+
+  continueObjectPointerDrag(event: PointerEvent): void {
+    this.#drag.continue(event);
+  }
+
+  finishObjectPointerDrag(event: PointerEvent): void {
+    this.#drag.finish(event);
+  }
+
+  cancelObjectPointerDrag(event: PointerEvent): void {
+    this.#drag.cancel(event);
+  }
+
+  handleObjectPointerCaptureLost(event: PointerEvent): void {
+    this.#drag.handleCaptureLost(event);
+  }
+
+  placeObjectFromKeyboard(object: ObjectSummary): void {
+    this.#drag.placeObjectFromKeyboard(object);
+  }
+
+  handleCanvasCardKeydown(
+    event: KeyboardEvent,
+    placement: CanvasPlacement,
+  ): void {
+    this.#drag.handleCanvasCardKeydown(event, placement);
+  }
+
+  handleCanvasScroll(): void {
+    this.#drag.handleViewportScroll();
+    this.#viewport.scheduleCameraCapture();
+  }
+
+  handleCanvasWheel(event: WheelEvent): void {
+    this.#viewport.zoomFromWheel(event);
+  }
+
+  zoomIn(): void {
+    this.#viewport.zoomBy(1.2);
+  }
+
+  zoomOut(): void {
+    this.#viewport.zoomBy(1 / 1.2);
+  }
+
+  resetZoom(): void {
+    this.#viewport.resetZoom();
+  }
+
+  startCanvasPan(event: PointerEvent): void {
+    this.#viewport.startPan(event, this.#drag.isActive);
+  }
+
+  continueCanvasPan(event: PointerEvent): void {
+    this.#viewport.continuePan(event);
+  }
+
+  finishCanvasPan(event: PointerEvent): void {
+    this.#viewport.finishPan(event);
+  }
+
+  handleCanvasPanCaptureLost(event: PointerEvent): void {
+    this.#viewport.handlePanCaptureLost(event);
+  }
+
+  captureCamera(workspaceId = this.#getWorkspace()?.id): void {
+    this.#viewport.captureCamera(workspaceId);
+  }
+
+  restoreCamera(workspaceId: string): Promise<void> {
+    return this.#viewport.restoreCamera(workspaceId);
+  }
+
+  clearInteractions(): void {
+    if (this.#resize) this.cancelResize(this.#resize);
+    this.#drag.clear();
+    this.#viewport.clearPan();
+    this.state.resetInteractions();
+  }
+
+  private applyResizeVisual(
+    resize: ObjectResizeGesture,
+    sample: PointerEvent,
+    round = false,
+  ): { height: number; width: number } {
+    const size = constrainObjectSize(resize.object, {
+      height:
+        resize.height + (sample.clientY - resize.startClientY) / this.currentZoom(),
+      width:
+        resize.width + (sample.clientX - resize.startClientX) / this.currentZoom(),
+    });
+    const committed = round
+      ? { height: Math.round(size.height), width: Math.round(size.width) }
+      : size;
+    resize.positioner.style.width = `${committed.width}px`;
+    resize.positioner.style.height = `${committed.height}px`;
+    return committed;
+  }
+
+  private cancelResize(
+    resize: ObjectResizeGesture,
+    releasePointer = true,
+  ): void {
+    this.#resize = null;
+    resize.positioner.style.width = `${resize.width}px`;
+    resize.positioner.style.height = `${resize.height}px`;
+    resize.positioner.style.removeProperty('will-change');
+    if (releasePointer) this.releaseResizePointer(resize);
+    this.state.setResizingObject(null);
+  }
+
+  private releaseResizePointer(resize: ObjectResizeGesture): void {
+    if (resize.handle.hasPointerCapture?.(resize.pointerId)) {
+      resize.handle.releasePointerCapture(resize.pointerId);
+    }
+  }
+
+  private async updateSelectedRectangle(
+    patch: { fill?: string; stroke?: string },
+  ): Promise<void> {
+    const workspace = this.#getWorkspace();
+    const {
+      selectedCardId,
+      selectedElementId,
+      selectedGlobalElementId,
+    } = this.state.snapshot;
+    if (workspace && selectedGlobalElementId) {
+      const document = this.state.canvasDocumentFor(workspace.id);
+      await this.saveWorkspaceCanvasDocument(workspace.id, {
+        elements: document.elements.map((element) =>
+          element.id === selectedGlobalElementId
+            ? { ...element, ...patch }
+            : element,
+        ),
+        placements: document.placements,
+        version: 1,
+      });
+      return;
+    }
+    if (!workspace || !selectedCardId || !selectedElementId) return;
+    const object = workspace.objects.find((candidate) => candidate.id === selectedCardId);
+    if (!object) return;
+    const elements = object.document.elements.map((element) =>
+      element.id === selectedElementId && element.type === 'rectangle'
+        ? { ...element, ...patch }
+        : element,
+    );
+    await this.saveObjectDocument(workspace.id, object.id, {
+      ...object.document,
+      elements,
+    });
+  }
+
+  private persistPlacement(placement: CanvasPlacement): void {
+    const workspace = this.#getWorkspace();
+    if (!workspace || workspace.id === '') return;
+    if (!this.state.snapshot.isCanvasDocumentReady) {
+      this.#pendingPlacements.set(`${workspace.id}:${placement.id}`, placement);
+      return;
+    }
+    const document = this.state.canvasDocumentFor(workspace.id);
+    const saved = {
+      height: placement.height,
+      objectId: placement.id,
+      width: placement.width,
+      x: placement.x,
+      y: placement.y,
+    };
+    const exists = document.placements.some(
+      (candidate) => candidate.objectId === placement.id,
+    );
+    const placements = exists
+      ? document.placements.map((candidate) =>
+          candidate.objectId === placement.id ? saved : candidate,
+        )
+      : [...document.placements, saved];
+    void this.saveWorkspaceCanvasDocument(workspace.id, {
+      ...document,
+      placements,
+    }).catch(() => this.state.announce('Object position could not be saved.'));
+  }
+
+  private prepareCanvasDocument(
+    workspace: WorkspaceDetail,
+    document: WorkspaceCanvasDocument,
+  ): WorkspaceCanvasDocument {
+    const knownElementIds = new Set(document.elements.map((element) => element.id));
+    const migratedElements: CanvasElement[] = [];
+    for (const object of workspace.objects) {
+      object.document.elements.forEach((element, index) => {
+        if (knownElementIds.has(element.id)) return;
+        if (element.type === 'rectangle') {
+          migratedElements.push({ ...element, parentObjectId: object.id });
+        } else {
+          migratedElements.push({
+            color: '#25332d',
+            fontSize: 16,
+            height: 56,
+            html: sanitizeTextHtml(element.html),
+            id: element.id,
+            parentObjectId: object.id,
+            textAlign: 'left',
+            type: 'text',
+            width: 260,
+            x: 18,
+            y: 18 + index * 68,
+          });
+        }
+        knownElementIds.add(element.id);
+      });
+    }
+    const sessionPlacements = this.state.placementsFor(workspace.id);
+    const pendingPlacements = [...this.#pendingPlacements.entries()]
+      .filter(([key]) => key.startsWith(`${workspace.id}:`))
+      .map(([, placement]) => placement);
+    if (
+      migratedElements.length === 0 &&
+      pendingPlacements.length === 0 &&
+      (document.placements.length > 0 || sessionPlacements.length === 0)
+    ) {
+      return document;
+    }
+    const placements = pendingPlacements.reduce(
+      (saved, placement) => {
+        const next = {
+          height: placement.height,
+          objectId: placement.id,
+          width: placement.width,
+          x: placement.x,
+          y: placement.y,
+        };
+        const exists = saved.some(
+          (candidate) => candidate.objectId === placement.id,
+        );
+        return exists
+          ? saved.map((candidate) =>
+              candidate.objectId === placement.id ? next : candidate,
+            )
+          : [...saved, next];
+      },
+      document.placements.length > 0
+        ? document.placements
+        : sessionPlacements.map((placement) => ({
+            height: placement.height,
+            objectId: placement.id,
+            width: placement.width,
+            x: placement.x,
+            y: placement.y,
+          })),
+    );
+    return {
+      elements: [...document.elements, ...migratedElements],
+      placements,
+      version: 1,
+    };
+  }
+}
+
+type ObjectResizeGesture = {
+  handle: HTMLElement;
+  height: number;
+  object: CanvasPlacement;
+  pointerId: number;
+  positioner: HTMLElement;
+  startClientX: number;
+  startClientY: number;
+  width: number;
+};
+
+export type TextFormatCommand =
+  | 'bold'
+  | 'foreColor'
+  | 'hiliteColor'
+  | 'italic'
+  | 'strikeThrough'
+  | 'underline';
+
+export type TextEditorController = {
+  format(command: TextFormatCommand, value?: string): void;
+};
+
+function constrainObjectSize(
+  placement: Pick<CanvasPlacement, 'x' | 'y'>,
+  size: { height: number; width: number },
+): { height: number; width: number } {
+  return {
+    height: clamp(
+      size.height,
+      CANVAS_CARD_MIN_HEIGHT,
+      CANVAS_HEIGHT - placement.y - 40,
+    ),
+    width: clamp(
+      size.width,
+      CANVAS_CARD_MIN_WIDTH,
+      CANVAS_WIDTH - placement.x - 40,
+    ),
+  };
+}
+
+function latestPointerSample(event: PointerEvent): PointerEvent {
+  const samples = event.getCoalescedEvents?.() ?? [];
+  return samples.at(-1) ?? event;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(Math.max(minimum, maximum), value));
+}
+
+function createCanvasElementId(kind: string): string {
+  return globalThis.crypto?.randomUUID?.() ??
+    `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
