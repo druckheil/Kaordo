@@ -106,6 +106,42 @@ describe('LigoGState live inbox', () => {
     await vi.waitFor(() => expect(state.snapshot.loadingHistory).toBe(false));
     expect(state.snapshot.messages[0]!.attachments[0]!.blob).toBe(displayedBlob);
   });
+
+  it('preloads the local page containing a remembered scroll anchor', async () => {
+    const local = new MemoryLigoLocalStore();
+    const user: LigoUser = { id: 'friend', online: true, username: 'friend' };
+    for (let index = 1; index <= 50; index += 1) {
+      await local.put('owner', {
+        attachments: [],
+        body: `Message ${index}`,
+        conversationId: user.id,
+        createdAt: index,
+        id: `message-${index.toString().padStart(3, '0')}`,
+        recipientId: user.id,
+        senderId: 'owner',
+        status: 'queued',
+      });
+    }
+    const state = new LigoGState(
+      new MemoryLigoGateway(),
+      EMPTY_TRANSPORT,
+      local,
+      async () => [],
+      async () => ({ limitBytes: 1_073_741_824, nodeCandidates: [], reservedBytes: 0, usedBytes: 0 }),
+    );
+    state.configure('owner');
+    state.rememberScroll(user.id, {
+      atBottom: false,
+      messageId: 'message-005',
+      offset: -12,
+      scrollTop: 640,
+    });
+
+    await state.openConversation(user);
+
+    expect(state.snapshot.messages.map(({ id }) => id)).toContain('message-005');
+    expect(state.snapshot.messages).toHaveLength(50);
+  });
 });
 
 class MemoryLigoGateway implements LigoGateway {

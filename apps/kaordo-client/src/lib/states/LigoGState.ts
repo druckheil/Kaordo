@@ -49,6 +49,13 @@ type PendingOutgoing = {
 
 type CloudMessageUpdate = { message: LigoMessage; replacePayload: boolean };
 
+export type LigoScrollPosition = {
+  atBottom: boolean;
+  messageId: string | null;
+  offset: number;
+  scrollTop: number;
+};
+
 export type LigoSnapshot = {
   activeUser: LigoUser | null;
   attachmentError: string | null;
@@ -93,6 +100,8 @@ export class LigoGState extends GState<LigoSnapshot> {
   #livePingTimer: ReturnType<typeof setInterval> | null = null;
   #liveSocket: LigoLiveSocket | null = null;
   #storageRefresh: Promise<void> | null = null;
+  readonly #scrollPositions = new Map<string, LigoScrollPosition>();
+  readonly #messageHeights = new Map<string, number>();
   #outgoingQueue: PendingOutgoing[] = [];
   #processingOutgoing = false;
   readonly #readInFlight = new Set<string>();
@@ -157,12 +166,37 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#peerCloudCursor = null;
     this.#ownCloudCursor = null;
     this.#storageRefresh = null;
+    this.#scrollPositions.clear();
+    this.#messageHeights.clear();
     for (const pending of this.#outgoingQueue.splice(0)) {
       pending.files.forEach(({ url }) => URL.revokeObjectURL(url));
     }
     this.#readInFlight.clear();
     this.transport.reset();
     this.publish(emptySnapshot());
+  }
+
+  rememberScroll(userId: string, position: LigoScrollPosition): void {
+    if (!userId || !Number.isFinite(position.scrollTop) || !Number.isFinite(position.offset)) return;
+    this.#scrollPositions.set(userId, {
+      ...position,
+      offset: Math.round(position.offset * 100) / 100,
+      scrollTop: Math.max(0, position.scrollTop),
+    });
+  }
+
+  rememberedScroll(userId: string): LigoScrollPosition | null {
+    return this.#scrollPositions.get(userId) ?? null;
+  }
+
+  rememberMessageHeight(messageId: string, layoutKey: string, height: number): void {
+    if (!messageId || !layoutKey || !Number.isFinite(height) || height <= 0) return;
+    const key = `${layoutKey}:${messageId}`;
+    this.#messageHeights.set(key, Math.max(this.#messageHeights.get(key) ?? 0, height));
+  }
+
+  rememberedMessageHeight(messageId: string, layoutKey: string): number | null {
+    return this.#messageHeights.get(`${layoutKey}:${messageId}`) ?? null;
   }
 
   async refresh(): Promise<void> {
@@ -253,7 +287,14 @@ export class LigoGState extends GState<LigoSnapshot> {
       searchResults: [],
     });
     try {
-      const page = await this.local.page(ownerId, user.id, null, MESSAGE_PAGE);
+      const rememberedMessageId = this.#scrollPositions.get(user.id)?.messageId ?? null;
+      let page = await this.local.page(ownerId, user.id, null, MESSAGE_PAGE);
+      const messages = [...page.messages];
+      while (rememberedMessageId && !messages.some(({ id }) => id === rememberedMessageId) &&
+          page.nextCursor && messages.length < MAX_MESSAGE_WINDOW) {
+        page = await this.local.page(ownerId, user.id, page.nextCursor, MESSAGE_PAGE);
+        messages.push(...page.messages);
+      }
       if (requestId !== this.#conversationRequestId || this.snapshot.activeUser?.id !== user.id) return;
       this.#messageCursor = page.nextCursor;
       this.publish({
@@ -262,7 +303,7 @@ export class LigoGState extends GState<LigoSnapshot> {
         // Local history is displayed first. The small cloud indexes and Nodo
         // envelopes are reconciled in the background without blocking chat.
         loadingHistory: true,
-        messages: [...page.messages].reverse(),
+        messages: messages.reverse(),
       });
       void this.markVisibleRead();
       void this.reconcileConversation(ownerId, user, requestId);

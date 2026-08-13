@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import type { LigoAttachment, LigoConversation, LigoMessage, LigoUser } from '../../lib/domain/ligo';
   import { PUBLIC_LIGO_DESTINATION } from '../../lib/gateways/NodeLigoTransport';
   import { ligoAttachmentUrls } from '../../lib/services/LigoAttachmentUrls';
@@ -17,6 +17,8 @@
   let conversationEnd = $state(24);
   let storageOpen = $state(false);
   let latestMessageId = '';
+  let restoringUserId = $state<string | null>(null);
+  let initialRestore = $state(true);
   const conversationHeight = 62;
   let visibleConversations = $derived(snapshot.conversations.slice(conversationStart, conversationEnd));
   let publicAvailable = $derived(Boolean(snapshot.publicStorage?.nodeCandidates.length));
@@ -26,15 +28,33 @@
   let progress = $derived(snapshot.uploadProgress ? Math.round(snapshot.uploadProgress.uploadedBytes /
     Math.max(1, snapshot.uploadProgress.totalBytes) * 100) : 0);
 
+  onMount(() => {
+    latestMessageId = snapshot.messages.at(-1)?.id ?? '';
+    restoringUserId = snapshot.activeUser?.id ?? null;
+    initialRestore = false;
+    if (restoringUserId) void restoreScroll(restoringUserId);
+  });
+  onDestroy(rememberScroll);
+
   $effect(() => {
+    if (initialRestore) return;
     const nextId = snapshot.messages.at(-1)?.id ?? '';
     if (!nextId || nextId === latestMessageId) return;
+    if (restoringUserId === snapshot.activeUser?.id) {
+      latestMessageId = nextId;
+      return;
+    }
     const followsLatest = !messageList || messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 96;
     latestMessageId = nextId;
     if (followsLatest) void scrollBottom();
   });
 
-  function open(user: LigoUser) { void ligoState.openConversation(user).then(scrollBottom); }
+  async function open(user: LigoUser) {
+    rememberScroll();
+    restoringUserId = user.id;
+    await ligoState.openConversation(user);
+    await restoreScroll(user.id);
+  }
   function selectConversation(conversation: LigoConversation) { open(conversation.user); }
   function updateSearch(event: Event) { ligoState.setSearch((event.currentTarget as HTMLInputElement).value); }
   function resizeDraft(event: Event) {
@@ -58,8 +78,82 @@
     event.preventDefault();
     void send();
   }
-  async function scrollBottom() { await tick(); messageList?.scrollTo({ top: messageList.scrollHeight }); }
+  async function scrollBottom() {
+    await tick();
+    if (!messageList) return;
+    messageList.scrollTop = messageList.scrollHeight;
+    rememberScroll();
+  }
+  function rememberScroll() {
+    const userId = snapshot.activeUser?.id;
+    if (!messageList || !userId || restoringUserId === userId) return;
+    const viewport = messageList.getBoundingClientRect();
+    const messages = [...messageList.querySelectorAll<HTMLElement>('[data-message-id]')];
+    const anchor = messages.find((message) => message.getBoundingClientRect().bottom > viewport.top + 1) ?? null;
+    ligoState.rememberScroll(userId, {
+      atBottom: messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 4,
+      messageId: anchor?.dataset.messageId ?? null,
+      offset: anchor ? anchor.getBoundingClientRect().top - viewport.top : 0,
+      scrollTop: messageList.scrollTop,
+    });
+  }
+  async function restoreScroll(userId: string) {
+    await tick();
+    if (!messageList || snapshot.activeUser?.id !== userId || restoringUserId !== userId) return;
+    const remembered = ligoState.rememberedScroll(userId);
+    if (!remembered || remembered.atBottom) {
+      messageList.scrollTop = messageList.scrollHeight;
+    } else {
+      const viewportTop = messageList.getBoundingClientRect().top;
+      const anchor = [...messageList.querySelectorAll<HTMLElement>('[data-message-id]')]
+        .find((message) => message.dataset.messageId === remembered.messageId);
+      if (anchor) {
+        messageList.scrollTop += anchor.getBoundingClientRect().top - viewportTop - remembered.offset;
+      } else {
+        messageList.scrollTop = remembered.scrollTop;
+      }
+    }
+    latestMessageId = snapshot.messages.at(-1)?.id ?? '';
+    restoringUserId = null;
+  }
+  function stabilizeMessage(node: HTMLElement, messageId: string) {
+    let layoutKey = messageLayoutKey();
+    const reserve = () => {
+      const height = ligoState.rememberedMessageHeight(messageId, layoutKey);
+      node.style.minHeight = height ? `${height}px` : '';
+    };
+    reserve();
+    let previousHeight = node.getBoundingClientRect().height;
+    const observer = new ResizeObserver(() => {
+      const nextLayoutKey = messageLayoutKey();
+      if (nextLayoutKey !== layoutKey) {
+        layoutKey = nextLayoutKey;
+        reserve();
+        previousHeight = node.getBoundingClientRect().height;
+        return;
+      }
+      const nextHeight = node.getBoundingClientRect().height;
+      const delta = nextHeight - previousHeight;
+      if (Math.abs(delta) < 0.5) return;
+      const list = messageList;
+      const aboveViewport = Boolean(list && node.getBoundingClientRect().top < list.getBoundingClientRect().top);
+      previousHeight = nextHeight;
+      ligoState.rememberMessageHeight(messageId, layoutKey, nextHeight);
+      node.style.minHeight = `${ligoState.rememberedMessageHeight(messageId, layoutKey) ?? nextHeight}px`;
+      if (list && aboveViewport && restoringUserId !== snapshot.activeUser?.id) list.scrollTop += delta;
+    });
+    observer.observe(node);
+    ligoState.rememberMessageHeight(messageId, layoutKey, previousHeight);
+    return { destroy: () => observer.disconnect() };
+  }
+  function messageLayoutKey(): string {
+    const textScale = typeof document === 'undefined'
+      ? '1'
+      : getComputedStyle(document.documentElement).getPropertyValue('--text-scale').trim() || '1';
+    return `${Math.round(messageList?.clientWidth ?? 0)}:${textScale}:${globalThis.devicePixelRatio ?? 1}`;
+  }
   async function onScroll() {
+    rememberScroll();
     if (!messageList || messageList.scrollTop > 100 || !snapshot.hasOlder || snapshot.loadingOlder) return;
     const previousHeight = messageList.scrollHeight;
     await ligoState.loadOlder();
@@ -175,7 +269,8 @@
         <span class="route-state" class:unavailable={!destinationReady}>{destinationReady ? 'Nodo ready' : 'Nodo unavailable'}</span>
       </header>
 
-      <div bind:this={messageList} class="message-list" onscroll={onScroll}>
+      <div bind:this={messageList} class="message-list"
+        class:restoring={initialRestore || restoringUserId === snapshot.activeUser.id} onscroll={onScroll}>
         {#if snapshot.loadingOlder || snapshot.loadingHistory}<div class="history-loader"><LoadingSpinner compact /> {snapshot.loadingHistory ? 'Checking message clouds' : 'Loading older messages'}</div>{/if}
         {#if !snapshot.messages.length}<div class="chat-empty">
           <span class="avatar avatar--hero">{avatar(snapshot.activeUser.username)}</span>
@@ -184,7 +279,8 @@
         </div>{/if}
         {#each snapshot.messages as message (message.id)}
           <article class="message" class:mine={isMine(message)} class:sending={message.status === 'sending'}
-            class:failed={message.status === 'failed'}>
+            class:failed={message.status === 'failed'} data-message-id={message.id}
+            use:stabilizeMessage={message.id}>
             {#if message.attachments.length}<div class="message-files">
               {#each message.attachments as attachment (attachment.id)}
                 {#if !fileReady(attachment)}
@@ -231,7 +327,7 @@
             bind:value={() => snapshot.draft, (draft) => ligoState.setDraft(draft)}
             oninput={resizeDraft}
             onkeydown={keydown}
-            maxlength="16000" rows="1" placeholder="Write a message…"></textarea>
+            maxlength="16000" rows="1" wrap="soft" placeholder="Write a message…"></textarea>
           <button class="send" type="button" onclick={send} disabled={!destinationReady || (!snapshot.draft.trim() && !snapshot.draftFiles.length)} aria-label="Send message">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m3 4 14 6-14 6 2-6z"/><path d="M5 10h8"/></svg>
           </button>
@@ -272,10 +368,10 @@
   .avatar{position:relative;display:grid;flex:none;width:44px;height:44px;color:white;background:linear-gradient(145deg,var(--accent),color-mix(in srgb,var(--accent) 62%,#143d35));border-radius:14px;place-items:center;font-size:calc(12px * var(--text-scale));font-weight:750;box-shadow:inset 0 0 0 1px rgb(255 255 255 / 15%)}.avatar i{position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;background:var(--muted);border:2px solid var(--panel);border-radius:50%}.avatar i.online{background:#3fbd83}
   .conversation-copy{display:grid;min-width:0;flex:1;gap:4px}.conversation-copy>span{display:flex;align-items:center;gap:8px}.conversation-copy strong{overflow:hidden;flex:1;font-size:calc(13px * var(--text-scale));text-overflow:ellipsis}.conversation-copy time{color:var(--muted);font-size:calc(10px * var(--text-scale))}.conversation-copy small{overflow:hidden;color:var(--muted);font-size:calc(11px * var(--text-scale));text-overflow:ellipsis;white-space:nowrap}.empty-list{padding:22px 12px;color:var(--muted);font-size:calc(12px * var(--text-scale));line-height:1.55}.loading-list{display:flex;align-items:center;gap:10px;padding:24px 12px;color:var(--muted);font-size:calc(11px * var(--text-scale))}
   .chat-panel{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-width:0;min-height:0;background:radial-gradient(circle at 90% 0,color-mix(in srgb,var(--accent) 6%,transparent),transparent 36%),var(--canvas)}.chat-header{display:flex;align-items:center;gap:11px;min-height:64px;padding:0 22px;background:color-mix(in srgb,var(--panel) 88%,transparent);border-bottom:1px solid var(--line);backdrop-filter:blur(16px)}.avatar--small{width:38px;height:38px;border-radius:12px}.chat-header>div{display:grid;gap:2px}.chat-header strong{font-size:calc(13px * var(--text-scale))}.chat-header small{color:var(--muted);font-size:calc(10px * var(--text-scale))}.route-state{margin-left:auto;color:var(--accent);font-size:calc(10px * var(--text-scale));font-weight:650}.route-state.unavailable{color:#b45b61}
-  .message-list{display:flex;flex-direction:column;gap:6px;overflow:auto;padding:24px clamp(20px,5vw,72px);scroll-behavior:smooth}.history-loader{display:flex;align-items:center;align-self:center;gap:8px;padding:7px 11px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;font-size:calc(10px * var(--text-scale))}.chat-empty{margin:auto;text-align:center;max-width:430px}.avatar--hero{width:68px;height:68px;margin:0 auto 16px;border-radius:22px;font-size:calc(18px * var(--text-scale))}.chat-empty h2,.welcome h2{margin:0 0 8px;font-size:calc(20px * var(--text-scale));letter-spacing:-.025em}.chat-empty p,.welcome p{margin:0;color:var(--muted);font-size:calc(12px * var(--text-scale));line-height:1.6}
+  .message-list{position:relative;display:flex;flex-direction:column;gap:6px;overflow:auto;padding:24px clamp(20px,5vw,72px);scroll-behavior:auto}.message-list.restoring{visibility:hidden}.history-loader{position:absolute;z-index:2;top:10px;left:50%;display:flex;align-items:center;gap:8px;padding:7px 11px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;box-shadow:0 4px 14px rgb(20 48 39 / 8%);font-size:calc(10px * var(--text-scale));transform:translateX(-50%)}.chat-empty{margin:auto;text-align:center;max-width:430px}.avatar--hero{width:68px;height:68px;margin:0 auto 16px;border-radius:22px;font-size:calc(18px * var(--text-scale))}.chat-empty h2,.welcome h2{margin:0 0 8px;font-size:calc(20px * var(--text-scale));letter-spacing:-.025em}.chat-empty p,.welcome p{margin:0;color:var(--muted);font-size:calc(12px * var(--text-scale));line-height:1.6}
   .message{align-self:flex-start;max-width:min(70%,680px);padding:9px 12px 6px;background:var(--panel);border:1px solid var(--line);border-radius:6px 16px 16px 16px;box-shadow:0 5px 18px rgb(20 48 39 / 5%);transition:opacity 150ms ease,border-color 150ms ease}.message.mine{align-self:flex-end;background:color-mix(in srgb,var(--accent) 13%,var(--panel));border-color:color-mix(in srgb,var(--accent) 20%,var(--line));border-radius:16px 6px 16px 16px}.message.sending{opacity:.48}.message.failed{border-color:color-mix(in srgb,#b44b55 45%,var(--line));opacity:.72}.message p{margin:0;overflow-wrap:anywhere;white-space:pre-wrap;font-size:calc(13px * var(--text-scale));line-height:1.48}.message footer{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:3px;color:var(--muted);font-size:calc(9px * var(--text-scale))}.message.mine footer span{color:var(--accent);font-weight:800;letter-spacing:-.12em}.message.failed footer span{color:#b44b55}
   .message-files{display:grid;gap:5px;margin-bottom:7px}.message-files img,.message-files video{display:block;max-width:100%;max-height:380px;border-radius:10px;background:#111;object-fit:contain}.generic-file,.restoring-file{display:flex;align-items:center;gap:9px;min-width:220px;padding:8px;color:inherit;text-decoration:none;background:color-mix(in srgb,var(--canvas) 75%,transparent);border-radius:10px}.generic-file svg{width:28px;fill:none;stroke:var(--accent);stroke-width:1.4}.generic-file span,.audio-file,.restoring-file span{display:grid;gap:2px}.generic-file strong,.audio-file strong,.restoring-file strong{overflow:hidden;max-width:360px;font-size:calc(11px * var(--text-scale));text-overflow:ellipsis}.generic-file small,.restoring-file small{color:var(--muted);font-size:calc(9px * var(--text-scale))}.audio-file audio{max-width:360px;height:34px}
-  .composer-wrap{padding:8px clamp(18px,4vw,58px) 16px}.composer{display:flex;align-items:flex-end;gap:7px;padding:7px;background:var(--panel);border:1px solid var(--line-strong);border-radius:16px;box-shadow:0 10px 28px rgb(20 48 39 / 8%)}.composer input{display:none}.composer textarea{flex:1;min-height:22px;max-height:148px;padding:6px 3px;resize:none;color:var(--ink);background:transparent;border:0;outline:0;font:inherit;font-size:calc(13px * var(--text-scale));line-height:1.45}.composer button{display:grid;flex:none;width:34px;height:34px;border:0;border-radius:11px;cursor:pointer;place-items:center}.composer button:disabled{cursor:default;opacity:.4}.composer svg{width:18px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7}.attach{color:var(--muted);background:transparent}.attach:hover{color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}.send{color:white;background:var(--accent)}.send svg{fill:currentColor;stroke:var(--accent-bright)}.composer-hint{display:block;margin:5px 6px 0;color:var(--muted);font-size:calc(9px * var(--text-scale))}
+  .composer-wrap{padding:8px clamp(18px,4vw,58px) 16px}.composer{display:flex;align-items:flex-end;gap:7px;padding:7px;background:var(--panel);border:1px solid var(--line-strong);border-radius:16px;box-shadow:0 10px 28px rgb(20 48 39 / 8%)}.composer input{display:none}.composer textarea{min-width:0;flex:1;min-height:22px;max-height:148px;padding:6px 3px;overflow-x:hidden;overflow-y:auto;resize:none;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:none;color:var(--ink);background:transparent;border:0;outline:0;font:inherit;font-size:calc(13px * var(--text-scale));line-height:1.45}.composer textarea::-webkit-scrollbar{display:none;width:0;height:0}.composer button{display:grid;flex:none;width:34px;height:34px;border:0;border-radius:11px;cursor:pointer;place-items:center}.composer button:disabled{cursor:default;opacity:.4}.composer svg{width:18px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7}.attach{color:var(--muted);background:transparent}.attach:hover{color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}.send{color:white;background:var(--accent)}.send svg{fill:currentColor;stroke:var(--accent-bright)}.composer-hint{display:block;margin:5px 6px 0;color:var(--muted);font-size:calc(9px * var(--text-scale))}
   .draft-files{display:flex;gap:6px;overflow:auto;padding:0 2px 7px}.draft-files>span{display:flex;align-items:center;gap:7px;max-width:250px;padding:7px 8px;background:var(--panel);border:1px solid var(--line);border-radius:10px}.draft-files strong{overflow:hidden;font-size:calc(10px * var(--text-scale));text-overflow:ellipsis;white-space:nowrap}.draft-files small{flex:none;color:var(--muted);font-size:calc(9px * var(--text-scale))}.draft-files button{color:var(--muted);background:none;border:0;cursor:pointer}.upload{display:grid;grid-template-columns:1fr auto;gap:5px;margin-bottom:7px;padding:8px 11px;color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel));border-radius:10px;font-size:calc(10px * var(--text-scale))}.upload i{grid-column:1/-1;height:4px;overflow:hidden;background:color-mix(in srgb,var(--accent) 14%,transparent);border-radius:999px}.upload b{display:block;height:100%;background:var(--accent);border-radius:inherit}.error{margin:0 0 7px;padding:8px 10px;color:#a1454c;background:rgb(180 70 78 / 9%);border-radius:9px;font-size:calc(10px * var(--text-scale))}
   .welcome{align-self:center;justify-self:center;max-width:420px;padding:30px;text-align:center}.welcome-mark{display:grid;width:68px;height:68px;margin:0 auto 18px;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--panel));border:1px solid color-mix(in srgb,var(--accent) 18%,var(--line));border-radius:22px;place-items:center}.welcome-mark svg{width:35px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.5}
   @media(max-width:760px){.ligo-shell{grid-template-columns:240px minmax(0,1fr)}.conversation-header{padding-inline:12px}.message{max-width:88%}.message-list{padding-inline:16px}}
