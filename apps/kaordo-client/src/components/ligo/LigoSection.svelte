@@ -4,6 +4,7 @@
   import { PUBLIC_LIGO_DESTINATION } from '../../lib/gateways/NodeLigoTransport';
   import { ligoAttachmentUrls } from '../../lib/services/LigoAttachmentUrls';
   import type { LigoGState, LigoSnapshot } from '../../lib/states/LigoGState';
+  import { openContextMenu } from '../../lib/ui/contextMenu';
   import LigoStorageDialog from './LigoStorageDialog.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
 
@@ -198,6 +199,27 @@
     if (message.status === 'failed') return 'Could not send';
     return 'Sending';
   }
+  function openMessageMenu(event: MouseEvent, message: LigoMessage): void {
+    if (!isMine(message) || message.status === 'sending') return;
+    openContextMenu(event, 'Message', [{
+      action: async () => { await ligoState.deleteMessage(message.id); },
+      confirmation: 'Delete this message for everyone? This cannot be undone.',
+      danger: true,
+      icon: 'delete',
+      id: 'delete-ligo-message',
+      label: 'Delete for everyone',
+    }]);
+  }
+  function openConversationMenu(event: MouseEvent, user: LigoUser): void {
+    openContextMenu(event, user.username, [{
+      action: async () => { await ligoState.deleteConversation(user); },
+      confirmation: `Delete the entire conversation with ${user.username} for both people? All local and Nodo copies will be removed.`,
+      danger: true,
+      icon: 'delete',
+      id: 'delete-ligo-conversation',
+      label: 'Delete for both',
+    }]);
+  }
   function formatBytes(bytes: number): string {
     const units = ['B', 'KB', 'MB', 'GB']; let value = bytes; let unit = 0;
     while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
@@ -244,7 +266,8 @@
         <div class="virtual-spacer" style={`height:${conversationStart * conversationHeight}px`}></div>
         {#each visibleConversations as conversation (conversation.user.id)}
           <button class="conversation" class:active={snapshot.activeUser?.id === conversation.user.id}
-            type="button" onclick={() => selectConversation(conversation)}>
+            type="button" onclick={() => selectConversation(conversation)}
+            oncontextmenu={(event) => openConversationMenu(event, conversation.user)}>
             <span class="avatar">{avatar(conversation.user.username)}<i class:online={conversation.user.online}></i></span>
             <span class="conversation-copy">
               <span><strong>{conversation.user.username}</strong><time>{time(conversation.lastMessage.sentAt)}</time></span>
@@ -278,34 +301,37 @@
           <p>Messages are kept locally on both devices. Nodo only holds a message while delivery is pending.</p>
         </div>{/if}
         {#each snapshot.messages as message (message.id)}
-          <article class="message" class:mine={isMine(message)} class:sending={message.status === 'sending'}
-            class:failed={message.status === 'failed'} data-message-id={message.id}
+          <div class="message-slot" class:mine={isMine(message)} data-message-id={message.id}
             use:stabilizeMessage={message.id}>
-            {#if message.attachments.length}<div class="message-files">
-              {#each message.attachments as attachment (attachment.id)}
-                {#if !fileReady(attachment)}
-                  <div class="restoring-file" aria-live="polite">
-                    <LoadingSpinner compact />
-                    <span><strong>{attachment.name}</strong><small>Restoring local file…</small></span>
-                  </div>
-                {:else if attachment.mimeType.startsWith('image/')}
-                  <a href={fileUrl(attachment)} download={attachment.name}><img src={fileUrl(attachment)} alt={attachment.name} /></a>
-                {:else if attachment.mimeType.startsWith('video/')}
-                  <!-- svelte-ignore a11y_media_has_caption -->
-                  <video src={fileUrl(attachment)} controls preload="metadata" aria-label={attachment.name}></video>
-                {:else if attachment.mimeType.startsWith('audio/')}
-                  <div class="audio-file"><strong>{attachment.name}</strong><audio src={fileUrl(attachment)} controls></audio></div>
-                {:else}
-                  <a class="generic-file" href={fileUrl(attachment)} download={attachment.name}>
-                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h6l4 4v11H5z"/><path d="M11 2.5v4h4"/></svg>
-                    <span><strong>{attachment.name}</strong><small>{formatBytes(attachment.size)}</small></span>
-                  </a>
-                {/if}
-              {/each}
-            </div>{/if}
-            {#if message.body}<p>{message.body}</p>{/if}
-            <footer><time>{time(message.createdAt)}</time>{#if isMine(message)}<span title={statusTitle(message)}>{statusMark(message)}</span>{/if}</footer>
-          </article>
+            <article class="message" class:sending={message.status === 'sending'}
+              class:failed={message.status === 'failed'}
+              oncontextmenu={(event) => openMessageMenu(event, message)}>
+              {#if message.attachments.length}<div class="message-files">
+                {#each message.attachments as attachment (attachment.id)}
+                  {#if !fileReady(attachment)}
+                    <div class="restoring-file" aria-live="polite">
+                      <LoadingSpinner compact />
+                      <span><strong>{attachment.name}</strong><small>Restoring local file…</small></span>
+                    </div>
+                  {:else if attachment.mimeType.startsWith('image/')}
+                    <a href={fileUrl(attachment)} download={attachment.name}><img src={fileUrl(attachment)} alt={attachment.name} /></a>
+                  {:else if attachment.mimeType.startsWith('video/')}
+                    <!-- svelte-ignore a11y_media_has_caption -->
+                    <video src={fileUrl(attachment)} controls preload="metadata" aria-label={attachment.name}></video>
+                  {:else if attachment.mimeType.startsWith('audio/')}
+                    <div class="audio-file"><strong>{attachment.name}</strong><audio src={fileUrl(attachment)} controls></audio></div>
+                  {:else}
+                    <a class="generic-file" href={fileUrl(attachment)} download={attachment.name}>
+                      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h6l4 4v11H5z"/><path d="M11 2.5v4h4"/></svg>
+                      <span><strong>{attachment.name}</strong><small>{formatBytes(attachment.size)}</small></span>
+                    </a>
+                  {/if}
+                {/each}
+              </div>{/if}
+              {#if message.body}<p>{message.body}</p>{/if}
+              <footer><time>{time(message.createdAt)}</time>{#if isMine(message)}<span title={statusTitle(message)}>{statusMark(message)}</span>{/if}</footer>
+            </article>
+          </div>
         {/each}
       </div>
 
@@ -369,7 +395,7 @@
   .conversation-copy{display:grid;min-width:0;flex:1;gap:4px}.conversation-copy>span{display:flex;align-items:center;gap:8px}.conversation-copy strong{overflow:hidden;flex:1;font-size:calc(13px * var(--text-scale));text-overflow:ellipsis}.conversation-copy time{color:var(--muted);font-size:calc(10px * var(--text-scale))}.conversation-copy small{overflow:hidden;color:var(--muted);font-size:calc(11px * var(--text-scale));text-overflow:ellipsis;white-space:nowrap}.empty-list{padding:22px 12px;color:var(--muted);font-size:calc(12px * var(--text-scale));line-height:1.55}.loading-list{display:flex;align-items:center;gap:10px;padding:24px 12px;color:var(--muted);font-size:calc(11px * var(--text-scale))}
   .chat-panel{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-width:0;min-height:0;background:radial-gradient(circle at 90% 0,color-mix(in srgb,var(--accent) 6%,transparent),transparent 36%),var(--canvas)}.chat-header{display:flex;align-items:center;gap:11px;min-height:64px;padding:0 22px;background:color-mix(in srgb,var(--panel) 88%,transparent);border-bottom:1px solid var(--line);backdrop-filter:blur(16px)}.avatar--small{width:38px;height:38px;border-radius:12px}.chat-header>div{display:grid;gap:2px}.chat-header strong{font-size:calc(13px * var(--text-scale))}.chat-header small{color:var(--muted);font-size:calc(10px * var(--text-scale))}.route-state{margin-left:auto;color:var(--accent);font-size:calc(10px * var(--text-scale));font-weight:650}.route-state.unavailable{color:#b45b61}
   .message-list{position:relative;display:flex;flex-direction:column;gap:6px;overflow:auto;padding:24px clamp(20px,5vw,72px);scroll-behavior:auto}.message-list.restoring{visibility:hidden}.history-loader{position:absolute;z-index:2;top:10px;left:50%;display:flex;align-items:center;gap:8px;padding:7px 11px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;box-shadow:0 4px 14px rgb(20 48 39 / 8%);font-size:calc(10px * var(--text-scale));transform:translateX(-50%)}.chat-empty{margin:auto;text-align:center;max-width:430px}.avatar--hero{width:68px;height:68px;margin:0 auto 16px;border-radius:22px;font-size:calc(18px * var(--text-scale))}.chat-empty h2,.welcome h2{margin:0 0 8px;font-size:calc(20px * var(--text-scale));letter-spacing:-.025em}.chat-empty p,.welcome p{margin:0;color:var(--muted);font-size:calc(12px * var(--text-scale));line-height:1.6}
-  .message{align-self:flex-start;max-width:min(70%,680px);padding:9px 12px 6px;background:var(--panel);border:1px solid var(--line);border-radius:6px 16px 16px 16px;box-shadow:0 5px 18px rgb(20 48 39 / 5%);transition:opacity 150ms ease,border-color 150ms ease}.message.mine{align-self:flex-end;background:color-mix(in srgb,var(--accent) 13%,var(--panel));border-color:color-mix(in srgb,var(--accent) 20%,var(--line));border-radius:16px 6px 16px 16px}.message.sending{opacity:.48}.message.failed{border-color:color-mix(in srgb,#b44b55 45%,var(--line));opacity:.72}.message p{margin:0;overflow-wrap:anywhere;white-space:pre-wrap;font-size:calc(13px * var(--text-scale));line-height:1.48}.message footer{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:3px;color:var(--muted);font-size:calc(9px * var(--text-scale))}.message.mine footer span{color:var(--accent);font-weight:800;letter-spacing:-.12em}.message.failed footer span{color:#b44b55}
+  .message-slot{display:flex;flex:0 0 auto;min-width:0;width:100%;align-items:flex-start;justify-content:flex-start}.message-slot.mine{justify-content:flex-end}.message{min-width:0;max-width:min(70%,680px);padding:9px 12px 6px;background:var(--panel);border:1px solid var(--line);border-radius:6px 16px 16px 16px;box-shadow:0 5px 18px rgb(20 48 39 / 5%);transition:opacity 150ms ease,border-color 150ms ease}.message-slot.mine .message{background:color-mix(in srgb,var(--accent) 13%,var(--panel));border-color:color-mix(in srgb,var(--accent) 20%,var(--line));border-radius:16px 6px 16px 16px}.message.sending{opacity:.48}.message.failed{border-color:color-mix(in srgb,#b44b55 45%,var(--line));opacity:.72}.message p{margin:0;overflow-wrap:anywhere;white-space:pre-wrap;font-size:calc(13px * var(--text-scale));line-height:1.48}.message footer{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:3px;color:var(--muted);font-size:calc(9px * var(--text-scale))}.message-slot.mine footer span{color:var(--accent);font-weight:800;letter-spacing:-.12em}.message.failed footer span{color:#b44b55}
   .message-files{display:grid;gap:5px;margin-bottom:7px}.message-files img,.message-files video{display:block;max-width:100%;max-height:380px;border-radius:10px;background:#111;object-fit:contain}.generic-file,.restoring-file{display:flex;align-items:center;gap:9px;min-width:220px;padding:8px;color:inherit;text-decoration:none;background:color-mix(in srgb,var(--canvas) 75%,transparent);border-radius:10px}.generic-file svg{width:28px;fill:none;stroke:var(--accent);stroke-width:1.4}.generic-file span,.audio-file,.restoring-file span{display:grid;gap:2px}.generic-file strong,.audio-file strong,.restoring-file strong{overflow:hidden;max-width:360px;font-size:calc(11px * var(--text-scale));text-overflow:ellipsis}.generic-file small,.restoring-file small{color:var(--muted);font-size:calc(9px * var(--text-scale))}.audio-file audio{max-width:360px;height:34px}
   .composer-wrap{padding:8px clamp(18px,4vw,58px) 16px}.composer{display:flex;align-items:flex-end;gap:7px;padding:7px;background:var(--panel);border:1px solid var(--line-strong);border-radius:16px;box-shadow:0 10px 28px rgb(20 48 39 / 8%)}.composer input{display:none}.composer textarea{min-width:0;flex:1;min-height:22px;max-height:148px;padding:6px 3px;overflow-x:hidden;overflow-y:auto;resize:none;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:none;color:var(--ink);background:transparent;border:0;outline:0;font:inherit;font-size:calc(13px * var(--text-scale));line-height:1.45}.composer textarea::-webkit-scrollbar{display:none;width:0;height:0}.composer button{display:grid;flex:none;width:34px;height:34px;border:0;border-radius:11px;cursor:pointer;place-items:center}.composer button:disabled{cursor:default;opacity:.4}.composer svg{width:18px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7}.attach{color:var(--muted);background:transparent}.attach:hover{color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}.send{color:white;background:var(--accent)}.send svg{fill:currentColor;stroke:var(--accent-bright)}.composer-hint{display:block;margin:5px 6px 0;color:var(--muted);font-size:calc(9px * var(--text-scale))}
   .draft-files{display:flex;gap:6px;overflow:auto;padding:0 2px 7px}.draft-files>span{display:flex;align-items:center;gap:7px;max-width:250px;padding:7px 8px;background:var(--panel);border:1px solid var(--line);border-radius:10px}.draft-files strong{overflow:hidden;font-size:calc(10px * var(--text-scale));text-overflow:ellipsis;white-space:nowrap}.draft-files small{flex:none;color:var(--muted);font-size:calc(9px * var(--text-scale))}.draft-files button{color:var(--muted);background:none;border:0;cursor:pointer}.upload{display:grid;grid-template-columns:1fr auto;gap:5px;margin-bottom:7px;padding:8px 11px;color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel));border-radius:10px;font-size:calc(10px * var(--text-scale))}.upload i{grid-column:1/-1;height:4px;overflow:hidden;background:color-mix(in srgb,var(--accent) 14%,transparent);border-radius:999px}.upload b{display:block;height:100%;background:var(--accent);border-radius:inherit}.error{margin:0 0 7px;padding:8px 10px;color:#a1454c;background:rgb(180 70 78 / 9%);border-radius:9px;font-size:calc(10px * var(--text-scale))}

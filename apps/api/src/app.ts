@@ -49,9 +49,13 @@ import {
   updateRondoSpace,
 } from './rondo/routes';
 import {
+  acknowledgeLigoConversationDeletions,
+  acknowledgeLigoDeletions,
   acknowledgeLigoDelivery,
   confirmLigoCloudCleanup,
   createLigoDelivery,
+  deleteLigoConversation,
+  deleteLigoMessage,
   ligoBootstrap,
   ligoHistory,
   ligoInbox,
@@ -119,6 +123,12 @@ export function handleRequest(
   if (request.method === 'POST' && pathname === '/api/ligo/read') {
     return markLigoRead(request, env, ctx);
   }
+  if (request.method === 'POST' && pathname === '/api/ligo/deletions/ack') {
+    return acknowledgeLigoDeletions(request, env);
+  }
+  if (request.method === 'POST' && pathname === '/api/ligo/conversation-deletions/ack') {
+    return acknowledgeLigoConversationDeletions(request, env);
+  }
   const ligoHistoryMatch = pathname.match(/^\/api\/ligo\/history\/([a-z0-9_]+)$/u);
   if (request.method === 'GET' && ligoHistoryMatch?.[1]) {
     return ligoHistory(request, env, ligoHistoryMatch[1]);
@@ -135,6 +145,14 @@ export function handleRequest(
   const ligoDeliveryMatch = pathname.match(/^\/api\/ligo\/deliveries\/([0-9a-f-]+)$/u);
   if (request.method === 'DELETE' && ligoDeliveryMatch?.[1]) {
     return acknowledgeLigoDelivery(request, env, ligoDeliveryMatch[1], ctx);
+  }
+  const ligoMessageMatch = pathname.match(/^\/api\/ligo\/messages\/([0-9a-f-]+)$/u);
+  if (request.method === 'DELETE' && ligoMessageMatch?.[1]) {
+    return deleteLigoMessage(request, env, ligoMessageMatch[1], ctx);
+  }
+  const ligoConversationMatch = pathname.match(/^\/api\/ligo\/conversations\/([a-z0-9_]+)$/u);
+  if (request.method === 'DELETE' && ligoConversationMatch?.[1]) {
+    return deleteLigoConversation(request, env, ligoConversationMatch[1], ctx);
   }
   if (request.method === 'GET' && pathname === '/api/rondo/voice/ice') {
     return rondoVoiceIce(request, env);

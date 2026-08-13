@@ -1,5 +1,7 @@
 import type {
   LigoConversation,
+  LigoConversationDeletion,
+  LigoDeletion,
   LigoMessage,
   LigoMessageStatus,
   LigoReceiptStatus,
@@ -15,6 +17,7 @@ import {
   type LigoUploadProgress,
 } from '../gateways/NodeLigoTransport';
 import type { LigoLocalStore } from '../services/LigoLocalStore';
+import { ligoAttachmentUrls } from '../services/LigoAttachmentUrls';
 import { GState } from '../state/GState';
 
 const MESSAGE_PAGE = 40;
@@ -104,7 +107,11 @@ export class LigoGState extends GState<LigoSnapshot> {
   readonly #messageHeights = new Map<string, number>();
   #outgoingQueue: PendingOutgoing[] = [];
   #processingOutgoing = false;
+  #activeOutgoingPeerId: string | null = null;
+  readonly #outgoingPeerWaiters = new Map<string, Array<() => void>>();
   readonly #readInFlight = new Set<string>();
+  readonly #deletedMessageIds = new Set<string>();
+  readonly #deletingConversationPeers = new Set<string>();
   #liveGeneration = 0;
   #liveFailures = 0;
   #syncRequested = false;
@@ -171,7 +178,11 @@ export class LigoGState extends GState<LigoSnapshot> {
     for (const pending of this.#outgoingQueue.splice(0)) {
       pending.files.forEach(({ url }) => URL.revokeObjectURL(url));
     }
+    for (const waiters of this.#outgoingPeerWaiters.values()) waiters.forEach((resolve) => resolve());
+    this.#outgoingPeerWaiters.clear();
     this.#readInFlight.clear();
+    this.#deletedMessageIds.clear();
+    this.#deletingConversationPeers.clear();
     this.transport.reset();
     this.publish(emptySnapshot());
   }
@@ -271,6 +282,10 @@ export class LigoGState extends GState<LigoSnapshot> {
 
   async openConversation(user: LigoUser): Promise<void> {
     if (!this.#ownerId) return;
+    this.#deletingConversationPeers.delete(user.id);
+    if (this.#searchTimer) clearTimeout(this.#searchTimer);
+    this.#searchTimer = null;
+    this.#searchRequestId += 1;
     const requestId = ++this.#conversationRequestId;
     const ownerId = this.#ownerId;
     this.#messageCursor = null;
@@ -283,6 +298,7 @@ export class LigoGState extends GState<LigoSnapshot> {
       loadingHistory: true,
       loadingOlder: false,
       messages: [],
+      searchPhase: 'idle',
       searchQuery: '',
       searchResults: [],
     });
@@ -356,6 +372,48 @@ export class LigoGState extends GState<LigoSnapshot> {
       return true;
     } catch (error) {
       this.publish({ ...this.snapshot, error: readableError(error), storageSaving: false });
+      return false;
+    }
+  }
+
+  async deleteMessage(messageId: string): Promise<boolean> {
+    const ownerId = this.#ownerId;
+    const user = this.snapshot.activeUser;
+    const message = this.snapshot.messages.find(({ id }) => id === messageId);
+    if (!ownerId || !user || !message || message.senderId !== ownerId || message.status === 'sending') return false;
+    try {
+      if (message.status !== 'failed') {
+        const update = await this.api.deleteMessage(messageId, user.username.toLowerCase());
+        this.applyStorage(update.storage, false);
+        // D1 has already persisted a Nodo tombstone. Direct cleanup is the fast
+        // path; heartbeat reconciliation remains the durable fallback.
+        await this.transport.discard(update.evicted).catch(() => undefined);
+      }
+      await this.removeLocalMessage(ownerId, messageId, ownerId);
+      void this.refreshStorage();
+      return true;
+    } catch (error) {
+      this.publish({ ...this.snapshot, error: readableError(error) });
+      return false;
+    }
+  }
+
+  async deleteConversation(user: LigoUser): Promise<boolean> {
+    const ownerId = this.#ownerId;
+    if (!ownerId || !this.snapshot.conversations.some((conversation) => conversation.user.id === user.id)) return false;
+    this.#deletingConversationPeers.add(user.id);
+    try {
+      this.removeQueuedOutgoing(ownerId, user.id);
+      await this.waitForOutgoingPeer(user.id);
+      const update = await this.api.deleteConversation(user.username.toLowerCase());
+      this.applyStorage(update.storage, false);
+      await this.transport.discard(update.evicted).catch(() => undefined);
+      await this.removeLocalConversation(ownerId, user.id);
+      void this.refreshStorage();
+      return true;
+    } catch (error) {
+      this.#deletingConversationPeers.delete(user.id);
+      this.publish({ ...this.snapshot, error: readableError(error) });
       return false;
     }
   }
@@ -448,6 +506,7 @@ export class LigoGState extends GState<LigoSnapshot> {
     while (this.#outgoingQueue.length) {
       const pending = this.#outgoingQueue.shift()!;
       const lifecycleId = this.#lifecycleId;
+      this.#activeOutgoingPeerId = pending.recipient.id;
       try {
         const result = await this.transport.send(
           pending.id,
@@ -462,6 +521,7 @@ export class LigoGState extends GState<LigoSnapshot> {
             }
           },
         );
+        if (this.#deletingConversationPeers.has(pending.recipient.id)) continue;
         const message = { ...result.message, createdAt: pending.createdAt, status: 'queued' as const };
         await this.local.put(pending.ownerId, message);
         if (lifecycleId === this.#lifecycleId && this.#ownerId === pending.ownerId) {
@@ -476,6 +536,7 @@ export class LigoGState extends GState<LigoSnapshot> {
           void this.refreshStorage();
         }
       } catch (error) {
+        if (this.#deletingConversationPeers.has(pending.recipient.id)) continue;
         const failed = pendingMessage(pending, 'failed');
         await this.local.put(pending.ownerId, failed).catch(() => undefined);
         if (lifecycleId === this.#lifecycleId && this.#ownerId === pending.ownerId) {
@@ -488,6 +549,7 @@ export class LigoGState extends GState<LigoSnapshot> {
         }
       } finally {
         pending.files.forEach(({ url }) => URL.revokeObjectURL(url));
+        this.finishOutgoingPeer(pending.recipient.id);
       }
     }
     this.#processingOutgoing = false;
@@ -510,14 +572,24 @@ export class LigoGState extends GState<LigoSnapshot> {
       do {
         const page = await this.api.inbox(cursor);
         if (lifecycleId !== this.#lifecycleId || this.#ownerId !== ownerId) return;
-        deliveryCount += page.deliveries.length;
+        if (!cursor && page.conversationDeletions.length) {
+          await this.applyConversationDeletions(page.conversationDeletions);
+          if (page.conversationDeletions.length === 64) this.#syncRequested = true;
+        }
+        if (!cursor && page.deletions.length) {
+          await this.applyDeletions(page.deletions);
+          if (page.deletions.length === 64) this.#syncRequested = true;
+        }
+        deliveryCount += page.deliveries.length + page.deletions.length + page.conversationDeletions.length;
         for (const delivery of page.deliveries) {
           if (lifecycleId !== this.#lifecycleId || this.#ownerId !== ownerId) return;
+          if (this.#deletedMessageIds.has(delivery.id)) continue;
           try {
             const cached = await this.local.get(ownerId, delivery.id);
             const message = cached
               ? await this.transport.reconcile(ownerId, delivery, cached)
               : await this.transport.receive(ownerId, delivery);
+            if (this.#deletedMessageIds.has(delivery.id)) continue;
             const replacePayload = !cached || !sameLocalPayload(cached, message);
             if (!replacePayload) {
               await this.local.updateStatus(ownerId, message.id, message.status);
@@ -578,11 +650,13 @@ export class LigoGState extends GState<LigoSnapshot> {
         else this.#ownCloudCursor = page.nextCursor;
       }
       for (const remote of page.messages) {
+        if (this.#deletedMessageIds.has(remote.id)) continue;
         const cached = await this.local.get(ownerId, remote.id);
         try {
           const message = cached
             ? await this.transport.reconcile(ownerId, remote, cached)
             : await this.transport.receive(ownerId, remote);
+          if (this.#deletedMessageIds.has(remote.id)) continue;
           const replacePayload = !cached || !sameLocalPayload(cached, message);
           if (!replacePayload) {
             await this.local.updateStatus(ownerId, message.id, message.status);
@@ -623,6 +697,7 @@ export class LigoGState extends GState<LigoSnapshot> {
     try {
       let messages = this.snapshot.messages;
       for (const update of pages.flat()) {
+        if (this.#deletedMessageIds.has(update.message.id)) continue;
         const visible = messageForView(messages, update.message, update.replacePayload);
         messages = [...messages.filter(({ id }) => id !== visible.id), visible];
       }
@@ -674,6 +749,126 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.publish({
       ...this.snapshot,
       messages: updateMessageStatuses(this.snapshot.messages, messageIds, status),
+    });
+  }
+
+  private async applyDeletions(deletions: readonly LigoDeletion[]): Promise<void> {
+    const ownerId = this.#ownerId;
+    if (!ownerId || !deletions.length) return;
+    const acknowledged: string[] = [];
+    for (const deletion of deletions) {
+      try {
+        await this.removeLocalMessage(ownerId, deletion.messageId, deletion.senderId);
+        acknowledged.push(deletion.messageId);
+      } catch {
+        // Keep the deletion in D1. The next live sync/poll retries local cleanup.
+      }
+    }
+    if (!acknowledged.length) return;
+    if (deletions.some(({ senderId }) => senderId === ownerId)) void this.refreshStorage();
+    try {
+      await this.api.acknowledgeDeletions(acknowledged);
+    } catch {
+      // Local cleanup is idempotent; an unacknowledged outbox item is retried.
+    }
+  }
+
+  private async applyConversationDeletions(deletions: readonly LigoConversationDeletion[]): Promise<void> {
+    const ownerId = this.#ownerId;
+    if (!ownerId || !deletions.length) return;
+    const acknowledged: string[] = [];
+    for (const deletion of deletions) {
+      try {
+        await this.removeLocalConversation(ownerId, deletion.peerId);
+        acknowledged.push(deletion.peerUsername.toLowerCase());
+      } catch {
+        // Keep the D1 outbox item until local IndexedDB cleanup succeeds.
+      }
+    }
+    if (!acknowledged.length) return;
+    try {
+      await this.api.acknowledgeConversationDeletions(acknowledged);
+    } catch {
+      // Reapplying a conversation deletion is safe and retries on next sync.
+    }
+    void this.refreshStorage();
+  }
+
+  private async removeLocalConversation(ownerId: string, peerId: string): Promise<void> {
+    const deleted = await this.local.deleteConversation(ownerId, peerId);
+    for (const message of deleted) {
+      this.#deletedMessageIds.add(message.id);
+      ligoAttachmentUrls.release(message.attachments);
+    }
+    this.removeQueuedOutgoing(ownerId, peerId);
+    this.#scrollPositions.delete(peerId);
+    if (this.#ownerId !== ownerId) return;
+    const active = this.snapshot.activeUser?.id === peerId;
+    if (active) {
+      this.#conversationRequestId += 1;
+      this.#messageCursor = null;
+      this.#peerCloudCursor = null;
+      this.#ownCloudCursor = null;
+      this.snapshot.draftFiles.forEach(({ url }) => URL.revokeObjectURL(url));
+    }
+    this.publish({
+      ...this.snapshot,
+      activeUser: active ? null : this.snapshot.activeUser,
+      conversations: this.snapshot.conversations.filter(({ user }) => user.id !== peerId),
+      draft: active ? '' : this.snapshot.draft,
+      draftFiles: active ? [] : this.snapshot.draftFiles,
+      hasOlder: active ? false : this.snapshot.hasOlder,
+      loadingHistory: active ? false : this.snapshot.loadingHistory,
+      loadingOlder: active ? false : this.snapshot.loadingOlder,
+      messages: active ? [] : this.snapshot.messages,
+      uploadProgress: active ? null : this.snapshot.uploadProgress,
+    });
+  }
+
+  private removeQueuedOutgoing(ownerId: string, peerId: string): void {
+    const remaining: PendingOutgoing[] = [];
+    for (const pending of this.#outgoingQueue) {
+      if (pending.ownerId === ownerId && pending.recipient.id === peerId) {
+        pending.files.forEach(({ url }) => URL.revokeObjectURL(url));
+      } else {
+        remaining.push(pending);
+      }
+    }
+    this.#outgoingQueue = remaining;
+  }
+
+  private waitForOutgoingPeer(peerId: string): Promise<void> {
+    if (this.#activeOutgoingPeerId !== peerId) return Promise.resolve();
+    return new Promise((resolve) => {
+      const waiters = this.#outgoingPeerWaiters.get(peerId) ?? [];
+      waiters.push(resolve);
+      this.#outgoingPeerWaiters.set(peerId, waiters);
+    });
+  }
+
+  private finishOutgoingPeer(peerId: string): void {
+    if (this.#activeOutgoingPeerId === peerId) this.#activeOutgoingPeerId = null;
+    const waiters = this.#outgoingPeerWaiters.get(peerId) ?? [];
+    this.#outgoingPeerWaiters.delete(peerId);
+    waiters.forEach((resolve) => resolve());
+  }
+
+  private async removeLocalMessage(ownerId: string, messageId: string, senderId: string): Promise<void> {
+    const visible = this.snapshot.messages.find(({ id }) => id === messageId);
+    const cached = await this.local.get(ownerId, messageId);
+    const message = cached ?? visible ?? null;
+    if (message && message.senderId !== senderId) return;
+    this.#deletedMessageIds.add(messageId);
+    const deleted = await this.local.delete(ownerId, messageId);
+    ligoAttachmentUrls.release((deleted ?? visible)?.attachments ?? []);
+    if (this.#ownerId !== ownerId) return;
+    this.publish({
+      ...this.snapshot,
+      conversations: this.snapshot.conversations.map((conversation) =>
+        conversation.lastMessage.id === messageId
+          ? { ...conversation, lastMessage: { ...conversation.lastMessage, preview: 'Message deleted' } }
+          : conversation),
+      messages: this.snapshot.messages.filter(({ id }) => id !== messageId),
     });
   }
 
@@ -764,6 +959,8 @@ export class LigoGState extends GState<LigoSnapshot> {
         if (!signal) return;
         if (signal.type === 'inbox') this.requestInboxSync();
         else if (signal.type === 'presence') this.applyPresence(signal.userId, signal.online);
+        else if (signal.type === 'conversation-deletions') void this.applyConversationDeletions(signal.deletions);
+        else if (signal.type === 'deletions') void this.applyDeletions(signal.deletions);
         else void this.applyReceipts(signal.messageIds, signal.status);
       };
       socket.onerror = () => { if (this.#liveSocket === socket) socket.close(); };
@@ -922,6 +1119,8 @@ function advancedStatus(current: LigoMessageStatus, next: LigoMessageStatus): Li
   return STATUS_RANK[next] >= STATUS_RANK[current] ? next : current;
 }
 type LigoLiveSignal =
+  | { deletions: LigoConversationDeletion[]; type: 'conversation-deletions' }
+  | { deletions: LigoDeletion[]; type: 'deletions' }
   | { messageId: string; type: 'inbox' }
   | { online: boolean; type: 'presence'; userId: string }
   | { messageIds: string[]; status: LigoReceiptStatus; type: 'receipts' };
@@ -936,6 +1135,18 @@ function liveSignal(data: unknown): LigoLiveSignal | null {
     if (value.type === 'presence' && 'userId' in value && typeof value.userId === 'string' &&
         'online' in value && typeof value.online === 'boolean') {
       return { online: value.online, type: 'presence', userId: value.userId };
+    }
+    if (value.type === 'deletions' && 'deletions' in value && Array.isArray(value.deletions) &&
+        value.deletions.every((item) => typeof item === 'object' && item !== null &&
+          'messageId' in item && typeof item.messageId === 'string' &&
+          'senderId' in item && typeof item.senderId === 'string')) {
+      return { deletions: value.deletions as LigoDeletion[], type: 'deletions' };
+    }
+    if (value.type === 'conversation-deletions' && 'deletions' in value && Array.isArray(value.deletions) &&
+        value.deletions.every((item) => typeof item === 'object' && item !== null &&
+          'peerId' in item && typeof item.peerId === 'string' &&
+          'peerUsername' in item && typeof item.peerUsername === 'string')) {
+      return { deletions: value.deletions as LigoConversationDeletion[], type: 'conversation-deletions' };
     }
     if (value.type === 'receipts' && 'messageIds' in value && Array.isArray(value.messageIds) &&
         value.messageIds.every((id) => typeof id === 'string') && 'status' in value &&

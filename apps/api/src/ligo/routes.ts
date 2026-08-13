@@ -213,7 +213,7 @@ export async function ligoInbox(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const limit = pageLimit(url.searchParams.get('limit'), 24);
   const after = cursor(url.searchParams.get('after'));
-  const rows = await env.DB.prepare(
+  const [rows, deletionRows, conversationDeletionRows] = await Promise.all([env.DB.prepare(
     `SELECT deliveries.id, deliveries.node_id, deliveries.storage_kind,
             deliveries.size_bytes, deliveries.created_at,
             users.id AS sender_id, users.display_username AS sender_username,
@@ -234,11 +234,34 @@ export async function ligoInbox(request: Request, env: Env): Promise<Response> {
     sender_username: string;
     size_bytes: number;
     storage_kind: number;
-  }>();
+  }>(), after ? Promise.resolve({ results: [] as Array<{ message_id: string; sender_id: ArrayBuffer }> }) : env.DB.prepare(
+    `SELECT message_id, sender_id
+       FROM ligo_message_deletions
+      WHERE recipient_id = ?1
+      ORDER BY created_at ASC, message_id ASC
+      LIMIT ?2`,
+  ).bind(session.userId, MAX_RECEIPT_IDS).all<{ message_id: string; sender_id: ArrayBuffer }>(), after
+    ? Promise.resolve({ results: [] as Array<{ peer_id: ArrayBuffer; peer_username: string }> })
+    : env.DB.prepare(
+      `SELECT deletions.peer_id, users.display_username AS peer_username
+         FROM ligo_conversation_deletions AS deletions
+         JOIN users ON users.id = deletions.peer_id
+        WHERE deletions.recipient_id = ?1
+        ORDER BY deletions.created_at ASC, deletions.peer_id ASC
+        LIMIT ?2`,
+    ).bind(session.userId, MAX_RECEIPT_IDS).all<{ peer_id: ArrayBuffer; peer_username: string }>()]);
   const hasMore = rows.results.length > limit;
   const page = rows.results.slice(0, limit);
   const last = page[page.length - 1];
   return json({
+    conversationDeletions: conversationDeletionRows.results.map((row) => ({
+      peerId: base64Url(row.peer_id),
+      peerUsername: row.peer_username,
+    })),
+    deletions: deletionRows.results.map((row) => ({
+      messageId: row.message_id,
+      senderId: base64Url(row.sender_id),
+    })),
     deliveries: page.map((row) => ({
       createdAt: row.created_at * 1_000,
       id: row.id,
@@ -255,6 +278,199 @@ export async function ligoInbox(request: Request, env: Env): Promise<Response> {
     })),
     nextCursor: hasMore && last ? `${last.created_at}:${last.id}` : null,
   });
+}
+
+export async function acknowledgeLigoConversationDeletions(request: Request, env: Env): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  try {
+    const input = await body(request);
+    const peerUsernames = requiredUsernames(input.peerUsernames, MAX_RECEIPT_IDS);
+    if (!peerUsernames.length) return json({ ok: true });
+    const placeholders = peerUsernames.map((_, index) => `?${index + 2}`).join(', ');
+    await env.DB.prepare(
+      `DELETE FROM ligo_conversation_deletions
+        WHERE recipient_id = ?1 AND peer_id IN (
+          SELECT id FROM users WHERE username IN (${placeholders})
+        )`,
+    ).bind(session.userId, ...peerUsernames).run();
+    return json({ ok: true });
+  } catch (error) {
+    return json({ error: error instanceof InputError ? error.message : 'Conversation deletion receipt is invalid.' }, 400);
+  }
+}
+
+export async function deleteLigoConversation(
+  request: Request,
+  env: Env,
+  peerUsername: string,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  if (!USERNAME.test(peerUsername)) return json({ error: 'Conversation not found.' }, 404);
+  const peer = await env.DB.prepare(
+    'SELECT id, display_username FROM users WHERE username = ?1 AND status = 1 LIMIT 1',
+  ).bind(peerUsername).first<{ display_username: string; id: ArrayBuffer }>();
+  if (!peer || equalBytes(peer.id, session.userId)) return json({ error: 'Conversation not found.' }, 404);
+  const lowFirst = compareBytes(session.userId, peer.id) < 0;
+  const low = lowFirst ? session.userId : peer.id;
+  const high = lowFirst ? peer.id : session.userId;
+  const [knownConversation, directCleanup] = await Promise.all([
+    env.DB.prepare(
+      `SELECT 1 AS found FROM ligo_conversations
+        WHERE user_low_id = ?1 AND user_high_id = ?2
+       UNION ALL
+       SELECT 1 FROM ligo_conversation_deletions
+        WHERE (recipient_id = ?1 AND peer_id = ?2) OR (recipient_id = ?2 AND peer_id = ?1)
+       LIMIT 1`,
+    ).bind(low, high).first<{ found: number }>(),
+    env.DB.prepare(
+      `SELECT id, node_id, storage_kind FROM ligo_cloud_messages
+        WHERE owner_id = ?1 AND peer_id = ?2
+        ORDER BY created_at ASC, id ASC LIMIT ?3`,
+    ).bind(session.userId, peer.id, PRUNE_BATCH).all<{
+      id: string;
+      node_id: string;
+      storage_kind: number;
+    }>(),
+  ]);
+  if (!knownConversation) return json({ error: 'Conversation not found.' }, 404);
+  const now = unixNow();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO ligo_cloud_tombstones
+        (node_id, message_id, owner_id, storage_kind, created_at)
+       SELECT node_id, id, owner_id, storage_kind, ?1
+         FROM ligo_cloud_messages
+        WHERE (owner_id = ?2 AND peer_id = ?3) OR (owner_id = ?3 AND peer_id = ?2)`,
+    ).bind(now, session.userId, peer.id),
+    env.DB.prepare(
+      `DELETE FROM ligo_deliveries
+        WHERE (sender_id = ?1 AND recipient_id = ?2) OR (sender_id = ?2 AND recipient_id = ?1)`,
+    ).bind(session.userId, peer.id),
+    env.DB.prepare(
+      `DELETE FROM ligo_cloud_messages
+        WHERE (owner_id = ?1 AND peer_id = ?2) OR (owner_id = ?2 AND peer_id = ?1)`,
+    ).bind(session.userId, peer.id),
+    env.DB.prepare(
+      `DELETE FROM ligo_message_deletions
+        WHERE (recipient_id = ?1 AND sender_id = ?2) OR (recipient_id = ?2 AND sender_id = ?1)`,
+    ).bind(session.userId, peer.id),
+    env.DB.prepare(
+      'DELETE FROM ligo_conversations WHERE user_low_id = ?1 AND user_high_id = ?2',
+    ).bind(low, high),
+    env.DB.prepare(
+      `INSERT INTO ligo_conversation_deletions (recipient_id, peer_id, created_at)
+       VALUES (?1, ?2, ?3), (?2, ?1, ?3)
+       ON CONFLICT(recipient_id, peer_id) DO UPDATE SET created_at = excluded.created_at`,
+    ).bind(session.userId, peer.id, now),
+  ]);
+  const actorDeletion = { peerId: base64Url(peer.id), peerUsername: peer.display_username };
+  const peerDeletion = { peerId: base64Url(session.userId), peerUsername: session.publicUser.username };
+  ctx.waitUntil(env.LIGO_LIVE.getByName(base64Url(session.userId))
+    .notifyConversationDeletions([actorDeletion]).catch(logLiveFailure('conversation deletion', peerUsername)));
+  ctx.waitUntil(env.LIGO_LIVE.getByName(base64Url(peer.id))
+    .notifyConversationDeletions([peerDeletion]).catch(logLiveFailure('conversation deletion', peerUsername)));
+  return json({
+    evicted: directCleanup.results.map((message) => ({
+      id: message.id,
+      nodeId: message.node_id,
+      storage: message.storage_kind === PUBLIC ? 'public' as const : 'private' as const,
+    })),
+    storage: await storageForUser(env, session.userId),
+  });
+}
+
+export async function acknowledgeLigoDeletions(request: Request, env: Env): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  try {
+    const input = await body(request);
+    const messageIds = requiredIds(input.messageIds, MAX_RECEIPT_IDS);
+    if (!messageIds.length) return json({ ok: true });
+    const placeholders = messageIds.map((_, index) => `?${index + 2}`).join(', ');
+    await env.DB.prepare(
+      `DELETE FROM ligo_message_deletions
+        WHERE recipient_id = ?1 AND message_id IN (${placeholders})`,
+    ).bind(session.userId, ...messageIds).run();
+    return json({ ok: true });
+  } catch (error) {
+    return json({ error: error instanceof InputError ? error.message : 'Message deletion receipt is invalid.' }, 400);
+  }
+}
+
+export async function deleteLigoMessage(
+  request: Request,
+  env: Env,
+  messageId: string,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  if (!ID.test(messageId)) return json({ error: 'Message not found.' }, 404);
+  try {
+    const input = await body(request);
+    const peerUsername = requiredUsername(input.peerUsername);
+    const peer = await env.DB.prepare(
+      'SELECT id FROM users WHERE username = ?1 AND status = 1 LIMIT 1',
+    ).bind(peerUsername).first<{ id: ArrayBuffer }>();
+    if (!peer || equalBytes(peer.id, session.userId)) return json({ error: 'Conversation not found.' }, 404);
+    const lowFirst = compareBytes(session.userId, peer.id) < 0;
+    const low = lowFirst ? session.userId : peer.id;
+    const high = lowFirst ? peer.id : session.userId;
+    const [knownConversation, cloudMessage] = await Promise.all([
+      env.DB.prepare(
+        `SELECT 1 AS found FROM ligo_conversations
+          WHERE user_low_id = ?1 AND user_high_id = ?2 LIMIT 1`,
+      ).bind(low, high).first<{ found: number }>(),
+      env.DB.prepare(
+        `SELECT node_id, storage_kind FROM ligo_cloud_messages
+          WHERE id = ?1 AND owner_id = ?2 AND peer_id = ?3 LIMIT 1`,
+      ).bind(messageId, session.userId, peer.id).first<{ node_id: string; storage_kind: number }>(),
+    ]);
+    if (!knownConversation) return json({ error: 'Conversation not found.' }, 404);
+    const now = unixNow();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO ligo_cloud_tombstones
+          (node_id, message_id, owner_id, storage_kind, created_at)
+         SELECT node_id, id, owner_id, storage_kind, ?1
+           FROM ligo_cloud_messages
+          WHERE id = ?2 AND owner_id = ?3 AND peer_id = ?4`,
+      ).bind(now, messageId, session.userId, peer.id),
+      env.DB.prepare(
+        'DELETE FROM ligo_deliveries WHERE id = ?1 AND sender_id = ?2 AND recipient_id = ?3',
+      ).bind(messageId, session.userId, peer.id),
+      env.DB.prepare(
+        'DELETE FROM ligo_cloud_messages WHERE id = ?1 AND owner_id = ?2 AND peer_id = ?3',
+      ).bind(messageId, session.userId, peer.id),
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO ligo_message_deletions
+          (recipient_id, message_id, sender_id, created_at)
+         VALUES (?1, ?2, ?3, ?4), (?3, ?2, ?3, ?4)`,
+      ).bind(peer.id, messageId, session.userId, now),
+      env.DB.prepare(
+        `UPDATE ligo_conversations SET last_preview = 'Message deleted'
+          WHERE user_low_id = ?1 AND user_high_id = ?2 AND last_message_id = ?3`,
+      ).bind(low, high, messageId),
+    ]);
+    const deletion = { messageId, senderId: base64Url(session.userId) };
+    for (const userId of [peer.id, session.userId]) {
+      ctx.waitUntil(env.LIGO_LIVE.getByName(base64Url(userId)).notifyDeletions([deletion])
+        .catch(logLiveFailure('deletion', messageId)));
+    }
+    return json({
+      evicted: cloudMessage ? [{
+        id: messageId,
+        nodeId: cloudMessage.node_id,
+        storage: cloudMessage.storage_kind === PUBLIC ? 'public' : 'private',
+      }] : [],
+      storage: await storageForUser(env, session.userId),
+    });
+  } catch (error) {
+    return json({ error: error instanceof InputError ? error.message : 'Message deletion is invalid.' }, 400);
+  }
 }
 
 export async function createLigoDelivery(
@@ -482,6 +698,11 @@ function requiredUsername(value: unknown): string {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (!USERNAME.test(normalized)) throw new InputError('Recipient is invalid.');
   return normalized;
+}
+
+function requiredUsernames(value: unknown, maximum: number): string[] {
+  if (!Array.isArray(value) || value.length > maximum) throw new InputError('Ligo usernames are invalid.');
+  return [...new Set(value.map(requiredUsername))];
 }
 
 function requiredIds(value: unknown, maximum = PRUNE_BATCH): string[] {

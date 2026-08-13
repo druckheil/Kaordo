@@ -6,6 +6,12 @@ import type { LigoDeliveryInput, LigoGateway } from './LigoGateway';
 export class TauriLigoGateway implements LigoGateway {
   constructor(private readonly invoke: TauriInvoke = tauriInvoke) {}
   acknowledge(deliveryId: string): Promise<void> { return this.invoke('ligo_acknowledge', { deliveryId }); }
+  acknowledgeConversationDeletions(peerUsernames: readonly string[]): Promise<void> {
+    return this.invoke('ligo_acknowledge_conversation_deletions', { peerUsernames });
+  }
+  acknowledgeDeletions(messageIds: readonly string[]): Promise<void> {
+    return this.invoke('ligo_acknowledge_deletions', { messageIds });
+  }
   bootstrap(cursor: string | null = null, limit = 30): Promise<LigoBootstrap> {
     return this.invoke('ligo_bootstrap', { cursor, limit });
   }
@@ -14,6 +20,12 @@ export class TauriLigoGateway implements LigoGateway {
   }
   createDelivery(input: LigoDeliveryInput): Promise<LigoStorageUpdate> {
     return this.invoke('ligo_create_delivery', { input });
+  }
+  deleteConversation(peerUsername: string): Promise<LigoStorageUpdate> {
+    return this.invoke('ligo_delete_conversation', { peerUsername });
+  }
+  deleteMessage(messageId: string, peerUsername: string): Promise<LigoStorageUpdate> {
+    return this.invoke('ligo_delete_message', { messageId, peerUsername });
   }
   history(username: string, owner: 'peer' | 'self', cursor: string | null = null, limit = 40): Promise<LigoCloudPage> {
     return this.invoke('ligo_history', { cursor, limit, owner, username });

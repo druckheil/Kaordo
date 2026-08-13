@@ -84,6 +84,14 @@ export class LigoLiveSession extends DurableObject<Env> {
     this.broadcast({ messageIds, status, type: 'receipts' });
   }
 
+  notifyDeletions(deletions: Array<{ messageId: string; senderId: string }>): void {
+    this.broadcast({ deletions, type: 'deletions' });
+  }
+
+  notifyConversationDeletions(deletions: Array<{ peerId: string; peerUsername: string }>): void {
+    this.broadcast({ deletions, type: 'conversation-deletions' });
+  }
+
   notifyPresence(userId: string, online: boolean): void {
     this.broadcast({ online, type: 'presence', userId });
   }

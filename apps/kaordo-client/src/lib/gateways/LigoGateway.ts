@@ -18,9 +18,13 @@ export type LigoDeliveryInput = {
 
 export interface LigoGateway {
   acknowledge(deliveryId: string): Promise<void>;
+  acknowledgeConversationDeletions(peerUsernames: readonly string[]): Promise<void>;
+  acknowledgeDeletions(messageIds: readonly string[]): Promise<void>;
   bootstrap(cursor?: string | null, limit?: number): Promise<LigoBootstrap>;
   confirmCleanup(messageIds: readonly string[]): Promise<void>;
   createDelivery(input: LigoDeliveryInput): Promise<LigoStorageUpdate>;
+  deleteConversation(peerUsername: string): Promise<LigoStorageUpdate>;
+  deleteMessage(messageId: string, peerUsername: string): Promise<LigoStorageUpdate>;
   history(username: string, owner: 'peer' | 'self', cursor?: string | null, limit?: number): Promise<LigoCloudPage>;
   inbox(cursor?: string | null, limit?: number): Promise<LigoInbox>;
   liveTicket(): Promise<LigoLiveTicket>;

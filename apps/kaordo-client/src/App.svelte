@@ -100,14 +100,18 @@
 
   const EMPTY_LIGO_GATEWAY: LigoGateway = {
     acknowledge: async () => {},
+    acknowledgeConversationDeletions: async () => {},
+    acknowledgeDeletions: async () => {},
     bootstrap: async () => ({
       conversations: [], nextCursor: null,
       storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
     }),
     confirmCleanup: async () => {},
     createDelivery: async () => { throw new Error('Ligo service is unavailable.'); },
+    deleteConversation: async () => { throw new Error('Ligo service is unavailable.'); },
+    deleteMessage: async () => { throw new Error('Ligo service is unavailable.'); },
     history: async () => ({ messages: [], nextCursor: null }),
-    inbox: async () => ({ deliveries: [], nextCursor: null }),
+    inbox: async () => ({ conversationDeletions: [], deletions: [], deliveries: [], nextCursor: null }),
     liveTicket: async () => { throw new Error('Ligo live service is unavailable.'); },
     markRead: async () => { throw new Error('Ligo read receipts are unavailable.'); },
     searchUsers: async () => [],

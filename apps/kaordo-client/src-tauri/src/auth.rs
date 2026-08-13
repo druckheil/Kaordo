@@ -295,8 +295,20 @@ struct LigoCleanupInput<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct LigoConversationCleanupInput<'a> {
+    peer_usernames: &'a [String],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct LigoReadInput<'a> {
     message_ids: &'a [String],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LigoDeleteInput<'a> {
+    peer_username: &'a str,
 }
 
 #[derive(Serialize)]
@@ -305,7 +317,6 @@ struct LigoStorageInput<'a> {
     selected_node_id: &'a str,
     stack_limit_bytes: u64,
 }
-
 
 #[derive(Deserialize)]
 struct LigoUsersResponse {
@@ -862,12 +873,64 @@ pub async fn ligo_mark_read(
         &client,
         Method::POST,
         "/api/ligo/read",
-        &LigoReadInput { message_ids: &message_ids },
-    ).await?;
+        &LigoReadInput {
+            message_ids: &message_ids,
+        },
+    )
+    .await?;
     let _: Value = decode_response(response).await?;
     Ok(())
 }
 
+#[tauri::command]
+pub async fn ligo_acknowledge_deletions(
+    client: State<'_, AuthClient>,
+    message_ids: Vec<String>,
+) -> Result<(), String> {
+    if message_ids.len() > 64 || message_ids.iter().any(|id| node_id_path(id).is_err()) {
+        return Err("Ligo deletion receipts are invalid.".to_owned());
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::POST,
+        "/api/ligo/deletions/ack",
+        &LigoCleanupInput {
+            message_ids: &message_ids,
+        },
+    )
+    .await?;
+    let _: Value = decode_response(response).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ligo_acknowledge_conversation_deletions(
+    client: State<'_, AuthClient>,
+    peer_usernames: Vec<String>,
+) -> Result<(), String> {
+    if peer_usernames.len() > 64
+        || peer_usernames.iter().any(|username| {
+            username.is_empty()
+                || username.len() > 32
+                || !username.chars().all(|value| {
+                    value.is_ascii_lowercase() || value.is_ascii_digit() || value == '_'
+                })
+        })
+    {
+        return Err("Ligo conversation deletion receipts are invalid.".to_owned());
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::POST,
+        "/api/ligo/conversation-deletions/ack",
+        &LigoConversationCleanupInput {
+            peer_usernames: &peer_usernames,
+        },
+    )
+    .await?;
+    let _: Value = decode_response(response).await?;
+    Ok(())
+}
 
 #[tauri::command]
 pub async fn ligo_search_users(
@@ -908,6 +971,57 @@ pub async fn ligo_create_delivery(
 }
 
 #[tauri::command]
+pub async fn ligo_delete_message(
+    client: State<'_, AuthClient>,
+    message_id: String,
+    peer_username: String,
+) -> Result<Value, String> {
+    let message_id = node_id_path(&message_id)?;
+    let peer_username = peer_username.trim().to_lowercase();
+    if peer_username.is_empty()
+        || peer_username.len() > 32
+        || !peer_username
+            .chars()
+            .all(|value| value.is_ascii_lowercase() || value.is_ascii_digit() || value == '_')
+    {
+        return Err("Ligo message recipient is invalid.".to_owned());
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::DELETE,
+        &format!("/api/ligo/messages/{message_id}"),
+        &LigoDeleteInput {
+            peer_username: &peer_username,
+        },
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ligo_delete_conversation(
+    client: State<'_, AuthClient>,
+    peer_username: String,
+) -> Result<Value, String> {
+    let peer_username = peer_username.trim().to_lowercase();
+    if peer_username.is_empty()
+        || peer_username.len() > 32
+        || !peer_username
+            .chars()
+            .all(|value| value.is_ascii_lowercase() || value.is_ascii_digit() || value == '_')
+    {
+        return Err("Ligo conversation user is invalid.".to_owned());
+    }
+    let response = authenticated_request(
+        &client,
+        Method::DELETE,
+        &format!("/api/ligo/conversations/{peer_username}"),
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
 pub async fn ligo_update_storage(
     client: State<'_, AuthClient>,
     selected_node_id: String,
@@ -920,8 +1034,12 @@ pub async fn ligo_update_storage(
         &client,
         Method::PATCH,
         "/api/ligo/storage",
-        &LigoStorageInput { selected_node_id: &selected_node_id, stack_limit_bytes },
-    ).await?;
+        &LigoStorageInput {
+            selected_node_id: &selected_node_id,
+            stack_limit_bytes,
+        },
+    )
+    .await?;
     decode_response(response).await
 }
 
@@ -937,8 +1055,11 @@ pub async fn ligo_confirm_cleanup(
         &client,
         Method::POST,
         "/api/ligo/cloud-cleanup",
-        &LigoCleanupInput { message_ids: &message_ids },
-    ).await?;
+        &LigoCleanupInput {
+            message_ids: &message_ids,
+        },
+    )
+    .await?;
     let _: Value = decode_response(response).await?;
     Ok(())
 }

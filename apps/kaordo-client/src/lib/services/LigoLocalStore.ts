@@ -3,6 +3,8 @@ import type { LigoMessage, LigoMessageStatus } from '../domain/ligo';
 export type LigoMessagePage = { messages: LigoMessage[]; nextCursor: string | null };
 
 export interface LigoLocalStore {
+  delete(ownerId: string, messageId: string): Promise<LigoMessage | null>;
+  deleteConversation(ownerId: string, conversationId: string): Promise<LigoMessage[]>;
   get(ownerId: string, messageId: string): Promise<LigoMessage | null>;
   page(ownerId: string, conversationId: string, cursor: string | null, limit: number): Promise<LigoMessagePage>;
   put(ownerId: string, message: LigoMessage): Promise<void>;
@@ -15,6 +17,23 @@ export function createLigoLocalStore(): LigoLocalStore {
 
 export class MemoryLigoLocalStore implements LigoLocalStore {
   readonly #messages = new Map<string, LigoMessage>();
+
+  async delete(ownerId: string, messageId: string): Promise<LigoMessage | null> {
+    const key = `${ownerId}:${messageId}`;
+    const message = this.#messages.get(key);
+    this.#messages.delete(key);
+    return message ? durableMessage(message) : null;
+  }
+
+  async deleteConversation(ownerId: string, conversationId: string): Promise<LigoMessage[]> {
+    const deleted: LigoMessage[] = [];
+    for (const [key, message] of this.#messages) {
+      if (!key.startsWith(`${ownerId}:`) || message.conversationId !== conversationId) continue;
+      deleted.push(durableMessage(message));
+      this.#messages.delete(key);
+    }
+    return deleted;
+  }
 
   async get(ownerId: string, messageId: string): Promise<LigoMessage | null> {
     const message = this.#messages.get(`${ownerId}:${messageId}`);
@@ -45,6 +64,48 @@ export class MemoryLigoLocalStore implements LigoLocalStore {
 
 class IndexedDbLigoLocalStore implements LigoLocalStore {
   readonly #database = openDatabase();
+
+  async delete(ownerId: string, messageId: string): Promise<LigoMessage | null> {
+    const database = await this.#database;
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction('messages', 'readwrite');
+      const store = transaction.objectStore('messages');
+      const request = store.get(`${ownerId}:${messageId}`);
+      let deleted: LigoMessage | null = null;
+      request.onsuccess = () => {
+        deleted = request.result ? stripRecord(request.result as StoredMessage) : null;
+        store.delete(`${ownerId}:${messageId}`);
+      };
+      transaction.oncomplete = () => resolve(deleted);
+      transaction.onerror = () => reject(transaction.error ?? new Error('Message could not be deleted locally.'));
+      transaction.onabort = () => reject(transaction.error ?? new Error('Message could not be deleted locally.'));
+    });
+  }
+
+  async deleteConversation(ownerId: string, conversationId: string): Promise<LigoMessage[]> {
+    const database = await this.#database;
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction('messages', 'readwrite');
+      const index = transaction.objectStore('messages').index('byConversation');
+      const range = IDBKeyRange.bound(
+        [ownerId, conversationId, 0, ''],
+        [ownerId, conversationId, Number.MAX_SAFE_INTEGER, '\uffff'],
+      );
+      const request = index.openCursor(range);
+      const deleted: LigoMessage[] = [];
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        deleted.push(stripRecord(cursor.value as StoredMessage));
+        cursor.delete();
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error ?? new Error('Conversation could not be deleted locally.'));
+      transaction.oncomplete = () => resolve(deleted);
+      transaction.onerror = () => reject(transaction.error ?? new Error('Conversation could not be deleted locally.'));
+      transaction.onabort = () => reject(transaction.error ?? new Error('Conversation could not be deleted locally.'));
+    });
+  }
 
   async get(ownerId: string, messageId: string): Promise<LigoMessage | null> {
     const database = await this.#database;

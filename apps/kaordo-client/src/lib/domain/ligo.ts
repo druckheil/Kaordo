@@ -32,6 +32,8 @@ export type LigoDelivery = {
   status: Extract<LigoMessageStatus, 'queued' | 'delivered' | 'read'>;
   storage: 'private' | 'public';
 };
+export type LigoDeletion = { messageId: string; senderId: string };
+export type LigoConversationDeletion = { peerId: string; peerUsername: string };
 export type LigoStorageSettings = {
   selectedNodeId: string;
   stackLimitBytes: number;
@@ -47,5 +49,10 @@ export type LigoBootstrap = {
   nextCursor: string | null;
   storage: LigoStorageSettings;
 };
-export type LigoInbox = { deliveries: LigoDelivery[]; nextCursor: string | null };
+export type LigoInbox = {
+  conversationDeletions: LigoConversationDeletion[];
+  deletions: LigoDeletion[];
+  deliveries: LigoDelivery[];
+  nextCursor: string | null;
+};
 export type LigoLiveTicket = { url: string };

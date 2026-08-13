@@ -32,6 +32,29 @@ describe('LigoLocalStore', () => {
     expect(stored?.attachments[0]?.blob).not.toBeInstanceOf(File);
     expect(await stored?.attachments[0]?.blob.text()).toBe('persistent bytes');
   });
+
+  it('returns and removes a deleted local message', async () => {
+    const store = new MemoryLigoLocalStore();
+    await store.put('owner', message('deleted-message', 'friend', 3_000));
+
+    const deleted = await store.delete('owner', 'deleted-message');
+
+    expect(deleted?.id).toBe('deleted-message');
+    expect(await store.get('owner', 'deleted-message')).toBeNull();
+  });
+
+  it('deletes every message in one conversation without touching another', async () => {
+    const store = new MemoryLigoLocalStore();
+    await store.put('owner', message('first', 'friend', 1_000));
+    await store.put('owner', message('second', 'friend', 2_000));
+    await store.put('owner', message('other', 'someone-else', 3_000));
+
+    const deleted = await store.deleteConversation('owner', 'friend');
+
+    expect(deleted.map(({ id }) => id).sort()).toEqual(['first', 'second']);
+    expect((await store.page('owner', 'friend', null, 10)).messages).toEqual([]);
+    expect((await store.page('owner', 'someone-else', null, 10)).messages).toHaveLength(1);
+  });
 });
 
 function message(id: string, conversationId: string, createdAt: number): LigoMessage {

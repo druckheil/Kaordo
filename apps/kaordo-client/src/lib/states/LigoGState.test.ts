@@ -142,13 +142,101 @@ describe('LigoGState live inbox', () => {
     expect(state.snapshot.messages.map(({ id }) => id)).toContain('message-005');
     expect(state.snapshot.messages).toHaveLength(50);
   });
+
+  it('cancels the debounced search lifecycle after selecting a user', async () => {
+    const state = new LigoGState(
+      new MemoryLigoGateway(), EMPTY_TRANSPORT, new MemoryLigoLocalStore(), async () => [],
+      async () => ({ limitBytes: 1_073_741_824, nodeCandidates: [], reservedBytes: 0, usedBytes: 0 }),
+    );
+    state.configure('owner');
+    state.setSearch('friend');
+
+    await state.openConversation({ id: 'friend', online: true, username: 'friend' });
+
+    expect(state.snapshot.searchPhase).toBe('idle');
+    expect(state.snapshot.searchQuery).toBe('');
+  });
+
+  it('applies a live deletion locally and acknowledges its durable outbox item', async () => {
+    const gateway = new MemoryLigoGateway();
+    const socket = new TestWebSocket();
+    const local = new MemoryLigoLocalStore();
+    const messageId = '123e4567-e89b-42d3-a456-426614174077';
+    const friend = { id: 'friend', online: true, username: 'friend' };
+    await local.put('owner', {
+      attachments: [], body: 'Delete me', conversationId: friend.id, createdAt: 1_000, id: messageId,
+      recipientId: 'owner', senderId: friend.id, status: 'delivered',
+    });
+    const state = new LigoGState(
+      gateway, EMPTY_TRANSPORT, local, async () => [],
+      async () => ({ limitBytes: 1_073_741_824, nodeCandidates: [], reservedBytes: 0, usedBytes: 0 }),
+      () => socket,
+    );
+    state.configure('owner');
+    state.enter();
+    await vi.waitFor(() => expect(gateway.liveTicketCalls).toBe(1));
+    socket.open();
+    await state.openConversation(friend);
+
+    socket.message(JSON.stringify({ deletions: [{ messageId, senderId: friend.id }], type: 'deletions' }));
+
+    await vi.waitFor(() => expect(gateway.acknowledgedDeletions).toContain(messageId));
+    expect(state.snapshot.messages).toEqual([]);
+    expect(await local.get('owner', messageId)).toBeNull();
+    state.exit();
+  });
+
+  it('clears an entire local chat when an offline conversation deletion arrives', async () => {
+    const gateway = new MemoryLigoGateway();
+    const socket = new TestWebSocket();
+    const local = new MemoryLigoLocalStore();
+    const friend = { id: 'friend', online: true, username: 'friend' };
+    await local.put('owner', {
+      attachments: [], body: 'First', conversationId: friend.id, createdAt: 1_000, id: 'first',
+      recipientId: 'owner', senderId: friend.id, status: 'read',
+    });
+    await local.put('owner', {
+      attachments: [], body: 'Second', conversationId: friend.id, createdAt: 2_000, id: 'second',
+      recipientId: friend.id, senderId: 'owner', status: 'delivered',
+    });
+    const state = new LigoGState(
+      gateway, EMPTY_TRANSPORT, local, async () => [],
+      async () => ({ limitBytes: 1_073_741_824, nodeCandidates: [], reservedBytes: 0, usedBytes: 0 }),
+      () => socket,
+    );
+    state.configure('owner');
+    state.enter();
+    await vi.waitFor(() => expect(gateway.liveTicketCalls).toBe(1));
+    socket.open();
+    await state.openConversation(friend);
+
+    socket.message(JSON.stringify({
+      deletions: [{ peerId: friend.id, peerUsername: friend.username }],
+      type: 'conversation-deletions',
+    }));
+
+    await vi.waitFor(() => expect(gateway.acknowledgedConversationDeletions).toContain(friend.username));
+    expect(state.snapshot.activeUser).toBeNull();
+    expect(await local.page('owner', friend.id, null, 10)).toMatchObject({ messages: [] });
+    state.exit();
+  });
 });
 
 class MemoryLigoGateway implements LigoGateway {
+  acknowledgedConversationDeletions: string[] = [];
+  acknowledgedDeletions: string[] = [];
   inboxCalls = 0;
   liveTicketCalls = 0;
 
   acknowledge(): Promise<void> { return Promise.resolve(); }
+  acknowledgeConversationDeletions(peerUsernames: readonly string[]): Promise<void> {
+    this.acknowledgedConversationDeletions.push(...peerUsernames);
+    return Promise.resolve();
+  }
+  acknowledgeDeletions(messageIds: readonly string[]): Promise<void> {
+    this.acknowledgedDeletions.push(...messageIds);
+    return Promise.resolve();
+  }
   confirmCleanup(): Promise<void> { return Promise.resolve(); }
   bootstrap(): Promise<LigoBootstrap> {
     return Promise.resolve({
@@ -161,6 +249,14 @@ class MemoryLigoGateway implements LigoGateway {
     evicted: [],
     storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
   }); }
+  deleteConversation() { return Promise.resolve({
+    evicted: [],
+    storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
+  }); }
+  deleteMessage() { return Promise.resolve({
+    evicted: [],
+    storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
+  }); }
   history(
     _username: string,
     _owner: 'peer' | 'self',
@@ -169,7 +265,7 @@ class MemoryLigoGateway implements LigoGateway {
   ): Promise<LigoCloudPage> { return Promise.resolve({ messages: [], nextCursor: null }); }
   inbox(): Promise<LigoInbox> {
     this.inboxCalls += 1;
-    return Promise.resolve({ deliveries: [], nextCursor: null });
+    return Promise.resolve({ conversationDeletions: [], deletions: [], deliveries: [], nextCursor: null });
   }
   liveTicket(): Promise<LigoLiveTicket> {
     this.liveTicketCalls += 1;

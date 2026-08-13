@@ -20,6 +20,15 @@ class LigoAttachmentUrls {
     this.#urls.set(attachment.id, { signature, url });
     return url;
   }
+
+  release(attachments: readonly LigoAttachment[]): void {
+    for (const attachment of attachments) {
+      const cached = this.#urls.get(attachment.id);
+      if (!cached) continue;
+      URL.revokeObjectURL(cached.url);
+      this.#urls.delete(attachment.id);
+    }
+  }
 }
 
 function attachmentSignature(attachment: LigoAttachment): string {

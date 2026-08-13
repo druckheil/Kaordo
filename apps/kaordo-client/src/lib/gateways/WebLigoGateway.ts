@@ -6,6 +6,12 @@ export class WebLigoGateway implements LigoGateway {
   acknowledge(deliveryId: string): Promise<void> {
     return requestJson(`/api/ligo/deliveries/${encodeURIComponent(deliveryId)}`, { method: 'DELETE' }, LIGO_UNAVAILABLE);
   }
+  acknowledgeConversationDeletions(peerUsernames: readonly string[]): Promise<void> {
+    return requestJson('/api/ligo/conversation-deletions/ack', jsonRequest('POST', { peerUsernames }), LIGO_UNAVAILABLE);
+  }
+  acknowledgeDeletions(messageIds: readonly string[]): Promise<void> {
+    return requestJson('/api/ligo/deletions/ack', jsonRequest('POST', { messageIds }), LIGO_UNAVAILABLE);
+  }
   bootstrap(cursor: string | null = null, limit = 30): Promise<LigoBootstrap> {
     return requestJson(`/api/ligo/bootstrap?${pageQuery('before', cursor, limit)}`, {}, LIGO_UNAVAILABLE);
   }
@@ -14,6 +20,14 @@ export class WebLigoGateway implements LigoGateway {
   }
   createDelivery(input: LigoDeliveryInput): Promise<LigoStorageUpdate> {
     return requestJson('/api/ligo/deliveries', jsonRequest('POST', input), LIGO_UNAVAILABLE);
+  }
+  deleteConversation(peerUsername: string): Promise<LigoStorageUpdate> {
+    return requestJson(`/api/ligo/conversations/${encodeURIComponent(peerUsername)}`,
+      { method: 'DELETE' }, LIGO_UNAVAILABLE);
+  }
+  deleteMessage(messageId: string, peerUsername: string): Promise<LigoStorageUpdate> {
+    return requestJson(`/api/ligo/messages/${encodeURIComponent(messageId)}`,
+      jsonRequest('DELETE', { peerUsername }), LIGO_UNAVAILABLE);
   }
   history(username: string, owner: 'peer' | 'self', cursor: string | null = null, limit = 40): Promise<LigoCloudPage> {
     const query = pageQuery('before', cursor, limit);

@@ -1096,7 +1096,7 @@ describe('authentication API', () => {
     });
     expect(acknowledged.status).toBe(200);
     await expect(api('/api/ligo/inbox', { headers: recipientAuthorization }).then((response) => response.json()))
-      .resolves.toEqual({ deliveries: [], nextCursor: null });
+      .resolves.toEqual({ conversationDeletions: [], deletions: [], deliveries: [], nextCursor: null });
     await expect(api('/api/ligo/history/ligo_recipient?owner=self', {
       headers: senderAuthorization,
     }).then((response) => response.json())).resolves.toMatchObject({
@@ -1149,6 +1149,36 @@ describe('authentication API', () => {
     await expect(peerHistory.json()).resolves.toMatchObject({
       messages: [{ id: newestId, sender: { username: 'ligo_sender' } }],
     });
+    const deletionSignal = new Promise<string>((resolve) => {
+      liveSocket.addEventListener('message', ({ data }) => resolve(String(data)), { once: true });
+    });
+    const deleted = await api(`/api/ligo/messages/${newestId}`, {
+      body: JSON.stringify({ peerUsername: 'ligo_recipient' }),
+      headers: { ...senderAuthorization, 'content-type': 'application/json' },
+      method: 'DELETE',
+    });
+    expect(deleted.status).toBe(200);
+    await expect(deleted.json()).resolves.toMatchObject({
+      evicted: [{ id: newestId, nodeId, storage: 'private' }],
+      storage: { stackUsedBytes: 0 },
+    });
+    await expect(deletionSignal).resolves.toBe(JSON.stringify({
+      deletions: [{ messageId: newestId, senderId: senderRegistrationBody.user.id }],
+      type: 'deletions',
+    }));
+    await expect(api('/api/ligo/inbox', { headers: recipientAuthorization }).then((response) => response.json()))
+      .resolves.toMatchObject({
+        deletions: [{ messageId: newestId, senderId: senderRegistrationBody.user.id }],
+        deliveries: [],
+      });
+    const deletionAcknowledged = await api('/api/ligo/deletions/ack', {
+      body: JSON.stringify({ messageIds: [newestId] }),
+      headers: { ...recipientAuthorization, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    expect(deletionAcknowledged.status).toBe(200);
+    await expect(api('/api/ligo/inbox', { headers: recipientAuthorization }).then((response) => response.json()))
+      .resolves.toMatchObject({ deletions: [] });
     const cleanup = await api('/api/ligo/cloud-cleanup', {
       body: JSON.stringify({ messageIds: [messageId, retainedId] }),
       headers: { ...senderAuthorization, 'content-type': 'application/json' },
@@ -1186,6 +1216,27 @@ describe('authentication API', () => {
     await expect(offlineSearch.json()).resolves.toMatchObject({
       users: [{ online: false, username: 'ligo_recipient' }],
     });
+    const deletedConversation = await api('/api/ligo/conversations/ligo_recipient', {
+      headers: senderAuthorization,
+      method: 'DELETE',
+    });
+    expect(deletedConversation.status).toBe(200);
+    await expect(api('/api/ligo/bootstrap', { headers: senderAuthorization }).then((response) => response.json()))
+      .resolves.toMatchObject({ conversations: [] });
+    await expect(api('/api/ligo/inbox', { headers: recipientAuthorization }).then((response) => response.json()))
+      .resolves.toMatchObject({
+        conversationDeletions: [{
+          peerId: senderRegistrationBody.user.id,
+          peerUsername: 'ligo_sender',
+        }],
+        deliveries: [],
+      });
+    const conversationDeletionAcknowledged = await api('/api/ligo/conversation-deletions/ack', {
+      body: JSON.stringify({ peerUsernames: ['ligo_sender'] }),
+      headers: { ...recipientAuthorization, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    expect(conversationDeletionAcknowledged.status).toBe(200);
   });
 });
 
