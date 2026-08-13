@@ -1,4 +1,4 @@
-import type { LigoBootstrap, LigoInbox, LigoUser } from '../domain/ligo';
+import type { LigoBootstrap, LigoInbox, LigoLiveTicket, LigoUser } from '../domain/ligo';
 
 export type LigoDeliveryInput = {
   id: string;
@@ -14,5 +14,6 @@ export interface LigoGateway {
   bootstrap(cursor?: string | null, limit?: number): Promise<LigoBootstrap>;
   createDelivery(input: LigoDeliveryInput): Promise<void>;
   inbox(cursor?: string | null, limit?: number): Promise<LigoInbox>;
+  liveTicket(): Promise<LigoLiveTicket>;
   searchUsers(query: string): Promise<LigoUser[]>;
 }

@@ -55,10 +55,15 @@ import {
   ligoInbox,
   searchLigoUsers,
 } from './ligo/routes';
+import { createLigoLiveTicket, openLigoLive } from './ligo/live';
 
 const DESKTOP_AUTH_HOST = `${['veri', 'dimensio-api'].join('')}.pshenychnyi-ld.workers.dev`;
 
-export function handleRequest(request: Request, env: Env): Response | Promise<Response> {
+export function handleRequest(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Response | Promise<Response> {
   const { hostname, pathname } = new URL(request.url);
 
   if (pathname.startsWith('/api/auth/desktop/') && hostname !== DESKTOP_AUTH_HOST) {
@@ -101,8 +106,14 @@ export function handleRequest(request: Request, env: Env): Response | Promise<Re
   if (request.method === 'GET' && pathname === '/api/ligo/inbox') {
     return ligoInbox(request, env);
   }
+  if (request.method === 'POST' && pathname === '/api/ligo/live-ticket') {
+    return createLigoLiveTicket(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/ligo/live') {
+    return openLigoLive(request, env);
+  }
   if (request.method === 'POST' && pathname === '/api/ligo/deliveries') {
-    return createLigoDelivery(request, env);
+    return createLigoDelivery(request, env, ctx);
   }
   const ligoDeliveryMatch = pathname.match(/^\/api\/ligo\/deliveries\/([0-9a-f-]+)$/u);
   if (request.method === 'DELETE' && ligoDeliveryMatch?.[1]) {

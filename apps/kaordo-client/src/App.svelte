@@ -103,6 +103,7 @@
     bootstrap: async () => ({ conversations: [], nextCursor: null }),
     createDelivery: async () => { throw new Error('Ligo service is unavailable.'); },
     inbox: async () => ({ deliveries: [], nextCursor: null }),
+    liveTicket: async () => { throw new Error('Ligo live service is unavailable.'); },
     searchUsers: async () => [],
   };
 

@@ -30,3 +30,4 @@ export type LigoDelivery = {
 };
 export type LigoBootstrap = { conversations: LigoConversation[]; nextCursor: string | null };
 export type LigoInbox = { deliveries: LigoDelivery[]; nextCursor: string | null };
+export type LigoLiveTicket = { url: string };

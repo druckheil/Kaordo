@@ -116,7 +116,11 @@ export async function ligoInbox(request: Request, env: Env): Promise<Response> {
   });
 }
 
-export async function createLigoDelivery(request: Request, env: Env): Promise<Response> {
+export async function createLigoDelivery(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
   const session = await authenticate(request, env);
   if (!session) return json({ error: 'Authentication required.' }, 401);
   try {
@@ -172,6 +176,13 @@ export async function createLigoDelivery(request: Request, env: Env): Promise<Re
          WHERE excluded.updated_at >= ligo_conversations.updated_at`,
       ).bind(low, high, id, session.userId, preview, now),
     ]);
+    ctx.waitUntil(env.LIGO_LIVE.getByName(base64Url(recipient.id)).notify(id).catch((error: unknown) => {
+      console.error(JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+        message: 'Ligo live notification failed; inbox polling remains available.',
+        messageId: id,
+      }));
+    }));
     return json({ id }, 201);
   } catch (error) {
     if (isUnique(error)) return json({ error: 'This message was already queued.' }, 409);

@@ -16,7 +16,21 @@ const PATHS = {
 export type LigoDraftFile = { blob: Blob; id: string; mimeType: string; name: string; size: number; url: string };
 export type LigoUploadProgress = { file: string; totalBytes: number; uploadedBytes: number };
 
-export class NodeLigoTransport {
+export interface LigoTransport {
+  complete(delivery: LigoDelivery): Promise<void>;
+  receive(ownerId: string, delivery: LigoDelivery): Promise<LigoMessage>;
+  reset(): void;
+  send(
+    ownerId: string,
+    recipient: LigoUser,
+    destination: string,
+    body: string,
+    files: readonly LigoDraftFile[],
+    onProgress: (progress: LigoUploadProgress | null) => void,
+  ): Promise<LigoMessage>;
+}
+
+export class NodeLigoTransport implements LigoTransport {
   readonly #connections = new Map<string, Promise<NodeConnection>>();
 
   constructor(private readonly api: LigoGateway, private readonly nodes: NodoGateway) {}

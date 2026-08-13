@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
-import type { LigoBootstrap, LigoInbox, LigoUser } from '../domain/ligo';
+import type { LigoBootstrap, LigoInbox, LigoLiveTicket, LigoUser } from '../domain/ligo';
 import type { TauriInvoke } from './TauriWorkspaceGateway';
 import type { LigoDeliveryInput, LigoGateway } from './LigoGateway';
 
@@ -13,5 +13,6 @@ export class TauriLigoGateway implements LigoGateway {
   inbox(cursor: string | null = null, limit = 24): Promise<LigoInbox> {
     return this.invoke('ligo_inbox', { cursor, limit });
   }
+  liveTicket(): Promise<LigoLiveTicket> { return this.invoke('ligo_live_ticket'); }
   searchUsers(query: string): Promise<LigoUser[]> { return this.invoke('ligo_search_users', { query }); }
 }

@@ -794,6 +794,12 @@ pub async fn ligo_inbox(
 }
 
 #[tauri::command]
+pub async fn ligo_live_ticket(client: State<'_, AuthClient>) -> Result<Value, String> {
+    let response = authenticated_request(&client, Method::POST, "/api/ligo/live-ticket").await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
 pub async fn ligo_search_users(
     client: State<'_, AuthClient>,
     query: String,

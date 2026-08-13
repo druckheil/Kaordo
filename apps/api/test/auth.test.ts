@@ -1002,6 +1002,21 @@ describe('authentication API', () => {
     });
     const recipientToken = (await recipientRegistration.json<{ sessionToken: string }>()).sessionToken;
     const recipientAuthorization = { authorization: `Bearer ${recipientToken}` };
+    const ticketResponse = await api('/api/ligo/live-ticket', {
+      headers: recipientAuthorization,
+      method: 'POST',
+    });
+    const { url: liveUrl } = await ticketResponse.json<{ url: string }>();
+    expect(ticketResponse.status).toBe(201);
+    expect(liveUrl).toMatch(/^wss:\/\//u);
+    const testLiveUrl = new URL(liveUrl);
+    testLiveUrl.protocol = 'https:';
+    const liveResponse = await exports.default.fetch(testLiveUrl, {
+      headers: { upgrade: 'websocket' },
+    });
+    expect(liveResponse.status).toBe(101);
+    const liveSocket = liveResponse.webSocket!;
+    liveSocket.accept();
     const heartbeat = await api('/api/nodes/heartbeat', {
       body: JSON.stringify({
         deviceKey: 'f'.repeat(64),
@@ -1025,6 +1040,9 @@ describe('authentication API', () => {
     });
 
     const messageId = '123e4567-e89b-42d3-a456-426614174077';
+    const liveSignal = new Promise<string>((resolve) => {
+      liveSocket.addEventListener('message', ({ data }) => resolve(String(data)), { once: true });
+    });
     const queued = await api('/api/ligo/deliveries', {
       body: JSON.stringify({
         id: messageId,
@@ -1038,6 +1056,7 @@ describe('authentication API', () => {
       method: 'POST',
     });
     expect(queued.status).toBe(201);
+    await expect(liveSignal).resolves.toBe(JSON.stringify({ messageId, type: 'inbox' }));
 
     const senderBootstrap = await api('/api/ligo/bootstrap', { headers: senderAuthorization });
     await expect(senderBootstrap.json()).resolves.toMatchObject({
@@ -1059,6 +1078,7 @@ describe('authentication API', () => {
     expect(acknowledged.status).toBe(200);
     await expect(api('/api/ligo/inbox', { headers: recipientAuthorization }).then((response) => response.json()))
       .resolves.toEqual({ deliveries: [], nextCursor: null });
+    liveSocket.close(1000, 'Test complete.');
   });
 });
 

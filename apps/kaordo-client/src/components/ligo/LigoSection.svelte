@@ -13,6 +13,7 @@
   let conversationList = $state<HTMLElement>();
   let conversationStart = $state(0);
   let conversationEnd = $state(24);
+  let latestMessageId = '';
   const conversationHeight = 62;
   let visibleConversations = $derived(snapshot.conversations.slice(conversationStart, conversationEnd));
   let urls = new Map<string, string>();
@@ -26,6 +27,14 @@
     Math.max(1, snapshot.uploadProgress.totalBytes) * 100) : 0);
 
   onDestroy(() => { for (const url of urls.values()) URL.revokeObjectURL(url); });
+
+  $effect(() => {
+    const nextId = snapshot.messages.at(-1)?.id ?? '';
+    if (!nextId || nextId === latestMessageId) return;
+    const followsLatest = !messageList || messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 96;
+    latestMessageId = nextId;
+    if (followsLatest) void scrollBottom();
+  });
 
   function open(user: LigoUser) { void ligoState.openConversation(user).then(scrollBottom); }
   function selectConversation(conversation: LigoConversation) { open(conversation.user); }

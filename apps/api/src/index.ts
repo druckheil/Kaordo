@@ -7,6 +7,8 @@ import {
   retireOfflinePublicNodes,
 } from './fluo/public-storage';
 
+export { LigoLiveSession } from './ligo/live';
+
 export default {
   fetch: handleRequest,
   async scheduled(_controller, env): Promise<void> {

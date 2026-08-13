@@ -29,6 +29,20 @@
       "migrations_dir": "migrations"
     }
   ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LIGO_LIVE",
+        "class_name": "LigoLiveSession"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1.1-ligo-live",
+      "new_sqlite_classes": ["LigoLiveSession"]
+    }
+  ],
   "ratelimits": [
     {
       "name": "AUTH_IP_LIMITER",

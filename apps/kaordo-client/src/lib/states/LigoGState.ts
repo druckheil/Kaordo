@@ -2,9 +2,9 @@ import type { LigoConversation, LigoMessage, LigoUser } from '../domain/ligo';
 import type { NodoNode, PublicNodoStorage } from '../domain/nodo';
 import type { LigoGateway } from '../gateways/LigoGateway';
 import {
-  NodeLigoTransport,
   PUBLIC_LIGO_DESTINATION,
   type LigoDraftFile,
+  type LigoTransport,
   type LigoUploadProgress,
 } from '../gateways/NodeLigoTransport';
 import type { LigoLocalStore } from '../services/LigoLocalStore';
@@ -14,6 +14,20 @@ const MESSAGE_PAGE = 40;
 const MAX_MESSAGE_WINDOW = 120;
 const INBOX_POLL_MIN_MS = 4_000;
 const INBOX_POLL_MAX_MS = 30_000;
+const LIVE_FALLBACK_POLL_MS = 60_000;
+const LIVE_RECONNECT_MAX_MS = 30_000;
+const LIVE_CONNECT_TIMEOUT_MS = 10_000;
+const SOCKET_CONNECTING = 0;
+const SOCKET_OPEN = 1;
+
+type LigoLiveSocket = {
+  close(code?: number, reason?: string): void;
+  onclose: ((event: CloseEvent) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onmessage: ((event: MessageEvent) => void) | null;
+  onopen: ((event: Event) => void) | null;
+  readonly readyState: number;
+};
 
 export type LigoSnapshot = {
   activeUser: LigoUser | null;
@@ -48,27 +62,43 @@ export class LigoGState extends GState<LigoSnapshot> {
   #messageCursor: string | null = null;
   #searchTimer: ReturnType<typeof setTimeout> | null = null;
   #pollTimer: ReturnType<typeof setTimeout> | null = null;
+  #liveReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  #liveConnectTimer: ReturnType<typeof setTimeout> | null = null;
+  #liveSocket: LigoLiveSocket | null = null;
+  #liveGeneration = 0;
+  #liveFailures = 0;
+  #syncRequested = false;
   #entered = false;
   #emptyPolls = 0;
 
   constructor(
     private readonly api: LigoGateway,
-    private readonly transport: NodeLigoTransport,
+    private readonly transport: LigoTransport,
     private readonly local: LigoLocalStore,
     private readonly loadNodes: () => Promise<NodoNode[]>,
     private readonly loadPublicStorage: () => Promise<PublicNodoStorage>,
+    private readonly openLiveSocket: (url: string) => LigoLiveSocket = (url) => new WebSocket(url),
   ) { super(emptySnapshot()); }
 
   configure(ownerId: string | null): void {
     if (ownerId === this.#ownerId) return;
     this.#ownerId = ownerId;
     this.reset();
-    if (this.#entered && ownerId) void this.refresh();
+    if (this.#entered && ownerId) {
+      void this.refresh();
+      this.startLive();
+    }
   }
 
-  override enter(): void { this.#entered = true; if (this.#ownerId) void this.refresh(); }
+  override enter(): void {
+    this.#entered = true;
+    if (!this.#ownerId) return;
+    void this.refresh();
+    this.startLive();
+  }
   override exit(): void {
     this.#entered = false;
+    this.stopLive();
     this.stopTimers();
     this.#requestId += 1;
     this.#conversationRequestId += 1;
@@ -83,12 +113,14 @@ export class LigoGState extends GState<LigoSnapshot> {
 
   reset(): void {
     this.snapshot.draftFiles.forEach(({ url }) => URL.revokeObjectURL(url));
+    this.stopLive();
     this.stopTimers();
     this.#requestId += 1;
     this.#lifecycleId += 1;
     this.#conversationRequestId += 1;
     this.#searchRequestId += 1;
     this.#emptyPolls = 0;
+    this.#syncRequested = false;
     this.#messageCursor = null;
     this.transport.reset();
     this.publish(emptySnapshot());
@@ -111,7 +143,7 @@ export class LigoGState extends GState<LigoSnapshot> {
         phase: 'ready',
         publicStorage,
       });
-      void this.syncInbox();
+      this.requestInboxSync();
     } catch (error) {
       if (requestId !== this.#requestId) return;
       this.publish({ ...this.snapshot, error: readableError(error), phase: 'ready' });
@@ -266,9 +298,14 @@ export class LigoGState extends GState<LigoSnapshot> {
   }
 
   private async syncInbox(): Promise<void> {
-    if (!this.#ownerId || this.snapshot.syncing) return;
+    if (!this.#ownerId) return;
+    if (this.snapshot.syncing) {
+      this.#syncRequested = true;
+      return;
+    }
     const ownerId = this.#ownerId;
     const lifecycleId = this.#lifecycleId;
+    this.#syncRequested = false;
     this.publish({ ...this.snapshot, syncing: true });
     try {
       let cursor: string | null = null;
@@ -310,22 +347,114 @@ export class LigoGState extends GState<LigoSnapshot> {
       if (lifecycleId !== this.#lifecycleId) return;
       this.publish({ ...this.snapshot, error: readableError(error), syncing: false });
     } finally {
-      if (lifecycleId === this.#lifecycleId) this.schedulePoll();
+      if (lifecycleId === this.#lifecycleId) {
+        if (this.#syncRequested) {
+          this.#syncRequested = false;
+          queueMicrotask(() => { void this.syncInbox(); });
+        } else {
+          this.schedulePoll();
+        }
+      }
     }
+  }
+
+  private requestInboxSync(): void {
+    if (this.snapshot.syncing) {
+      this.#syncRequested = true;
+      return;
+    }
+    void this.syncInbox();
+  }
+
+  private startLive(): void {
+    if (!this.#entered || !this.#ownerId || this.#liveSocket || this.#liveReconnectTimer) return;
+    const generation = this.#liveGeneration;
+    void this.api.liveTicket().then(({ url }) => {
+      if (generation !== this.#liveGeneration || !this.#entered || !this.#ownerId) return;
+      const endpoint = new URL(url);
+      if (endpoint.protocol !== 'wss:' && endpoint.protocol !== 'ws:') {
+        throw new Error('Ligo returned an invalid live endpoint.');
+      }
+      const socket = this.openLiveSocket(endpoint.toString());
+      this.#liveSocket = socket;
+      this.#liveConnectTimer = setTimeout(() => {
+        if (this.#liveSocket === socket && socket.readyState === SOCKET_CONNECTING) socket.close();
+      }, LIVE_CONNECT_TIMEOUT_MS);
+      socket.onopen = () => {
+        if (generation !== this.#liveGeneration || this.#liveSocket !== socket) return;
+        this.clearLiveConnectTimer();
+        this.#liveFailures = 0;
+        this.#emptyPolls = 0;
+        this.requestInboxSync();
+      };
+      socket.onmessage = ({ data }) => {
+        if (generation !== this.#liveGeneration || this.#liveSocket !== socket || !isInboxSignal(data)) return;
+        this.requestInboxSync();
+      };
+      socket.onerror = () => { if (this.#liveSocket === socket) socket.close(); };
+      socket.onclose = () => {
+        if (generation !== this.#liveGeneration || this.#liveSocket !== socket) return;
+        this.clearLiveConnectTimer();
+        this.#liveSocket = null;
+        this.scheduleLiveReconnect();
+        this.schedulePoll();
+      };
+    }).catch(() => {
+      if (generation !== this.#liveGeneration) return;
+      this.scheduleLiveReconnect();
+      this.schedulePoll();
+    });
+  }
+
+  private scheduleLiveReconnect(): void {
+    if (!this.#entered || !this.#ownerId || this.#liveReconnectTimer) return;
+    const delay = Math.min(LIVE_RECONNECT_MAX_MS, 1_000 * 2 ** Math.min(5, this.#liveFailures));
+    this.#liveFailures += 1;
+    this.#liveReconnectTimer = setTimeout(() => {
+      this.#liveReconnectTimer = null;
+      this.startLive();
+    }, delay);
+  }
+
+  private stopLive(): void {
+    this.#liveGeneration += 1;
+    this.#liveFailures = 0;
+    this.clearLiveConnectTimer();
+    if (this.#liveReconnectTimer) clearTimeout(this.#liveReconnectTimer);
+    this.#liveReconnectTimer = null;
+    const socket = this.#liveSocket;
+    this.#liveSocket = null;
+    if (socket) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.close(1000, 'Ligo closed.');
+    }
+  }
+
+  private clearLiveConnectTimer(): void {
+    if (this.#liveConnectTimer) clearTimeout(this.#liveConnectTimer);
+    this.#liveConnectTimer = null;
   }
 
   private schedulePoll(): void {
     if (!this.#entered || !this.#ownerId) return;
     if (this.#pollTimer) clearTimeout(this.#pollTimer);
-    const delay = Math.min(INBOX_POLL_MAX_MS, INBOX_POLL_MIN_MS * 2 ** this.#emptyPolls);
+    const delay = this.#liveSocket?.readyState === SOCKET_OPEN
+      ? LIVE_FALLBACK_POLL_MS
+      : Math.min(INBOX_POLL_MAX_MS, INBOX_POLL_MIN_MS * 2 ** this.#emptyPolls);
     this.#pollTimer = setTimeout(() => { void this.syncInbox(); }, delay);
   }
 
   private stopTimers(): void {
     if (this.#searchTimer) clearTimeout(this.#searchTimer);
     if (this.#pollTimer) clearTimeout(this.#pollTimer);
+    if (this.#liveReconnectTimer) clearTimeout(this.#liveReconnectTimer);
+    this.clearLiveConnectTimer();
     this.#searchTimer = null;
     this.#pollTimer = null;
+    this.#liveReconnectTimer = null;
   }
 }
 
@@ -349,4 +478,13 @@ function preview(body: string, files: readonly { name: string }[]): string {
   return (body.trim().replace(/\s+/gu, ' ') || (files.length === 1 ? `File: ${files[0]!.name}` : `${files.length} files`)).slice(0, 160);
 }
 function compareOldest(a: LigoMessage, b: LigoMessage): number { return a.createdAt - b.createdAt || a.id.localeCompare(b.id); }
+function isInboxSignal(data: unknown): boolean {
+  if (typeof data !== 'string') return false;
+  try {
+    const value: unknown = JSON.parse(data);
+    return typeof value === 'object' && value !== null && 'type' in value && value.type === 'inbox';
+  } catch {
+    return false;
+  }
+}
 function readableError(error: unknown): string { return error instanceof Error ? error.message : 'Ligo is unavailable.'; }

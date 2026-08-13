@@ -1,4 +1,4 @@
-import type { LigoBootstrap, LigoInbox, LigoUser } from '../domain/ligo';
+import type { LigoBootstrap, LigoInbox, LigoLiveTicket, LigoUser } from '../domain/ligo';
 import type { LigoDeliveryInput, LigoGateway } from './LigoGateway';
 import { requestJson } from './WebApiClient';
 
@@ -14,6 +14,9 @@ export class WebLigoGateway implements LigoGateway {
   }
   inbox(cursor: string | null = null, limit = 24): Promise<LigoInbox> {
     return requestJson(`/api/ligo/inbox?${pageQuery('after', cursor, limit)}`, {}, LIGO_UNAVAILABLE);
+  }
+  liveTicket(): Promise<LigoLiveTicket> {
+    return requestJson('/api/ligo/live-ticket', { method: 'POST' }, LIGO_UNAVAILABLE);
   }
   async searchUsers(query: string): Promise<LigoUser[]> {
     return (await requestJson<{ users: LigoUser[] }>(`/api/ligo/users?q=${encodeURIComponent(query)}`, {}, LIGO_UNAVAILABLE)).users;
