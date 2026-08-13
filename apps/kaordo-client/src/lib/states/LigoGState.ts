@@ -21,7 +21,7 @@ const MESSAGE_PAGE = 40;
 const MAX_MESSAGE_WINDOW = 120;
 const INBOX_POLL_MIN_MS = 4_000;
 const INBOX_POLL_MAX_MS = 30_000;
-const LIVE_FALLBACK_POLL_MS = 60_000;
+const LIVE_FALLBACK_POLL_MS = 10 * 60_000;
 const LIVE_RECONNECT_MAX_MS = 30_000;
 const LIVE_CONNECT_TIMEOUT_MS = 10_000;
 const SOCKET_CONNECTING = 0;
@@ -34,6 +34,7 @@ type LigoLiveSocket = {
   onmessage: ((event: MessageEvent) => void) | null;
   onopen: ((event: Event) => void) | null;
   readonly readyState: number;
+  send(data: string): void;
 };
 
 type PendingOutgoing = {
@@ -89,6 +90,7 @@ export class LigoGState extends GState<LigoSnapshot> {
   #pollTimer: ReturnType<typeof setTimeout> | null = null;
   #liveReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   #liveConnectTimer: ReturnType<typeof setTimeout> | null = null;
+  #livePingTimer: ReturnType<typeof setInterval> | null = null;
   #liveSocket: LigoLiveSocket | null = null;
   #storageRefresh: Promise<void> | null = null;
   #outgoingQueue: PendingOutgoing[] = [];
@@ -481,7 +483,7 @@ export class LigoGState extends GState<LigoSnapshot> {
             } else {
               await this.local.put(ownerId, message);
             }
-            const user: LigoUser = { ...delivery.sender, online: true };
+            const user = delivery.sender;
             const conversation = toConversation(user, message, false, preview(message.body, message.attachments));
             const visibleMessage = messageForView(this.snapshot.messages, message, replacePayload);
             const visible = this.snapshot.activeUser?.id === user.id
@@ -634,6 +636,19 @@ export class LigoGState extends GState<LigoSnapshot> {
     });
   }
 
+  private applyPresence(userId: string, online: boolean): void {
+    const update = (user: LigoUser): LigoUser => user.id === userId ? { ...user, online } : user;
+    this.publish({
+      ...this.snapshot,
+      activeUser: this.snapshot.activeUser ? update(this.snapshot.activeUser) : null,
+      conversations: this.snapshot.conversations.map((conversation) => ({
+        ...conversation,
+        user: update(conversation.user),
+      })),
+      searchResults: this.snapshot.searchResults.map(update),
+    });
+  }
+
   private async syncActiveReceipts(): Promise<void> {
     const ownerId = this.#ownerId;
     const user = this.snapshot.activeUser;
@@ -698,6 +713,7 @@ export class LigoGState extends GState<LigoSnapshot> {
         this.clearLiveConnectTimer();
         this.#liveFailures = 0;
         this.#emptyPolls = 0;
+        this.startLivePing(socket);
         this.requestInboxSync();
         void this.syncActiveReceipts();
       };
@@ -706,12 +722,14 @@ export class LigoGState extends GState<LigoSnapshot> {
         const signal = liveSignal(data);
         if (!signal) return;
         if (signal.type === 'inbox') this.requestInboxSync();
+        else if (signal.type === 'presence') this.applyPresence(signal.userId, signal.online);
         else void this.applyReceipts(signal.messageIds, signal.status);
       };
       socket.onerror = () => { if (this.#liveSocket === socket) socket.close(); };
       socket.onclose = () => {
         if (generation !== this.#liveGeneration || this.#liveSocket !== socket) return;
         this.clearLiveConnectTimer();
+        this.clearLivePingTimer();
         this.#liveSocket = null;
         this.scheduleLiveReconnect();
         this.schedulePoll();
@@ -737,6 +755,7 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#liveGeneration += 1;
     this.#liveFailures = 0;
     this.clearLiveConnectTimer();
+    this.clearLivePingTimer();
     if (this.#liveReconnectTimer) clearTimeout(this.#liveReconnectTimer);
     this.#liveReconnectTimer = null;
     const socket = this.#liveSocket;
@@ -753,6 +772,18 @@ export class LigoGState extends GState<LigoSnapshot> {
   private clearLiveConnectTimer(): void {
     if (this.#liveConnectTimer) clearTimeout(this.#liveConnectTimer);
     this.#liveConnectTimer = null;
+  }
+
+  private startLivePing(socket: LigoLiveSocket): void {
+    this.clearLivePingTimer();
+    this.#livePingTimer = setInterval(() => {
+      if (this.#liveSocket === socket && socket.readyState === SOCKET_OPEN) socket.send('ping');
+    }, 25_000);
+  }
+
+  private clearLivePingTimer(): void {
+    if (this.#livePingTimer) clearInterval(this.#livePingTimer);
+    this.#livePingTimer = null;
   }
 
   private schedulePoll(): void {
@@ -851,6 +882,7 @@ function advancedStatus(current: LigoMessageStatus, next: LigoMessageStatus): Li
 }
 type LigoLiveSignal =
   | { messageId: string; type: 'inbox' }
+  | { online: boolean; type: 'presence'; userId: string }
   | { messageIds: string[]; status: LigoReceiptStatus; type: 'receipts' };
 function liveSignal(data: unknown): LigoLiveSignal | null {
   if (typeof data !== 'string') return null;
@@ -859,6 +891,10 @@ function liveSignal(data: unknown): LigoLiveSignal | null {
     if (typeof value !== 'object' || value === null || !('type' in value)) return null;
     if (value.type === 'inbox' && 'messageId' in value && typeof value.messageId === 'string') {
       return { messageId: value.messageId, type: 'inbox' };
+    }
+    if (value.type === 'presence' && 'userId' in value && typeof value.userId === 'string' &&
+        'online' in value && typeof value.online === 'boolean') {
+      return { online: value.online, type: 'presence', userId: value.userId };
     }
     if (value.type === 'receipts' && 'messageIds' in value && Array.isArray(value.messageIds) &&
         value.messageIds.every((id) => typeof id === 'string') && 'status' in value &&

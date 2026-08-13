@@ -22,6 +22,7 @@ type ConversationRow = {
   last_preview: string;
   last_sender_id: ArrayBuffer;
   last_seen_at: number;
+  online: number;
   updated_at: number;
   username: string;
 };
@@ -33,7 +34,7 @@ export async function ligoBootstrap(request: Request, env: Env): Promise<Respons
   const limit = pageLimit(url.searchParams.get('limit'), 30);
   const before = cursor(url.searchParams.get('before'));
   const [rows, storage] = await Promise.all([env.DB.prepare(
-    `SELECT users.id, users.display_username AS username, users.last_seen_at,
+    `SELECT users.id, users.display_username AS username, users.last_seen_at, users.online,
             conversations.last_message_id, conversations.last_sender_id,
             conversations.last_preview, conversations.updated_at
        FROM ligo_conversations AS conversations
@@ -51,7 +52,7 @@ export async function ligoBootstrap(request: Request, env: Env): Promise<Respons
   const hasMore = rows.results.length > limit;
   const page = rows.results.slice(0, limit);
   return json({
-    conversations: page.map((row) => conversation(row, session.userId, unixNow())),
+    conversations: page.map((row) => conversation(row, session.userId)),
     nextCursor: hasMore && page.length
       ? `${page[page.length - 1]!.updated_at}:${page[page.length - 1]!.last_message_id}`
       : null,
@@ -65,7 +66,7 @@ export async function searchLigoUsers(request: Request, env: Env): Promise<Respo
   const query = new URL(request.url).searchParams.get('q')?.trim().toLowerCase() ?? '';
   if (!query || query.length > 32 || !/^[a-z0-9_]+$/u.test(query)) return json({ users: [] });
   const rows = await env.DB.prepare(
-    `SELECT id, display_username, last_seen_at
+    `SELECT id, display_username, online
        FROM users
       WHERE id != ?1 AND status = 1 AND username LIKE ?2 ESCAPE '\\'
       ORDER BY CASE WHEN username = ?3 THEN 0 WHEN username LIKE ?4 ESCAPE '\\' THEN 1 ELSE 2 END,
@@ -74,12 +75,11 @@ export async function searchLigoUsers(request: Request, env: Env): Promise<Respo
   ).bind(session.userId, `%${escapeLike(query)}%`, query, `${escapeLike(query)}%`).all<{
     display_username: string;
     id: ArrayBuffer;
-    last_seen_at: number;
+    online: number;
   }>();
-  const now = unixNow();
   return json({ users: rows.results.map((row) => ({
     id: base64Url(row.id),
-    online: now - row.last_seen_at <= ONLINE_SECONDS,
+    online: Boolean(row.online),
     username: row.display_username,
   })) });
 }
@@ -96,8 +96,8 @@ export async function ligoHistory(
   const source = url.searchParams.get('owner');
   if (source !== 'peer' && source !== 'self') return json({ error: 'History source is invalid.' }, 400);
   const peer = await env.DB.prepare(
-    'SELECT id, display_username FROM users WHERE username = ?1 AND status = 1 LIMIT 1',
-  ).bind(peerUsername).first<{ display_username: string; id: ArrayBuffer }>();
+    'SELECT id, display_username, online FROM users WHERE username = ?1 AND status = 1 LIMIT 1',
+  ).bind(peerUsername).first<{ display_username: string; id: ArrayBuffer; online: number }>();
   if (!peer || equalBytes(peer.id, session.userId)) return json({ error: 'Conversation not found.' }, 404);
   const ownerId = source === 'peer' ? peer.id : session.userId;
   const otherId = source === 'peer' ? session.userId : peer.id;
@@ -130,7 +130,11 @@ export async function ligoHistory(
       id: row.id,
       nodeId: row.node_id,
       recipient: { id: base64Url(otherId), username: otherUsername },
-      sender: { id: base64Url(ownerId), username: ownerUsername },
+      sender: {
+        id: base64Url(ownerId),
+        online: source === 'peer' ? Boolean(peer.online) : true,
+        username: ownerUsername,
+      },
       sizeBytes: row.size_bytes,
       status: row.read_at !== null ? 'read' : row.delivered_at !== null ? 'delivered' : 'queued',
       storage: row.storage_kind === PUBLIC ? 'public' : 'private',
@@ -212,7 +216,8 @@ export async function ligoInbox(request: Request, env: Env): Promise<Response> {
   const rows = await env.DB.prepare(
     `SELECT deliveries.id, deliveries.node_id, deliveries.storage_kind,
             deliveries.size_bytes, deliveries.created_at,
-            users.id AS sender_id, users.display_username AS sender_username
+            users.id AS sender_id, users.display_username AS sender_username,
+            users.online AS sender_online
        FROM ligo_deliveries AS deliveries
        JOIN users ON users.id = deliveries.sender_id
       WHERE deliveries.recipient_id = ?1
@@ -225,6 +230,7 @@ export async function ligoInbox(request: Request, env: Env): Promise<Response> {
     id: string;
     node_id: string;
     sender_id: ArrayBuffer;
+    sender_online: number;
     sender_username: string;
     size_bytes: number;
     storage_kind: number;
@@ -238,7 +244,11 @@ export async function ligoInbox(request: Request, env: Env): Promise<Response> {
       id: row.id,
       nodeId: row.node_id,
       recipient: { id: base64Url(session.userId), username: session.publicUser.username },
-      sender: { id: base64Url(row.sender_id), username: row.sender_username },
+      sender: {
+        id: base64Url(row.sender_id),
+        online: Boolean(row.sender_online),
+        username: row.sender_username,
+      },
       sizeBytes: row.size_bytes,
       status: 'queued',
       storage: row.storage_kind === PUBLIC ? 'public' : 'private',
@@ -424,7 +434,7 @@ export async function markLigoRead(
   }
 }
 
-function conversation(row: ConversationRow, userId: ArrayBuffer, now: number) {
+function conversation(row: ConversationRow, userId: ArrayBuffer) {
   return {
     lastMessage: {
       id: row.last_message_id,
@@ -434,7 +444,7 @@ function conversation(row: ConversationRow, userId: ArrayBuffer, now: number) {
     },
     user: {
       id: base64Url(row.id),
-      online: now - row.last_seen_at <= ONLINE_SECONDS,
+      online: Boolean(row.online),
       username: row.username,
     },
   };

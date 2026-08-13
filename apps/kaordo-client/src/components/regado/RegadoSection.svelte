@@ -200,7 +200,7 @@
         </header>
         <div class="stat-row">
           <article><span>Accounts</span><strong>{dashboard.usage.totalUsers}</strong><small>registered</small></article>
-          <article><span>Online now</span><strong class="green">{dashboard.usage.onlineUsers}</strong><small>last 15 minutes</small></article>
+          <article><span>Online now</span><strong class="green">{dashboard.usage.onlineUsers}</strong><small>application open now</small></article>
           <article><span>Sessions</span><strong>{dashboard.usage.activeSessions}</strong><small>active keys</small></article>
           <article><span>Administrators</span><strong>{admins}</strong><small>privileged</small></article>
         </div>

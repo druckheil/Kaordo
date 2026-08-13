@@ -4,14 +4,13 @@ import { authenticate, unixNow } from '../auth/session';
 import { accountRole, isAdmin } from '../auth/types';
 import { json } from '../http/json';
 
-const ONLINE_WINDOW_SECONDS = 15 * 60;
-
 type AdminUserRow = {
   active_sessions: number;
   created_at: number;
   display_username: string;
   id: ArrayBuffer;
   last_seen_at: number;
+  online: number;
   role: number;
   status: number;
   username: string;
@@ -26,7 +25,7 @@ export async function adminDashboard(request: Request, env: Env): Promise<Respon
   const result = await env.DB
     .prepare(
       `SELECT u.id, u.username, u.display_username, u.created_at, u.status,
-              u.role, u.last_seen_at,
+              u.role, u.last_seen_at, u.online,
               COUNT(CASE WHEN s.expires_at > ?1 THEN 1 END) AS active_sessions
          FROM users u
          LEFT JOIN sessions s ON s.user_id = u.id
@@ -40,7 +39,7 @@ export async function adminDashboard(request: Request, env: Env): Promise<Respon
     createdAt: user.created_at,
     id: base64Url(user.id),
     lastSeenAt: user.last_seen_at,
-    online: user.last_seen_at >= now - ONLINE_WINDOW_SECONDS,
+    online: Boolean(user.online),
     role: accountRole(user.username, user.role),
     status: user.status === 1 ? 'active' : user.status === 2 ? 'suspended' : 'disabled',
     username: user.display_username,

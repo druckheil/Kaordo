@@ -40,6 +40,31 @@ describe('LigoGState live inbox', () => {
     expect(socket.readyState).toBe(3);
   });
 
+  it('updates a visible user immediately when live presence changes', async () => {
+    const gateway = new MemoryLigoGateway();
+    const socket = new TestWebSocket();
+    const state = new LigoGState(
+      gateway,
+      EMPTY_TRANSPORT,
+      new MemoryLigoLocalStore(),
+      async () => [],
+      async () => ({ limitBytes: 1_073_741_824, nodeCandidates: [], reservedBytes: 0, usedBytes: 0 }),
+      () => socket,
+    );
+    const user: LigoUser = { id: 'friend', online: false, username: 'friend' };
+
+    state.configure('owner');
+    state.enter();
+    await vi.waitFor(() => expect(gateway.liveTicketCalls).toBe(1));
+    socket.open();
+    await state.openConversation(user);
+
+    socket.message(JSON.stringify({ online: true, type: 'presence', userId: user.id }));
+
+    expect(state.snapshot.activeUser?.online).toBe(true);
+    state.exit();
+  });
+
   it('keeps the displayed local blob when background reconciliation finds no payload change', async () => {
     const gateway = new GatedHistoryGateway();
     const local = new MemoryLigoLocalStore();
@@ -72,7 +97,7 @@ describe('LigoGState live inbox', () => {
       id: cached.id,
       nodeId: 'node',
       recipient: { id: user.id, username: user.username },
-      sender: { id: 'owner', username: 'owner' },
+      sender: { id: 'owner', online: true, username: 'owner' },
       sizeBytes: 4,
       status: 'queued',
       storage: 'private',
@@ -147,6 +172,8 @@ class TestWebSocket {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onopen: ((event: Event) => void) | null = null;
   readyState = 0;
+
+  send(_data: string): void {}
 
   close(code = 1000, reason = ''): void {
     this.readyState = 3;

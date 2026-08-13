@@ -242,7 +242,7 @@ export async function rondoSpaceDetail(
     ).bind(spaceId).all<{ created_at: number; id: string; name: string; position: number }>(),
     nodeTiers(env, spaceId, now),
     env.DB.prepare(
-      `SELECT users.id, users.display_username AS username, users.last_seen_at,
+      `SELECT users.id, users.display_username AS username, users.last_seen_at, users.online,
               members.role, members.joined_at, members.user_id = ?2 AS self
          FROM rondo_members AS members
          JOIN users ON users.id = members.user_id
@@ -252,6 +252,7 @@ export async function rondoSpaceDetail(
       id: ArrayBuffer;
       joined_at: number;
       last_seen_at: number;
+      online: number;
       role: number;
       self: number;
       username: string;
@@ -285,7 +286,7 @@ export async function rondoSpaceDetail(
       members: members.results.map((member) => ({
         id: base64Url(member.id),
         joinedAt: member.joined_at,
-        online: now - member.last_seen_at <= 15 * 60,
+        online: Boolean(member.online),
         role: member.role === 1 ? 'owner' : 'member',
         self: Boolean(member.self),
         username: member.username,

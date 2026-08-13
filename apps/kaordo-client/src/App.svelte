@@ -225,7 +225,9 @@
       if (activeSection === 'fluo') editor.startFluo();
       if (activeSection === 'rondo') rondo.start();
       ligo.state.configure(snapshot.user?.id ?? null);
-      if (activeSection === 'ligo') ligo.start();
+      // Ligo's hibernatable socket is also the app-level presence signal, so
+      // it remains connected while the authenticated application is open.
+      ligo.start();
       if (snapshot.user?.role === 'user' && activeSection === 'regado') {
         activeSection = 'klaro';
         regado.stop();
@@ -382,8 +384,7 @@
     else editor.stopFluo();
     if (section === 'rondo') rondo.start();
     else rondo.stop();
-    if (section === 'ligo') ligo.start();
-    else ligo.stop();
+    if (section === 'ligo') void ligo.state.refresh();
   }
 
   function markPresent() {

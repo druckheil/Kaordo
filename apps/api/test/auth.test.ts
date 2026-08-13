@@ -994,13 +994,21 @@ describe('authentication API', () => {
       password: PASSWORD,
       username: 'ligo_sender',
     });
-    const senderToken = (await senderRegistration.json<{ sessionToken: string }>()).sessionToken;
+    const senderRegistrationBody = await senderRegistration.json<{
+      sessionToken: string;
+      user: { id: string };
+    }>();
+    const senderToken = senderRegistrationBody.sessionToken;
     const senderAuthorization = { authorization: `Bearer ${senderToken}` };
     const recipientRegistration = await post('/api/auth/desktop/register', {
       password: PASSWORD,
       username: 'ligo_recipient',
     });
-    const recipientToken = (await recipientRegistration.json<{ sessionToken: string }>()).sessionToken;
+    const recipientRegistrationBody = await recipientRegistration.json<{
+      sessionToken: string;
+      user: { id: string };
+    }>();
+    const recipientToken = recipientRegistrationBody.sessionToken;
     const recipientAuthorization = { authorization: `Bearer ${recipientToken}` };
     const ticketResponse = await api('/api/ligo/live-ticket', {
       headers: recipientAuthorization,
@@ -1042,7 +1050,7 @@ describe('authentication API', () => {
     expect(storage.status).toBe(200);
     const search = await api('/api/ligo/users?q=ligo_rec', { headers: senderAuthorization });
     await expect(search.json()).resolves.toMatchObject({
-      users: [{ username: 'ligo_recipient' }],
+      users: [{ online: true, username: 'ligo_recipient' }],
     });
 
     const messageId = '123e4567-e89b-42d3-a456-426614174077';
@@ -1068,7 +1076,7 @@ describe('authentication API', () => {
     await expect(senderBootstrap.json()).resolves.toMatchObject({
       conversations: [{
         lastMessage: { id: messageId, mine: true, preview: 'A compact local-first message' },
-        user: { username: 'ligo_recipient' },
+        user: { online: true, username: 'ligo_recipient' },
       }],
       nextCursor: null,
     });
@@ -1147,7 +1155,37 @@ describe('authentication API', () => {
       method: 'POST',
     });
     expect(cleanup.status).toBe(200);
+    const senderTicketResponse = await api('/api/ligo/live-ticket', {
+      headers: senderAuthorization,
+      method: 'POST',
+    });
+    const { url: senderLiveUrl } = await senderTicketResponse.json<{ url: string }>();
+    const senderTestLiveUrl = new URL(senderLiveUrl);
+    senderTestLiveUrl.protocol = 'https:';
+    const senderLiveResponse = await exports.default.fetch(senderTestLiveUrl, {
+      headers: { upgrade: 'websocket' },
+    });
+    expect(senderLiveResponse.status).toBe(101);
+    const senderLiveSocket = senderLiveResponse.webSocket!;
+    senderLiveSocket.accept();
+    const recipientOfflineSignal = new Promise<string>((resolve) => {
+      senderLiveSocket.addEventListener('message', ({ data }) => resolve(String(data)), { once: true });
+    });
+    const liveClosed = new Promise<void>((resolve) => {
+      liveSocket.addEventListener('close', () => resolve(), { once: true });
+    });
     liveSocket.close(1000, 'Test complete.');
+    await liveClosed;
+    await expect(recipientOfflineSignal).resolves.toBe(JSON.stringify({
+      online: false,
+      type: 'presence',
+      userId: recipientRegistrationBody.user.id,
+    }));
+    senderLiveSocket.close(1000, 'Test complete.');
+    const offlineSearch = await api('/api/ligo/users?q=ligo_rec', { headers: senderAuthorization });
+    await expect(offlineSearch.json()).resolves.toMatchObject({
+      users: [{ online: false, username: 'ligo_recipient' }],
+    });
   });
 });
 

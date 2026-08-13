@@ -27,7 +27,7 @@ export type LigoDelivery = {
   id: string;
   nodeId: string;
   recipient: { id: string; username: string };
-  sender: { id: string; username: string };
+  sender: LigoUser;
   sizeBytes: number;
   status: Extract<LigoMessageStatus, 'queued' | 'delivered' | 'read'>;
   storage: 'private' | 'public';

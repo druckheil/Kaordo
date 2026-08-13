@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte';
+  import { tick } from 'svelte';
   import type { LigoAttachment, LigoConversation, LigoMessage, LigoUser } from '../../lib/domain/ligo';
   import { PUBLIC_LIGO_DESTINATION } from '../../lib/gateways/NodeLigoTransport';
+  import { ligoAttachmentUrls } from '../../lib/services/LigoAttachmentUrls';
   import type { LigoGState, LigoSnapshot } from '../../lib/states/LigoGState';
   import LigoStorageDialog from './LigoStorageDialog.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
@@ -18,15 +19,12 @@
   let latestMessageId = '';
   const conversationHeight = 62;
   let visibleConversations = $derived(snapshot.conversations.slice(conversationStart, conversationEnd));
-  let urls = new Map<string, { blob: Blob; url: string }>();
   let publicAvailable = $derived(Boolean(snapshot.publicStorage?.nodeCandidates.length));
   let selectedPrivate = $derived(snapshot.nodes.find(({ id }) => id === snapshot.selectedNodeId));
   let destinationReady = $derived(snapshot.selectedNodeId === PUBLIC_LIGO_DESTINATION
     ? publicAvailable : Boolean(selectedPrivate?.online && selectedPrivate.policy.allowUploads));
   let progress = $derived(snapshot.uploadProgress ? Math.round(snapshot.uploadProgress.uploadedBytes /
     Math.max(1, snapshot.uploadProgress.totalBytes) * 100) : 0);
-
-  onDestroy(() => { for (const { url } of urls.values()) URL.revokeObjectURL(url); });
 
   $effect(() => {
     const nextId = snapshot.messages.at(-1)?.id ?? '';
@@ -85,12 +83,7 @@
       : date.toLocaleDateString([], { day: 'numeric', month: 'short' });
   }
   function fileUrl(attachment: LigoAttachment): string {
-    const cached = urls.get(attachment.id);
-    if (cached?.blob === attachment.blob) return cached.url;
-    if (cached) queueMicrotask(() => URL.revokeObjectURL(cached.url));
-    const created = URL.createObjectURL(attachment.blob);
-    urls.set(attachment.id, { blob: attachment.blob, url: created });
-    return created;
+    return ligoAttachmentUrls.get(attachment);
   }
   function fileReady(attachment: LigoAttachment): boolean {
     return attachment.blob instanceof Blob && attachment.blob.size === attachment.size &&
