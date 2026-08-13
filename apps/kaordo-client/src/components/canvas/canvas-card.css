@@ -1,0 +1,213 @@
+.canvas-card-positioner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 360px;
+  height: 286px;
+  transform-origin: top left;
+}
+
+.canvas-card-resize-handle {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  z-index: 8;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: #6e8f84;
+  background: rgb(250 252 250 / 90%);
+  border: 1px solid rgb(151 179 168 / 72%);
+  border-radius: 7px 0 10px;
+  cursor: nwse-resize;
+  place-items: center;
+  touch-action: none;
+}
+
+.canvas-card-resize-handle:hover,
+.canvas-card-resize-handle--active {
+  color: #2f6f5e;
+  background: #e7f1ed;
+  border-color: #73a492;
+}
+
+.canvas-card-resize-handle:focus-visible {
+  outline: 2px solid rgb(55 117 102 / 38%);
+  outline-offset: 2px;
+}
+
+.canvas-card-resize-handle svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.35;
+}
+
+.canvas-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: 48px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: #344039;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 97%), rgb(246 250 247 / 94%));
+  border: 1px solid rgb(178 199 190 / 84%);
+  border-radius: 15px;
+  box-shadow:
+    0 16px 36px rgb(42 72 60 / 10%),
+    0 2px 7px rgb(42 72 60 / 7%),
+    inset 0 1px rgb(255 255 255 / 90%);
+  touch-action: none;
+  -webkit-user-drag: none;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.canvas-card--entering {
+  animation: canvas-card-enter 260ms cubic-bezier(0.2, 0.82, 0.24, 1) both;
+}
+
+.canvas-card:hover {
+  border-color: #84ad9f;
+  box-shadow:
+    0 22px 44px rgb(42 72 60 / 14%),
+    0 3px 9px rgb(42 72 60 / 8%),
+    inset 0 1px rgb(255 255 255 / 94%);
+}
+
+.canvas-card--selected {
+  border-color: #4f8f7d;
+  box-shadow:
+    0 20px 44px rgb(42 72 60 / 14%),
+    0 0 0 3px rgb(55 117 102 / 16%);
+}
+
+.canvas-card:has(.card-nested-canvas--moving) {
+  overflow: visible;
+}
+
+.canvas-card-drag-handle:active {
+  cursor: grabbing;
+}
+
+.canvas-card:focus-within {
+  border-color: #4f8f7d;
+  box-shadow:
+    0 20px 44px rgb(42 72 60 / 14%),
+    0 0 0 3px rgb(55 117 102 / 14%);
+}
+
+.canvas-card-drag-handle {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 12px;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 48px;
+  padding: 6px 13px 6px 14px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #d8e2dc;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.canvas-card-drag-handle:focus-visible {
+  outline: 2px solid rgb(55 117 102 / 28%);
+  outline-offset: -2px;
+}
+
+/* CanvasDragService owns this hot-path modifier imperatively. */
+.canvas-card--dragging {
+  z-index: 6;
+  opacity: 1;
+  box-shadow:
+    0 24px 50px rgb(42 72 60 / 18%),
+    0 4px 12px rgb(42 72 60 / 10%),
+    inset 0 1px rgb(255 255 255 / 94%);
+  transform: rotate(0.35deg) scale(1.012);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    opacity 120ms ease;
+  will-change: transform;
+}
+
+.canvas-card--dragging:hover {
+  transform: rotate(0.35deg) scale(1.012);
+}
+
+.object-drag-card {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 80;
+  width: 360px;
+  height: 286px;
+  opacity: 1;
+  visibility: hidden;
+  cursor: grabbing;
+  box-shadow:
+    0 20px 48px rgb(34 64 52 / 20%),
+    0 3px 10px rgb(34 64 52 / 10%),
+    inset 0 1px rgb(255 255 255 / 92%);
+  pointer-events: none;
+  transform: translate3d(-1000px, -1000px, 0);
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+  animation: none;
+  will-change: transform;
+}
+
+.object-drag-card-body {
+  min-height: 0;
+  background: linear-gradient(#fff, #fdfefd);
+}
+
+.object-drag-card--over-canvas {
+  background: rgb(244 251 247 / 97%);
+  border-color: #5d9b88;
+  box-shadow:
+    0 22px 52px rgb(34 82 65 / 22%),
+    0 0 0 4px rgb(55 117 102 / 12%);
+}
+
+@keyframes canvas-card-enter {
+  0% {
+    transform: translateY(7px) scale(0.965);
+  }
+
+  58% {
+    transform: translateY(-2px) scale(1.012);
+  }
+
+  80% {
+    transform: translateY(1px) scale(0.998);
+  }
+
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-card,
+  .object-drag-card {
+    transition: none;
+    animation: none;
+  }
+}

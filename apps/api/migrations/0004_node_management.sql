@@ -1,0 +1,18 @@
+ALTER TABLE nodes ADD COLUMN app_version TEXT;
+ALTER TABLE nodes ADD COLUMN android_sdk INTEGER;
+ALTER TABLE nodes ADD COLUMN battery_percent INTEGER;
+ALTER TABLE nodes ADD COLUMN charging INTEGER;
+ALTER TABLE nodes ADD COLUMN memory_available_bytes INTEGER;
+ALTER TABLE nodes ADD COLUMN memory_total_bytes INTEGER;
+ALTER TABLE nodes ADD COLUMN storage_available_bytes INTEGER;
+ALTER TABLE nodes ADD COLUMN disk_read_bps INTEGER;
+ALTER TABLE nodes ADD COLUMN disk_write_bps INTEGER;
+ALTER TABLE nodes ADD COLUMN coordinator_latency_ms INTEGER;
+ALTER TABLE nodes ADD COLUMN network_type TEXT;
+ALTER TABLE nodes ADD COLUMN network_metered INTEGER;
+ALTER TABLE nodes ADD COLUMN test_requested_at INTEGER;
+ALTER TABLE nodes ADD COLUMN test_completed_at INTEGER;
+ALTER TABLE nodes ADD COLUMN allow_downloads INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE nodes ADD COLUMN allow_uploads INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE nodes ADD COLUMN charging_only INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE nodes ADD COLUMN wifi_only INTEGER NOT NULL DEFAULT 0;

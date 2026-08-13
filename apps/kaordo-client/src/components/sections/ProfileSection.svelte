@@ -1,0 +1,497 @@
+<script lang="ts">
+  import type { AuthUser } from '../../lib/domain/auth';
+  import type { PublicNodoStorage } from '../../lib/domain/nodo';
+  import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+
+  type Props = {
+    busy: boolean;
+    error: string | null;
+    onLogout: () => void | Promise<void>;
+    platform: 'desktop' | 'web';
+    publicStorage: PublicNodoStorage | null;
+    user: AuthUser;
+  };
+
+  let { busy, error, onLogout, platform, publicStorage, user }: Props = $props();
+  let initial = $derived(user.username.slice(0, 1).toUpperCase());
+  let joined = $derived(formatJoined(user.createdAt));
+  let publicPercent = $derived(publicStorage
+    ? Math.min(100, publicStorage.usedBytes / Math.max(1, publicStorage.limitBytes) * 100)
+    : 0);
+
+  function formatJoined(timestamp: number): string {
+    return new Intl.DateTimeFormat(undefined, {
+      month: 'long',
+      year: 'numeric',
+    }).format(new Date(timestamp * 1_000));
+  }
+
+  function formatBytes(value: number): string {
+    if (value < 1_024) return `${value} B`;
+    if (value < 1_048_576) return `${(value / 1_024).toFixed(1)} KB`;
+    if (value < 1_073_741_824) return `${(value / 1_048_576).toFixed(1)} MB`;
+    return `${(value / 1_073_741_824).toFixed(2)} GB`;
+  }
+</script>
+
+<main class="profile-shell" aria-labelledby="profile-title">
+  <div class="profile-layout">
+    <header class="profile-heading">
+      <div>
+        <span class="eyebrow">Your identity</span>
+        <h1 id="profile-title">Mi</h1>
+        <p>Account details and security for your Kaordo identity.</p>
+      </div>
+      <span class="account-state"><i aria-hidden="true"></i> Active account</span>
+    </header>
+
+    <section class="identity-card" aria-labelledby="identity-title">
+      <div class="avatar" aria-hidden="true">{initial}</div>
+      <div class="identity-copy">
+        <span class="card-label">Kaordo identity</span>
+        <h2 id="identity-title">{user.username}</h2>
+        <p>Member since {joined}</p>
+      </div>
+      <span class="identity-badge">
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M10 2.7 16 5v4.3c0 3.5-2 6.1-6 7.9-4-1.8-6-4.4-6-7.9V5l6-2.3Z" />
+          <path d="m7.2 9.9 1.7 1.7 3.9-4" />
+        </svg>
+        Protected
+      </span>
+    </section>
+
+    <div class="profile-grid">
+      <section class="detail-card" aria-labelledby="account-details-title">
+        <header>
+          <span class="detail-icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20">
+              <circle cx="10" cy="6.5" r="3" />
+              <path d="M4.5 16c.5-3 2.4-4.5 5.5-4.5s5 1.5 5.5 4.5" />
+            </svg>
+          </span>
+          <div>
+            <h2 id="account-details-title">Account</h2>
+            <p>Your public identity details</p>
+          </div>
+        </header>
+        <dl>
+          <div>
+            <dt>Username</dt>
+            <dd>{user.username}</dd>
+          </div>
+          <div>
+            <dt>Account ID</dt>
+            <dd class="account-id" title={user.id}>{user.id}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd class="status-value"><i aria-hidden="true"></i> Active</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="detail-card" aria-labelledby="security-title">
+        <header>
+          <span class="detail-icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20">
+              <rect x="4.5" y="8.2" width="11" height="8" rx="2" />
+              <path d="M7 8.2V6.4a3 3 0 0 1 6 0v1.8M10 11.5v1.8" />
+            </svg>
+          </span>
+          <div>
+            <h2 id="security-title">Session & security</h2>
+            <p>This device is currently authenticated</p>
+          </div>
+        </header>
+        <div class="session-row">
+          <span class="device-mark" aria-hidden="true">
+            {#if platform === 'desktop'}
+              <svg viewBox="0 0 20 20"><rect x="3" y="3.5" width="14" height="10" rx="1.5" /><path d="M7 16.5h6M10 13.5v3" /></svg>
+            {:else}
+              <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.5" /><path d="M3.8 8h12.4M3.8 12h12.4M10 3.5c1.7 1.8 2.5 4 2.5 6.5s-.8 4.7-2.5 6.5M10 3.5C8.3 5.3 7.5 7.5 7.5 10s.8 4.7 2.5 6.5" /></svg>
+            {/if}
+          </span>
+          <span>
+            <strong>{platform === 'desktop' ? 'Desktop application' : 'Web browser'}</strong>
+            <small>{platform === 'desktop' ? 'Key stored in the system keychain' : 'Protected browser session'}</small>
+          </span>
+          <span class="current-session">Current</span>
+        </div>
+      </section>
+    </div>
+
+    <section class="public-storage-card" aria-labelledby="public-storage-title">
+      <span class="storage-icon" aria-hidden="true">
+        <svg viewBox="0 0 20 20"><path d="M10 3 16 6.2v7.4L10 17l-6-3.4V6.2L10 3Z"/><path d="m4 6.2 6 3.3 6-3.3M10 9.5V17"/></svg>
+      </span>
+      <div class="storage-copy">
+        <span class="card-label">Fluo storage</span>
+        <h2 id="public-storage-title">Public Nodo</h2>
+        <p>Your personal allowance across the shared public-node pool.</p>
+        <div class="storage-track" aria-hidden="true"><i style={`width:${publicPercent}%`}></i></div>
+      </div>
+      <div class="storage-amount">
+        {#if publicStorage}
+          <strong>{formatBytes(publicStorage.usedBytes)}</strong>
+          <span>of {formatBytes(publicStorage.limitBytes)}</span>
+          {#if publicStorage.reservedBytes > 0}
+            <small>{formatBytes(publicStorage.reservedBytes)} uploading</small>
+          {/if}
+        {:else}
+          <strong>—</strong>
+          <span>Unavailable</span>
+        {/if}
+      </div>
+    </section>
+
+    <section class="logout-card" aria-labelledby="logout-title">
+      <div>
+        <h2 id="logout-title">Log out of this device</h2>
+        <p>Your local session key will be removed. Your workspace files remain on this device.</p>
+      </div>
+      <button type="button" disabled={busy} onclick={onLogout}>
+        {#if busy}
+          <LoadingSpinner compact />
+          Logging out…
+        {:else}
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M8 4H4.5v12H8M11 6l4 4-4 4M6.5 10H15" />
+          </svg>
+          Log out
+        {/if}
+      </button>
+    </section>
+
+    {#if error}
+      <p class="profile-error" role="alert">{error}</p>
+    {/if}
+  </div>
+</main>
+
+<style>
+  .profile-shell {
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    color: #2c3731;
+    background:
+      radial-gradient(circle at 72% 8%, rgb(70 136 116 / 9%), transparent 28%),
+      #f4f6f2;
+  }
+
+  .profile-layout {
+    width: min(100%, 930px);
+    min-height: 100%;
+    margin: 0 auto;
+    padding: 32px 34px 58px;
+  }
+
+  .profile-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 0 3px 22px;
+  }
+
+  .eyebrow,
+  .card-label {
+    color: #568575;
+    font-size: calc(9px * var(--text-scale));
+    font-weight: 730;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .profile-heading h1 {
+    margin-top: 6px;
+    color: #223029;
+    font-size: calc(28px * var(--text-scale));
+    font-weight: 690;
+    letter-spacing: -0.04em;
+  }
+
+  .profile-heading p {
+    margin-top: 7px;
+    color: #748078;
+    font-size: calc(11px * var(--text-scale));
+  }
+
+  .account-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 27px;
+    padding: 0 10px;
+    color: #587068;
+    background: rgb(255 255 255 / 68%);
+    border: 1px solid #d5ddd7;
+    border-radius: 999px;
+    font-size: calc(9px * var(--text-scale));
+    font-weight: 620;
+  }
+
+  .account-state i,
+  .status-value i {
+    width: 6px;
+    height: 6px;
+    background: #4e9b80;
+    border-radius: 50%;
+    box-shadow: 0 0 0 3px rgb(78 155 128 / 12%);
+  }
+
+  .identity-card {
+    display: grid;
+    grid-template-columns: 68px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    min-height: 124px;
+    padding: 22px 24px;
+    color: #eff8f3;
+    background:
+      radial-gradient(circle at 90% -20%, rgb(134 199 176 / 19%), transparent 43%),
+      linear-gradient(135deg, #1d302a, #263c35);
+    border: 1px solid rgb(255 255 255 / 6%);
+    border-radius: 16px;
+    box-shadow: 0 18px 40px rgb(29 54 44 / 13%);
+  }
+
+  .avatar {
+    display: grid;
+    width: 68px;
+    height: 68px;
+    color: #214a3e;
+    background: linear-gradient(145deg, #dcece5, #9ccbb9);
+    border: 1px solid rgb(255 255 255 / 34%);
+    border-radius: 20px;
+    box-shadow: inset 0 1px rgb(255 255 255 / 54%);
+    font-size: calc(25px * var(--text-scale));
+    font-weight: 710;
+    place-items: center;
+  }
+
+  .identity-copy h2 {
+    margin-top: 6px;
+    font-size: calc(21px * var(--text-scale));
+    font-weight: 670;
+    letter-spacing: -0.03em;
+  }
+
+  .identity-copy p {
+    margin-top: 5px;
+    color: rgb(239 248 243 / 53%);
+    font-size: calc(9px * var(--text-scale));
+  }
+
+  .identity-card .card-label { color: #8ec1af; }
+
+  .identity-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 29px;
+    padding: 0 10px;
+    color: #b5dacc;
+    background: rgb(255 255 255 / 6%);
+    border: 1px solid rgb(255 255 255 / 9%);
+    border-radius: 8px;
+    font-size: calc(9px * var(--text-scale));
+    font-weight: 630;
+  }
+
+  .identity-badge svg,
+  .detail-icon svg,
+  .device-mark svg,
+  .storage-icon svg,
+  .logout-card button > svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.4;
+  }
+
+  .identity-badge svg { width: 16px; }
+
+  .profile-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-top: 16px;
+  }
+
+  .detail-card {
+    min-width: 0;
+    padding: 19px 20px;
+    background: rgb(255 255 255 / 86%);
+    border: 1px solid #dce1dc;
+    border-radius: 13px;
+    box-shadow: 0 8px 25px rgb(33 57 47 / 5%);
+  }
+
+  .detail-card > header {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e3e7e3;
+  }
+
+  .detail-icon,
+  .device-mark {
+    display: grid;
+    flex: none;
+    width: 34px;
+    height: 34px;
+    color: #528676;
+    background: #e8f0eb;
+    border-radius: 9px;
+    place-items: center;
+  }
+
+  .detail-icon svg { width: 18px; }
+  .detail-card h2,
+  .logout-card h2 { color: #2c3832; font-size: calc(12px * var(--text-scale)); font-weight: 670; }
+  .detail-card header p { margin-top: 3px; color: #879089; font-size: calc(9px * var(--text-scale)); }
+
+  dl { margin: 8px 0 0; }
+  dl > div {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    align-items: center;
+    min-height: 32px;
+  }
+
+  dt { color: #8a938d; font-size: calc(9px * var(--text-scale)); }
+  dd {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    color: #48534d;
+    font-size: calc(10px * var(--text-scale));
+    font-weight: 620;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account-id { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: calc(8px * var(--text-scale)); }
+  .status-value { display: flex; align-items: center; gap: 7px; color: #397963; }
+  .status-value i { width: 5px; height: 5px; }
+
+  .session-row {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    min-height: 70px;
+    margin-top: 9px;
+  }
+
+  .device-mark { width: 36px; height: 36px; }
+  .device-mark svg { width: 19px; }
+  .session-row strong,
+  .session-row small { display: block; }
+  .session-row strong { color: #4a554f; font-size: calc(10px * var(--text-scale)); font-weight: 640; }
+  .session-row small { margin-top: 4px; color: #919991; font-size: calc(8px * var(--text-scale)); }
+
+  .current-session {
+    padding: 5px 7px;
+    color: #4a806f;
+    background: #edf4f0;
+    border-radius: 999px;
+    font-size: calc(8px * var(--text-scale));
+    font-weight: 680;
+    text-transform: uppercase;
+  }
+
+  .public-storage-card {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    min-height: 104px;
+    margin-top: 16px;
+    padding: 18px 20px;
+    background: linear-gradient(135deg, rgb(233 244 239 / 92%), rgb(255 255 255 / 84%));
+    border: 1px solid #cfe0d8;
+    border-radius: 13px;
+    box-shadow: 0 8px 25px rgb(33 57 47 / 4%);
+  }
+
+  .storage-icon {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    color: #3f806c;
+    background: rgb(255 255 255 / 76%);
+    border: 1px solid #c9ddd4;
+    border-radius: 11px;
+    place-items: center;
+  }
+
+  .storage-icon svg { width: 21px; }
+  .storage-copy h2 { margin-top: 4px; color: #2c3d35; font-size: calc(13px * var(--text-scale)); font-weight: 680; }
+  .storage-copy p { margin-top: 4px; color: #77867e; font-size: calc(9px * var(--text-scale)); }
+  .storage-track { height: 5px; margin-top: 12px; overflow: hidden; background: #d9e6e0; border-radius: 99px; }
+  .storage-track i { display: block; height: 100%; background: linear-gradient(90deg, #66ad93, #367a65); border-radius: inherit; }
+  .storage-amount { min-width: 112px; text-align: right; }
+  .storage-amount strong,
+  .storage-amount span,
+  .storage-amount small { display: block; }
+  .storage-amount strong { color: #2e6655; font-size: calc(15px * var(--text-scale)); font-weight: 710; font-variant-numeric: tabular-nums; }
+  .storage-amount span { margin-top: 2px; color: #839189; font-size: calc(9px * var(--text-scale)); }
+  .storage-amount small { margin-top: 5px; color: #9a754e; font-size: calc(8px * var(--text-scale)); }
+
+  .logout-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    min-height: 82px;
+    margin-top: 16px;
+    padding: 17px 20px;
+    background: rgb(255 255 255 / 66%);
+    border: 1px solid #dce1dc;
+    border-radius: 13px;
+  }
+
+  .logout-card p { margin-top: 5px; color: #7e8881; font-size: calc(9px * var(--text-scale)); }
+
+  .logout-card button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    flex: none;
+    min-width: 105px;
+    height: 34px;
+    padding: 0 12px;
+    color: #9b4843;
+    background: #fff;
+    border: 1px solid #e0c5c2;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: calc(9px * var(--text-scale));
+    font-weight: 660;
+    transition: 120ms ease;
+  }
+
+  .logout-card button:hover:not(:disabled) { background: #fbf3f2; border-color: #d5aaa6; }
+  .logout-card button:disabled { cursor: default; opacity: 0.65; }
+  .logout-card button > svg { width: 16px; }
+  .logout-card button :global(.library-loader) { border-color: #e2c9c6; border-top-color: #a4514b; }
+
+  .profile-error {
+    margin-top: 10px;
+    padding: 9px 11px;
+    color: #954b46;
+    background: #fbefed;
+    border: 1px solid #ebd1ce;
+    border-radius: 8px;
+    font-size: calc(9px * var(--text-scale));
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .logout-card button { transition: none; }
+  }
+</style>

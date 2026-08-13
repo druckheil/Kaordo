@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Kaordo stores and opens your workspace files in Documents/Kaordo.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Kaordo connects directly to your Nodo hosts for storage and Rondo communication.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Rondo uses your microphone when you choose to join a voice room.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Rondo uses your camera only when you choose to enable video.</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+</dict>
+</plist>
