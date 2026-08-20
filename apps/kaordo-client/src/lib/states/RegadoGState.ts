@@ -7,13 +7,15 @@ export type RegadoSnapshot = {
   cloudflareError: string | null;
   cloudflarePhase: 'idle' | 'loading' | 'ready' | 'error';
   dashboard: AdminDashboard | null;
+  dashboardLoading: boolean;
   error: string | null;
   phase: 'idle' | 'loading' | 'ready';
 };
 
 export class RegadoGState extends GState<RegadoSnapshot> {
   readonly #gateway: AdminGateway;
-  #requestId = 0;
+  #cloudflareRequestId = 0;
+  #dashboardRequestId = 0;
 
   constructor(gateway: AdminGateway) {
     super({
@@ -21,6 +23,7 @@ export class RegadoGState extends GState<RegadoSnapshot> {
       cloudflareError: null,
       cloudflarePhase: 'idle',
       dashboard: null,
+      dashboardLoading: false,
       error: null,
       phase: 'idle',
     });
@@ -28,40 +31,57 @@ export class RegadoGState extends GState<RegadoSnapshot> {
   }
 
   override enter(): void {
-    if (this.snapshot.phase === 'idle') void this.refresh();
+    if (this.snapshot.phase === 'idle') void this.refresh(false);
   }
 
   override exit(): void {
-    this.#requestId += 1;
+    this.#cloudflareRequestId += 1;
+    this.#dashboardRequestId += 1;
   }
 
-  async refresh(): Promise<void> {
-    const requestId = ++this.#requestId;
+  async refresh(forceRefresh = true): Promise<void> {
+    void this.refreshCloudflare(forceRefresh);
+    await this.refreshDashboard(forceRefresh);
+  }
+
+  async refreshDashboard(forceRefresh = true): Promise<void> {
+    const requestId = ++this.#dashboardRequestId;
     this.publish({
       ...this.snapshot,
-      cloudflareError: null,
-      cloudflarePhase: 'loading',
+      dashboardLoading: true,
       error: null,
-      phase: 'loading',
+      phase: this.snapshot.dashboard ? 'ready' : 'loading',
     });
-    void this.#refreshCloudflare(requestId);
     try {
-      const dashboard = await this.#gateway.dashboard();
-      if (requestId !== this.#requestId) return;
-      this.publish({ ...this.snapshot, dashboard, error: null, phase: 'ready' });
+      const dashboard = await this.#gateway.dashboard(forceRefresh);
+      if (requestId !== this.#dashboardRequestId) return;
+      this.publish({
+        ...this.snapshot,
+        dashboard,
+        dashboardLoading: false,
+        error: null,
+        phase: 'ready',
+      });
     } catch (error) {
-      if (requestId !== this.#requestId) return;
+      if (requestId !== this.#dashboardRequestId) return;
       const message = error instanceof Error && error.message.trim()
         ? error.message
         : 'The administration service is unavailable.';
-      this.publish({ ...this.snapshot, error: message, phase: 'ready' });
+      this.publish({
+        ...this.snapshot,
+        dashboardLoading: false,
+        error: message,
+        phase: 'ready',
+      });
     }
   }
 
-  async #refreshCloudflare(requestId: number): Promise<void> {
+  async refreshCloudflare(forceRefresh = true): Promise<void> {
+    const requestId = ++this.#cloudflareRequestId;
+    this.publish({ ...this.snapshot, cloudflareError: null, cloudflarePhase: 'loading' });
     try {
-      const cloudflare = await this.#gateway.cloudflare();
-      if (requestId !== this.#requestId) return;
+      const cloudflare = await this.#gateway.cloudflare(forceRefresh);
+      if (requestId !== this.#cloudflareRequestId) return;
       this.publish({
         ...this.snapshot,
         cloudflare,
@@ -69,7 +89,7 @@ export class RegadoGState extends GState<RegadoSnapshot> {
         cloudflarePhase: cloudflare ? 'ready' : 'error',
       });
     } catch (error) {
-      if (requestId !== this.#requestId) return;
+      if (requestId !== this.#cloudflareRequestId) return;
       const message = error instanceof Error && error.message.trim()
         ? error.message
         : 'Cloudflare telemetry is unavailable.';

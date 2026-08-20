@@ -536,17 +536,31 @@ pub async fn auth_presence(client: State<'_, AuthClient>) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub async fn admin_dashboard(client: State<'_, AuthClient>) -> Result<AdminDashboard, String> {
-    let response = authenticated_request(&client, Method::GET, "/api/admin/dashboard").await?;
+pub async fn admin_dashboard(
+    client: State<'_, AuthClient>,
+    force_refresh: Option<bool>,
+) -> Result<AdminDashboard, String> {
+    let path = admin_path("/api/admin/dashboard", force_refresh);
+    let response = authenticated_request(&client, Method::GET, &path).await?;
     decode_response(response).await
 }
 
 #[tauri::command]
 pub async fn admin_cloudflare(
     client: State<'_, AuthClient>,
+    force_refresh: Option<bool>,
 ) -> Result<Option<CloudflareUsage>, String> {
-    let response = authenticated_request(&client, Method::GET, "/api/admin/cloudflare").await?;
+    let path = admin_path("/api/admin/cloudflare", force_refresh);
+    let response = authenticated_request(&client, Method::GET, &path).await?;
     decode_response(response).await
+}
+
+fn admin_path(path: &str, force_refresh: Option<bool>) -> String {
+    if force_refresh.unwrap_or(false) {
+        format!("{path}?fresh=1")
+    } else {
+        path.to_owned()
+    }
 }
 
 #[tauri::command]

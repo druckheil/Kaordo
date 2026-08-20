@@ -10,11 +10,17 @@ export class TauriAdminGateway implements AdminGateway {
     this.#invoke = invoke;
   }
 
-  cloudflare(): Promise<CloudflareUsage | null> {
-    return this.#invoke<CloudflareUsage | null>('admin_cloudflare');
+  cloudflare(forceRefresh = false): Promise<CloudflareUsage | null> {
+    return this.#invoke<CloudflareUsage | null>(
+      'admin_cloudflare',
+      forceRefresh ? { forceRefresh: true } : undefined,
+    );
   }
 
-  dashboard(): Promise<AdminDashboard> {
-    return this.#invoke<AdminDashboard>('admin_dashboard');
+  dashboard(forceRefresh = false): Promise<AdminDashboard> {
+    return this.#invoke<AdminDashboard>(
+      'admin_dashboard',
+      forceRefresh ? { forceRefresh: true } : undefined,
+    );
   }
 }

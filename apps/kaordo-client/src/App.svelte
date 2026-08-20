@@ -537,6 +537,8 @@
       <RegadoSection
         snapshot={regadoSnapshot}
         onRefresh={() => regado.state.refresh()}
+        onRefreshCloudflare={() => regado.state.refreshCloudflare()}
+        onRefreshDashboard={() => regado.state.refreshDashboard()}
       />
     {:else if activeSection === 'agordoj'}
       <SettingsSection

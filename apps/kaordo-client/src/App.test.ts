@@ -564,6 +564,34 @@ describe('workspace navigation and objects', () => {
     expect(screen.getByText('75.0 MB / 1.00 TB')).toBeInTheDocument();
   });
 
+  it('refreshes only the Regado data source requested by a field button', async () => {
+    const cloudflare = vi.fn(() => Promise.resolve(adminDashboard.usage.cloudflare));
+    const dashboard = vi.fn(() => Promise.resolve(adminDashboard));
+    render(App, {
+      adminGateway: { cloudflare, dashboard },
+      appearanceGateway,
+      autoloadWorkspaceLibrary: false,
+      authGateway: authenticatedGateway(),
+      initialAuthUser: { ...signedInUser, role: 'superadmin', username: 'druckheil' },
+      workspaceGateway: new TauriWorkspaceGateway(),
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Regado' }));
+    await screen.findByRole('heading', { name: 'Cloudflare capacity' });
+    expect(cloudflare).toHaveBeenCalledWith(false);
+    expect(dashboard).toHaveBeenCalledWith(false);
+
+    const dashboardCalls = dashboard.mock.calls.length;
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh Cloudflare usage' }));
+    await waitFor(() => expect(cloudflare).toHaveBeenLastCalledWith(true));
+    expect(dashboard).toHaveBeenCalledTimes(dashboardCalls);
+
+    const cloudflareCalls = cloudflare.mock.calls.length;
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh users' }));
+    await waitFor(() => expect(dashboard).toHaveBeenLastCalledWith(true));
+    expect(cloudflare).toHaveBeenCalledTimes(cloudflareCalls);
+  });
+
   it('applies global theme and interface scale from Agordoj', async () => {
     const save = vi.fn(() => Promise.resolve());
     const saveMedia = vi.fn(() => Promise.resolve());

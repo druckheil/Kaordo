@@ -66,6 +66,12 @@ describe('Cloudflare account telemetry', () => {
     const init = request.mock.calls[0]?.[1];
     expect(init?.headers).toMatchObject({ authorization: 'Bearer sensitive-token' });
     expect(JSON.stringify(result)).not.toContain('sensitive-token');
+
+    await cloudflareUsage({
+      CLOUDFLARE_ACCOUNT_ID: 'account-id',
+      CLOUDFLARE_ACCOUNT_TOKEN: 'sensitive-token',
+    } as Env, true);
+    expect(request).toHaveBeenCalledTimes(2);
   });
 });
 

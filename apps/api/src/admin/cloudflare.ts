@@ -83,11 +83,14 @@ export type CloudflareUsage = {
 let cached: { accountId: string; expiresAt: number; usage: CloudflareUsage } | null = null;
 let inFlight: { accountId: string; promise: Promise<CloudflareUsage | null> } | null = null;
 
-export async function cloudflareUsage(env: Env): Promise<CloudflareUsage | null> {
+export async function cloudflareUsage(
+  env: Env,
+  forceRefresh = false,
+): Promise<CloudflareUsage | null> {
   if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_ACCOUNT_TOKEN) return null;
   const accountId = env.CLOUDFLARE_ACCOUNT_ID;
   const now = Date.now();
-  if (cached?.accountId === accountId && cached.expiresAt > now) return cached.usage;
+  if (!forceRefresh && cached?.accountId === accountId && cached.expiresAt > now) return cached.usage;
   if (inFlight?.accountId === accountId) return inFlight.promise;
 
   const promise = queryAnalytics(accountId, env.CLOUDFLARE_ACCOUNT_TOKEN, new Date(now))

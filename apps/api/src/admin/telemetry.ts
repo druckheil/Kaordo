@@ -9,5 +9,6 @@ export async function adminCloudflareTelemetry(request: Request, env: Env): Prom
   if (!session) return json({ error: 'Authentication required.' }, 401);
   if (!isAdmin(session.publicUser)) return json({ error: 'Administrator access required.' }, 403);
   if (!isRootSuperadmin(session.publicUser, env.SUPERADMIN_USER_ID)) return json(null);
-  return json(await cloudflareUsage(env));
+  const forceRefresh = new URL(request.url).searchParams.has('fresh');
+  return json(await cloudflareUsage(env, forceRefresh));
 }

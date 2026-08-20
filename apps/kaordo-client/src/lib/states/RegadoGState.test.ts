@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AdminDashboard, CloudflareUsage } from '../domain/admin';
 import type { AdminGateway } from '../gateways/AdminGateway';
 import { RegadoGState } from './RegadoGState';
@@ -35,5 +35,19 @@ describe('RegadoGState', () => {
       cloudflarePhase: 'ready',
       dashboard,
     });
+  });
+
+  it('refreshes telemetry and dashboard independently with a force flag', async () => {
+    const cloudflare = vi.fn(async () => ({ sampledAt: 2 } as CloudflareUsage));
+    const dashboard = vi.fn(async () => ({ generatedAt: 2 } as AdminDashboard));
+    const state = new RegadoGState({ cloudflare, dashboard });
+
+    await state.refreshCloudflare();
+    expect(cloudflare).toHaveBeenCalledWith(true);
+    expect(dashboard).not.toHaveBeenCalled();
+
+    await state.refreshDashboard();
+    expect(dashboard).toHaveBeenCalledWith(true);
+    expect(state.snapshot.dashboardLoading).toBe(false);
   });
 });

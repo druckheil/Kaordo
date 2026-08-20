@@ -5,6 +5,8 @@
 
   type Props = {
     onRefresh: () => void | Promise<void>;
+    onRefreshCloudflare: () => void | Promise<void>;
+    onRefreshDashboard: () => void | Promise<void>;
     snapshot: Readonly<RegadoSnapshot>;
   };
 
@@ -17,10 +19,11 @@
     worker: { cpuTimeP50Ms: 0, cpuTimeP99Ms: 0, errorsToday: 0, requestsToday: 0, subrequestsToday: 0 },
   };
 
-  let { onRefresh, snapshot }: Props = $props();
+  let { onRefresh, onRefreshCloudflare, onRefreshDashboard, snapshot }: Props = $props();
   let dashboard = $derived(snapshot.dashboard);
   let cloudflare = $derived(snapshot.cloudflare ?? EMPTY_CLOUDFLARE_USAGE);
   let cloudflareLoading = $derived(snapshot.cloudflarePhase === 'loading');
+  let dashboardLoading = $derived(snapshot.dashboardLoading);
   let admins = $derived(dashboard?.users.filter((user) => user.role !== 'user').length ?? 0);
   let requestsPercent = $derived(percent(
     cloudflare.worker.requestsToday,
@@ -80,8 +83,8 @@
         <h1 id="regado-title">Regado</h1>
         <p>Service capacity, storage health and account activity.</p>
       </div>
-      <button class="refresh" type="button" disabled={snapshot.phase === 'loading' || cloudflareLoading} onclick={onRefresh}>
-        {#if snapshot.phase === 'loading' || cloudflareLoading}<LoadingSpinner compact />{:else}<span aria-hidden="true">↻</span>{/if}
+      <button class="refresh" type="button" disabled={snapshot.phase === 'loading' || cloudflareLoading || dashboardLoading} onclick={onRefresh}>
+        {#if snapshot.phase === 'loading' || cloudflareLoading || dashboardLoading}<LoadingSpinner compact />{:else}<span aria-hidden="true">↻</span>{/if}
         Refresh
       </button>
     </header>
@@ -106,7 +109,19 @@
       <section class="overview" aria-labelledby="capacity-title">
         <header class="section-heading">
           <div><span class="section-number">01</span><h2 id="capacity-title">Cloudflare capacity</h2></div>
-          <span class="plan-badge">Free plan</span>
+          <div class="section-actions">
+            <span class="plan-badge">Free plan</span>
+            <button
+              class="field-refresh"
+              type="button"
+              title="Refresh Cloudflare usage"
+              aria-label="Refresh Cloudflare usage"
+              disabled={cloudflareLoading}
+              onclick={onRefreshCloudflare}
+            >
+              {#if cloudflareLoading}<LoadingSpinner compact />{:else}<span aria-hidden="true">↻</span>{/if}
+            </button>
+          </div>
         </header>
 
         {#if snapshot.cloudflare || cloudflareLoading}
@@ -193,10 +208,23 @@
         {/if}
       </section>
 
-      <section class="users-section" aria-labelledby="users-title">
+      <section class="users-section" class:metric-loading={dashboardLoading} aria-busy={dashboardLoading} aria-labelledby="users-title">
+        {#if dashboardLoading}<span class="async-loader" aria-label="Loading users and account data"><LoadingSpinner /></span>{/if}
         <header class="section-heading">
           <div><span class="section-number">02</span><h2 id="users-title">Users</h2></div>
-          <span class="live-label"><i></i> Live presence</span>
+          <div class="section-actions">
+            <span class="live-label"><i></i> Live presence</span>
+            <button
+              class="field-refresh"
+              type="button"
+              title="Refresh users"
+              aria-label="Refresh users"
+              disabled={dashboardLoading}
+              onclick={onRefreshDashboard}
+            >
+              {#if dashboardLoading}<LoadingSpinner compact />{:else}<span aria-hidden="true">↻</span>{/if}
+            </button>
+          </div>
         </header>
         <div class="stat-row">
           <article><span>Accounts</span><strong>{dashboard.usage.totalUsers}</strong><small>registered</small></article>
@@ -246,6 +274,11 @@
   .users-section { margin-top: 18px; }
   .section-heading { justify-content: space-between; margin-bottom: 17px; }
   .section-heading > div { display: flex; align-items: center; gap: 9px; }
+  .section-actions { display: flex; align-items: center; gap: 8px; }
+  .field-refresh { display: grid; width: 25px; height: 25px; padding: 0; color: #4a806d; background: #fff; border: 1px solid #d5e0d9; border-radius: 7px; cursor: pointer; font-size: calc(14px * var(--text-scale)); line-height: 1; place-items: center; }
+  .field-refresh:hover:not(:disabled) { color: #2c6653; background: #f1f7f3; border-color: #bdd3c7; }
+  .field-refresh:disabled { cursor: wait; opacity: .65; }
+  .field-refresh :global(.library-loader) { width: 13px; height: 13px; border-width: 1.5px; }
   .section-heading h2 { color: #24332c; font-size: calc(15px * var(--text-scale)); letter-spacing: -.02em; }
   .section-number { color: #7da997; font-family: ui-monospace, monospace; font-size: calc(9px * var(--text-scale)); }
   .plan-badge, .live-label { padding: 5px 8px; color: #567168; background: #f1f5f2; border: 1px solid #dde5df; border-radius: 999px; font-size: calc(8px * var(--text-scale)); font-weight: 690; text-transform: uppercase; letter-spacing: .07em; }
