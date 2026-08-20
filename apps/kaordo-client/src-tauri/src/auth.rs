@@ -361,6 +361,18 @@ struct NodePolicyResponse {
     policy: NodePolicy,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NodeRenameInput {
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NodeNameResponse {
+    device_name: String,
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeSpacesInput {
@@ -1201,6 +1213,25 @@ pub async fn nodo_delete(client: State<'_, AuthClient>, node_id: String) -> Resu
     body.ok
         .then_some(())
         .ok_or_else(|| "Nodo removal was rejected.".to_owned())
+}
+
+#[tauri::command]
+pub async fn nodo_rename(
+    client: State<'_, AuthClient>,
+    node_id: String,
+    name: String,
+) -> Result<String, String> {
+    let node_id = node_id_path(&node_id)?;
+    let response = authenticated_json_request(
+        &client,
+        Method::PATCH,
+        &format!("/api/nodes/{node_id}/name"),
+        &NodeRenameInput { name },
+    )
+    .await?;
+    Ok(decode_response::<NodeNameResponse>(response)
+        .await?
+        .device_name)
 }
 
 #[tauri::command]

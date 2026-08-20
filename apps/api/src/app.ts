@@ -29,6 +29,7 @@ import {
   nodeQuickTest,
   nodeRoute,
   verifyNodeAccess,
+  renameNode,
   updateNodePolicy,
   updateNodeSpaces,
 } from './nodes/routes';
@@ -245,6 +246,10 @@ export function handleRequest(
   const nodeSpacesMatch = pathname.match(/^\/api\/nodes\/([0-9a-f-]+)\/spaces$/u);
   if (request.method === 'PATCH' && nodeSpacesMatch?.[1]) {
     return updateNodeSpaces(request, env, nodeSpacesMatch[1]);
+  }
+  const nodeNameMatch = pathname.match(/^\/api\/nodes\/([0-9a-f-]+)\/name$/u);
+  if (request.method === 'PATCH' && nodeNameMatch?.[1]) {
+    return renameNode(request, env, nodeNameMatch[1]);
   }
   const nodeMatch = pathname.match(/^\/api\/nodes\/([0-9a-f-]+)$/u);
   if (request.method === 'PATCH' && nodeMatch?.[1]) {

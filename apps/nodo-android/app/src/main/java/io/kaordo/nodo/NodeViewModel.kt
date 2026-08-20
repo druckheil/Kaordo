@@ -37,7 +37,11 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
                     val step = if (status is NodeServiceStatus.Online || status is NodeServiceStatus.Starting) {
                         SetupStep.RUNNING
                     } else current.step
-                    current.copy(service = status, step = step)
+                    current.copy(
+                        nodeName = (status as? NodeServiceStatus.Online)?.deviceName ?: current.nodeName,
+                        service = status,
+                        step = step,
+                    )
                 }
             }
         }
@@ -77,6 +81,7 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
         mutableState.update { it.copy(
             availableBytes = configuration.availableBytes(),
             isBatteryOptimized = !power.isIgnoringBatteryOptimizations(context.packageName),
+            nodeName = configuration.nodeName(),
             notificationGranted = notificationGranted,
         ) }
     }
@@ -176,6 +181,7 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
             val service = NodeRuntime.status.value
             mutableState.update { it.copy(
                 quotaBytes = configuration.quotaBytes(),
+                nodeName = configuration.nodeName(),
                 service = service,
                 step = if (configuration.isEnabled()) SetupStep.RUNNING else SetupStep.PERMISSIONS,
                 user = user,

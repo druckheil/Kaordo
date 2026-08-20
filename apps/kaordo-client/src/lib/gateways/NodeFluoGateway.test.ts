@@ -482,6 +482,7 @@ class AccessGateway implements NodoGateway {
     return Promise.resolve();
   }
   deleteNode(): Promise<void> { return Promise.resolve(); }
+  renameNode(_nodeId: string, name: string): Promise<string> { return Promise.resolve(name); }
   listNodes(): Promise<never[]> { return Promise.resolve([]); }
   listFeedNodeIds(): Promise<string[]> { return Promise.resolve([NODE_ID]); }
   publicStorage() { return Promise.resolve({

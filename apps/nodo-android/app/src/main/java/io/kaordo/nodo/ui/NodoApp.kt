@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.kaordo.nodo.BuildConfig
 import io.kaordo.nodo.NodeViewModel
 import io.kaordo.nodo.model.NodeServiceStatus
 import io.kaordo.nodo.model.NodeUiState
@@ -78,7 +79,7 @@ fun NodoApp(
             Column(
                 modifier = Modifier.fillMaxSize().padding(insets).padding(horizontal = 24.dp, vertical = 20.dp),
             ) {
-                Brand()
+                Brand(state.nodeName)
                 Spacer(Modifier.weight(1f))
                 when (state.step) {
                     SetupStep.CHECKING -> Loading()
@@ -105,7 +106,7 @@ fun NodoApp(
 }
 
 @Composable
-private fun Brand() {
+private fun Brand(deviceName: String?) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(Modifier.size(34.dp).background(Green, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
             Text("N", color = Color.White, fontWeight = FontWeight.Bold)
@@ -113,6 +114,8 @@ private fun Brand() {
         Column {
             Text("Kaordo", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             Text("Nodo for Android", color = Muted, fontSize = 11.sp)
+            Text("Version ${BuildConfig.VERSION_NAME}", color = Muted, fontSize = 10.sp)
+            Text(deviceName ?: "Name assigned by Kaordo", color = Muted, fontSize = 10.sp)
         }
     }
 }
@@ -254,6 +257,7 @@ private fun Running(
                     Text(if (online) "Working" else "Starting service", fontWeight = FontWeight.Bold)
                 }
                 if (status is NodeServiceStatus.Online) {
+                    Text("Nodo name · ${status.deviceName ?: "Waiting for coordinator"}", color = Forest, fontWeight = FontWeight.SemiBold)
                     Text(status.addresses.firstOrNull()?.let { "$it:${status.port}" } ?: "Waiting for network", color = Muted)
                     Text("${formatStorage(status.usedBytes)} used · ${formatGiB(status.quotaBytes)} allocated", color = Muted, fontSize = 13.sp)
                     Text("Automatic cleanup · partial uploads idle for 24 hours", color = Muted, fontSize = 12.sp)

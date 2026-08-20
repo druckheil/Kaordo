@@ -336,14 +336,24 @@ describe('authentication API', () => {
     });
     const heartbeatBody = await heartbeat.json<{
       heartbeatAfterSeconds: number;
+      deviceName: string;
       nodeId: string;
       observedAddress: string;
     }>();
 
     expect(heartbeat.status).toBe(200);
     expect(heartbeatBody.heartbeatAfterSeconds).toBe(120);
+    expect(heartbeatBody.deviceName).toBe('Pixel 6');
     expect(heartbeatBody.nodeId).toMatch(/^[0-9a-f-]{36}$/u);
     expect(heartbeatBody.observedAddress).toBe('203.0.113.10');
+
+    const renamed = await api(`/api/nodes/${heartbeatBody.nodeId}/name`, {
+      body: JSON.stringify({ name: 'Bedroom tablet' }),
+      headers: { ...authorization, 'content-type': 'application/json' },
+      method: 'PATCH',
+    });
+    expect(renamed.status).toBe(200);
+    await expect(renamed.json()).resolves.toEqual({ deviceName: 'Bedroom tablet' });
 
     const reinstalled = await api('/api/nodes/heartbeat', {
       body: JSON.stringify({
@@ -360,14 +370,16 @@ describe('authentication API', () => {
       headers: { ...authorization, 'content-type': 'application/json' },
       method: 'POST',
     });
-    expect((await reinstalled.json<{ nodeId: string }>()).nodeId).toBe(heartbeatBody.nodeId);
+    const reinstalledBody = await reinstalled.json<{ deviceName: string; nodeId: string }>();
+    expect(reinstalledBody.nodeId).toBe(heartbeatBody.nodeId);
+    expect(reinstalledBody.deviceName).toBe('Bedroom tablet');
 
     const nodes = await api('/api/nodes', { headers: authorization });
     const nodesBody = await nodes.json<{ nodes: unknown[] }>();
     expect(nodesBody.nodes).toHaveLength(1);
     expect(nodesBody).toMatchObject({
       nodes: [{
-        deviceName: 'Pixel 6',
+        deviceName: 'Bedroom tablet',
         metrics: { androidSdk: 31, batteryPercent: 82, networkType: 'wifi' },
         online: true,
         policy: { allowDownloads: true, allowUploads: true, ownerOnly: true },

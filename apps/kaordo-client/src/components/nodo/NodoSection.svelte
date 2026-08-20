@@ -7,6 +7,7 @@
     onClear: (nodeId: string) => void | Promise<boolean>;
     onClearPrivate: (nodeId: string) => void | Promise<boolean>;
     onDelete: (nodeId: string) => void | Promise<boolean>;
+    onRename: (nodeId: string, name: string) => void | Promise<boolean>;
     onPolicy: (nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>) => void | Promise<boolean>;
     onQuickTest: (nodeId: string) => void | Promise<boolean>;
     onRefresh: () => void | Promise<void>;
@@ -14,11 +15,13 @@
     snapshot: Readonly<NodoSnapshot>;
   };
 
-  let { onClear, onClearPrivate, onDelete, onPolicy, onQuickTest, onRefresh, onSpaces, snapshot }: Props = $props();
+  let { onClear, onClearPrivate, onDelete, onRename, onPolicy, onQuickTest, onRefresh, onSpaces, snapshot }: Props = $props();
   let selectedId = $state<string | null>(null);
   let confirmingDelete = $state(false);
   let confirmingClear = $state(false);
   let confirmingPrivateClear = $state(false);
+  let renamingId = $state<string | null>(null);
+  let renameDraft = $state('');
   let publicDrafts = $state<Record<string, number>>({});
   let selected = $derived(
     snapshot.nodes.find((node) => node.id === selectedId) ?? snapshot.nodes[0] ?? null,
@@ -164,9 +167,26 @@
 
   function selectNode(nodeId: string) {
     selectedId = nodeId;
+    renamingId = null;
+    renameDraft = '';
     confirmingClear = false;
     confirmingPrivateClear = false;
     confirmingDelete = false;
+  }
+
+  function startRename(node: NodoNode) {
+    renamingId = node.id;
+    renameDraft = node.deviceName;
+  }
+
+  function cancelRename() {
+    renamingId = null;
+    renameDraft = '';
+  }
+
+  async function saveRename(node: NodoNode) {
+    const saved = await onRename(node.id, renameDraft);
+    if (saved) cancelRename();
   }
 
   function toggle(node: NodoNode, key: keyof Omit<NodoPolicy, 'ownerOnly'>) {
@@ -308,7 +328,18 @@
               <div class="device-title">
                 <span class:online={selected.online} class="status-dot"></span>
                 <div>
-                  <h2>{selected.deviceName}</h2>
+                  {#if renamingId === selected.id}
+                    <form class="rename-form" onsubmit={(event) => { event.preventDefault(); void saveRename(selected); }}>
+                      <input bind:value={renameDraft} maxlength="80" aria-label="Nodo name" />
+                      <button type="submit" disabled={snapshot.operation !== null || !renameDraft.trim()} aria-label="Save Nodo name">Save</button>
+                      <button type="button" class="rename-cancel" disabled={snapshot.operation !== null} onclick={cancelRename}>Cancel</button>
+                    </form>
+                  {:else}
+                    <div class="name-row">
+                      <h2>{selected.deviceName}</h2>
+                      <button class="rename-button" type="button" disabled={snapshot.operation !== null} onclick={() => startRename(selected)} aria-label={`Rename ${selected.deviceName}`}>Rename</button>
+                    </div>
+                  {/if}
                   <p>{selected.online ? `Online · updated ${relative(selected.lastSeenAt)}` : `Offline · last seen ${relative(selected.lastSeenAt)}`}</p>
                 </div>
               </div>
@@ -507,6 +538,15 @@
   .status-dot { width: 10px; height: 10px; flex: none; background: #b6beb9; border-radius: 50%; }
   .status-dot.online { background: #4aa77a; box-shadow: 0 0 0 5px rgb(74 167 122 / 11%); }
   .device-title h2 { color: #22332a; font-size: calc(17px * var(--text-scale)); letter-spacing: -.025em; }
+  .name-row { display: flex; align-items: center; gap: 8px; }
+  .rename-button { padding: 3px 6px; color: #56806e; background: transparent; border: 1px solid #d3e2d9; border-radius: 5px; cursor: pointer; font-size: calc(7px * var(--text-scale)); font-weight: 680; }
+  .rename-button:disabled { cursor: default; opacity: .55; }
+  .rename-form { display: flex; align-items: center; gap: 5px; }
+  .rename-form input { width: min(230px, 40vw); height: 27px; padding: 0 7px; color: #26382e; background: #fff; border: 1px solid #9fc4af; border-radius: 6px; font: inherit; font-size: calc(12px * var(--text-scale)); outline: 0; }
+  .rename-form input:focus { box-shadow: 0 0 0 3px rgb(72 145 111 / 13%); }
+  .rename-form button { height: 27px; padding: 0 7px; color: #fff; background: #467f66; border: 0; border-radius: 6px; cursor: pointer; font-size: calc(7px * var(--text-scale)); font-weight: 680; }
+  .rename-form button:disabled { cursor: default; opacity: .5; }
+  .rename-form .rename-cancel { color: #61736a; background: #eef3ef; border: 1px solid #dce5df; }
   .device-title p, .host-version span { margin-top: 3px; color: #88938c; font-size: calc(8px * var(--text-scale)); }
   .host-version { text-align: right; }
   .host-version strong, .host-version span { display: block; }

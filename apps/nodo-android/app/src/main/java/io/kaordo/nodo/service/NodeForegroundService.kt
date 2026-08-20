@@ -226,6 +226,7 @@ class NodeForegroundService : Service() {
                         reconciliation.acknowledge(pendingReconciliation)
                         coordinatorLatencyMs = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0)
                         configuration.setNodeId(it.nodeId)
+                        it.deviceName?.let(configuration::setNodeName)
                         configuration.setPolicy(it.policy)
                         if (runCatching {
                             httpServer.applySpaceQuotas(it.publicQuotaBytes, it.privateQuotaBytes)
@@ -305,6 +306,7 @@ class NodeForegroundService : Service() {
         val usedBytes = privateStore.usedBytes() + publicStore.usedBytes()
         NodeRuntime.update(NodeServiceStatus.Online(
             addresses = addresses,
+            deviceName = NodeConfiguration(this).nodeName(),
             port = NodeHttpServer.DEFAULT_PORT,
             quotaBytes = quota,
             usedBytes = usedBytes,

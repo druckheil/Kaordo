@@ -284,6 +284,7 @@ class MemoryNodoGateway implements NodoGateway {
   clearPrivateStorage() { return Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }); }
   commitPublicStorage() { return Promise.resolve(); }
   deleteNode(): Promise<void> { return Promise.resolve(); }
+  renameNode(_nodeId: string, name: string): Promise<string> { return Promise.resolve(name); }
   fluoBootstrap() {
     this.bootstrapCalls += 1;
     return Promise.resolve({

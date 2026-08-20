@@ -82,6 +82,14 @@ export class WebNodoGateway implements NodoGateway {
     await requestJson<{ ok: boolean }>(`/api/nodes/${encodeURIComponent(nodeId)}`, { method: 'DELETE' }, NODO_UNAVAILABLE);
   }
 
+  async renameNode(nodeId: string, name: string): Promise<string> {
+    return (await requestJson<{ deviceName: string }>(`/api/nodes/${encodeURIComponent(nodeId)}/name`, {
+      body: JSON.stringify({ name }),
+      headers: { 'content-type': 'application/json' },
+      method: 'PATCH',
+    }, NODO_UNAVAILABLE)).deviceName;
+  }
+
   async requestQuickTest(nodeId: string): Promise<NodoQuickTest> {
     return runNodeQuickTest(await this.accessNode(nodeId));
   }

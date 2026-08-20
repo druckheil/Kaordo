@@ -25,8 +25,10 @@ android {
         applicationId = "io." + "veri" + "dimensio.nodo"
         minSdk = 31
         targetSdk = 36
-        versionCode = 10000
-        versionName = "0.1.0"
+        // Development build 2 of scope 0.1.2. Release builds use 0.1.2 without
+        // the scope suffix; the counter resets for the next development scope.
+        versionCode = 10202
+        versionName = "0.1.2-2a"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(

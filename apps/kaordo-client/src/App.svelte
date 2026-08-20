@@ -59,6 +59,7 @@
     clearPrivateStorage: async () => { throw new Error('Private Nodo storage is unavailable.'); },
     commitPublicStorage: async () => {},
     deleteNode: async () => {},
+    renameNode: async (_nodeId, name) => name,
     listNodes: async () => [],
     listFeedNodeIds: async () => [],
     publicStorage: async () => ({
@@ -560,6 +561,7 @@
         onClear={clearNodoStorage}
         onClearPrivate={clearPrivateNodoStorage}
         onDelete={(nodeId) => nodo.state.deleteNode(nodeId)}
+        onRename={(nodeId, name) => nodo.state.renameNode(nodeId, name)}
         onPolicy={(nodeId, policy) => nodo.state.updatePolicy(nodeId, policy)}
         onSpaces={(nodeId, publicQuotaBytes) => nodo.state.updateSpaces(nodeId, publicQuotaBytes)}
         onQuickTest={(nodeId) => nodo.state.requestQuickTest(nodeId)}

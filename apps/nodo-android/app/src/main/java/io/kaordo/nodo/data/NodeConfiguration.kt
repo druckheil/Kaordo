@@ -14,6 +14,7 @@ class NodeConfiguration(private val context: Context) {
     fun privateQuotaBytes(): Long = preferences.getLong(PRIVATE_QUOTA, quotaBytes())
     fun publicQuotaBytes(): Long = preferences.getLong(PUBLIC_QUOTA, 0)
     fun isEnabled(): Boolean = preferences.getBoolean(ENABLED, false)
+    fun nodeName(): String? = preferences.getString(NODE_NAME, null)
     fun nodeId(): String? = preferences.getString(NODE_ID, null)
     fun slotKey(): String = preferences.getString(SLOT_KEY, "primary") ?: "primary"
 
@@ -37,6 +38,11 @@ class NodeConfiguration(private val context: Context) {
 
     fun setNodeId(nodeId: String) {
         preferences.edit().putString(NODE_ID, nodeId).apply()
+    }
+
+    fun setNodeName(name: String) {
+        val normalized = name.trim()
+        if (normalized.isNotEmpty()) preferences.edit().putString(NODE_NAME, normalized).apply()
     }
 
     fun setSlotKey(slotKey: String) {
@@ -75,6 +81,7 @@ class NodeConfiguration(private val context: Context) {
         const val CHARGING_ONLY = "charging_only"
         const val ENABLED = "enabled"
         const val NODE_ID = "node_id"
+        const val NODE_NAME = "node_name"
         const val PRIVATE_QUOTA = "private_quota_bytes"
         const val PUBLIC_QUOTA = "public_quota_bytes"
         const val QUOTA = "quota_bytes"

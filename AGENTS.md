@@ -15,6 +15,11 @@ English, even when the request is written in another language.
 - 0.1.2 is the active development scope. Do not bump all manifests or
   release URLs merely because a scope branch changed; do that only when the
   requested release actually changes.
+- Nodo development builds carry a short scope build suffix in the Android
+  `versionName`, such as `0.1.2-2a` (the second build of scope 0.1.2). A
+  release build uses only `0.1.2`; reset the build counter to `1a` when the
+  next development scope starts. The Android UI and heartbeat telemetry must
+  use the same generated `BuildConfig.VERSION_NAME`.
 - Do not replace protocol and schema versions while renaming product versions:
   tus/1.0.0, workspace/document format version 1, dependency versions, and
   the applied Durable Objects migration tag v1.1-ligo-live are not product

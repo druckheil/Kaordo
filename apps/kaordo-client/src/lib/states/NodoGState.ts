@@ -3,7 +3,7 @@ import type { NodoGateway } from '../gateways/NodoGateway';
 import { GState } from '../state/GState';
 import { NodoRegistry } from '../services/NodoRegistry';
 
-export type NodoOperation = { nodeId: string; type: 'clear' | 'clear-private' | 'delete' | 'policy' | 'spaces' | 'test' };
+export type NodoOperation = { nodeId: string; type: 'clear' | 'clear-private' | 'delete' | 'policy' | 'rename' | 'spaces' | 'test' };
 
 export type NodoSnapshot = {
   error: string | null;
@@ -103,6 +103,28 @@ export class NodoGState extends GState<NodoSnapshot> {
     }
   }
 
+  async renameNode(nodeId: string, name: string): Promise<boolean> {
+    if (this.snapshot.operation) return false;
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      this.publish({ ...this.snapshot, error: 'Nodo name cannot be empty.' });
+      return false;
+    }
+    const lifecycleId = this.#lifecycleId;
+    this.publish({ ...this.snapshot, error: null, operation: { nodeId, type: 'rename' } });
+    try {
+      const deviceName = await this.#gateway.renameNode(nodeId, normalizedName);
+      if (lifecycleId !== this.#lifecycleId) return true;
+      this.#registry.update(nodeId, (node) => ({ ...node, deviceName }));
+      this.publish({ ...this.#registrySnapshot(), error: null, operation: null });
+      return true;
+    } catch (error) {
+      if (lifecycleId !== this.#lifecycleId) return false;
+      this.publish({ ...this.snapshot, error: readableError(error), operation: null });
+      return false;
+    }
+  }
+
   async clearStorage(nodeId: string): Promise<boolean> {
     if (this.snapshot.operation) return false;
     const lifecycleId = this.#lifecycleId;
@@ -125,6 +147,13 @@ export class NodoGState extends GState<NodoSnapshot> {
       this.publish({ ...this.snapshot, error: readableError(error), operation: null });
       return false;
     }
+  }
+
+  #registrySnapshot(): NodoSnapshot {
+    return {
+      ...this.snapshot,
+      nodes: [...this.#registry.nodes],
+    };
   }
 
   async clearPrivateStorage(nodeId: string): Promise<boolean> {

@@ -356,6 +356,7 @@ pub fn run() {
             auth::nodo_access,
             auth::nodo_list,
             auth::nodo_quick_test,
+            auth::nodo_rename,
             auth::nodo_update_policy,
             auth::nodo_update_spaces,
             auth::rondo_bootstrap,

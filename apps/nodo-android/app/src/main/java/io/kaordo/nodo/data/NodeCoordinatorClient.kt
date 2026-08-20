@@ -74,6 +74,7 @@ class NodeCoordinatorClient {
             val spaces = value.getJSONObject("spaces")
             HeartbeatResult(
                 heartbeatAfterSeconds = value.optLong("heartbeatAfterSeconds", 120).coerceIn(30, 300),
+                deviceName = value.optString("deviceName").takeIf { it.isNotBlank() },
                 nodeId = value.getString("nodeId"),
                 observedAddress = value.optString("observedAddress").takeIf { it.isNotBlank() },
                 policy = NodePolicy(
@@ -99,6 +100,7 @@ class NodeCoordinatorClient {
 
     data class HeartbeatResult(
         val heartbeatAfterSeconds: Long,
+        val deviceName: String?,
         val nodeId: String,
         val observedAddress: String?,
         val policy: NodePolicy,

@@ -184,6 +184,7 @@ function memoryNodoGateway(): NodoGateway {
     clearPrivateStorage: () => Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }),
     commitPublicStorage: () => Promise.resolve(),
     deleteNode: () => Promise.resolve(),
+    renameNode: (_nodeId, name) => Promise.resolve(name),
     listNodes: () => Promise.resolve([fluoNode]),
     listFeedNodeIds: () => Promise.resolve([fluoNode.id]),
     publicStorage: () => Promise.resolve({
@@ -456,6 +457,7 @@ describe('workspace navigation and objects', () => {
         clearPrivateStorage,
         commitPublicStorage: () => Promise.resolve(),
         deleteNode: () => Promise.resolve(),
+        renameNode: (_nodeId, name) => Promise.resolve(name),
         listNodes: () => Promise.resolve([node]),
         listFeedNodeIds: () => Promise.resolve([node.id]),
         publicStorage: () => Promise.resolve({ limitBytes: 1_073_741_824, nodeCandidates: [], reservedBytes: 0, usedBytes: 0 }),

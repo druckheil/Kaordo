@@ -11,6 +11,7 @@ enum class SetupStep { CHECKING, LOGIN, PERMISSIONS, STORAGE, RUNNING }
 
 data class NodeUiState(
     val availableBytes: Long = 0,
+    val nodeName: String? = null,
     val error: String? = null,
     val isBatteryOptimized: Boolean = true,
     val isBusy: Boolean = false,
@@ -27,6 +28,7 @@ sealed interface NodeServiceStatus {
     data object Starting : NodeServiceStatus
     data class Online(
         val addresses: List<String>,
+        val deviceName: String?,
         val port: Int,
         val quotaBytes: Long,
         val usedBytes: Long,

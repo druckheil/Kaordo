@@ -17,6 +17,7 @@ export type FluoBootstrap = {
 
 export interface NodoGateway {
   deleteNode(nodeId: string): Promise<void>;
+  renameNode(nodeId: string, name: string): Promise<string>;
   accessNode(nodeId: string): Promise<NodoAccess>;
   clearStorage(nodeId: string): Promise<NodoStorageClearResult>;
   clearPrivateStorage(nodeId: string): Promise<NodoStorageClearResult>;

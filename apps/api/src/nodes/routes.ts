@@ -94,7 +94,7 @@ export async function nodeHeartbeat(request: Request, env: Env): Promise<Respons
          ?26, ?27, 0, ?6, ?28, ?29
        )
        ON CONFLICT(id) DO UPDATE SET
-         device_name = excluded.device_name,
+         device_name = nodes.device_name,
          protocol = excluded.protocol,
          port = excluded.port,
          quota_bytes = excluded.quota_bytes,
@@ -187,6 +187,7 @@ export async function nodeHeartbeat(request: Request, env: Env): Promise<Respons
     }>();
     return json({
       heartbeatAfterSeconds: 120,
+      deviceName: row.device_name,
       nodeId,
       observedAddress,
       policy: policy(row),
@@ -427,6 +428,33 @@ export async function updateNodePolicy(
     } });
   } catch (error) {
     return json({ error: error instanceof NodeInputError ? error.message : 'Node policy is invalid.' }, 400);
+  }
+}
+
+export async function renameNode(
+  request: Request,
+  env: Env,
+  nodeId: string,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  if (!NODE_ID.test(nodeId)) return json({ error: 'Node not found.' }, 404);
+  try {
+    const input = await readJson(request);
+    if (typeof input.name !== 'string') throw new NodeInputError('Nodo name is invalid.');
+    const name = input.name.trim();
+    if (!name || name.length > 80 || new TextEncoder().encode(name).byteLength > 160) {
+      throw new NodeInputError('Nodo name must be between 1 and 80 characters.');
+    }
+    const result = await env.DB.prepare(
+      'UPDATE nodes SET device_name = ?1 WHERE id = ?2 AND user_id = ?3',
+    ).bind(name, nodeId, session.userId).run();
+    if ((result.meta.changes ?? 0) === 0) return json({ error: 'Node not found.' }, 404);
+    return json({ deviceName: name });
+  } catch (error) {
+    return json({
+      error: error instanceof NodeInputError ? error.message : 'Nodo name is invalid.',
+    }, 400);
   }
 }
 

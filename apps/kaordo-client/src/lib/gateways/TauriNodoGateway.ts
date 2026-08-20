@@ -69,6 +69,10 @@ export class TauriNodoGateway implements NodoGateway {
     return this.invoke('nodo_delete', { nodeId });
   }
 
+  renameNode(nodeId: string, name: string): Promise<string> {
+    return this.invoke<string>('nodo_rename', { name, nodeId });
+  }
+
   async requestQuickTest(nodeId: string): Promise<NodoQuickTest> {
     return runNodeQuickTest(await this.accessNode(nodeId));
   }
