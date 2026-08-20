@@ -9,6 +9,7 @@
   } from '../../lib/states/FluoGState';
   import { openContextMenu } from '../../lib/ui/contextMenu';
   import { PUBLIC_FLUO_DESTINATION } from '../../lib/gateways/FluoGateway';
+  import NodoPickerDialog from '../nodo/NodoPickerDialog.svelte';
   import FluoMedia from './FluoMedia.svelte';
 
   type Props = {
@@ -21,6 +22,7 @@
   let composer = $state<HTMLTextAreaElement>();
   let shell = $state<HTMLElement>();
   let virtualList = $state<HTMLElement>();
+  let nodePickerOpen = $state(false);
   let virtualStart = $state(0);
   let virtualEnd = $state(18);
   let heightVersion = $state(0);
@@ -43,12 +45,20 @@
   let remaining = $derived(FLUO_MAX_POST_LENGTH - snapshot.draft.length);
   let mediaCount = $derived(snapshot.draftAttachments.length);
   let selectedNode = $derived(snapshot.nodes.find(({ id }) => id === snapshot.selectedNodeId));
-  let privateNodes = $derived(snapshot.nodes.filter(({ online, policy, spaces }) =>
-    online && policy.allowUploads && spaces.private.quotaBytes > spaces.private.usedBytes));
   let publicAvailable = $derived(Boolean(snapshot.publicStorage?.nodeCandidates.length));
   let destinationAvailable = $derived(snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION
     ? publicAvailable
     : Boolean(selectedNode?.online && selectedNode.policy.allowUploads));
+  let selectedNodeName = $derived(snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION
+    ? 'Public Nodo'
+    : selectedNode?.deviceName ?? 'Nodo unavailable');
+  let selectedNodeQuota = $derived(snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION
+    ? snapshot.publicStorage?.limitBytes ?? 1_073_741_824
+    : selectedNode?.spaces.private.quotaBytes ?? 0);
+  let selectedNodeUsed = $derived(snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION
+    ? (snapshot.publicStorage?.usedBytes ?? 0) + (snapshot.publicStorage?.reservedBytes ?? 0)
+    : selectedNode?.spaces.private.usedBytes ?? 0);
+  let selectedNodeFill = $derived(Math.min(100, selectedNodeUsed / Math.max(1, selectedNodeQuota) * 100));
   let uploadPercent = $derived(snapshot.uploadProgress
     ? Math.min(100, Math.round(snapshot.uploadProgress.uploadedBytes /
         Math.max(1, snapshot.uploadProgress.totalBytes) * 100))
@@ -65,6 +75,11 @@
       if (composer) composer.style.height = '';
       composer?.focus({ preventScroll: true });
     }
+  }
+
+  async function saveNodeSelection(nodeId: string): Promise<boolean> {
+    await fluoState.selectNode(nodeId);
+    return true;
   }
 
   function attachFiles(event: Event) {
@@ -203,28 +218,26 @@
       <article class="composer-card" aria-label="Create a post">
         <span class="avatar avatar--composer" aria-hidden="true">Y</span>
         <div class="composer-body">
-          <label class="node-picker">
-            <span>Store this post on</span>
-            <span class="node-select-wrap">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6.5 10 3l6 3.5v7L10 17l-6-3.5v-7Z"/><path d="m4 6.5 6 3.4 6-3.4M10 10v7"/></svg>
-              <select
-                aria-label="Post storage node"
+          <div class="node-picker">
+            <span class="node-picker-caption">Store this post on</span>
+            <div class="node-picker-selection">
+              <button
+                class="node-storage-button"
+                type="button"
+                aria-label={`Choose storage Nodo, currently ${selectedNodeName}`}
+                title="Choose storage Nodo"
                 disabled={snapshot.isPublishing || snapshot.isLoading && !snapshot.publicStorage}
-                bind:value={() => snapshot.selectedNodeId ?? '', (nodeId) => void fluoState.selectNode(nodeId)}
+                onclick={() => { nodePickerOpen = true; }}
               >
-                <option value={PUBLIC_FLUO_DESTINATION}>
-                  Public Nodo · {snapshot.publicStorage ? `${uploadBytes(snapshot.publicStorage.usedBytes)} of 1 GB` : 'loading…'}
-                </option>
-                {#if privateNodes.length}
-                  <optgroup label="Your private Nodo">
-                    {#each privateNodes as node (node.id)}
-                      <option value={node.id}>{node.deviceName} · {uploadBytes(node.spaces.private.usedBytes)} of {uploadBytes(node.spaces.private.quotaBytes)}</option>
-                    {/each}
-                  </optgroup>
-                {/if}
-              </select>
-            </span>
-          </label>
+                <svg viewBox="0 0 28 28" aria-hidden="true"><rect x="4" y="4.5" width="20" height="19" rx="3"/><circle cx="10" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M8 21l2-5h8l2 5M10 12h8"/></svg>
+                <i style={`--node-fill:${selectedNodeFill}%`}></i>
+              </button>
+              <span class="node-selection-copy">
+                <strong>{selectedNodeName}</strong>
+                <small>{selectedNodeQuota ? `${uploadBytes(selectedNodeUsed)} of ${uploadBytes(selectedNodeQuota)}` : 'Storage unavailable'}</small>
+              </span>
+            </div>
+          </div>
           {#if !snapshot.isLoading && snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION && !publicAvailable}
             <p class="node-hint">No writable Public Nodo is reachable right now.</p>
           {:else if !snapshot.isLoading && snapshot.selectedNodeId !== PUBLIC_FLUO_DESTINATION && !selectedNode}
@@ -428,6 +441,19 @@
   </div>
 </main>
 
+{#if nodePickerOpen}
+  <NodoPickerDialog
+    description="Choose the Public Nodo pool or one of your private hosts. This only changes where the next post is stored."
+    nodes={snapshot.nodes}
+    onClose={() => { nodePickerOpen = false; }}
+    onSave={saveNodeSelection}
+    publicNodeId={PUBLIC_FLUO_DESTINATION}
+    publicStorage={snapshot.publicStorage}
+    selectedNodeId={snapshot.selectedNodeId ?? PUBLIC_FLUO_DESTINATION}
+    title="Post storage"
+  />
+{/if}
+
 <style>
   .fluo-shell {
     min-width: 0;
@@ -572,10 +598,8 @@
   .composer-body { min-width: 0; }
 
   .node-picker {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    display: grid;
+    gap: 6px;
     margin: 0 0 10px;
     padding: 0 2px 10px;
     color: #748078;
@@ -584,47 +608,36 @@
     font-weight: 650;
   }
 
-  .node-select-wrap {
+  .node-picker-caption { font-weight: 650; }
+
+  .node-picker-selection { display: flex; align-items: center; gap: 9px; min-width: 0; }
+
+  .node-storage-button {
     position: relative;
-    display: flex;
-    align-items: center;
-    min-width: 0;
-    color: #3e7665;
-  }
-
-  .node-select-wrap svg {
-    position: absolute;
-    left: 9px;
-    z-index: 1;
-    width: 14px;
-    height: 14px;
-    fill: none;
-    stroke: currentColor;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-width: 1.35;
-    pointer-events: none;
-  }
-
-  .node-picker select {
-    width: min(330px, 42vw);
-    height: 30px;
-    padding: 0 30px 0 29px;
-    overflow: hidden;
-    color: #355d50;
-    background: #edf5f1;
-    border: 1px solid #d2e3dc;
-    border-radius: 8px;
-    outline: none;
+    display: grid;
+    flex: none;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    color: #4d806f;
+    background: rgb(255 255 255 / 72%);
+    border: 1px solid #c5d9cf;
+    border-radius: 12px;
     cursor: pointer;
-    font: inherit;
-    font-weight: 670;
-    text-overflow: ellipsis;
+    place-items: center;
+    box-shadow: 0 4px 12px rgb(20 48 39 / 6%);
+    transition: transform 120ms ease, background 120ms ease;
   }
 
-  .node-picker select:hover:not(:disabled) { background: #e6f1ec; border-color: #bdd7cc; }
-  .node-picker select:focus-visible { outline: 2px solid rgb(62 128 109 / 28%); outline-offset: 2px; }
-  .node-picker select:disabled { opacity: .55; cursor: default; }
+  .node-storage-button:hover:not(:disabled) { transform: translateY(-1px); background: #edf6f1; }
+  .node-storage-button:disabled { cursor: default; opacity: .5; }
+  .node-storage-button svg { width: 25px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.45; }
+  .node-storage-button i { position: absolute; right: 4px; bottom: 4px; width: 8px; height: 8px; background: conic-gradient(#4cab7d var(--node-fill), rgb(91 113 103 / 20%) 0); border: 1px solid white; border-radius: 50%; }
+
+  .node-selection-copy { display: grid; min-width: 0; gap: 2px; }
+  .node-selection-copy strong { overflow: hidden; color: #3f6f61; font-size: calc(11px * var(--text-scale)); text-overflow: ellipsis; white-space: nowrap; }
+  .node-selection-copy small { color: #7b8d84; font-size: calc(9px * var(--text-scale)); }
+
   .node-hint { margin: -2px 2px 9px; color: #9a6b48; font-size: calc(8px * var(--text-scale)); }
 
   textarea {
@@ -899,8 +912,6 @@
   }
 
   @media (max-width: 720px) {
-    .node-picker { align-items: stretch; flex-direction: column; gap: 7px; }
-    .node-picker select { width: 100%; }
     .media-limits { display: none; }
   }
 

@@ -327,11 +327,13 @@ describe('workspace navigation and objects', () => {
 
     const composer = screen.getByRole('textbox', { name: 'Post text' });
     await fireEvent.input(composer, { target: { value: 'Hello from this device.' } });
-    expect(screen.getByLabelText('Post storage node')).toHaveValue('public');
+    expect(screen.getByRole('button', { name: /Choose storage Nodo, currently Public Nodo/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Post' })).toBeEnabled();
-    await fireEvent.change(screen.getByLabelText('Post storage node'), {
-      target: { value: fluoNode.id },
-    });
+    await fireEvent.click(screen.getByRole('button', { name: /Choose storage Nodo, currently Public Nodo/ }));
+    expect(screen.getByRole('dialog', { name: 'Post storage' })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Living room tablet, Private Nodo' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('button', { name: /Choose storage Nodo, currently Living room tablet/ })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Post' }));
     expect(await screen.findByText('Hello from this device.')).toBeInTheDocument();
 
