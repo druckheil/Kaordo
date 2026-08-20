@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
-import type { AuthUser } from '../domain/auth';
+import type { AuthSession, AuthUser } from '../domain/auth';
 import type { AuthGateway } from './AuthGateway';
 import type { TauriInvoke } from './TauriWorkspaceGateway';
 
@@ -28,5 +28,14 @@ export class TauriAuthGateway implements AuthGateway {
 
   presence(): Promise<void> {
     return this.#invoke('auth_presence');
+  }
+
+  async listSessions(): Promise<AuthSession[]> {
+    const result = await this.#invoke<{ sessions: AuthSession[] }>('auth_sessions');
+    return result.sessions;
+  }
+
+  terminateSession(sessionId: string): Promise<void> {
+    return this.#invoke('auth_terminate_session', { sessionId });
   }
 }

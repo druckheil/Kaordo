@@ -28,17 +28,14 @@
   import { RondoController } from './lib/RondoController';
   import { LigoController } from './lib/LigoController';
   import type { AppScale, AppTheme, TextScale } from './lib/domain/appearance';
-  import type { AuthMode } from './lib/domain/auth';
+  import type { AuthMode, AuthSession } from './lib/domain/auth';
   import type { NodoStorageItem, NodoStorageSpace } from './lib/domain/nodo';
   import {
     appSectionLabel,
     appSectionsFor,
     type AppSection,
   } from './lib/domain/appSection';
-  import type {
-    WorkspaceDetail,
-    WorkspaceSummary,
-  } from './lib/domain/workspace';
+  import type { WorkspaceDetail, WorkspaceSummary } from './lib/domain/workspace';
   import type { RondoBootstrap } from './lib/domain/rondo';
   import { workspaceSummary } from './lib/domain/workspace';
   import type { AuthGateway } from './lib/gateways/AuthGateway';
@@ -208,6 +205,11 @@
   let rondoPublicStorageLoading = $state(false);
   let rondoPublicStorageError = $state<string | null>(null);
   let rondoPublicStorageRequestId = 0;
+  let sessions = $state<AuthSession[]>([]);
+  let sessionsLoading = $state(false);
+  let sessionsError = $state<string | null>(null);
+  let sessionsRequestId = 0;
+  let terminatingSessionId = $state<string | null>(null);
   let ligoSnapshot = $state(ligo.state.snapshot);
   let activeSection = $state<AppSection>('klaro');
   type StorageBrowserTarget =
@@ -338,6 +340,44 @@
     }
   }
 
+  async function loadSessions(): Promise<void> {
+    const requestId = ++sessionsRequestId;
+    sessionsLoading = true;
+    sessionsError = null;
+    try {
+      const result = await authGateway.listSessions();
+      if (requestId !== sessionsRequestId) return;
+      sessions = result;
+    } catch (error) {
+      if (requestId !== sessionsRequestId) return;
+      sessions = [];
+      sessionsError = error instanceof Error && error.message.trim() ? error.message : 'Sessions could not be loaded.';
+    } finally {
+      if (requestId === sessionsRequestId) sessionsLoading = false;
+    }
+  }
+
+  async function terminateSession(sessionId: string, current: boolean): Promise<void> {
+    if (terminatingSessionId) return;
+    terminatingSessionId = sessionId;
+    sessionsError = null;
+    try {
+      if (current) {
+        await logout();
+        if (authSnapshot.phase !== 'anonymous') {
+          sessionsError = authSnapshot.error ?? 'The current session could not be terminated.';
+        }
+      } else {
+        await authGateway.terminateSession(sessionId);
+        sessions = sessions.filter((session) => session.id !== sessionId);
+      }
+    } catch (error) {
+      sessionsError = error instanceof Error && error.message.trim() ? error.message : 'The session could not be terminated.';
+    } finally {
+      terminatingSessionId = null;
+    }
+  }
+
   let isModalOpen = $derived(showCreateWorkspace || isCreateObjectOpen);
 
   const unsubscribeAuth = auth.manager.subscribe((snapshot) => {
@@ -349,6 +389,7 @@
       if (activeSection === 'mi') {
         publicStorage.start();
         void loadRondoPublicStorage();
+        void loadSessions();
       }
       if (activeSection === 'rondo') rondo.start();
       ligo.state.configure(snapshot.user?.id ?? null);
@@ -370,6 +411,11 @@
       rondoPublicStorage = null;
       rondoPublicStorageError = null;
       rondoPublicStorageLoading = false;
+      sessionsRequestId += 1;
+      sessions = [];
+      sessionsError = null;
+      sessionsLoading = false;
+      terminatingSessionId = null;
       rondo.stop();
       rondo.state.reset();
       ligo.stop();
@@ -522,6 +568,7 @@
     if (section === 'mi') {
       publicStorage.start();
       void loadRondoPublicStorage();
+      void loadSessions();
     }
     else publicStorage.stop();
     if (section === 'fluo') editor.startFluo();
@@ -662,6 +709,11 @@
         rondoPublicStorage={rondoPublicStorage}
         rondoPublicStorageError={rondoPublicStorageError}
         rondoPublicStorageLoading={rondoPublicStorageLoading}
+        sessions={sessions}
+        sessionsError={sessionsError}
+        sessionsLoading={sessionsLoading}
+        terminatingSessionId={terminatingSessionId}
+        onTerminateSession={terminateSession}
         user={authSnapshot.user}
       />
     {:else if activeSection === 'regado' && authSnapshot.user?.role !== 'user'}

@@ -5,8 +5,11 @@ import {
   createUserAndSession,
   deleteSession,
   findUserByUsername,
+  listSessionSummaries,
   publicUser,
+  terminateSessionForUser,
 } from './database';
+import { base64Url, base64UrlBytes } from './encoding';
 import { hashPassword, verifyPassword } from './password';
 import { enforceAuthRateLimit, RateLimitError } from './rateLimit';
 import {
@@ -109,6 +112,37 @@ export async function logout(request: Request, env: Env): Promise<Response> {
   );
 }
 
+export async function sessions(request: Request, env: Env): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  const rows = await listSessionSummaries(env.DB, session.userId, session.tokenHash, unixNow());
+  return json({
+    sessions: rows.map((row) => ({
+      clientKind: row.client_kind === CLIENT_DESKTOP ? 'desktop' : 'web',
+      createdAt: row.created_at,
+      current: row.is_current === 1,
+      deviceName: row.device_name,
+      expiresAt: row.expires_at,
+      id: base64Url(row.token_hash),
+      lastActiveAt: row.last_used_at,
+    })),
+  });
+}
+
+export async function terminateSession(
+  request: Request,
+  env: Env,
+  sessionId: string,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  const tokenHash = parseSessionId(sessionId);
+  if (!tokenHash) return json({ error: 'Session identifier is invalid.' }, 400);
+  const terminated = await terminateSessionForUser(env.DB, session.userId, tokenHash);
+  if (!terminated) return json({ error: 'Session was not found.' }, 404);
+  return json({ ok: true });
+}
+
 export async function presence(request: Request, env: Env): Promise<Response> {
   const session = await authenticate(request, env);
   if (!session) return json({ error: 'Authentication required.' }, 401);
@@ -139,6 +173,16 @@ function authErrorResponse(error: unknown): Response {
 
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('UNIQUE constraint failed');
+}
+
+function parseSessionId(value: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(value)) return null;
+  try {
+    const bytes = base64UrlBytes(value);
+    return bytes.byteLength === 32 ? bytes : null;
+  } catch {
+    return null;
+  }
 }
 
 export { CLIENT_DESKTOP, CLIENT_WEB };

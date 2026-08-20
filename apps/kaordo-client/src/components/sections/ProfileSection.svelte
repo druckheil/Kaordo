@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AuthUser } from '../../lib/domain/auth';
+  import type { AuthSession, AuthUser } from '../../lib/domain/auth';
   import type { PublicNodoStorage } from '../../lib/domain/nodo';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
 
@@ -15,6 +15,11 @@
     rondoPublicStorage: { allocated: boolean; limitBytes: number; usedBytes: number } | null;
     rondoPublicStorageError: string | null;
     rondoPublicStorageLoading: boolean;
+    sessions: AuthSession[];
+    sessionsError: string | null;
+    sessionsLoading: boolean;
+    terminatingSessionId: string | null;
+    onTerminateSession: (sessionId: string, current: boolean) => void | Promise<void>;
     user: AuthUser;
   };
 
@@ -30,6 +35,11 @@
     rondoPublicStorage,
     rondoPublicStorageError,
     rondoPublicStorageLoading,
+    sessions,
+    sessionsError,
+    sessionsLoading,
+    terminatingSessionId,
+    onTerminateSession,
     user,
   }: Props = $props();
   let initial = $derived(user.username.slice(0, 1).toUpperCase());
@@ -50,6 +60,13 @@
     if (value < 1_048_576) return `${(value / 1_024).toFixed(1)} KB`;
     if (value < 1_073_741_824) return `${(value / 1_048_576).toFixed(1)} MB`;
     return `${(value / 1_073_741_824).toFixed(2)} GB`;
+  }
+
+  function formatSessionTime(timestamp: number): string {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(timestamp * 1_000));
   }
 </script>
 
@@ -139,6 +156,66 @@
         </div>
       </section>
     </div>
+
+    <section class="sessions-card" aria-busy={sessionsLoading} aria-labelledby="sessions-title">
+      <header class="sessions-heading">
+        <span class="detail-icon" aria-hidden="true">
+          <svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="10" rx="1.5" /><path d="M7 17h6M10 14v3M6.5 8h.01M9.5 8h4" /></svg>
+        </span>
+        <div>
+          <h2 id="sessions-title">Sessions</h2>
+          <p>Devices currently signed in to your account</p>
+        </div>
+        {#if sessionsLoading}
+          <span class="sessions-status" role="status"><LoadingSpinner compact /> Loading…</span>
+        {:else}
+          <span class="session-count">{sessions.length}</span>
+        {/if}
+      </header>
+
+      {#if sessionsError}
+        <p class="sessions-error" role="alert">{sessionsError}</p>
+      {:else if sessionsLoading && sessions.length === 0}
+        <div class="sessions-empty" role="status"><LoadingSpinner compact /> Loading sessions…</div>
+      {:else if sessions.length === 0}
+        <p class="sessions-empty">No active sessions found.</p>
+      {:else}
+        <ul class="sessions-list" aria-label="Signed-in devices">
+          {#each sessions as session (session.id)}
+            <li class="session-item" class:session-item--current={session.current}>
+              <span class="session-device-mark" aria-hidden="true">
+                {#if session.clientKind === 'desktop'}
+                  <svg viewBox="0 0 20 20"><rect x="3" y="3.5" width="14" height="10" rx="1.5" /><path d="M7 16.5h6M10 13.5v3" /></svg>
+                {:else}
+                  <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.5" /><path d="M3.8 8h12.4M3.8 12h12.4M10 3.5c1.7 1.8 2.5 4 2.5 6.5s-.8 4.7-2.5 6.5M10 3.5C8.3 5.3 7.5 7.5 7.5 10s.8 4.7 2.5 6.5" /></svg>
+                {/if}
+              </span>
+              <span class="session-item-copy">
+                <strong>{session.deviceName ?? (session.clientKind === 'desktop' ? 'Desktop application' : 'Web browser')}</strong>
+                <small>{session.current ? 'Active on this device' : `Last active ${formatSessionTime(session.lastActiveAt)}`}</small>
+                <small>Signed in {formatSessionTime(session.createdAt)}</small>
+              </span>
+              <span class="session-item-actions">
+                {#if session.current}<span class="current-session">Current</span>{/if}
+                <button
+                  type="button"
+                  class="terminate-session"
+                  disabled={terminatingSessionId !== null}
+                  onclick={() => onTerminateSession(session.id, session.current)}
+                >
+                  {#if terminatingSessionId === session.id}
+                    <LoadingSpinner compact />
+                    Terminating…
+                  {:else}
+                    Terminate
+                  {/if}
+                </button>
+              </span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
 
     <section
       class="public-storage-card"
@@ -372,6 +449,46 @@
     gap: 15px;
     margin-top: 16px;
   }
+
+  .sessions-card {
+    margin-top: 16px;
+    padding: 19px 20px;
+    background: rgb(255 255 255 / 86%);
+    border: 1px solid #dce1dc;
+    border-radius: 13px;
+    box-shadow: 0 8px 25px rgb(33 57 47 / 5%);
+  }
+
+  .sessions-heading {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #e3e7e3;
+  }
+
+  .sessions-heading h2 { color: #2c3832; font-size: calc(12px * var(--text-scale)); font-weight: 670; }
+  .sessions-heading p { margin-top: 3px; color: #879089; font-size: calc(9px * var(--text-scale)); }
+  .session-count { display: grid; min-width: 24px; height: 22px; margin-left: auto; padding: 0 7px; color: #4a806f; background: #edf4f0; border-radius: 999px; font-size: calc(9px * var(--text-scale)); font-weight: 680; place-items: center; }
+  .sessions-status { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; color: #5a7b6d; font-size: calc(9px * var(--text-scale)); }
+  .sessions-status :global(.library-loader), .sessions-empty :global(.library-loader), .terminate-session :global(.library-loader) { border-color: #c6d9d0; border-top-color: #43836e; }
+
+  .sessions-list { display: grid; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+  .session-item { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-width: 0; padding: 10px 0; }
+  .session-item + .session-item { border-top: 1px solid #edf0ed; }
+  .session-item--current { background: linear-gradient(90deg, rgb(238 247 242 / 50%), transparent); border-radius: 8px; }
+  .session-device-mark { display: grid; width: 36px; height: 36px; color: #528676; background: #e8f0eb; border-radius: 9px; place-items: center; }
+  .session-device-mark svg { width: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
+  .session-item-copy { min-width: 0; }
+  .session-item-copy strong, .session-item-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-item-copy strong { color: #4a554f; font-size: calc(10px * var(--text-scale)); font-weight: 640; }
+  .session-item-copy small { margin-top: 3px; color: #919991; font-size: calc(8px * var(--text-scale)); }
+  .session-item-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .terminate-session { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 76px; height: 28px; padding: 0 8px; color: #9b5b55; background: #fff; border: 1px solid #e3cbc8; border-radius: 7px; cursor: pointer; font-size: calc(8px * var(--text-scale)); font-weight: 650; transition: 120ms ease; }
+  .terminate-session:hover:not(:disabled) { color: #8b423c; background: #fff7f6; border-color: #d5aaa6; }
+  .terminate-session:disabled { cursor: default; opacity: 0.58; }
+  .sessions-empty { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 58px; color: #8b958e; font-size: calc(9px * var(--text-scale)); }
+  .sessions-error { margin-top: 12px; padding: 9px 11px; color: #954b46; background: #fbefed; border: 1px solid #ebd1ce; border-radius: 8px; font-size: calc(9px * var(--text-scale)); }
 
   .detail-card {
     min-width: 0;

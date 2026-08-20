@@ -165,6 +165,47 @@ export async function deleteSession(db: D1Database, tokenHash: Uint8Array): Prom
   await db.prepare('DELETE FROM sessions WHERE token_hash = ?1').bind(tokenHash).run();
 }
 
+export type SessionSummaryRow = {
+  client_kind: number;
+  created_at: number;
+  device_name: string | null;
+  expires_at: number;
+  is_current: number;
+  last_used_at: number;
+  token_hash: ArrayBuffer;
+};
+
+export async function listSessionSummaries(
+  db: D1Database,
+  userId: ArrayBuffer,
+  currentTokenHash: Uint8Array,
+  now: number,
+): Promise<SessionSummaryRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT token_hash, created_at, expires_at, last_used_at, client_kind, device_name,
+              CASE WHEN token_hash = ?2 THEN 1 ELSE 0 END AS is_current
+         FROM sessions
+        WHERE user_id = ?1 AND expires_at > ?3
+        ORDER BY is_current DESC, last_used_at DESC, created_at DESC`,
+    )
+    .bind(userId, currentTokenHash, now)
+    .all<SessionSummaryRow>();
+  return result.results;
+}
+
+export async function terminateSessionForUser(
+  db: D1Database,
+  userId: ArrayBuffer,
+  tokenHash: Uint8Array,
+): Promise<boolean> {
+  const result = await db
+    .prepare('DELETE FROM sessions WHERE user_id = ?1 AND token_hash = ?2')
+    .bind(userId, tokenHash)
+    .run();
+  return result.meta.changes > 0;
+}
+
 export async function deleteExpiredSessions(db: D1Database, now: number): Promise<void> {
   await db.prepare('DELETE FROM sessions WHERE expires_at <= ?1').bind(now).run();
 }

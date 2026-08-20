@@ -548,6 +548,26 @@ pub async fn auth_presence(client: State<'_, AuthClient>) -> Result<(), String> 
 }
 
 #[tauri::command]
+pub async fn auth_sessions(client: State<'_, AuthClient>) -> Result<Value, String> {
+    let response = authenticated_request(&client, Method::GET, "/api/auth/sessions").await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn auth_terminate_session(
+    client: State<'_, AuthClient>,
+    session_id: String,
+) -> Result<(), String> {
+    let path = session_id_path(&session_id)?;
+    let response = authenticated_request(&client, Method::DELETE, &path).await?;
+    let body = decode_response::<OkResponse>(response).await?;
+    if !body.ok {
+        return Err("The session could not be terminated.".to_owned());
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn admin_dashboard(
     client: State<'_, AuthClient>,
     force_refresh: Option<bool>,
@@ -1355,6 +1375,17 @@ fn node_id_path(value: &str) -> Result<String, String> {
     uuid::Uuid::parse_str(value)
         .map(|id| id.to_string())
         .map_err(|_| "The node identifier is invalid.".to_owned())
+}
+
+fn session_id_path(value: &str) -> Result<String, String> {
+    if value.len() != 43
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    {
+        return Err("The session identifier is invalid.".to_owned());
+    }
+    Ok(format!("/api/auth/sessions/{value}"))
 }
 
 async fn persist_auth_result(

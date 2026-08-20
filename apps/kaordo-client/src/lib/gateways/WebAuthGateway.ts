@@ -1,8 +1,9 @@
-import type { AuthUser } from '../domain/auth';
+import type { AuthSession, AuthUser } from '../domain/auth';
 import type { AuthGateway } from './AuthGateway';
 import { browserFetch, decodeJsonResponse, requestJson } from './WebApiClient';
 
 type UserResponse = { user: AuthUser };
+type SessionsResponse = { sessions: AuthSession[] };
 
 export class WebAuthGateway implements AuthGateway {
   async currentUser(): Promise<AuthUser | null> {
@@ -31,6 +32,23 @@ export class WebAuthGateway implements AuthGateway {
     await requestJson<{ ok: boolean }>(
       '/api/auth/presence',
       { method: 'POST' },
+      AUTH_UNAVAILABLE,
+    );
+  }
+
+  async listSessions(): Promise<AuthSession[]> {
+    const result = await requestJson<SessionsResponse>(
+      '/api/auth/sessions',
+      { cache: 'no-store' },
+      AUTH_UNAVAILABLE,
+    );
+    return result.sessions;
+  }
+
+  async terminateSession(sessionId: string): Promise<void> {
+    await requestJson<{ ok: boolean }>(
+      `/api/auth/sessions/${encodeURIComponent(sessionId)}`,
+      { method: 'DELETE' },
       AUTH_UNAVAILABLE,
     );
   }

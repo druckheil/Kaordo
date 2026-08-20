@@ -129,6 +129,45 @@ describe('authentication API', () => {
     expect(await current.json()).toMatchObject({ user: { username: 'Desktop_User' } });
   });
 
+  it('lists the current user sessions and terminates one without affecting another', async () => {
+    const registered = await post('/api/auth/desktop/register', {
+      deviceName: 'First desktop',
+      password: PASSWORD,
+      username: 'Sessions_User',
+    });
+    const { sessionToken: firstToken } = await registered.json<{ sessionToken: string }>();
+    const secondLogin = await post('/api/auth/desktop/login', {
+      deviceName: 'Second desktop',
+      password: PASSWORD,
+      username: 'Sessions_User',
+    });
+    const { sessionToken: secondToken } = await secondLogin.json<{ sessionToken: string }>();
+
+    const listed = await api('/api/auth/sessions', {
+      headers: { authorization: `Bearer ${firstToken}` },
+    });
+    const body = await listed.json<{
+      sessions: Array<{ current: boolean; deviceName: string | null; id: string }>;
+    }>();
+    expect(listed.status).toBe(200);
+    expect(body.sessions).toHaveLength(2);
+    expect(body.sessions.find(({ current }) => current)?.deviceName).toBe('First desktop');
+    const remote = body.sessions.find(({ current }) => !current);
+    expect(remote?.deviceName).toBe('Second desktop');
+
+    const terminated = await api(`/api/auth/sessions/${remote?.id ?? ''}`, {
+      headers: { authorization: `Bearer ${firstToken}` },
+      method: 'DELETE',
+    });
+    expect(terminated.status).toBe(200);
+    expect((await api('/api/auth/me', {
+      headers: { authorization: `Bearer ${secondToken}` },
+    })).status).toBe(401);
+    expect((await api('/api/auth/sessions', {
+      headers: { authorization: `Bearer ${firstToken}` },
+    })).status).toBe(200);
+  });
+
   it('does not expose desktop token routes on a future web app host', async () => {
     const response = await exports.default.fetch(
       'https://app.kaordo.example/api/auth/desktop/login',

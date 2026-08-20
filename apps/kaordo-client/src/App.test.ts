@@ -8,7 +8,7 @@ import {
 } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.svelte';
-import type { AuthUser } from './lib/domain/auth';
+import type { AuthSession, AuthUser } from './lib/domain/auth';
 import type { PublicNodoStorage } from './lib/domain/nodo';
 import type { AuthGateway } from './lib/gateways/AuthGateway';
 import type { FluoGateway, RemoteFluoPost } from './lib/gateways/FluoGateway';
@@ -128,9 +128,11 @@ function authenticatedGateway(): AuthGateway {
   return {
     currentUser: () => Promise.resolve(signedInUser),
     login: () => Promise.resolve(signedInUser),
+    listSessions: () => Promise.resolve([]),
     logout: () => Promise.resolve(),
     presence: () => Promise.resolve(),
     register: () => Promise.resolve(signedInUser),
+    terminateSession: () => Promise.resolve(),
   };
 }
 
@@ -367,6 +369,53 @@ describe('workspace navigation and objects', () => {
     expect(logout).toHaveBeenCalledOnce();
     expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Files' })).not.toBeInTheDocument();
+  });
+
+  it('loads account sessions in Mi and terminates a remote session', async () => {
+    const remoteSession: AuthSession = {
+      clientKind: 'desktop',
+      createdAt: 1_700_000_000,
+      current: false,
+      deviceName: 'Living room PC',
+      expiresAt: 1_800_000_000,
+      id: 'remote-session-id',
+      lastActiveAt: 1_750_000_000,
+    };
+    const currentSession: AuthSession = {
+      clientKind: 'web',
+      createdAt: 1_790_000_000,
+      current: true,
+      deviceName: null,
+      expiresAt: 1_800_000_000,
+      id: 'current-session-id',
+      lastActiveAt: 1_799_000_000,
+    };
+    const listSessions = vi.fn(() => Promise.resolve([currentSession, remoteSession]));
+    const terminateSession = vi.fn(() => Promise.resolve());
+    const authGateway: AuthGateway = {
+      ...authenticatedGateway(),
+      listSessions,
+      terminateSession,
+    };
+    render(App, {
+      adminGateway,
+      appearanceGateway,
+      autoloadWorkspaceLibrary: false,
+      authGateway,
+      initialAuthUser: signedInUser,
+      workspaceGateway: new TauriWorkspaceGateway(),
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Mi' }));
+    const sessionList = await screen.findByRole('list', { name: 'Signed-in devices' });
+    expect(listSessions).toHaveBeenCalledOnce();
+    expect(within(sessionList).getByText('Living room PC')).toBeInTheDocument();
+
+    const remoteItem = within(sessionList).getByText('Living room PC').closest('li');
+    expect(remoteItem).not.toBeNull();
+    await fireEvent.click(within(remoteItem as HTMLElement).getByRole('button', { name: 'Terminate' }));
+    expect(terminateSession).toHaveBeenCalledWith('remote-session-id');
+    expect(within(sessionList).queryByText('Living room PC')).not.toBeInTheDocument();
   });
 
   it('loads Public Nodo independently in Mi and shows its loading state', async () => {
@@ -1822,9 +1871,11 @@ describe('authentication gate', () => {
     const authGateway: AuthGateway = {
       currentUser: () => Promise.resolve(null),
       login,
+      listSessions: () => Promise.resolve([]),
       logout: () => Promise.resolve(),
       presence: () => Promise.resolve(),
       register: () => Promise.resolve(signedInUser),
+      terminateSession: () => Promise.resolve(),
     };
 
     render(App, {
@@ -1855,9 +1906,11 @@ describe('authentication gate', () => {
     const authGateway: AuthGateway = {
       currentUser: () => Promise.resolve(null),
       login: () => Promise.resolve(signedInUser),
+      listSessions: () => Promise.resolve([]),
       logout: () => Promise.resolve(),
       presence: () => Promise.resolve(),
       register,
+      terminateSession: () => Promise.resolve(),
     };
 
     render(App, {

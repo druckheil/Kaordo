@@ -7,6 +7,8 @@ import {
   me,
   presence,
   register,
+  sessions,
+  terminateSession,
 } from './auth/routes';
 import { json } from './http/json';
 import { health } from './routes/health';
@@ -273,6 +275,13 @@ export function handleRequest(
   }
   if (request.method === 'POST' && pathname === '/api/auth/logout') {
     return logout(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/auth/sessions') {
+    return sessions(request, env);
+  }
+  const authSessionMatch = pathname.match(/^\/api\/auth\/sessions\/([A-Za-z0-9_-]{43})$/u);
+  if (request.method === 'DELETE' && authSessionMatch?.[1]) {
+    return terminateSession(request, env, authSessionMatch[1]);
   }
   if (request.method === 'GET' && pathname === '/api/auth/me') {
     return me(request, env);

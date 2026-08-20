@@ -323,6 +323,8 @@ pub fn run() {
             auth::auth_me,
             auth::auth_presence,
             auth::auth_register,
+            auth::auth_sessions,
+            auth::auth_terminate_session,
             auth::admin_cloudflare,
             auth::admin_dashboard,
             auth::fluo_bootstrap,
