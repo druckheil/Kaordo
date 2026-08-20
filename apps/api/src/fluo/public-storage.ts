@@ -74,7 +74,7 @@ export async function reservePublicStorage(request: Request, env: Env): Promise<
       'SELECT app_version FROM nodes WHERE id = ?1 LIMIT 1',
     ).bind(input.nodeId).first<{ app_version: string | null }>();
     if (!supportsPublicReservations(target?.app_version ?? null)) {
-      return json({ error: 'This host must run Nodo 0.14.1 or newer for public storage.' }, 409);
+      return json({ error: 'This host must run Nodo 0.1.0 or newer for public storage.' }, 409);
     }
     const result = await env.DB.prepare(
       `INSERT INTO fluo_public_allocations
@@ -285,8 +285,7 @@ function supportsPublicReservations(version: string | null): boolean {
   if (!match) return false;
   const major = Number(match[1]);
   const minor = Number(match[2]);
-  const patch = Number(match[3] ?? 0);
-  return major > 0 || minor > 14 || (minor === 14 && patch >= 1);
+  return major > 0 || minor >= 1;
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown>> {

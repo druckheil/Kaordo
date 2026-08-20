@@ -8,8 +8,11 @@ interface PagesContext {
   params: { path?: string | string[] };
 }
 
-const asObjectKey = (path: string | string[] | undefined): string =>
-  `v1.0.0/${Array.isArray(path) ? path.join('/') : (path ?? '')}`;
+const asObjectKey = (path: string | string[] | undefined): string => {
+  const pathname = Array.isArray(path) ? path.join('/') : (path ?? '');
+  const release = pathname.includes('0.1.0') ? 'v0.1.0' : 'v0.1.1';
+  return `${release}/${pathname}`;
+};
 
 export const onRequest = async ({ request, env, params }: PagesContext): Promise<Response> => {
   if (request.method !== 'GET' && request.method !== 'HEAD') {

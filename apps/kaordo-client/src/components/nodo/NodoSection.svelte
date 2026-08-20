@@ -180,7 +180,7 @@
 
   function supportsSpaces(node: NodoNode): boolean {
     const match = node.metrics.appVersion?.match(/^(\d+)\.(\d+)(?:\.|$)/);
-    return Boolean(match && (Number(match[1]) > 0 || Number(match[2]) >= 13));
+    return Boolean(match && (Number(match[1]) > 0 || Number(match[2]) >= 1));
   }
 
   function setPublicDraft(node: NodoNode, value: number) {
@@ -391,7 +391,7 @@
               />
               <div class="space-usage"><span>100% Private</span><strong>{nodeMode(selected, publicDraft(selected))}</strong><span>100% Public</span></div>
               <div class="space-save">
-                <p>{supportsSpaces(selected) ? allocationNotice(selected) : 'Install Nodo 0.13.0 or newer on this host to enable separate spaces.'}</p>
+                <p>{supportsSpaces(selected) ? allocationNotice(selected) : 'Install Nodo 0.1.0 or newer on this host to enable separate spaces.'}</p>
                 <button
                   type="button"
                   disabled={!supportsSpaces(selected) || snapshot.operation !== null || publicDraft(selected) === selected.spaces.public.quotaBytes}

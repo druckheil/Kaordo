@@ -50,10 +50,10 @@ Work one requested feature at a time. Stop after it, describe the result briefly
 - Do not build macOS during ordinary iteration; the user runs macOS from the IDE. Build it only when explicitly requested.
 - Do not run the full test suite or extra packaging during quick iteration unless requested. The requested build itself must still finish successfully.
 - Overwrite the stable artifact names. Never create `p2`, `fixed`, timestamped, or similar duplicates.
-- `release/scope-1.1` may contain at most these three current artifacts:
-  - `Kaordo_scope-1.1_windows_x64-setup.exe`
-  - `Kaordo-Nodo_scope-1.1_android.apk`
-  - `Kaordo_scope-1.1_macos_universal.dmg`
+- `release/scope-0.1.1` may contain at most these three current artifacts:
+  - `Kaordo_scope-0.1.1_windows_x64-setup.exe`
+  - `Kaordo-Nodo_scope-0.1.1_android.apk`
+  - `Kaordo_scope-0.1.1_macos_universal.dmg`
 - `release/` is ignored and must never be committed.
 
 ### Windows x64 NSIS
@@ -64,13 +64,13 @@ Run from `apps/kaordo-client`:
 PATH=/opt/homebrew/opt/llvm/bin:/Users/druckheil/.cargo/bin:$PATH \
 XWIN_CACHE_DIR=/Users/druckheil/Projects/Kaordo/target/xwin-cache \
 pnpm tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc \
-  --bundles nsis --config '{"version":"1.1.0"}'
+  --bundles nsis --config '{"version":"0.1.1"}'
 ```
 
 Then overwrite:
 
 ```text
-release/scope-1.1/Kaordo_scope-1.1_windows_x64-setup.exe
+release/scope-0.1.1/Kaordo_scope-0.1.1_windows_x64-setup.exe
 ```
 
 Cross-linker PDB warnings and the expected unsigned-on-macOS installer warning are not build failures; require a zero exit status and a produced NSIS file.
@@ -96,7 +96,7 @@ unset SIGNING_SECRET KAORDO_ANDROID_KEYSTORE_PASSWORD KAORDO_ANDROID_KEY_PASSWOR
 Then overwrite:
 
 ```text
-release/scope-1.1/Kaordo-Nodo_scope-1.1_android.apk
+release/scope-0.1.1/Kaordo-Nodo_scope-0.1.1_android.apk
 ```
 
 Always use the same signing key so an APK can update the installed Nodo without logging the user out.

@@ -446,7 +446,7 @@ export async function updateNodeSpaces(
     const row = await ownedNode(env, nodeId, session.userId);
     if (!row) return json({ error: 'Node not found.' }, 404);
     if (!supportsSpaces(row.app_version)) {
-      return json({ error: 'Install Nodo 0.13.0 or newer before changing its space allocation.' }, 409);
+      return json({ error: 'Install Nodo 0.1.0 or newer before changing its space allocation.' }, 409);
     }
     const publicQuotaBytes = input.publicQuotaBytes as number;
     const privateQuotaBytes = input.privateQuotaBytes as number;
@@ -821,7 +821,9 @@ function supportsSpaces(version: string | null): boolean {
   if (!match) return false;
   const major = Number(match[1]);
   const minor = Number(match[2]);
-  return major > 0 || minor >= 13;
+  // The current 0.1 release line supersedes the older 0.13+ development
+  // line; keep both ranges supported for nodes that have not been upgraded.
+  return major > 0 || minor >= 1;
 }
 
 function randomTicket(): string {

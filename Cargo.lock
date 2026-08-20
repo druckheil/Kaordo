@@ -2096,14 +2096,14 @@ dependencies = [
 
 [[package]]
 name = "kaordo-cli"
-version = "1.0.0"
+version = "0.1.0"
 dependencies = [
  "kaordo-core",
 ]
 
 [[package]]
 name = "kaordo-client"
-version = "1.0.0"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "kaordo-workspace",
@@ -2121,11 +2121,11 @@ dependencies = [
 
 [[package]]
 name = "kaordo-core"
-version = "1.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "kaordo-sdk-wasm"
-version = "1.0.0"
+version = "0.1.0"
 dependencies = [
  "kaordo-core",
  "wasm-bindgen",
@@ -2133,7 +2133,7 @@ dependencies = [
 
 [[package]]
 name = "kaordo-workspace"
-version = "1.0.0"
+version = "0.1.0"
 dependencies = [
  "blake3",
  "ciborium",
