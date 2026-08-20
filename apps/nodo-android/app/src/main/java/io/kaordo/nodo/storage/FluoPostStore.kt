@@ -4,6 +4,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.RandomAccessFile
+import java.security.MessageDigest
+import java.util.Base64
 import java.util.Locale
 import java.util.UUID
 
@@ -14,10 +16,20 @@ class FluoPostStore(
 ) {
     private val directory = File(root, "fluo-posts").apply { mkdirs() }
     private val indexFile = File(root, ".fluo-posts-v1.index")
+    private val stateFile = File(root, ".fluo-posts-v2.state")
     private val publicReservations = mutableMapOf<String, MutableSet<String>>()
+    private var stateRevision = 0L
+    private var postCount = 0
 
     init {
-        rebuildIndex()
+        val storedState = readState()
+        postCount = rebuildIndex()
+        if (storedState == null || storedState.postCount != postCount) {
+            stateRevision = (storedState?.revision ?: 0L).coerceAtLeast(0L) + 1L
+            persistState()
+        } else {
+            stateRevision = storedState.revision
+        }
     }
 
     @Synchronized
@@ -99,6 +111,8 @@ class FluoPostStore(
         post.publicReservationId?.let { reservation ->
             publicReservations.getOrPut(reservation) { mutableSetOf() }.add(post.id)
         }
+        postCount += 1
+        advanceState()
         return post
     }
 
@@ -112,6 +126,8 @@ class FluoPostStore(
         if (!file.delete()) return DeleteResult.MISSING
         removePublicReservation(post?.publicReservationId, id)
         post?.attachments?.forEach { uploads.delete(it.id, actor, isNodeOwner) }
+        postCount = (postCount - 1).coerceAtLeast(0)
+        advanceState()
         return DeleteResult.DELETED
     }
 
@@ -132,11 +148,18 @@ class FluoPostStore(
         if (files.any { it.exists() && !it.delete() }) throw ClearFailed()
         indexFile.writeBytes(ByteArray(0))
         publicReservations.clear()
+        if (postCount > 0 || result.deletedPosts > 0) {
+            postCount = 0
+            advanceState()
+        }
         return result
     }
 
     @Synchronized
     fun hasPublicReservation(id: String): Boolean = id in publicReservations
+
+    @Synchronized
+    fun state(): FeedState = FeedState(stateHash(), postCount)
 
     private fun write(post: Post) {
         val target = postFile(post.id)
@@ -163,7 +186,7 @@ class FluoPostStore(
         }
     }
 
-    private fun rebuildIndex() {
+    private fun rebuildIndex(): Int {
         val posts = directory.listFiles().orEmpty().asSequence()
             .filter { it.name.endsWith(SUFFIX) && it.length() <= MAX_POST_FILE_BYTES }
             .mapNotNull { runCatching { parse(JSONObject(it.readText())) }.getOrNull() }
@@ -184,6 +207,35 @@ class FluoPostStore(
             }
         }
         moveTemporaryFile(temporary, indexFile)
+        return posts.size
+    }
+
+    private fun readState(): StoredState? = runCatching {
+        if (!stateFile.isFile) return@runCatching null
+        val value = JSONObject(stateFile.readText())
+        val revision = value.optLong("revision", -1L)
+        val count = value.optInt("postCount", -1)
+        if (revision < 0L || count < 0) null else StoredState(revision, count)
+    }.getOrNull()
+
+    private fun advanceState() {
+        stateRevision = if (stateRevision == Long.MAX_VALUE) 1L else stateRevision + 1L
+        persistState()
+    }
+
+    private fun persistState() {
+        val temporary = File(stateFile.parentFile, ".${stateFile.name}.tmp")
+        temporary.writeText(JSONObject()
+            .put("postCount", postCount)
+            .put("revision", stateRevision)
+            .toString())
+        moveTemporaryFile(temporary, stateFile)
+    }
+
+    private fun stateHash(): String {
+        val bytes = MessageDigest.getInstance("SHA-256")
+            .digest("$stateRevision:$postCount".toByteArray(Charsets.UTF_8))
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
     }
 
     private fun postFile(id: String) = File(directory, "$id$SUFFIX")
@@ -262,6 +314,10 @@ class FluoPostStore(
     )
 
     data class Page(val posts: List<Post>, val nextCursor: Long?)
+
+    data class FeedState(val stateHash: String, val postCount: Int)
+
+    private data class StoredState(val revision: Long, val postCount: Int)
 
     data class ClearResult(
         val deletedBytes: Long,

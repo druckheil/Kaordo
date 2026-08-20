@@ -11,6 +11,7 @@ import io.kaordo.nodo.data.NodeAccessClient.PublicReservation
 import io.kaordo.nodo.data.NodeAccessClient.RondoGrant
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -83,6 +84,15 @@ class NodeHttpServerTest {
             val post = JSONObject(created.second).getJSONObject("post")
             assertEquals("druckheil", post.getString("author"))
 
+            val stateAfterCreate = JSONObject(request(
+                port, "GET", "/v1/fluo/state", VISITOR_TICKET, null,
+            ).second)
+            assertEquals(1, stateAfterCreate.getJSONObject("spaces")
+                .getJSONObject("private").getInt("postCount"))
+            val stateHashAfterCreate = stateAfterCreate.getJSONObject("spaces")
+                .getJSONObject("private").getString("stateHash")
+            assertTrue(stateHashAfterCreate.isNotBlank())
+
             val listed = request(port, "GET", "/v1/fluo/posts", VISITOR_TICKET, null)
             assertEquals(200, listed.first)
             assertEquals("Hello from Android 12", JSONObject(listed.second)
@@ -91,6 +101,13 @@ class NodeHttpServerTest {
             val deleted = request(port, "DELETE", "/v1/fluo/posts/${post.getString("id")}", OWNER_TICKET, null)
             assertEquals(200, deleted.first)
             assertTrue(posts.list().isEmpty())
+            val stateAfterDelete = JSONObject(request(
+                port, "GET", "/v1/fluo/state", VISITOR_TICKET, null,
+            ).second)
+            assertEquals(0, stateAfterDelete.getJSONObject("spaces")
+                .getJSONObject("private").getInt("postCount"))
+            assertNotEquals(stateHashAfterCreate, stateAfterDelete.getJSONObject("spaces")
+                .getJSONObject("private").getString("stateHash"))
 
             request(port, "POST", "/v1/fluo/posts", OWNER_TICKET, """
                 {"body":"Delete me","attachments":[]}

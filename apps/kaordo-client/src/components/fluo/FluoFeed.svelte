@@ -179,10 +179,25 @@
           <span class="section-eyebrow">Public conversation</span>
           <h1 id="fluo-title">Global timeline</h1>
         </div>
-        <span class="node-badge">
-          <i aria-hidden="true"></i>
-          All available Nodo
-        </span>
+        <div class="feed-header-actions">
+          <button
+            class="feed-refresh-button"
+            class:is-refreshing={snapshot.isRefreshing}
+            type="button"
+            disabled={snapshot.isRefreshing}
+            aria-label="Refresh feed"
+            aria-busy={snapshot.isRefreshing}
+            title="Refresh feed"
+            onclick={() => void fluoState.refreshFeed()}
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 9a6 6 0 0 0-10.6-3.8L4 6.7M4 4v2.7h2.7M4 11a6 6 0 0 0 10.6 3.8l1.4-1.5M16 16v-2.7h-2.7" /></svg>
+            <span>Refresh</span>
+          </button>
+          <span class="node-badge">
+            <i aria-hidden="true"></i>
+            All available Nodo
+          </span>
+        </div>
       </header>
 
       <article class="composer-card" aria-label="Create a post">
@@ -445,6 +460,12 @@
     padding: 2px 3px 20px;
   }
 
+  .feed-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
   .section-eyebrow,
   .aside-label {
     color: #588577;
@@ -483,6 +504,37 @@
     border-radius: 50%;
     box-shadow: 0 0 0 3px rgb(85 160 135 / 12%);
   }
+
+  .feed-refresh-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 25px;
+    padding: 0 8px;
+    color: #4d806f;
+    background: rgb(255 255 255 / 62%);
+    border: 1px solid #d1ddd6;
+    border-radius: 999px;
+    font: inherit;
+    font-size: calc(9px * var(--text-scale));
+    font-weight: 650;
+    cursor: pointer;
+    transition: background 160ms ease, border-color 160ms ease, color 160ms ease,
+      transform 160ms ease;
+  }
+
+  .feed-refresh-button:hover:not(:disabled) {
+    color: #2f705d;
+    background: #edf6f1;
+    border-color: #aac9bb;
+    transform: translateY(-1px);
+  }
+
+  .feed-refresh-button:disabled { cursor: wait; opacity: .72; }
+  .feed-refresh-button svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.55; }
+  .feed-refresh-button.is-refreshing svg { animation: feed-refresh-spin .75s linear infinite; }
+
+  @keyframes feed-refresh-spin { to { transform: rotate(360deg); } }
 
 
   .composer-card,

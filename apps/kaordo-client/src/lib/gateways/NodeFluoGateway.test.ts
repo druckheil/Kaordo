@@ -114,7 +114,7 @@ describe('NodeFluoGateway', () => {
     }]);
   });
 
-  it('restores the attachment MIME type returned in compact node metadata', async () => {
+  it('returns an authenticated direct stream URL for image attachments', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/v1/status')) return json({ status: 'online' });
@@ -131,7 +131,6 @@ describe('NodeFluoGateway', () => {
         createdAt: 1_720_000_000_000,
         id: '123e4567-e89b-42d3-a456-426614174001',
       }] });
-      if (url.includes('/v1/files/')) return new Response(new Uint8Array([1]));
       throw new Error(`Unexpected request: ${url}`);
     }));
 
@@ -141,7 +140,8 @@ describe('NodeFluoGateway', () => {
     const media = await gateway.loadMedia(NODE_ID, 'private', posts[0]!.attachments[0]!);
 
     expect(posts[0]?.attachments[0]?.blob).toBeUndefined();
-    expect(media.blob?.type).toBe('image/png');
+    expect(media.streamUrl).toContain('/v1/files/123e4567-e89b-42d3-a456-426614174000?');
+    expect(media.streamUrl).toContain(`access_token=${'A'.repeat(43)}`);
     expect(nodes.accessCalls).toBe(1);
   });
 

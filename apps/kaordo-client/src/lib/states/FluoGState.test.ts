@@ -16,6 +16,48 @@ describe('FluoGState', () => {
     expect(nodes.individualCalls).toBe(0);
   });
 
+  it('reuses cached post metadata when every Nodo state hash is unchanged', async () => {
+    const fluo = new MemoryFluoGateway();
+    fluo.posts = [{
+      attachments: [],
+      author: 'cached',
+      body: 'Keep me',
+      createdAt: 10,
+      id: 'cached-post',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    const state = createState(fluo);
+
+    await state.refreshNodes();
+    await state.refreshNodes();
+
+    expect(fluo.feedPageCalls).toBe(1);
+    expect(state.snapshot.posts.map(({ id }) => id)).toEqual(['cached-post']);
+  });
+
+  it('reloads metadata and removes cached posts when a Nodo hash changes', async () => {
+    const fluo = new MemoryFluoGateway();
+    fluo.posts = [{
+      attachments: [],
+      author: 'cached',
+      body: 'Remove me',
+      createdAt: 10,
+      id: 'removed-post',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    const state = createState(fluo);
+
+    await state.refreshNodes();
+    fluo.posts = [];
+    fluo.stateHash = 'memory-2';
+    await state.refreshNodes();
+
+    expect(fluo.feedPageCalls).toBe(2);
+    expect(state.snapshot.posts).toEqual([]);
+  });
+
   it('builds one date-ordered feed that does not change with the publishing destination', async () => {
     const fluo = new MemoryFluoGateway();
     fluo.posts = [
@@ -139,6 +181,26 @@ describe('FluoGState', () => {
     expect(await state.loadMedia(first.id, first.attachments[0]!.id)).toBe('blob:lazy-1');
     expect(fluo.mediaLoads).toBe(1);
   });
+
+  it('reuses cached image bytes after virtualization unloads the object URL', async () => {
+    const fluo = new PagedFluoGateway();
+    let objectUrlCount = 0;
+    const state = createState(fluo, {
+      createObjectUrl: () => `blob:cached-${++objectUrlCount}`,
+      revokeObjectUrl: () => undefined,
+    });
+
+    await state.refreshNodes();
+    const first = state.snapshot.posts[0]!;
+    await state.loadMedia(first.id, first.attachments[0]!.id);
+    state.unloadMediaOutside(new Set());
+
+    await state.loadMedia(first.id, first.attachments[0]!.id);
+
+    expect(fluo.mediaLoads).toBe(1);
+    expect(objectUrlCount).toBe(2);
+    expect(state.snapshot.posts[0]?.attachments[0]?.loadState).toBe('ready');
+  });
 });
 
 function createState(
@@ -155,11 +217,24 @@ function createState(
 class MemoryFluoGateway implements FluoGateway {
   failure: Error | null = null;
   posts: RemoteFluoPost[] = [];
+  feedPageCalls = 0;
+  stateHash = 'memory-1';
   readonly publishedOn: string[] = [];
 
   async listFeedPage(): Promise<{ cursor: null; hasMore: false; posts: RemoteFluoPost[] }> {
+    this.feedPageCalls += 1;
     if (this.failure) throw this.failure;
     return { cursor: null, hasMore: false, posts: this.posts };
+  }
+
+  listFeedStates(nodeIds: readonly string[]) {
+    return Promise.resolve(nodeIds.map((nodeId) => ({
+      nodeId,
+      spaces: {
+        private: { postCount: this.posts.filter((post) => post.nodeId === nodeId && post.space === 'private').length, stateHash: this.stateHash },
+        public: { postCount: this.posts.filter((post) => post.nodeId === nodeId && post.space === 'public').length, stateHash: this.stateHash },
+      },
+    })));
   }
 
   loadMedia(): Promise<{ blob: Blob }> { return Promise.resolve({ blob: new Blob(['media']) }); }
@@ -195,6 +270,15 @@ class ProgressFluoGateway implements FluoGateway {
   private resolve: ((post: RemoteFluoPost) => void) | null = null;
 
   listFeedPage() { return Promise.resolve({ cursor: null, hasMore: false, posts: [] }); }
+  listFeedStates(nodeIds: readonly string[]) {
+    return Promise.resolve(nodeIds.map((nodeId) => ({
+      nodeId,
+      spaces: {
+        private: { postCount: 0, stateHash: 'progress-private' },
+        public: { postCount: 0, stateHash: 'progress-public' },
+      },
+    })));
+  }
   loadMedia(): Promise<{ blob: Blob }> { return Promise.resolve({ blob: new Blob() }); }
   deletePost(): Promise<void> { return Promise.resolve(); }
 
@@ -264,6 +348,16 @@ class PagedFluoGateway implements FluoGateway {
       hasMore: next < this.posts.length,
       posts,
     });
+  }
+
+  listFeedStates(nodeIds: readonly string[]) {
+    return Promise.resolve(nodeIds.map((nodeId) => ({
+      nodeId,
+      spaces: {
+        private: { postCount: this.posts.length, stateHash: 'paged-private' },
+        public: { postCount: 0, stateHash: 'paged-public' },
+      },
+    })));
   }
 
   loadMedia() {

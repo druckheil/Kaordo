@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { tick } from 'svelte';
   import type { FluoAttachment, FluoGState } from '../../lib/states/FluoGState';
 
   type Props = {
@@ -12,8 +12,14 @@
   let container = $state<HTMLElement>();
   let video = $state<HTMLVideoElement>();
 
-  onMount(() => {
-    if (attachment.kind === 'video' || !container) return;
+  // Keep this effect reactive to refreshed attachment objects. A keyed post
+  // can survive a feed refresh, so onMount alone would leave its new idle
+  // media stuck on a skeleton until virtualization remounted the component.
+  $effect(() => {
+    const element = container;
+    const loadState = attachment.loadState;
+    const url = attachment.url;
+    if (!element || attachment.kind === 'video' || url || (loadState && loadState !== 'idle')) return;
     if (typeof IntersectionObserver === 'undefined') {
       void fluoState.loadMedia(postId, attachment.id);
       return;
@@ -23,10 +29,13 @@
       observer.disconnect();
       void fluoState.loadMedia(postId, attachment.id);
     }, {
-      root: container.closest('.fluo-shell'),
-      rootMargin: '700px 0px',
+      root: element.closest('.fluo-shell'),
+      // Fetch the media while it is still well ahead of the viewport. The
+      // surrounding virtual window keeps this bounded, while the browser's
+      // native loader streams and caches the immutable response.
+      rootMargin: '1800px 0px',
     });
-    observer.observe(container);
+    observer.observe(element);
     return () => observer.disconnect();
   });
 

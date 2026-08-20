@@ -260,6 +260,16 @@ class NodeHttpServer(
             if (envelopePath.space == NodeSpace.PUBLIC) onPublicStorageChanged()
             return
         }
+        if (request.method == "GET" && request.path == "/v1/fluo/state") {
+            if (!policy().allowDownloads) return transferDenied(output)
+            storageLock.read {
+                writeJson(output, 200, "OK", JSONObject()
+                    .put("spaces", JSONObject()
+                        .put("private", fluoStateJson(storage(NodeSpace.PRIVATE).posts))
+                        .put("public", fluoStateJson(storage(NodeSpace.PUBLIC).posts))))
+            }
+            return
+        }
         val postPath = resolveSpacePath(request.path, "/v1/fluo/posts", "/fluo/posts")
         if (request.method == "GET" && postPath?.remainder == "") {
             if (!policy().allowDownloads) return transferDenied(output)
@@ -922,6 +932,13 @@ class NodeHttpServer(
         .put("createdAt", post.createdAt)
         .put("id", post.id)
 
+    private fun fluoStateJson(posts: FluoPostStore): JSONObject {
+        val state = posts.state()
+        return JSONObject()
+            .put("postCount", state.postCount)
+            .put("stateHash", state.stateHash)
+    }
+
     private fun createUpload(
         store: TusUploadStore,
         path: SpacePath,
@@ -1052,7 +1069,10 @@ class NodeHttpServer(
         val partial = requestedRange != null
         val headers = mutableMapOf(
             "Accept-Ranges" to "bytes",
-            "Cache-Control" to "private, no-store",
+            // Attachment IDs are immutable. Allow the native image/video
+            // loader to reuse bytes while the access ticket remains in the
+            // URL; a refreshed ticket naturally creates a new cache key.
+            "Cache-Control" to "private, max-age=3_600, immutable",
             "Content-Type" to (metadataMediaType(record.metadata) ?: mediaType(filename)),
             "Content-Length" to (range.last - range.first + 1).toString(),
             "Content-Disposition" to "inline; filename=\"$filename\"",

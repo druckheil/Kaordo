@@ -5,6 +5,7 @@ import type {
 } from '../states/FluoGState';
 
 export const PUBLIC_FLUO_DESTINATION = 'public';
+export type FluoSpace = 'private' | 'public';
 
 export type RemoteFluoAttachment = FluoAttachment & { blob?: Blob };
 export type RemoteFluoPost = Omit<FluoPost, 'attachments' | 'liked'> & {
@@ -25,6 +26,16 @@ export type FluoFeedPage = {
   posts: RemoteFluoPost[];
 };
 
+export type FluoFeedSpaceState = {
+  postCount: number;
+  stateHash: string | null;
+};
+
+export type FluoNodeFeedState = {
+  nodeId: string;
+  spaces: Record<FluoSpace, FluoFeedSpaceState>;
+};
+
 export type FluoMediaSource = { blob: Blob; streamUrl?: never } | { blob?: never; streamUrl: string };
 
 export interface FluoGateway {
@@ -35,6 +46,7 @@ export interface FluoGateway {
     cursor: string | null,
     limit: number,
   ): Promise<FluoFeedPage>;
+  listFeedStates(nodeIds: readonly string[]): Promise<FluoNodeFeedState[]>;
   loadMedia(
     nodeId: string,
     space: 'private' | 'public',

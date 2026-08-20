@@ -213,6 +213,15 @@ class MemoryFluoGateway implements FluoGateway {
   listFeedPage(): Promise<{ cursor: null; hasMore: false; posts: RemoteFluoPost[] }> {
     return Promise.resolve({ cursor: null, hasMore: false, posts: this.posts });
   }
+  listFeedStates(nodeIds: readonly string[]) {
+    return Promise.resolve(nodeIds.map((nodeId) => ({
+      nodeId,
+      spaces: {
+        private: { postCount: this.posts.filter((post) => post.nodeId === nodeId && post.space === 'private').length, stateHash: 'memory-private' },
+        public: { postCount: this.posts.filter((post) => post.nodeId === nodeId && post.space === 'public').length, stateHash: 'memory-public' },
+      },
+    })));
+  }
   loadMedia(): Promise<{ blob: Blob }> { return Promise.resolve({ blob: new Blob() }); }
 
   publishPost(

@@ -89,6 +89,7 @@ export class EditorController {
     this.canvas.leaveWorkspace(this.workspaceState.snapshot.active?.id);
     this.workspaceState.closeWorkspace();
     this.stopFluo();
+    this.fluoState.clearCache();
     this.canvasManager.change(null);
     this.workspaceManager.change(null);
   }
@@ -160,6 +161,7 @@ export class EditorController {
 const EMPTY_FLUO_GATEWAY: FluoGateway = {
   deletePost: async () => {},
   listFeedPage: async () => ({ cursor: null, hasMore: false, posts: [] }),
+  listFeedStates: async () => [],
   loadMedia: async () => { throw new Error('Fluo media is unavailable.'); },
   publishPost: async () => { throw new Error('Fluo storage is unavailable.'); },
 };

@@ -1,6 +1,8 @@
 import type { NodoNode } from '../domain/nodo';
 import {
   PUBLIC_FLUO_DESTINATION,
+  type FluoNodeFeedState,
+  type FluoSpace,
   type FluoGateway,
   type FluoUploadProgress,
   type RemoteFluoPost,
@@ -44,6 +46,7 @@ export type FluoSnapshot = {
   draft: string;
   draftAttachments: FluoDraftAttachment[];
   isLoading: boolean;
+  isRefreshing: boolean;
   hasMore: boolean;
   isLoadingMore: boolean;
   isPublishing: boolean;
@@ -76,6 +79,10 @@ export class FluoGState extends GState<FluoSnapshot> {
   #requestId = 0;
   #feedCursor: string | null = null;
   #feedNodeIds: string[] = [];
+  #feedStates = new Map<string, FluoNodeFeedState>();
+  #mediaCache = new Map<string, CachedFluoMedia>();
+  #mediaCacheBytes = 0;
+  #mediaCacheClock = 0;
   #pageSize = INITIAL_FEED_PAGE_SIZE;
   #unsubscribeRegistry: (() => void) | null = null;
 
@@ -85,6 +92,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       draft: '',
       draftAttachments: [],
       isLoading: false,
+      isRefreshing: false,
       hasMore: false,
       isLoadingMore: false,
       isPublishing: false,
@@ -112,12 +120,35 @@ export class FluoGState extends GState<FluoSnapshot> {
   override exit(): void {
     this.#lifecycleId += 1;
     this.#requestId += 1;
+    this.#unsubscribeRegistry?.();
+    this.#unsubscribeRegistry = null;
+    const posts = this.releaseMedia(this.snapshot.posts);
+    this.revokeUrls(this.snapshot.draftAttachments);
+    this.publish({
+      ...this.snapshot,
+      attachmentError: null,
+      draft: '',
+      draftAttachments: [],
+      isLoading: false,
+      isRefreshing: false,
+      isLoadingMore: false,
+      isPublishing: false,
+      posts,
+      storageError: null,
+      uploadProgress: null,
+    });
+  }
+
+  /** Drops the in-memory feed cache when the authenticated application stops. */
+  clearCache(): void {
+    this.#lifecycleId += 1;
+    this.#requestId += 1;
     this.#gateway.resetSession?.();
     this.#feedCursor = null;
     this.#feedNodeIds = [];
+    this.#feedStates.clear();
     this.#pageSize = INITIAL_FEED_PAGE_SIZE;
-    this.#unsubscribeRegistry?.();
-    this.#unsubscribeRegistry = null;
+    this.clearMediaCache();
     this.revokeUrls(this.snapshot.posts.flatMap((post) => post.attachments));
     this.revokeUrls(this.snapshot.draftAttachments);
     this.publish({
@@ -126,6 +157,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       draft: '',
       draftAttachments: [],
       isLoading: false,
+      isRefreshing: false,
       hasMore: false,
       isLoadingMore: false,
       isPublishing: false,
@@ -138,9 +170,21 @@ export class FluoGState extends GState<FluoSnapshot> {
     });
   }
 
-  async refreshNodes(): Promise<void> {
+  async refreshFeed(): Promise<void> {
+    await this.refreshNodes(true);
+  }
+
+  async refreshNodes(forceReload = false): Promise<void> {
     const requestId = ++this.#requestId;
-    this.publish({ ...this.snapshot, isLoading: true, isLoadingMore: false, storageError: null });
+    const hasCachedFeed = this.#feedNodeIds.length > 0 || this.#feedStates.size > 0 ||
+      this.snapshot.posts.length > 0;
+    this.publish({
+      ...this.snapshot,
+      isLoading: !hasCachedFeed,
+      isRefreshing: true,
+      isLoadingMore: false,
+      storageError: null,
+    });
     try {
       const bootstrap = this.#nodes.fluoBootstrap
         ? await this.#nodes.fluoBootstrap()
@@ -155,18 +199,81 @@ export class FluoGState extends GState<FluoSnapshot> {
       if (requestId !== this.#requestId) return;
       this.#registry.replace(nodes);
       this.applyNodes(this.#registry.nodes);
-      this.#pageSize = INITIAL_FEED_PAGE_SIZE;
-      const page = await this.#gateway.listFeedPage(feedNodeIds, null, this.#pageSize);
+      // The first metadata page and the lightweight state probe are
+      // independent. Start both together so posts become visible as soon as
+      // the Node metadata responds; media is still loaded by FluoMedia later.
+      const initialPage = hasCachedFeed
+        ? null
+        : this.#gateway.listFeedPage(feedNodeIds, null, INITIAL_FEED_PAGE_SIZE);
+      // A state probe is useful for subsequent visits, but it must not block
+      // the first metadata page. Older Nodo versions can answer this endpoint
+      // slowly (or not expose it at all), while the post list is enough to
+      // render the timeline immediately.
+      const statesPromise = this.#gateway.listFeedStates(feedNodeIds).catch(() => []);
+
+      if (!hasCachedFeed && initialPage) {
+        const page = await initialPage;
+        if (requestId !== this.#requestId) return;
+        this.#feedCursor = page.cursor;
+        this.#feedNodeIds = [...feedNodeIds];
+        this.#pageSize = INITIAL_FEED_PAGE_SIZE;
+        this.publish({
+          ...this.snapshot,
+          hasMore: page.hasMore,
+          isLoading: false,
+          posts: mergePosts(page.posts.map((post) => this.hydrate(post))),
+          publicStorage,
+          storageError: null,
+        });
+
+        const states = await statesPromise;
+        if (requestId !== this.#requestId) return;
+        this.#feedStates = new Map(states.map((state) => [state.nodeId, state]));
+        this.publish({ ...this.snapshot, isRefreshing: false });
+        return;
+      }
+
+      const states = await statesPromise;
       if (requestId !== this.#requestId) return;
+
+      const nextStates = new Map(states.map((state) => [state.nodeId, state]));
+      const changedNodeIds = forceReload
+        ? new Set([...this.#feedNodeIds, ...feedNodeIds])
+        : changedFeedNodes(this.#feedNodeIds, this.#feedStates, feedNodeIds, nextStates);
+      if (hasCachedFeed && changedNodeIds.size === 0) {
+        this.#feedNodeIds = [...feedNodeIds];
+        this.#feedStates = nextStates;
+        this.publish({
+          ...this.snapshot,
+          isLoading: false,
+          isRefreshing: false,
+          publicStorage,
+          storageError: null,
+        });
+        return;
+      }
+
+      this.#gateway.resetSession?.();
+      this.#feedCursor = null;
+      this.#pageSize = INITIAL_FEED_PAGE_SIZE;
+      const page = await this.#gateway.listFeedPage(
+        feedNodeIds,
+        null,
+        this.#pageSize,
+      );
+      if (requestId !== this.#requestId) return;
+      const removed = this.snapshot.posts.filter(({ nodeId }) => changedNodeIds.has(nodeId));
+      this.revokeUrls(removed.flatMap((post) => post.attachments));
+      removed.forEach((post) => this.clearMediaCacheForPost(postKey(post)));
+      const retained = this.snapshot.posts.filter(({ nodeId }) => !changedNodeIds.has(nodeId));
+      const posts = mergePosts(retained, page.posts.map((post) => this.hydrate(post)));
       this.#feedCursor = page.cursor;
       this.#feedNodeIds = [...feedNodeIds];
-      this.revokeUrls(this.snapshot.posts.flatMap((post) => post.attachments));
-      const posts = page.posts
-        .map((post) => this.hydrate(post))
-        .sort((left, right) => right.createdAt - left.createdAt);
+      this.#feedStates = nextStates;
       this.publish({
         ...this.snapshot,
         isLoading: false,
+        isRefreshing: false,
         hasMore: page.hasMore,
         isLoadingMore: false,
         posts,
@@ -175,12 +282,17 @@ export class FluoGState extends GState<FluoSnapshot> {
       });
     } catch (error) {
       if (requestId !== this.#requestId) return;
-      this.publish({ ...this.snapshot, isLoading: false, storageError: readableError(error) });
+      this.publish({
+        ...this.snapshot,
+        isLoading: false,
+        isRefreshing: false,
+        storageError: readableError(error),
+      });
     }
   }
 
   async loadMore(): Promise<void> {
-    if (this.snapshot.isLoading || this.snapshot.isLoadingMore || !this.snapshot.hasMore ||
+    if (this.snapshot.isLoading || this.snapshot.isRefreshing || this.snapshot.isLoadingMore || !this.snapshot.hasMore ||
         !this.#feedCursor) return;
     const requestId = this.#requestId;
     this.publish({ ...this.snapshot, isLoadingMore: true });
@@ -223,8 +335,24 @@ export class FluoGState extends GState<FluoSnapshot> {
     if (!post || !attachment) return null;
     const lifecycleId = this.#lifecycleId;
     const key = postKey(post);
+    const mediaKey = `${key}:${attachmentId}`;
     if (attachment.url) return attachment.url;
     if (attachment.loadState === 'loading') return null;
+    const cached = this.#mediaCache.get(mediaKey);
+    if (cached) {
+      cached.lastUsed = ++this.#mediaCacheClock;
+      try {
+        const url = this.#createObjectUrl(cached.blob);
+        this.updateAttachment(key, attachmentId, {
+          loadState: 'ready',
+          objectUrl: true,
+          url,
+        });
+        return url;
+      } catch {
+        this.removeCachedMedia(mediaKey);
+      }
+    }
     this.updateAttachment(key, attachmentId, { loadState: 'loading' });
     try {
       const source = await this.#gateway.loadMedia(post.nodeId, post.space, attachment);
@@ -234,6 +362,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         if (objectUrl) this.#revokeObjectUrl(url);
         return null;
       }
+      if (source.blob) this.cacheMedia(mediaKey, source.blob, attachment.size);
       this.updateAttachment(key, attachmentId, { loadState: 'ready', objectUrl, url });
       return url;
     } catch {
@@ -407,6 +536,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         : this.snapshot.publicStorage;
       if (lifecycleId !== this.#lifecycleId) return true;
       this.revokeUrls(post.attachments);
+      this.clearMediaCacheForPost(key);
       this.publish({
         ...this.snapshot,
         posts: this.snapshot.posts.filter((candidate) => postKey(candidate) !== key),
@@ -428,6 +558,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     if (!removed.length) return;
     this.#requestId += 1;
     this.revokeUrls(removed.flatMap((post) => post.attachments));
+    removed.forEach((post) => this.clearMediaCacheForPost(postKey(post)));
     this.publish({
       ...this.snapshot,
       isLoading: false,
@@ -482,7 +613,65 @@ export class FluoGState extends GState<FluoSnapshot> {
   private revokeUrls(attachments: readonly FluoAttachment[]): void {
     for (const attachment of attachments) if (attachment.url) this.#revokeObjectUrl(attachment.url);
   }
+
+  private cacheMedia(key: string, blob: Blob, declaredSize: number): void {
+    const bytes = blob.size || declaredSize;
+    if (!bytes || bytes > MAX_MEDIA_CACHE_BYTES) return;
+    this.removeCachedMedia(key);
+    this.#mediaCache.set(key, { blob, bytes, lastUsed: ++this.#mediaCacheClock });
+    this.#mediaCacheBytes += bytes;
+    const protectedKeys = new Set<string>([key]);
+    for (const post of this.snapshot.posts) {
+      for (const attachment of post.attachments) {
+        if (attachment.url && attachment.objectUrl) {
+          protectedKeys.add(`${postKey(post)}:${attachment.id}`);
+        }
+      }
+    }
+    while (this.#mediaCacheBytes > MAX_MEDIA_CACHE_BYTES) {
+      const candidate = [...this.#mediaCache.entries()]
+        .filter(([candidateKey]) => !protectedKeys.has(candidateKey))
+        .sort(([, left], [, right]) => left.lastUsed - right.lastUsed)[0];
+      if (!candidate) break;
+      this.removeCachedMedia(candidate[0]);
+    }
+  }
+
+  private removeCachedMedia(key: string): void {
+    const cached = this.#mediaCache.get(key);
+    if (!cached) return;
+    this.#mediaCache.delete(key);
+    this.#mediaCacheBytes = Math.max(0, this.#mediaCacheBytes - cached.bytes);
+  }
+
+  private clearMediaCacheForPost(key: string): void {
+    const prefix = `${key}:`;
+    for (const mediaKey of this.#mediaCache.keys()) {
+      if (mediaKey.startsWith(prefix)) this.removeCachedMedia(mediaKey);
+    }
+  }
+
+  private clearMediaCache(): void {
+    this.#mediaCache.clear();
+    this.#mediaCacheBytes = 0;
+  }
+
+  private releaseMedia(posts: readonly FluoPost[]): FluoPost[] {
+    return posts.map((post) => ({
+      ...post,
+      attachments: post.attachments.map((attachment) => {
+        if (attachment.url && attachment.objectUrl) this.#revokeObjectUrl(attachment.url);
+        return { ...attachment, loadState: 'idle' as const, objectUrl: false, url: undefined };
+      }),
+    }));
+  }
 }
+
+type CachedFluoMedia = {
+  blob: Blob;
+  bytes: number;
+  lastUsed: number;
+};
 
 function attachmentKind(file: File): FluoAttachmentKind | null {
   const mimeType = file.type.toLowerCase();
@@ -511,9 +700,46 @@ function readableError(error: unknown): string {
 }
 
 const INITIAL_FEED_PAGE_SIZE = 24;
+const MAX_MEDIA_CACHE_BYTES = 96 * 1_024 * 1_024;
 
 function postKey(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
   return `${post.space}:${post.nodeId}:${post.id}`;
+}
+
+function mergePosts(...groups: readonly FluoPost[][]): FluoPost[] {
+  const posts = new Map<string, FluoPost>();
+  for (const group of groups) {
+    for (const post of group) posts.set(postKey(post), post);
+  }
+  return [...posts.values()].sort((left, right) => right.createdAt - left.createdAt);
+}
+
+function changedFeedNodes(
+  previousNodeIds: readonly string[],
+  previousStates: ReadonlyMap<string, FluoNodeFeedState>,
+  nextNodeIds: readonly string[],
+  nextStates: ReadonlyMap<string, FluoNodeFeedState>,
+): Set<string> {
+  const changed = new Set<string>();
+  const nextIds = new Set(nextNodeIds);
+  for (const nodeId of previousNodeIds) if (!nextIds.has(nodeId)) changed.add(nodeId);
+  for (const nodeId of nextNodeIds) {
+    const previous = previousStates.get(nodeId);
+    const next = nextStates.get(nodeId);
+    if (!previous || !next || feedStateChanged(previous, next)) changed.add(nodeId);
+  }
+  return changed;
+}
+
+function feedStateChanged(previous: FluoNodeFeedState, next: FluoNodeFeedState): boolean {
+  return (['private', 'public'] as const).some((space: FluoSpace) => {
+    const before = previous.spaces[space];
+    const after = next.spaces[space];
+    // A missing hash means an older Nodo or a transient state-endpoint
+    // failure. Reloading is safer than silently serving stale posts.
+    if (!before.stateHash || !after.stateHash) return true;
+    return before.stateHash !== after.stateHash;
+  });
 }
 
 function createLocalId(): string {

@@ -5,6 +5,8 @@ import {
   type FluoFeedPage,
   type FluoGateway,
   type FluoMediaSource,
+  type FluoNodeFeedState,
+  type FluoSpace,
   type FluoUploadProgress,
   type RemoteFluoPost,
 } from './FluoGateway';
@@ -19,7 +21,6 @@ const FETCH_PATCH_TIMEOUT_MS = 2 * 60_000;
 const RECOVERY_TIMEOUT_MS = 5_000;
 const MAX_CHUNK_RETRIES = 6;
 const CONNECTION_IDLE_MILLISECONDS = 90 * 60_000;
-type FluoSpace = 'private' | 'public';
 export type NodoUploadFile = { blob: Blob; mimeType: string; name: string; size: number };
 let feedSessionSequence = 0;
 
@@ -70,6 +71,23 @@ export class NodeFluoGateway implements FluoGateway {
     return page;
   }
 
+  async listFeedStates(nodeIds: readonly string[]): Promise<FluoNodeFeedState[]> {
+    const uniqueNodeIds = [...new Set(nodeIds)];
+    return Promise.all(uniqueNodeIds.map(async (nodeId) => {
+      try {
+        const state = await this.withNode(nodeId, (connection) =>
+          connection.json<NodeFeedStateWire>('/v1/fluo/state'),
+        );
+        return normalizeFeedState(nodeId, state);
+      } catch {
+        // Older Nodo builds do not expose the state endpoint yet. A null hash
+        // keeps their cached metadata usable while the normal feed remains
+        // backward-compatible.
+        return emptyFeedState(nodeId);
+      }
+    }));
+  }
+
   async loadMedia(
     nodeId: string,
     space: FluoSpace,
@@ -77,8 +95,10 @@ export class NodeFluoGateway implements FluoGateway {
   ): Promise<FluoMediaSource> {
     return this.withNode(nodeId, async (connection) => {
       const path = `${SPACE_PATHS[space].content}/${encodeURIComponent(attachment.id)}`;
-      if (attachment.kind === 'video') return { streamUrl: await connection.streamUrl(path) };
-      return { blob: await connection.blob(path, attachment.mimeType, downloadTimeout(attachment.size)) };
+      // Let the browser's native media loader request the immutable file.
+      // This starts decoding as bytes arrive, supports HTTP range requests,
+      // and avoids buffering the entire image into a Blob first.
+      return { streamUrl: await connection.streamUrl(path) };
     });
   }
 
@@ -426,6 +446,33 @@ type NodePost = {
   createdAt: number;
   id: string;
 };
+
+type NodeFeedStateWire = {
+  spaces?: Partial<Record<FluoSpace, { postCount?: number; stateHash?: string }>>;
+};
+
+function normalizeFeedState(nodeId: string, value: NodeFeedStateWire): FluoNodeFeedState {
+  const spaceState = (space: FluoSpace) => {
+    const candidate = value.spaces?.[space];
+    return {
+      postCount: Number.isSafeInteger(candidate?.postCount) ? Math.max(0, candidate!.postCount!) : 0,
+      stateHash: typeof candidate?.stateHash === 'string' && candidate.stateHash.length
+        ? candidate.stateHash
+        : null,
+    };
+  };
+  return { nodeId, spaces: { private: spaceState('private'), public: spaceState('public') } };
+}
+
+function emptyFeedState(nodeId: string): FluoNodeFeedState {
+  return {
+    nodeId,
+    spaces: {
+      private: { postCount: 0, stateHash: null },
+      public: { postCount: 0, stateHash: null },
+    },
+  };
+}
 
 export class NodeConnection {
   private lastSuccessfulAt = Date.now();
@@ -777,11 +824,6 @@ function uniqueCandidates(access: NodoAccess) {
 function nodeOrigin(address: string, port: number): string {
   const host = address.includes(':') ? `[${address}]` : address;
   return `http://${host}:${port}`;
-}
-
-function downloadTimeout(size: number): number {
-  const atSlowLanSpeed = Math.ceil(size / (128 * 1_024) * 1_000) + 30_000;
-  return Math.min(2_000_000_000, Math.max(60_000, atSlowLanSpeed));
 }
 
 function publicReservationHeader(reservationId?: string): Record<string, string> {
