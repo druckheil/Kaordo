@@ -33,7 +33,6 @@ pub(crate) struct LigoArchiveTarget {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LigoPlaybackTarget {
-    custom_fullscreen: bool,
     file_name: String,
     needs_write: bool,
     path: String,
@@ -133,7 +132,6 @@ pub(crate) async fn ligo_prepare_playback_file(
             })?;
         }
         Ok(LigoPlaybackTarget {
-            custom_fullscreen: cfg!(target_os = "macos"),
             file_name,
             needs_write,
             path: path.to_string_lossy().into_owned(),

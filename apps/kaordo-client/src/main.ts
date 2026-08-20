@@ -1,3 +1,8 @@
+import 'vidstack/player';
+import 'vidstack/player/layouts/default';
+import 'vidstack/player/ui';
+import 'vidstack/player/styles/default/theme.css';
+import 'vidstack/player/styles/default/layouts/video.css';
 import './styles.css';
 import { mount } from 'svelte';
 import App from './App.svelte';

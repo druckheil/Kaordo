@@ -5,14 +5,13 @@ const WRITE_CHUNK_BYTES = 4 * 1_048_576;
 const preparing = new Map<string, Promise<PreparedSource>>();
 
 type PlaybackTarget = {
-  customFullscreen: boolean;
   fileName: string;
   needsWrite: boolean;
   path: string;
 };
-type PreparedSource = { customFullscreen: boolean; url: string };
+type PreparedSource = { url: string };
 
-export type LigoPlaybackSource = { customFullscreen: boolean; url: string; release(): void };
+export type LigoPlaybackSource = { url: string; release(): void };
 
 export function createLigoPlaybackSource(attachment: LigoAttachment): Promise<LigoPlaybackSource> {
   if (!isTauri()) return Promise.resolve(blobPlaybackSource(attachment));
@@ -34,7 +33,6 @@ async function prepareNativeSource(attachment: LigoAttachment): Promise<Prepared
   });
   if (target.needsWrite) await writeNativeFile(target.fileName, attachment.blob);
   return {
-    customFullscreen: target.customFullscreen,
     url: `${convertFileSrc(target.path)}?v=${encodeURIComponent(attachment.id)}-${attachment.size}`,
   };
 }
@@ -53,7 +51,7 @@ async function writeNativeFile(fileName: string, blob: Blob): Promise<void> {
 function blobPlaybackSource(attachment: LigoAttachment): LigoPlaybackSource {
   const mimeType = isQuickTimeVideo(attachment) ? 'video/mp4' : attachment.mimeType;
   const url = URL.createObjectURL(attachment.blob.slice(0, attachment.blob.size, mimeType));
-  return { customFullscreen: false, url, release: () => { URL.revokeObjectURL(url); } };
+  return { url, release: () => { URL.revokeObjectURL(url); } };
 }
 
 function isQuickTimeVideo(file: LigoAttachment): boolean {
