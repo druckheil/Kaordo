@@ -128,6 +128,7 @@
   .media-retry {
     display: flex;
     width: 100%;
+    height: 100%;
     min-height: 148px;
     border: 0;
     color: #eaf3ef;
