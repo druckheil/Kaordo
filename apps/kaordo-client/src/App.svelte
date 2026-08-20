@@ -39,6 +39,7 @@
     WorkspaceDetail,
     WorkspaceSummary,
   } from './lib/domain/workspace';
+  import type { RondoBootstrap } from './lib/domain/rondo';
   import { workspaceSummary } from './lib/domain/workspace';
   import type { AuthGateway } from './lib/gateways/AuthGateway';
   import type { AdminGateway } from './lib/gateways/AdminGateway';
@@ -203,6 +204,10 @@
   let mediaSettingsSnapshot = $state(mediaSettings.state.snapshot);
   let publicStorageSnapshot = $state(publicStorage.state.snapshot);
   let rondoSnapshot = $state(rondo.state.snapshot);
+  let rondoPublicStorage = $state<{ allocated: boolean; limitBytes: number; usedBytes: number } | null>(null);
+  let rondoPublicStorageLoading = $state(false);
+  let rondoPublicStorageError = $state<string | null>(null);
+  let rondoPublicStorageRequestId = 0;
   let ligoSnapshot = $state(ligo.state.snapshot);
   let activeSection = $state<AppSection>('klaro');
   type StorageBrowserTarget =
@@ -305,6 +310,34 @@
       storageItemsError = error instanceof Error && error.message.trim() ? error.message : 'The storage item could not be deleted.';
     }
   }
+
+  function summarizeRondoPublicStorage(bootstrap: RondoBootstrap): { allocated: boolean; limitBytes: number; usedBytes: number } {
+    const ownedPublicSpace = bootstrap.spaces.find((space) => space.role === 'owner' && space.storage.kind === 'public');
+    return {
+      allocated: Boolean(ownedPublicSpace),
+      limitBytes: ownedPublicSpace?.storage.limitBytes ?? bootstrap.publicOption.limitBytes,
+      usedBytes: ownedPublicSpace?.storage.usedBytes ?? 0,
+    };
+  }
+
+  async function loadRondoPublicStorage(): Promise<void> {
+    const requestId = ++rondoPublicStorageRequestId;
+    rondoPublicStorageLoading = true;
+    rondoPublicStorageError = null;
+    try {
+      const bootstrap = await rondoGateway.bootstrap();
+      if (requestId !== rondoPublicStorageRequestId) return;
+      rondoPublicStorage = summarizeRondoPublicStorage(bootstrap);
+    } catch (error) {
+      if (requestId === rondoPublicStorageRequestId) {
+        rondoPublicStorage = null;
+        rondoPublicStorageError = error instanceof Error && error.message.trim() ? error.message : 'Rondo storage is unavailable.';
+      }
+    } finally {
+      if (requestId === rondoPublicStorageRequestId) rondoPublicStorageLoading = false;
+    }
+  }
+
   let isModalOpen = $derived(showCreateWorkspace || isCreateObjectOpen);
 
   const unsubscribeAuth = auth.manager.subscribe((snapshot) => {
@@ -313,7 +346,10 @@
     if (snapshot.phase === 'authenticated') {
       editor.start();
       if (activeSection === 'fluo') editor.startFluo();
-      if (activeSection === 'mi') publicStorage.start();
+      if (activeSection === 'mi') {
+        publicStorage.start();
+        void loadRondoPublicStorage();
+      }
       if (activeSection === 'rondo') rondo.start();
       ligo.state.configure(snapshot.user?.id ?? null);
       // Ligo's hibernatable socket is also the app-level presence signal, so
@@ -330,6 +366,10 @@
       nodo.state.reset();
       publicStorage.stop();
       publicStorage.reset();
+      rondoPublicStorageRequestId += 1;
+      rondoPublicStorage = null;
+      rondoPublicStorageError = null;
+      rondoPublicStorageLoading = false;
       rondo.stop();
       rondo.state.reset();
       ligo.stop();
@@ -479,7 +519,10 @@
     else regado.stop();
     if (section === 'nodo') nodo.start();
     else nodo.stop();
-    if (section === 'mi') publicStorage.start();
+    if (section === 'mi') {
+      publicStorage.start();
+      void loadRondoPublicStorage();
+    }
     else publicStorage.stop();
     if (section === 'fluo') editor.startFluo();
     else editor.stopFluo();
@@ -616,6 +659,9 @@
         publicStorage={publicStorageSnapshot.storage}
         publicStorageError={publicStorageSnapshot.error}
         publicStorageLoading={publicStorageSnapshot.phase === 'loading'}
+        rondoPublicStorage={rondoPublicStorage}
+        rondoPublicStorageError={rondoPublicStorageError}
+        rondoPublicStorageLoading={rondoPublicStorageLoading}
         user={authSnapshot.user}
       />
     {:else if activeSection === 'regado' && authSnapshot.user?.role !== 'user'}

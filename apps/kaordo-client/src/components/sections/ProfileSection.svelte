@@ -12,6 +12,9 @@
     publicStorage: PublicNodoStorage | null;
     publicStorageError: string | null;
     publicStorageLoading: boolean;
+    rondoPublicStorage: { allocated: boolean; limitBytes: number; usedBytes: number } | null;
+    rondoPublicStorageError: string | null;
+    rondoPublicStorageLoading: boolean;
     user: AuthUser;
   };
 
@@ -24,6 +27,9 @@
     publicStorage,
     publicStorageError,
     publicStorageLoading,
+    rondoPublicStorage,
+    rondoPublicStorageError,
+    rondoPublicStorageLoading,
     user,
   }: Props = $props();
   let initial = $derived(user.username.slice(0, 1).toUpperCase());
@@ -167,6 +173,28 @@
           <strong>—</strong>
           <span>{publicStorageError ?? 'Unavailable'}</span>
         {/if}
+      </div>
+      <div class="rondo-storage-subitem" aria-busy={rondoPublicStorageLoading}>
+        <span class="rondo-subicon" aria-hidden="true">
+          <svg viewBox="0 0 20 20"><path d="M10 3.2 16 6.5v7L10 16.8 4 13.5v-7L10 3.2Z"/><path d="m7.2 10 1.8 1.8 3.8-4"/></svg>
+        </span>
+        <div class="rondo-subcopy">
+          <strong>Rondo Public storage</strong>
+          <span>Separate 1 GB allowance for your public Space data.</span>
+          <div class="rondo-subtrack" aria-hidden="true"><i style={`width:${rondoPublicStorage ? Math.min(100, rondoPublicStorage.usedBytes / Math.max(1, rondoPublicStorage.limitBytes) * 100) : 0}%`}></i></div>
+        </div>
+        <div class="rondo-subamount">
+          {#if rondoPublicStorageLoading}
+            <LoadingSpinner compact />
+          {:else if rondoPublicStorage}
+            <strong>{formatBytes(rondoPublicStorage.usedBytes)}</strong>
+            <span>{formatBytes(rondoPublicStorage.limitBytes)} limit</span>
+            {#if !rondoPublicStorage.allocated}<small>Not allocated</small>{/if}
+          {:else}
+            <strong>—</strong>
+            <span>{rondoPublicStorageError ?? 'Unavailable'}</span>
+          {/if}
+        </div>
       </div>
     </section>
 
@@ -488,6 +516,32 @@
   .storage-amount small { margin-top: 5px; color: #9a754e; font-size: calc(8px * var(--text-scale)); }
   .storage-loading { display: inline-flex; align-items: center; justify-content: flex-end; gap: 7px; color: #5a7b6d; font-size: calc(9px * var(--text-scale)); }
   .storage-loading :global(.library-loader) { border-color: #c6d9d0; border-top-color: #43836e; }
+
+  .rondo-storage-subitem {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    margin-top: 2px;
+    padding-top: 12px;
+    border-top: 1px solid rgb(98 145 125 / 18%);
+  }
+
+  .rondo-subicon { display: grid; width: 30px; height: 30px; color: #5d8877; background: rgb(255 255 255 / 72%); border: 1px solid #cfe0d8; border-radius: 8px; place-items: center; }
+  .rondo-subicon svg { width: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.35; }
+  .rondo-subcopy { min-width: 0; }
+  .rondo-subcopy strong, .rondo-subcopy span { display: block; }
+  .rondo-subcopy strong { color: #426b59; font-size: calc(9px * var(--text-scale)); font-weight: 700; }
+  .rondo-subcopy span { margin-top: 2px; overflow: hidden; color: #84938b; font-size: calc(8px * var(--text-scale)); text-overflow: ellipsis; white-space: nowrap; }
+  .rondo-subtrack { height: 4px; margin-top: 7px; overflow: hidden; background: #d8e7df; border-radius: 99px; }
+  .rondo-subtrack i { display: block; height: 100%; background: linear-gradient(90deg, #82bda4, #4b886f); border-radius: inherit; transition: width 180ms ease; }
+  .rondo-subamount { min-width: 82px; text-align: right; }
+  .rondo-subamount strong, .rondo-subamount span, .rondo-subamount small { display: block; }
+  .rondo-subamount strong { color: #4a7965; font-size: calc(11px * var(--text-scale)); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .rondo-subamount span { margin-top: 2px; color: #8b9891; font-size: calc(8px * var(--text-scale)); }
+  .rondo-subamount small { margin-top: 3px; color: #9a856b; font-size: calc(7px * var(--text-scale)); }
+  .rondo-subamount :global(.library-loader) { margin-left: auto; border-color: #c6d9d0; border-top-color: #43836e; }
 
   .logout-card {
     display: flex;
