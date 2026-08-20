@@ -23,6 +23,7 @@
   import { NodoController } from './lib/NodoController';
   import { AppearanceController } from './lib/AppearanceController';
   import { MediaSettingsController } from './lib/MediaSettingsController';
+  import { PublicStorageController } from './lib/PublicStorageController';
   import { RondoController } from './lib/RondoController';
   import { LigoController } from './lib/LigoController';
   import type { AppScale, AppTheme, TextScale } from './lib/domain/appearance';
@@ -161,6 +162,7 @@
   const nodo = untrack(() => new NodoController(nodoGateway, nodoRegistry));
   const appearance = untrack(() => new AppearanceController(appearanceGateway));
   const mediaSettings = untrack(() => new MediaSettingsController(mediaSettingsGateway));
+  const publicStorage = untrack(() => new PublicStorageController(nodoGateway));
   const rondo = untrack(() => new RondoController(rondoGateway, nodoGateway, mediaSettings.state.snapshot));
   const ligo = untrack(() => new LigoController(ligoGateway, nodoGateway));
   const effectiveFluoGateway = untrack(() => fluoGateway ?? new NodeFluoGateway(nodoGateway));
@@ -188,6 +190,7 @@
   let nodoSnapshot = $state(nodo.state.snapshot);
   let appearanceSnapshot = $state(appearance.state.snapshot);
   let mediaSettingsSnapshot = $state(mediaSettings.state.snapshot);
+  let publicStorageSnapshot = $state(publicStorage.state.snapshot);
   let rondoSnapshot = $state(rondo.state.snapshot);
   let ligoSnapshot = $state(ligo.state.snapshot);
   let activeSection = $state<AppSection>('klaro');
@@ -227,6 +230,7 @@
     if (snapshot.phase === 'authenticated') {
       editor.start();
       if (activeSection === 'fluo') editor.startFluo();
+      if (activeSection === 'mi') publicStorage.start();
       if (activeSection === 'rondo') rondo.start();
       ligo.state.configure(snapshot.user?.id ?? null);
       // Ligo's hibernatable socket is also the app-level presence signal, so
@@ -241,6 +245,8 @@
       regado.stop();
       nodo.stop();
       nodo.state.reset();
+      publicStorage.stop();
+      publicStorage.reset();
       rondo.stop();
       rondo.state.reset();
       ligo.stop();
@@ -270,6 +276,9 @@
     mediaSettingsSnapshot = snapshot;
     void rondo.state.configureMedia(snapshot);
   });
+  const unsubscribePublicStorage = publicStorage.manager.subscribe((snapshot) => {
+    publicStorageSnapshot = snapshot ?? publicStorage.state.snapshot;
+  });
   const unsubscribeRondo = rondo.manager.subscribe((snapshot) => {
     if (snapshot) rondoSnapshot = snapshot;
   });
@@ -288,6 +297,7 @@
     unsubscribeAuth();
     unsubscribeAppearance();
     unsubscribeMediaSettings();
+    unsubscribePublicStorage();
     unsubscribeRegado();
     unsubscribeRondo();
     unsubscribeLigo();
@@ -302,6 +312,7 @@
     ligo.shutdown();
     appearance.shutdown();
     mediaSettings.shutdown();
+    publicStorage.shutdown();
     auth.shutdown();
   });
 
@@ -384,6 +395,8 @@
     else regado.stop();
     if (section === 'nodo') nodo.start();
     else nodo.stop();
+    if (section === 'mi') publicStorage.start();
+    else publicStorage.stop();
     if (section === 'fluo') editor.startFluo();
     else editor.stopFluo();
     if (section === 'rondo') rondo.start();
@@ -515,7 +528,9 @@
         error={authSnapshot.error}
         onLogout={logout}
         {platform}
-        publicStorage={fluoSnapshot.publicStorage}
+        publicStorage={publicStorageSnapshot.storage}
+        publicStorageError={publicStorageSnapshot.error}
+        publicStorageLoading={publicStorageSnapshot.phase === 'loading'}
         user={authSnapshot.user}
       />
     {:else if activeSection === 'regado' && authSnapshot.user?.role !== 'user'}

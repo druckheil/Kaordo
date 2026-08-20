@@ -9,6 +9,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.svelte';
 import type { AuthUser } from './lib/domain/auth';
+import type { PublicNodoStorage } from './lib/domain/nodo';
 import type { AuthGateway } from './lib/gateways/AuthGateway';
 import type { FluoGateway, RemoteFluoPost } from './lib/gateways/FluoGateway';
 import type { NodoGateway } from './lib/gateways/NodoGateway';
@@ -362,6 +363,36 @@ describe('workspace navigation and objects', () => {
     expect(logout).toHaveBeenCalledOnce();
     expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Files' })).not.toBeInTheDocument();
+  });
+
+  it('loads Public Nodo independently in Mi and shows its loading state', async () => {
+    const storage = deferred<PublicNodoStorage>();
+    const nodoGateway = memoryNodoGateway();
+    const publicStorage = vi.fn(() => storage.promise);
+    nodoGateway.publicStorage = publicStorage;
+    render(App, {
+      adminGateway,
+      appearanceGateway,
+      autoloadWorkspaceLibrary: false,
+      authGateway: authenticatedGateway(),
+      initialAuthUser: signedInUser,
+      nodoGateway,
+      workspaceGateway: new TauriWorkspaceGateway(),
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Mi' }));
+    const storageCard = screen.getByRole('region', { name: 'Public Nodo' });
+    expect(publicStorage).toHaveBeenCalled();
+    expect(within(storageCard).getByRole('status')).toHaveTextContent('Loading…');
+
+    storage.resolve({
+      limitBytes: 1_073_741_824,
+      nodeCandidates: [],
+      reservedBytes: 0,
+      usedBytes: 12 * 1_048_576,
+    });
+    expect(await within(storageCard).findByText('12.0 MB')).toBeInTheDocument();
+    expect(within(storageCard).getByText('of 1.00 GB')).toBeInTheDocument();
   });
 
   it('loads and manages the signed-in users Nodo hosts', async () => {

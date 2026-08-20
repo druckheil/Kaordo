@@ -9,10 +9,21 @@
     onLogout: () => void | Promise<void>;
     platform: 'desktop' | 'web';
     publicStorage: PublicNodoStorage | null;
+    publicStorageError: string | null;
+    publicStorageLoading: boolean;
     user: AuthUser;
   };
 
-  let { busy, error, onLogout, platform, publicStorage, user }: Props = $props();
+  let {
+    busy,
+    error,
+    onLogout,
+    platform,
+    publicStorage,
+    publicStorageError,
+    publicStorageLoading,
+    user,
+  }: Props = $props();
   let initial = $derived(user.username.slice(0, 1).toUpperCase());
   let joined = $derived(formatJoined(user.createdAt));
   let publicPercent = $derived(publicStorage
@@ -121,7 +132,11 @@
       </section>
     </div>
 
-    <section class="public-storage-card" aria-labelledby="public-storage-title">
+    <section
+      class="public-storage-card"
+      aria-busy={publicStorageLoading}
+      aria-labelledby="public-storage-title"
+    >
       <span class="storage-icon" aria-hidden="true">
         <svg viewBox="0 0 20 20"><path d="M10 3 16 6.2v7.4L10 17l-6-3.4V6.2L10 3Z"/><path d="m4 6.2 6 3.3 6-3.3M10 9.5V17"/></svg>
       </span>
@@ -132,7 +147,12 @@
         <div class="storage-track" aria-hidden="true"><i style={`width:${publicPercent}%`}></i></div>
       </div>
       <div class="storage-amount">
-        {#if publicStorage}
+        {#if publicStorageLoading}
+          <div class="storage-loading" role="status">
+            <LoadingSpinner compact />
+            <span>Loading…</span>
+          </div>
+        {:else if publicStorage}
           <strong>{formatBytes(publicStorage.usedBytes)}</strong>
           <span>of {formatBytes(publicStorage.limitBytes)}</span>
           {#if publicStorage.reservedBytes > 0}
@@ -140,7 +160,7 @@
           {/if}
         {:else}
           <strong>—</strong>
-          <span>Unavailable</span>
+          <span>{publicStorageError ?? 'Unavailable'}</span>
         {/if}
       </div>
     </section>
@@ -441,6 +461,8 @@
   .storage-amount strong { color: #2e6655; font-size: calc(15px * var(--text-scale)); font-weight: 710; font-variant-numeric: tabular-nums; }
   .storage-amount span { margin-top: 2px; color: #839189; font-size: calc(9px * var(--text-scale)); }
   .storage-amount small { margin-top: 5px; color: #9a754e; font-size: calc(8px * var(--text-scale)); }
+  .storage-loading { display: inline-flex; align-items: center; justify-content: flex-end; gap: 7px; color: #5a7b6d; font-size: calc(9px * var(--text-scale)); }
+  .storage-loading :global(.library-loader) { border-color: #c6d9d0; border-top-color: #43836e; }
 
   .logout-card {
     display: flex;
