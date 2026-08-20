@@ -145,6 +145,7 @@ export class LigoGState extends GState<LigoSnapshot> {
     private readonly loadPublicStorage: () => Promise<PublicNodoStorage>,
     private readonly openLiveSocket: (url: string) => LigoLiveSocket = (url) => new WebSocket(url),
     private readonly fileArchive: LigoFileArchive = UNAVAILABLE_LIGO_FILE_ARCHIVE,
+    private readonly onStorageChanged: ((nodeId: string, space: 'private' | 'public') => void | Promise<void>) | null = null,
   ) { super(emptySnapshot()); }
 
   configure(ownerId: string | null): void {
@@ -592,6 +593,7 @@ export class LigoGState extends GState<LigoSnapshot> {
             uploadProgress: null,
           });
           void this.refreshStorage();
+          if (result.nodeId && result.space) void this.onStorageChanged?.(result.nodeId, result.space);
         }
       } catch (error) {
         if (this.#deletingConversationPeers.has(pending.recipient.id)) continue;

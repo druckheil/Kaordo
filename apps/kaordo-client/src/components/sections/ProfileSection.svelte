@@ -7,6 +7,7 @@
     busy: boolean;
     error: string | null;
     onLogout: () => void | Promise<void>;
+    onListPublic: () => void | Promise<void>;
     platform: 'desktop' | 'web';
     publicStorage: PublicNodoStorage | null;
     publicStorageError: string | null;
@@ -18,6 +19,7 @@
     busy,
     error,
     onLogout,
+    onListPublic,
     platform,
     publicStorage,
     publicStorageError,
@@ -137,6 +139,9 @@
       aria-busy={publicStorageLoading}
       aria-labelledby="public-storage-title"
     >
+      <button class="storage-list-button" type="button" onclick={onListPublic} aria-label="List Public Nodo data" title="List Public Nodo data">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 5h10M6 10h10M6 15h10" /><path d="M3 5h.01M3 10h.01M3 15h.01" /></svg>
+      </button>
       <span class="storage-icon" aria-hidden="true">
         <svg viewBox="0 0 20 20"><path d="M10 3 16 6.2v7.4L10 17l-6-3.4V6.2L10 3Z"/><path d="m4 6.2 6 3.3 6-3.3M10 9.5V17"/></svg>
       </span>
@@ -425,6 +430,7 @@
   }
 
   .public-storage-card {
+    position: relative;
     display: grid;
     grid-template-columns: 42px minmax(0, 1fr) auto;
     align-items: center;
@@ -448,6 +454,25 @@
     border-radius: 11px;
     place-items: center;
   }
+
+  .storage-list-button {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: grid;
+    width: 27px;
+    height: 27px;
+    color: #4b806d;
+    background: rgb(255 255 255 / 72%);
+    border: 1px solid #cfe0d8;
+    border-radius: 7px;
+    cursor: pointer;
+    place-items: center;
+    transition: 120ms ease;
+  }
+
+  .storage-list-button:hover { color: #2d6652; background: #fff; border-color: #a9cbb8; }
+  .storage-list-button svg { width: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; }
 
   .storage-icon svg { width: 21px; }
   .storage-copy h2 { margin-top: 4px; color: #2c3d35; font-size: calc(13px * var(--text-scale)); font-weight: 680; }

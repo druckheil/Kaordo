@@ -67,6 +67,32 @@ export type NodoStorageClearResult = {
   deletedUploads: number;
 };
 
+export type NodoStorageSpace = 'private' | 'public';
+
+export type NodoStorageItemKind = 'file' | 'fluo-post' | 'ligo-envelope' | 'rondo-message';
+
+export type NodoStorageItem = {
+  completed: boolean;
+  createdAt: number;
+  deletable: boolean;
+  id: string;
+  kind: NodoStorageItemKind;
+  mimeType: string | null;
+  name: string;
+  nodeId: string;
+  nodeName: string;
+  owner: string;
+  preview: string | null;
+  sizeBytes: number;
+  space: NodoStorageSpace;
+  storageKey: string;
+};
+
+export type NodoNodeUsage = {
+  spaces: NodoSpaces;
+  usedBytes: number;
+};
+
 export type PublicNodoStorage = {
   limitBytes: number;
   nodeCandidates: Array<{

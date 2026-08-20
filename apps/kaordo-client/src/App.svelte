@@ -15,6 +15,7 @@
   import NodoSection from './components/nodo/NodoSection.svelte';
   import RondoSection from './components/rondo/RondoSection.svelte';
   import LigoSection from './components/ligo/LigoSection.svelte';
+  import StorageItemsPanel from './components/nodo/StorageItemsPanel.svelte';
   import SettingsSection from './components/settings/SettingsSection.svelte';
   import ContextMenu from './components/ui/ContextMenu.svelte';
   import { EditorController } from './lib/EditorController';
@@ -28,6 +29,7 @@
   import { LigoController } from './lib/LigoController';
   import type { AppScale, AppTheme, TextScale } from './lib/domain/appearance';
   import type { AuthMode } from './lib/domain/auth';
+  import type { NodoStorageItem, NodoStorageSpace } from './lib/domain/nodo';
   import {
     appSectionLabel,
     appSectionsFor,
@@ -57,11 +59,13 @@
     cancelPublicStorage: async () => {},
     clearStorage: async () => { throw new Error('Nodo storage is unavailable.'); },
     clearPrivateStorage: async () => { throw new Error('Private Nodo storage is unavailable.'); },
+    deleteStorageItem: async () => { throw new Error('Nodo storage is unavailable.'); },
     commitPublicStorage: async () => {},
     deleteNode: async () => {},
     renameNode: async (_nodeId, name) => name,
     listNodes: async () => [],
     listFeedNodeIds: async () => [],
+    listStorageItems: async () => [],
     publicStorage: async () => ({
       limitBytes: 1_073_741_824,
       nodeCandidates: [],
@@ -72,6 +76,7 @@
     renewPublicStorage: async () => { throw new Error('Public Nodo storage is unavailable.'); },
     reservePublicStorage: async () => { throw new Error('Public Nodo storage is unavailable.'); },
     requestQuickTest: async () => ({ completedAt: 0, diskReadBps: 1, diskWriteBps: 1 }),
+    refreshUsage: async () => ({ spaces: { private: { quotaBytes: 0, usedBytes: 0 }, public: { quotaBytes: 0, usedBytes: 0 } }, usedBytes: 0 }),
     updatePolicy: async (_nodeId, policy) => ({ ...policy, ownerOnly: true }),
     updateSpaces: async () => { throw new Error('Nodo allocation is unavailable.'); },
   };
@@ -165,7 +170,11 @@
   const mediaSettings = untrack(() => new MediaSettingsController(mediaSettingsGateway));
   const publicStorage = untrack(() => new PublicStorageController(nodoGateway));
   const rondo = untrack(() => new RondoController(rondoGateway, nodoGateway, mediaSettings.state.snapshot));
-  const ligo = untrack(() => new LigoController(ligoGateway, nodoGateway));
+  const ligo = untrack(() => new LigoController(
+    ligoGateway,
+    nodoGateway,
+    (nodeId) => nodo.state.refreshNodeUsage(nodeId),
+  ));
   const effectiveFluoGateway = untrack(() => fluoGateway ?? new NodeFluoGateway(nodoGateway));
   // App construction is intentionally one-shot. Runtime changes flow through
   // the state managers instead of rebuilding the composition root.
@@ -175,6 +184,7 @@
         autoloadWorkspaceLibrary,
         files,
         fluoGateway: effectiveFluoGateway,
+        onNodoStorageChanged: (nodeId) => nodo.state.refreshNodeUsage(nodeId),
         nodoGateway,
         nodoRegistry,
         workspace,
@@ -195,6 +205,14 @@
   let rondoSnapshot = $state(rondo.state.snapshot);
   let ligoSnapshot = $state(ligo.state.snapshot);
   let activeSection = $state<AppSection>('klaro');
+  type StorageBrowserTarget =
+    | { kind: 'public'; title: string; subtitle: string }
+    | { kind: 'node'; nodeId: string; nodeName: string; space: NodoStorageSpace };
+  let storageBrowser = $state<StorageBrowserTarget | null>(null);
+  let storageItems = $state<NodoStorageItem[]>([]);
+  let storageItemsLoading = $state(false);
+  let storageItemsError = $state<string | null>(null);
+  let storageItemsRequestId = 0;
   let isCreateWorkspaceOpen = $state(false);
   let isCreateObjectOpen = $state(false);
   let isLoggingOut = $state(false);
@@ -222,6 +240,70 @@
     const cleared = await nodo.state.clearPrivateStorage(nodeId);
     if (cleared) editor.fluoState.clearNodeContent(nodeId, 'private');
     return cleared;
+  }
+
+  function closeStorageBrowser() {
+    storageBrowser = null;
+    storageItems = [];
+    storageItemsError = null;
+    storageItemsRequestId += 1;
+  }
+
+  async function loadStorageItems(target: StorageBrowserTarget | null = storageBrowser): Promise<void> {
+    if (!target) return;
+    const requestId = ++storageItemsRequestId;
+    storageItemsLoading = true;
+    storageItemsError = null;
+    try {
+      if (target.kind === 'public') {
+        const nodeIds = await nodoGateway.listFeedNodeIds();
+        const results = await Promise.allSettled(nodeIds.map((nodeId) => nodoGateway.listStorageItems(nodeId, 'public')));
+        const successful = results.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+        if (!successful.length && results.length > 0 && results.every((result) => result.status === 'rejected')) {
+          throw new Error('No Public Nodo is reachable from this network.');
+        }
+        if (requestId !== storageItemsRequestId) return;
+        storageItems = successful.sort((left, right) => right.createdAt - left.createdAt);
+      } else {
+        const items = await nodoGateway.listStorageItems(target.nodeId, target.space);
+        if (requestId !== storageItemsRequestId) return;
+        storageItems = items.sort((left, right) => right.createdAt - left.createdAt);
+      }
+    } catch (error) {
+      if (requestId === storageItemsRequestId) {
+        storageItemsError = error instanceof Error && error.message.trim() ? error.message : 'Nodo storage could not be loaded.';
+      }
+    } finally {
+      if (requestId === storageItemsRequestId) storageItemsLoading = false;
+    }
+  }
+
+  function openPublicStorageBrowser() {
+    storageBrowser = {
+      kind: 'public',
+      subtitle: 'Global public pool · compact metadata from every reachable Public Nodo',
+      title: 'Public Nodo contents',
+    };
+    void loadStorageItems(storageBrowser);
+  }
+
+  function openNodeStorageBrowser(nodeId: string, space: NodoStorageSpace) {
+    const node = nodoSnapshot.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) return;
+    storageBrowser = { kind: 'node', nodeId, nodeName: node.deviceName, space };
+    void loadStorageItems(storageBrowser);
+  }
+
+  async function deleteStorageItem(item: NodoStorageItem): Promise<void> {
+    if (!item.deletable) return;
+    try {
+      await nodoGateway.deleteStorageItem(item.nodeId, item.space, item.kind, item.storageKey);
+      storageItems = storageItems.filter((candidate) => candidate.storageKey !== item.storageKey || candidate.nodeId !== item.nodeId);
+      void nodo.state.refresh(true);
+      if (item.space === 'public') void publicStorage.state.refresh();
+    } catch (error) {
+      storageItemsError = error instanceof Error && error.message.trim() ? error.message : 'The storage item could not be deleted.';
+    }
   }
   let isModalOpen = $derived(showCreateWorkspace || isCreateObjectOpen);
 
@@ -391,6 +473,7 @@
     editor.canvas.clearInteractions();
     isCreateWorkspaceOpen = false;
     isCreateObjectOpen = false;
+    closeStorageBrowser();
     activeSection = section;
     if (section === 'regado') regado.start();
     else regado.stop();
@@ -528,6 +611,7 @@
         busy={isLoggingOut}
         error={authSnapshot.error}
         onLogout={logout}
+        onListPublic={openPublicStorageBrowser}
         {platform}
         publicStorage={publicStorageSnapshot.storage}
         publicStorageError={publicStorageSnapshot.error}
@@ -561,6 +645,7 @@
         onClear={clearNodoStorage}
         onClearPrivate={clearPrivateNodoStorage}
         onDelete={(nodeId) => nodo.state.deleteNode(nodeId)}
+        onList={openNodeStorageBrowser}
         onRename={(nodeId, name) => nodo.state.renameNode(nodeId, name)}
         onPolicy={(nodeId, policy) => nodo.state.updatePolicy(nodeId, policy)}
         onSpaces={(nodeId, publicQuotaBytes) => nodo.state.updateSpaces(nodeId, publicQuotaBytes)}
@@ -575,6 +660,22 @@
   </div>
 
   <StatusBar {platform} section={activeSection} />
+  {#if storageBrowser}
+    <StorageItemsPanel
+      error={storageItemsError}
+      items={storageItems}
+      loading={storageItemsLoading}
+      onBack={closeStorageBrowser}
+      onDelete={deleteStorageItem}
+      onRefresh={() => loadStorageItems()}
+      subtitle={storageBrowser.kind === 'public'
+        ? storageBrowser.subtitle
+        : `${storageBrowser.space === 'public' ? 'Public' : 'Private'} space · ${storageBrowser.nodeName}`}
+      title={storageBrowser.kind === 'public'
+        ? storageBrowser.title
+        : `${storageBrowser.nodeName} · ${storageBrowser.space === 'public' ? 'Public' : 'Private'}`}
+    />
+  {/if}
 </div>
 
 {#if activeSection === 'klaro' && canvasSnapshot.floatingObject}

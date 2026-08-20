@@ -21,6 +21,7 @@ export type EditorControllerOptions = {
   autoloadWorkspaceLibrary?: boolean;
   files?: WorkspaceSummary[];
   fluoGateway?: FluoGateway;
+  onNodoStorageChanged?: (nodeId: string, space: 'private' | 'public') => void | Promise<void>;
   nodoGateway?: NodoGateway;
   nodoRegistry?: NodoRegistry;
   workspace?: WorkspaceDetail | null;
@@ -51,7 +52,7 @@ export class EditorController {
     this.fluoState = new FluoGState(
       options.fluoGateway ?? EMPTY_FLUO_GATEWAY,
       options.nodoGateway ?? EMPTY_NODO_GATEWAY,
-      { registry: options.nodoRegistry },
+      { onStorageChanged: options.onNodoStorageChanged, registry: options.nodoRegistry },
     );
     this.canvas = new CanvasService(
       this.canvasState,
@@ -168,11 +169,13 @@ const EMPTY_NODO_GATEWAY: NodoGateway = {
   cancelPublicStorage: async () => {},
   clearStorage: async () => { throw new Error('Nodo storage is unavailable.'); },
   clearPrivateStorage: async () => { throw new Error('Private Nodo storage is unavailable.'); },
+  deleteStorageItem: async () => { throw new Error('Nodo storage is unavailable.'); },
   commitPublicStorage: async () => {},
   deleteNode: async () => {},
   renameNode: async (_nodeId, name) => name,
   listNodes: async () => [],
   listFeedNodeIds: async () => [],
+  listStorageItems: async () => [],
   publicStorage: async () => ({
     limitBytes: 1_073_741_824,
     nodeCandidates: [],
@@ -183,6 +186,7 @@ const EMPTY_NODO_GATEWAY: NodoGateway = {
   renewPublicStorage: async () => { throw new Error('Public Nodo storage is unavailable.'); },
   reservePublicStorage: async () => { throw new Error('Public Nodo storage is unavailable.'); },
   requestQuickTest: async () => ({ completedAt: 0, diskReadBps: 1, diskWriteBps: 1 }),
+  refreshUsage: async () => ({ spaces: { private: { quotaBytes: 0, usedBytes: 0 }, public: { quotaBytes: 0, usedBytes: 0 } }, usedBytes: 0 }),
   updatePolicy: async (_nodeId, policy) => ({ ...policy, ownerOnly: true }),
   updateSpaces: async () => { throw new Error('Nodo allocation is unavailable.'); },
 };

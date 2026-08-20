@@ -157,6 +157,24 @@ class NodeHttpServer(
                 }))
             return
         }
+        val storageItemsPath = STORAGE_ITEMS_PATH.matchEntire(request.path)
+        if (storageItemsPath != null) {
+            val space = NodeSpace.entries.first { it.segment == storageItemsPath.groupValues[1] }
+            val kind = storageItemsPath.groupValues[2].takeIf { it.isNotBlank() }
+            val id = storageItemsPath.groupValues[3].takeIf { it.isNotBlank() }
+            val selected = storage(space)
+            when {
+                request.method == "GET" && kind == null -> {
+                    if (!policy().allowDownloads) return transferDenied(output)
+                    storageLock.read { listStorageItems(space, selected, grant, output) }
+                }
+                request.method == "DELETE" && kind != null && id != null -> {
+                    storageLock.write { deleteStorageItem(space, selected, kind, id, grant, output) }
+                }
+                else -> methodNotAllowed(output)
+            }
+            return
+        }
         val rondoPath = resolveRondoPath(request.path)
         if (rondoPath != null) {
             val scope = grant.rondo
@@ -416,6 +434,157 @@ class NodeHttpServer(
         writeJson(output, 200, "OK", JSONObject()
             .put("posts", org.json.JSONArray(page.posts.map(::postJson)))
             .put("nextCursor", page.nextCursor?.toString()))
+    }
+
+    private fun listStorageItems(
+        space: NodeSpace,
+        selected: SpaceStorage,
+        grant: AccessGrant,
+        output: BufferedOutputStream,
+    ) {
+        val items = mutableListOf<JSONObject>()
+        selected.uploads.listRecords().forEach { record ->
+            val filename = safeFilename(metadataFilename(record.metadata)) ?: "${record.id}.bin"
+            val owner = record.createdBy.orEmpty()
+            items += storageItemJson(
+                kind = "file",
+                id = record.id,
+                storageKey = record.id,
+                name = filename,
+                sizeBytes = selected.uploads.storedBytes(record.id).coerceAtLeast(record.offset),
+                createdAt = record.createdAt,
+                completed = record.complete,
+                owner = owner,
+                deletable = grant.isOwner || owner == grant.username,
+                mimeType = metadataMediaType(record.metadata),
+                preview = null,
+            )
+        }
+        selected.posts.list().forEach { post ->
+            val size = post.body.toByteArray(Charsets.UTF_8).size.toLong() + post.attachments.sumOf { it.size }
+            items += storageItemJson(
+                kind = "fluo-post",
+                id = post.id,
+                storageKey = post.id,
+                name = "Fluo post",
+                sizeBytes = size,
+                createdAt = post.createdAt,
+                completed = true,
+                owner = post.author,
+                deletable = grant.isOwner || post.author == grant.username,
+                mimeType = null,
+                preview = post.body.take(180),
+            )
+        }
+        selected.envelopes.list(grant.username).forEach { envelope ->
+            val size = envelope.body.toByteArray(Charsets.UTF_8).size.toLong() + envelope.attachments.sumOf { it.size }
+            items += storageItemJson(
+                kind = "ligo-envelope",
+                id = envelope.id,
+                storageKey = envelope.id,
+                name = "Ligo message",
+                sizeBytes = size,
+                createdAt = envelope.createdAt,
+                completed = true,
+                owner = envelope.sender,
+                deletable = envelope.sender == grant.username || envelope.recipient == grant.username,
+                mimeType = null,
+                preview = envelope.body.take(180),
+            )
+        }
+        selected.messages?.listAll()?.forEach { stored ->
+            val message = stored.message
+            items += storageItemJson(
+                kind = "rondo-message",
+                id = message.id,
+                storageKey = "${stored.spaceId}.${stored.roomId}.${message.id}",
+                name = "Rondo message",
+                sizeBytes = message.body.toByteArray(Charsets.UTF_8).size.toLong(),
+                createdAt = message.createdAt,
+                completed = true,
+                owner = message.author,
+                deletable = grant.isOwner || message.author == grant.username,
+                mimeType = null,
+                preview = message.body.take(180),
+            )
+        }
+        items.sortWith(compareByDescending<JSONObject> { it.optLong("createdAt") }.thenByDescending { it.optString("id") })
+        writeJson(output, 200, "OK", JSONObject().put("items", org.json.JSONArray(items)))
+    }
+
+    private fun storageItemJson(
+        kind: String,
+        id: String,
+        storageKey: String,
+        name: String,
+        sizeBytes: Long,
+        createdAt: Long,
+        completed: Boolean,
+        owner: String,
+        deletable: Boolean,
+        mimeType: String?,
+        preview: String?,
+    ) = JSONObject()
+        .put("completed", completed)
+        .put("createdAt", createdAt)
+        .put("deletable", deletable)
+        .put("id", id)
+        .put("kind", kind)
+        .put("name", name)
+        .put("owner", owner)
+        .put("sizeBytes", sizeBytes)
+        .put("storageKey", storageKey)
+        .apply {
+            mimeType?.let { put("mimeType", it) }
+            preview?.let { put("preview", it) }
+        }
+
+    private fun deleteStorageItem(
+        space: NodeSpace,
+        selected: SpaceStorage,
+        kind: String,
+        storageKey: String,
+        grant: AccessGrant,
+        output: BufferedOutputStream,
+    ) {
+        when (kind) {
+            "file" -> {
+                val reservation = selected.uploads.record(storageKey)?.publicReservationId
+                if (!selected.uploads.delete(storageKey, grant.username, grant.isOwner)) {
+                    return writeJson(output, 404, "Not Found", JSONObject().put("error", "File not found."))
+                }
+                reservation?.let { if (space == NodeSpace.PUBLIC) onPublicReservationReleased(it) }
+                if (space == NodeSpace.PUBLIC) onPublicStorageChanged()
+            }
+            "fluo-post" -> when (selected.posts.delete(storageKey, grant.username, grant.isOwner)) {
+                FluoPostStore.DeleteResult.DELETED -> {
+                    if (space == NodeSpace.PUBLIC) {
+                        onPublicPostDeleted(storageKey)
+                        onPublicStorageChanged()
+                    }
+                }
+                FluoPostStore.DeleteResult.FORBIDDEN -> return writeForbidden(output)
+                FluoPostStore.DeleteResult.MISSING -> return writeJson(output, 404, "Not Found", JSONObject().put("error", "Post not found."))
+            }
+            "ligo-envelope" -> when (selected.envelopes.delete(storageKey, grant.username)) {
+                LigoEnvelopeStore.DeleteResult.DELETED -> if (space == NodeSpace.PUBLIC) onPublicStorageChanged()
+                LigoEnvelopeStore.DeleteResult.FORBIDDEN -> return writeForbidden(output)
+                LigoEnvelopeStore.DeleteResult.MISSING -> return writeJson(output, 404, "Not Found", JSONObject().put("error", "Message not found."))
+            }
+            "rondo-message" -> {
+                val parts = storageKey.split('.')
+                if (parts.size != 3 || selected.messages == null) {
+                    return writeJson(output, 404, "Not Found", JSONObject().put("error", "Message not found."))
+                }
+                when (selected.messages.delete(parts[0], parts[1], parts[2], grant.username, grant.isOwner)) {
+                    RondoMessageStore.DeleteResult.DELETED -> Unit
+                    RondoMessageStore.DeleteResult.FORBIDDEN -> return writeForbidden(output)
+                    RondoMessageStore.DeleteResult.MISSING -> return writeJson(output, 404, "Not Found", JSONObject().put("error", "Message not found."))
+                }
+            }
+            else -> return writeJson(output, 404, "Not Found", JSONObject().put("error", "Storage item not found."))
+        }
+        writeJson(output, 200, "OK", JSONObject().put("ok", true))
     }
 
     private fun listRondoMessages(
@@ -1178,6 +1347,7 @@ class NodeHttpServer(
         private const val MAX_RONDO_REQUEST_BYTES = 16 * 1_024L
         private const val MAX_VOICE_REQUEST_BYTES = 40 * 1_024L
         private const val MAX_LIGO_REQUEST_BYTES = 80 * 1_024L
+        private val STORAGE_ITEMS_PATH = Regex("^/v1/storage/items/(private|public)(?:/([a-z-]+)/([^/]+))?$")
         private val RONDO_PATH = Regex("^/v1/rondo/spaces/([0-9a-f-]{36})/rooms/([0-9a-f-]{36})/messages(?:/([0-9a-f-]{36}))?$")
         private val RONDO_VOICE_PATH = Regex("^/v1/rondo/spaces/([0-9a-f-]{36})/rooms/([0-9a-f-]{36})/voice/(join|sync|peek|signals|leave)$")
     }

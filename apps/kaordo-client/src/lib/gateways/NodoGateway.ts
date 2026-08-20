@@ -1,10 +1,13 @@
 import type {
   NodoAccess,
   NodoNode,
+  NodoNodeUsage,
   NodoPolicy,
   NodoQuickTest,
   NodoSpaces,
   NodoStorageClearResult,
+  NodoStorageItem,
+  NodoStorageSpace,
   PublicNodoReservation,
   PublicNodoStorage,
 } from '../domain/nodo';
@@ -21,6 +24,9 @@ export interface NodoGateway {
   accessNode(nodeId: string): Promise<NodoAccess>;
   clearStorage(nodeId: string): Promise<NodoStorageClearResult>;
   clearPrivateStorage(nodeId: string): Promise<NodoStorageClearResult>;
+  listStorageItems(nodeId: string, space: NodoStorageSpace): Promise<NodoStorageItem[]>;
+  deleteStorageItem(nodeId: string, space: NodoStorageSpace, kind: NodoStorageItem['kind'], storageKey: string): Promise<void>;
+  refreshUsage(nodeId: string): Promise<NodoNodeUsage>;
   listNodes(): Promise<NodoNode[]>;
   listFeedNodeIds(): Promise<string[]>;
   fluoBootstrap?(): Promise<FluoBootstrap>;

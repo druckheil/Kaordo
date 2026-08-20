@@ -282,6 +282,7 @@ class MemoryNodoGateway implements NodoGateway {
   cancelPublicStorage() { return Promise.resolve(); }
   clearStorage() { return Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }); }
   clearPrivateStorage() { return Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }); }
+  deleteStorageItem() { return Promise.resolve(); }
   commitPublicStorage() { return Promise.resolve(); }
   deleteNode(): Promise<void> { return Promise.resolve(); }
   renameNode(_nodeId: string, name: string): Promise<string> { return Promise.resolve(name); }
@@ -301,6 +302,7 @@ class MemoryNodoGateway implements NodoGateway {
     this.individualCalls += 1;
     return Promise.resolve([NODE.id]);
   }
+  listStorageItems() { return Promise.resolve([]); }
   publicStorage() {
     this.individualCalls += 1;
     return Promise.resolve({ ...PUBLIC_STORAGE });
@@ -315,6 +317,7 @@ class MemoryNodoGateway implements NodoGateway {
     reservationId: '123e4567-e89b-42d3-a456-426614174099',
   }); }
   requestQuickTest() { return Promise.resolve({ completedAt: 0, diskReadBps: 1, diskWriteBps: 1 }); }
+  refreshUsage() { return Promise.resolve({ spaces: NODE.spaces, usedBytes: NODE.usedBytes }); }
   updatePolicy(_nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy> {
     return Promise.resolve({ ...policy, ownerOnly: true });
   }

@@ -7,6 +7,30 @@ import java.util.Locale
 import java.util.UUID
 
 class RondoMessageStore(private val root: File, private val uploads: TusUploadStore) {
+    /** Lists messages from all rooms for the local storage browser. */
+    @Synchronized
+    fun listAll(): List<StoredMessage> {
+        val spacesRoot = File(root, ROOT_NAME)
+        return spacesRoot.listFiles().orEmpty()
+            .asSequence()
+            .filter { it.isDirectory && ID.matches(it.name) }
+            .flatMap { spaceDirectory ->
+                spaceDirectory.listFiles().orEmpty().asSequence()
+                    .filter { it.isDirectory && ID.matches(it.name) }
+                    .flatMap { roomDirectory ->
+                        roomDirectory.listFiles().orEmpty().asSequence()
+                            .filter { it.isFile && it.name.endsWith(SUFFIX) && it.length() <= MAX_MESSAGE_FILE_BYTES }
+                            .mapNotNull { file ->
+                                runCatching { parse(JSONObject(file.readText())) }.getOrNull()?.let { message ->
+                                    StoredMessage(spaceDirectory.name, roomDirectory.name, message)
+                                }
+                            }
+                    }
+            }
+            .sortedWith(compareByDescending<StoredMessage> { it.message.createdAt }.thenByDescending { it.message.id })
+            .toList()
+    }
+
     @Synchronized
     fun page(spaceId: String, roomId: String, limit: Int, cursor: Long?): Page {
         requireId(spaceId)
@@ -163,6 +187,7 @@ class RondoMessageStore(private val root: File, private val uploads: TusUploadSt
     }
 
     data class Message(val author: String, val body: String, val createdAt: Long, val id: String)
+    data class StoredMessage(val spaceId: String, val roomId: String, val message: Message)
     data class Page(val messages: List<Message>, val nextCursor: Long?)
     enum class DeleteResult { DELETED, FORBIDDEN, MISSING }
     class QuotaExceeded : Exception()

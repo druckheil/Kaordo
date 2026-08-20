@@ -14,7 +14,11 @@ export class LigoController {
   readonly manager: GStateManager<LigoGState>;
   readonly state: LigoGState;
 
-  constructor(gateway: LigoGateway, nodes: NodoGateway) {
+  constructor(
+    gateway: LigoGateway,
+    nodes: NodoGateway,
+    onStorageChanged?: (nodeId: string, space: 'private' | 'public') => void | Promise<void>,
+  ) {
     this.manager = this.director.register(LIGO_STATE);
     this.state = new LigoGState(
       gateway,
@@ -24,6 +28,7 @@ export class LigoController {
       () => nodes.publicStorage(),
       undefined,
       createLigoFileArchive(),
+      onStorageChanged ?? null,
     );
   }
   start(): void { this.manager.change(this.state); }

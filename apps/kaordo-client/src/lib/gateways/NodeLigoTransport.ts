@@ -22,7 +22,12 @@ const PATHS = {
 
 export type LigoDraftFile = { blob: Blob; id: string; mimeType: string; name: string; size: number; url: string };
 export type LigoUploadProgress = { file: string; totalBytes: number; uploadedBytes: number };
-export type LigoSendResult = { message: LigoMessage; storage: LigoStorageSettings };
+export type LigoSendResult = {
+  message: LigoMessage;
+  nodeId?: string;
+  space?: 'private' | 'public';
+  storage: LigoStorageSettings;
+};
 export type LigoPreparedMessage = {
   message: LigoMessage;
   pending: LigoMessage | null;
@@ -235,6 +240,8 @@ export class NodeLigoTransport implements LigoTransport {
           senderId: ownerId,
           status: 'queued',
         },
+        nodeId,
+        space: storage,
         storage: update.storage,
       };
     } catch (error) {

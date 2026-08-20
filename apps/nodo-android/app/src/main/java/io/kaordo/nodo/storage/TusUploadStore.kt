@@ -191,6 +191,18 @@ class TusUploadStore(
     @Synchronized
     fun uploadCount(): Int = recordDirectory.listFiles()?.count { it.extension == "properties" } ?: 0
 
+    /** Returns persisted uploads in newest-first order for the storage browser. */
+    @Synchronized
+    fun listRecords(): List<UploadRecord> = recordDirectory.listFiles().orEmpty()
+        .asSequence()
+        .filter { it.isFile && it.extension == "properties" }
+        .mapNotNull { runCatching { readRecord(it) }.getOrNull() }
+        .sortedWith(compareByDescending<UploadRecord> { it.createdAt }.thenByDescending { it.id })
+        .toList()
+
+    @Synchronized
+    fun storedBytes(id: String): Long = dataFile(id).takeIf { it.isFile }?.length() ?: 0L
+
     fun completedFile(id: String): Pair<UploadRecord, File>? {
         val record = record(id)?.takeIf { it.complete } ?: return null
         val file = dataFile(id).takeIf { it.isFile } ?: return null

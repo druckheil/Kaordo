@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { NodoNode, NodoPolicy } from '../../lib/domain/nodo';
+  import type { NodoNode, NodoPolicy, NodoStorageSpace } from '../../lib/domain/nodo';
   import type { NodoSnapshot } from '../../lib/states/NodoGState';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
 
@@ -7,6 +7,7 @@
     onClear: (nodeId: string) => void | Promise<boolean>;
     onClearPrivate: (nodeId: string) => void | Promise<boolean>;
     onDelete: (nodeId: string) => void | Promise<boolean>;
+    onList: (nodeId: string, space: NodoStorageSpace) => void | Promise<void>;
     onRename: (nodeId: string, name: string) => void | Promise<boolean>;
     onPolicy: (nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>) => void | Promise<boolean>;
     onQuickTest: (nodeId: string) => void | Promise<boolean>;
@@ -15,7 +16,7 @@
     snapshot: Readonly<NodoSnapshot>;
   };
 
-  let { onClear, onClearPrivate, onDelete, onRename, onPolicy, onQuickTest, onRefresh, onSpaces, snapshot }: Props = $props();
+  let { onClear, onClearPrivate, onDelete, onList, onRename, onPolicy, onQuickTest, onRefresh, onSpaces, snapshot }: Props = $props();
   let selectedId = $state<string | null>(null);
   let confirmingDelete = $state(false);
   let confirmingClear = $state(false);
@@ -399,13 +400,13 @@
               <div class="space-cards">
                 <article class="private-space">
                   <span class="space-mark">L</span>
-                  <div class="space-card-heading"><div><strong>Private</strong><small>Everyone can read; only you can write.</small></div><b>{bytes(selected.quotaBytes - publicDraft(selected))}</b></div>
+                  <div class="space-card-heading"><div><strong>Private</strong><small>Everyone can read; only you can write.</small></div><div class="space-heading-actions"><b>{bytes(selected.quotaBytes - publicDraft(selected))}</b><button class="space-list-button" type="button" aria-label={`List Private data on ${selected.deviceName}`} title="List Private data" onclick={() => onList(selected.id, 'private')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 5h10M6 10h10M6 15h10"/><path d="M3 5h.01M3 10h.01M3 15h.01"/></svg></button></div></div>
                   <div class="part-track"><i style={`width:${spacePercent(selected.spaces.private.usedBytes, selected.quotaBytes - publicDraft(selected))}%`}></i></div>
                   <p><span>{bytes(selected.spaces.private.usedBytes)} stored</span><span>{spacePercent(selected.spaces.private.usedBytes, selected.quotaBytes - publicDraft(selected)).toFixed(1)}% filled</span></p>
                 </article>
                 <article class="public-space">
                   <span class="space-mark">P</span>
-                  <div class="space-card-heading"><div><strong>Public</strong><small>Everyone can read and authenticated users can write.</small></div><b>{bytes(publicDraft(selected))}</b></div>
+                  <div class="space-card-heading"><div><strong>Public</strong><small>Everyone can read and authenticated users can write.</small></div><div class="space-heading-actions"><b>{bytes(publicDraft(selected))}</b><button class="space-list-button" type="button" aria-label={`List Public data on ${selected.deviceName}`} title="List Public data" onclick={() => onList(selected.id, 'public')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 5h10M6 10h10M6 15h10"/><path d="M3 5h.01M3 10h.01M3 15h.01"/></svg></button></div></div>
                   <div class="part-track"><i style={`width:${spacePercent(selected.spaces.public.usedBytes, publicDraft(selected))}%`}></i></div>
                   <p><span>{bytes(selected.spaces.public.usedBytes)} stored</span><span>{spacePercent(selected.spaces.public.usedBytes, publicDraft(selected)).toFixed(1)}% filled</span></p>
                 </article>
@@ -587,10 +588,14 @@
   .private-space .space-mark { background: #756991; }
   .space-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
   .space-card-heading > div { min-width: 0; }
+  .space-heading-actions { display: inline-flex; align-items: center; gap: 5px; }
   .space-cards strong, .space-cards small { display: block; }
   .space-cards strong { color: #35483e; font-size: calc(8px * var(--text-scale)); }
   .space-cards small { margin-top: 2px; color: #829087; font-size: calc(7px * var(--text-scale)); line-height: 1.35; }
   .space-cards b { color: #3d5147; font-size: calc(9px * var(--text-scale)); white-space: nowrap; }
+  .space-list-button { display: grid; width: 24px; height: 24px; padding: 0; color: #4b806d; background: rgb(255 255 255 / 70%); border: 1px solid #c7ded0; border-radius: 6px; cursor: pointer; place-items: center; }
+  .space-list-button:hover { color: #2d6652; background: #fff; border-color: #9fc5ae; }
+  .space-list-button svg { width: 13px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; }
   .part-track { grid-column: 1 / -1; height: 5px; overflow: hidden; background: rgb(63 83 72 / 10%); border-radius: 99px; }
   .part-track i { display: block; height: 100%; background: #756991; border-radius: inherit; transition: width 180ms ease; }
   .public-space .part-track i { background: #4d9877; }

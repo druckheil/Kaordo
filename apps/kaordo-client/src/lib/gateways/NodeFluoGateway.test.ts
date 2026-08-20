@@ -476,6 +476,7 @@ class AccessGateway implements NodoGateway {
   }
   clearStorage() { return Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }); }
   clearPrivateStorage() { return Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }); }
+  deleteStorageItem() { return Promise.resolve(); }
   cancelPublicStorage() { return Promise.resolve(); }
   commitPublicStorage(reservationId: string, postId: string) {
     this.commits.push({ postId, reservationId });
@@ -485,6 +486,7 @@ class AccessGateway implements NodoGateway {
   renameNode(_nodeId: string, name: string): Promise<string> { return Promise.resolve(name); }
   listNodes(): Promise<never[]> { return Promise.resolve([]); }
   listFeedNodeIds(): Promise<string[]> { return Promise.resolve([NODE_ID]); }
+  listStorageItems() { return Promise.resolve([]); }
   publicStorage() { return Promise.resolve({
     limitBytes: 1_073_741_824,
     nodeCandidates: [{ availableBytes: 1_073_741_824, deviceName: 'Test Nodo', nodeId: NODE_ID }],
@@ -504,6 +506,7 @@ class AccessGateway implements NodoGateway {
     });
   }
   requestQuickTest() { return Promise.resolve({ completedAt: 0, diskReadBps: 1, diskWriteBps: 1 }); }
+  refreshUsage() { return Promise.resolve({ spaces: { private: { quotaBytes: 0, usedBytes: 0 }, public: { quotaBytes: 0, usedBytes: 0 } }, usedBytes: 0 }); }
   updatePolicy(_nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy> {
     return Promise.resolve({ ...policy, ownerOnly: true });
   }

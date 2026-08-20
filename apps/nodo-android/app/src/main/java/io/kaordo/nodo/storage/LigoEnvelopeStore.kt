@@ -7,6 +7,16 @@ import java.io.File
 class LigoEnvelopeStore(root: File, private val uploads: TusUploadStore) {
     private val directory = File(root, ROOT_NAME).apply { mkdirs() }
 
+    /** Lists message envelopes visible to the requesting account. */
+    @Synchronized
+    fun list(actor: String? = null): List<Envelope> = directory.listFiles().orEmpty()
+        .asSequence()
+        .filter { it.isFile && it.name.endsWith(SUFFIX) && it.length() <= MAX_ENVELOPE_BYTES }
+        .mapNotNull { runCatching { parse(JSONObject(it.readText())) }.getOrNull() }
+        .filter { actor == null || it.sender == actor || it.recipient == actor }
+        .sortedWith(compareByDescending<Envelope> { it.createdAt }.thenByDescending { it.id })
+        .toList()
+
     @Synchronized
     fun create(
         id: String,

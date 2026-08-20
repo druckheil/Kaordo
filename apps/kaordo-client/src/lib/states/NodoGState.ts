@@ -74,11 +74,37 @@ export class NodoGState extends GState<NodoSnapshot> {
     try {
       const nodes = await this.#gateway.listNodes();
       if (requestId !== this.#requestId) return;
-      this.#registry.replace(nodes);
+      // D1 heartbeats are intentionally sparse. A foreground refresh also
+      // asks each reachable host for its live usage so uploads made moments
+      // ago are reflected immediately without adding polling traffic.
+      const refreshed = background
+        ? nodes
+        : await Promise.all(nodes.map(async (node) => {
+            try {
+              const usage = await this.#gateway.refreshUsage(node.id);
+              return { ...node, spaces: usage.spaces, usedBytes: usage.usedBytes };
+            } catch {
+              return node;
+            }
+          }));
+      if (requestId !== this.#requestId) return;
+      this.#registry.replace(refreshed);
       this.publish({ ...this.snapshot, error: null, nodes: [...this.#registry.nodes], phase: 'ready' });
     } catch (error) {
       if (requestId !== this.#requestId) return;
       this.publish({ ...this.snapshot, error: readableError(error), phase: 'ready' });
+    }
+  }
+
+  /** Reconciles one host after a direct Fluo/Ligo write without polling the fleet. */
+  async refreshNodeUsage(nodeId: string): Promise<void> {
+    const lifecycleId = this.#lifecycleId;
+    try {
+      const usage = await this.#gateway.refreshUsage(nodeId);
+      if (lifecycleId !== this.#lifecycleId) return;
+      this.#registry.update(nodeId, (node) => ({ ...node, spaces: usage.spaces, usedBytes: usage.usedBytes }));
+    } catch {
+      // The next foreground refresh will reconcile an offline or unreachable host.
     }
   }
 

@@ -1,16 +1,26 @@
 import type {
   NodoAccess,
   NodoNode,
+  NodoNodeUsage,
   NodoPolicy,
   NodoQuickTest,
   NodoSpaces,
   NodoStorageClearResult,
+  NodoStorageItem,
+  NodoStorageItemKind,
+  NodoStorageSpace,
   PublicNodoReservation,
   PublicNodoStorage,
 } from '../domain/nodo';
 import type { FluoBootstrap, NodoGateway } from './NodoGateway';
 import { runNodeQuickTest } from './NodeDiagnosticsGateway';
-import { clearNodeStorage, clearPrivateNodeStorage } from './NodeStorageGateway';
+import {
+  clearNodeStorage,
+  clearPrivateNodeStorage,
+  deleteNodeStorageItem,
+  listNodeStorageItems,
+  readNodeUsage,
+} from './NodeStorageGateway';
 import { requestJson } from './WebApiClient';
 
 export class WebNodoGateway implements NodoGateway {
@@ -24,6 +34,18 @@ export class WebNodoGateway implements NodoGateway {
 
   async clearPrivateStorage(nodeId: string): Promise<NodoStorageClearResult> {
     return clearPrivateNodeStorage(await this.accessNode(nodeId));
+  }
+
+  async listStorageItems(nodeId: string, space: NodoStorageSpace): Promise<NodoStorageItem[]> {
+    return listNodeStorageItems(await this.accessNode(nodeId), space);
+  }
+
+  async deleteStorageItem(nodeId: string, space: NodoStorageSpace, kind: NodoStorageItemKind, storageKey: string): Promise<void> {
+    return deleteNodeStorageItem(await this.accessNode(nodeId), space, kind, storageKey);
+  }
+
+  async refreshUsage(nodeId: string): Promise<NodoNodeUsage> {
+    return readNodeUsage(await this.accessNode(nodeId));
   }
 
   async listNodes(): Promise<NodoNode[]> {

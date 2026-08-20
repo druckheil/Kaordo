@@ -58,6 +58,7 @@ export type FluoSnapshot = {
 export type FluoGStateOptions = {
   createId?: () => string;
   createObjectUrl?: (blob: Blob) => string;
+  onStorageChanged?: (nodeId: string, space: 'private' | 'public') => void | Promise<void>;
   revokeObjectUrl?: (url: string) => void;
   registry?: NodoRegistry;
 };
@@ -68,6 +69,7 @@ export class FluoGState extends GState<FluoSnapshot> {
   readonly #createObjectUrl: (blob: Blob) => string;
   readonly #gateway: FluoGateway;
   readonly #nodes: NodoGateway;
+  readonly #onStorageChanged: ((nodeId: string, space: 'private' | 'public') => void | Promise<void>) | null;
   readonly #registry: NodoRegistry;
   readonly #revokeObjectUrl: (url: string) => void;
   #lifecycleId = 0;
@@ -95,6 +97,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     });
     this.#gateway = gateway;
     this.#nodes = nodes;
+    this.#onStorageChanged = options.onStorageChanged ?? null;
     this.#registry = options.registry ?? new NodoRegistry();
     this.#createId = options.createId ?? createLocalId;
     this.#createObjectUrl = options.createObjectUrl ?? ((blob) => URL.createObjectURL(blob));
@@ -365,6 +368,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         publicStorage,
         uploadProgress: null,
       });
+      void this.#onStorageChanged?.(remote.nodeId, remote.space);
       return true;
     } catch (error) {
       if (lifecycleId !== this.#lifecycleId) return false;
@@ -409,6 +413,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         publicStorage,
         storageError: null,
       });
+      void this.#onStorageChanged?.(post.nodeId, post.space);
       return true;
     } catch (error) {
       if (lifecycleId !== this.#lifecycleId) return false;
