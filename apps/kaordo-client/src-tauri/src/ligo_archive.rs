@@ -76,10 +76,13 @@ pub(crate) async fn ligo_write_chat_file_chunk(
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
         tauri::ipc::InvokeBody::Json(serde_json::Value::Array(bytes)) => bytes
             .iter()
-            .filter_map(serde_json::Value::as_u64)
-            .map(|byte| byte as u8)
-            .collect(),
-        _ => return Err("The local chat file data is invalid.".to_owned()),
+            .map(serde_json::Value::as_u64)
+            .map(|byte| byte.and_then(|value| u8::try_from(value).ok()))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| "The local chat file data is invalid.".to_owned())?,
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("The local chat file data is invalid.".to_owned());
+        }
     };
     let directory = archive_directory(&app, &owner_id, &conversation_id, &peer_username)?;
     let file_name = safe_managed_file_name(&file_name)?;
@@ -376,10 +379,11 @@ fn raw_request_bytes(request: &tauri::ipc::Request<'_>) -> Result<Vec<u8>, Strin
         tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes.clone()),
         tauri::ipc::InvokeBody::Json(serde_json::Value::Array(bytes)) => Ok(bytes
             .iter()
-            .filter_map(serde_json::Value::as_u64)
-            .map(|byte| byte as u8)
-            .collect()),
-        _ => Err("The local media data is invalid.".to_owned()),
+            .map(serde_json::Value::as_u64)
+            .map(|byte| byte.and_then(|value| u8::try_from(value).ok()))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| "The local media data is invalid.".to_owned())?),
+        tauri::ipc::InvokeBody::Json(_) => Err("The local media data is invalid.".to_owned()),
     }
 }
 
@@ -408,9 +412,18 @@ fn sanitize_component(value: &str, max_chars: usize) -> String {
         })
         .take(max_chars)
         .collect::<String>();
-    safe = safe.trim_matches([' ', '.']).to_owned();
-    if safe.is_empty() || safe == "." || safe == ".." {
-        safe = "unknown".to_owned();
+    let replacement = {
+        let trimmed = safe.trim_matches([' ', '.']);
+        if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+            Some("unknown".to_owned())
+        } else if trimmed.len() != safe.len() {
+            Some(trimmed.to_owned())
+        } else {
+            None
+        }
+    };
+    if let Some(replacement) = replacement {
+        replacement.clone_into(&mut safe);
     }
     let stem = safe
         .split('.')
@@ -463,6 +476,7 @@ fn open_directory(directory: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{LigoArchiveEntry, MANAGED_FILE_MARKER, archive_file_name, sanitize_component};
+    use std::path::Path;
 
     #[test]
     fn archive_names_sort_by_date_and_keep_extensions() {
@@ -476,7 +490,11 @@ mod tests {
         let name = archive_file_name(&entry);
         assert!(name.starts_with("2026-08-13_12-34-56-000Z_photo"));
         assert!(name.contains(MANAGED_FILE_MARKER));
-        assert!(name.ends_with(".png"));
+        assert!(
+            Path::new(&name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
+        );
     }
 
     #[test]

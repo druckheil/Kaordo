@@ -20,7 +20,10 @@ import type {
 import { TauriWorkspaceGateway } from './lib/gateways/TauriWorkspaceGateway';
 import { WebWorkspaceGateway } from './lib/gateways/WebWorkspaceGateway';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(),
+  isTauri: () => false,
+}));
 
 const researchFile = {
   id: 'workspace-1',
