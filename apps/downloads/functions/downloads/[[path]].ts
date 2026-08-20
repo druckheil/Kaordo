@@ -10,7 +10,11 @@ interface PagesContext {
 
 const asObjectKey = (path: string | string[] | undefined): string => {
   const pathname = Array.isArray(path) ? path.join('/') : (path ?? '');
-  const release = pathname.includes('0.1.0') ? 'v0.1.0' : 'v0.1.1';
+  const release = pathname.includes('0.1.0')
+    ? 'v0.1.0'
+    : pathname.includes('0.1.1')
+      ? 'v0.1.1'
+      : 'v0.1.2';
   return `${release}/${pathname}`;
 };
 
