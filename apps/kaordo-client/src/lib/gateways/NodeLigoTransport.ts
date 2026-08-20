@@ -23,12 +23,17 @@ const PATHS = {
 export type LigoDraftFile = { blob: Blob; id: string; mimeType: string; name: string; size: number; url: string };
 export type LigoUploadProgress = { file: string; totalBytes: number; uploadedBytes: number };
 export type LigoSendResult = { message: LigoMessage; storage: LigoStorageSettings };
+export type LigoPreparedMessage = {
+  message: LigoMessage;
+  pending: LigoMessage | null;
+  replacePayload: boolean;
+};
 
 export interface LigoTransport {
   complete(delivery: LigoDelivery): Promise<void>;
   discard(evicted: LigoStorageUpdate['evicted']): Promise<void>;
-  receive(ownerId: string, delivery: LigoDelivery): Promise<LigoMessage>;
-  reconcile(ownerId: string, delivery: LigoDelivery, cached: LigoMessage): Promise<LigoMessage>;
+  hydrate(delivery: LigoDelivery, pending: LigoMessage): Promise<LigoMessage>;
+  prepare(ownerId: string, delivery: LigoDelivery, cached: LigoMessage | null): Promise<LigoPreparedMessage>;
   reset(): void;
   send(
     messageId: string,
@@ -75,14 +80,11 @@ export class NodeLigoTransport implements LigoTransport {
     return this.sendToNode(ownerId, recipient, messageId, destination, 'private', body, files, sizeBytes, onProgress);
   }
 
-  async receive(ownerId: string, delivery: LigoDelivery): Promise<LigoMessage> {
-    const connection = await this.connection(delivery.nodeId);
-    const paths = PATHS[delivery.storage];
-    const envelope = await this.envelope(connection, paths.envelopes, delivery.id);
-    return this.downloadMessage(connection, paths.content, ownerId, delivery, envelope);
-  }
-
-  async reconcile(ownerId: string, delivery: LigoDelivery, cached: LigoMessage): Promise<LigoMessage> {
+  async prepare(
+    ownerId: string,
+    delivery: LigoDelivery,
+    cached: LigoMessage | null,
+  ): Promise<LigoPreparedMessage> {
     const connection = await this.connection(delivery.nodeId);
     const paths = PATHS[delivery.storage];
     let envelope: NodeEnvelope;
@@ -91,15 +93,33 @@ export class NodeLigoTransport implements LigoTransport {
     } catch (error) {
       // Transit copies are expected to disappear after retention cleanup. A
       // valid local copy remains authoritative and must not be deleted.
-      if (error instanceof NodeRequestError && error.status === 404) {
-        return { ...cached, status: newestStatus(cached.status, delivery.status) };
+      if (cached && error instanceof NodeRequestError && error.status === 404) {
+        return {
+          message: { ...cached, status: newestStatus(cached.status, delivery.status) },
+          pending: null,
+          replacePayload: false,
+        };
       }
       throw error;
     }
-    if (matchesEnvelope(cached, envelope)) {
-      return { ...cached, status: newestStatus(cached.status, delivery.status) };
+    if (cached && matchesEnvelope(cached, envelope)) {
+      return {
+        message: { ...cached, status: newestStatus(cached.status, delivery.status) },
+        pending: null,
+        replacePayload: false,
+      };
     }
-    return this.downloadMessage(connection, paths.content, ownerId, delivery, envelope);
+    const pending = messageMetadata(ownerId, delivery, envelope);
+    const needsHydration = pending.attachments.length > 0;
+    return {
+      // Keep a valid local payload visible until changed remote content has
+      // finished downloading. New messages use the metadata-only placeholder.
+      message: cached && needsHydration
+        ? { ...cached, status: newestStatus(cached.status, delivery.status) }
+        : pending,
+      pending: needsHydration ? pending : null,
+      replacePayload: !cached || !needsHydration,
+    };
   }
 
   private envelope(connection: NodeConnection, path: string, messageId: string): Promise<NodeEnvelope> {
@@ -107,15 +127,11 @@ export class NodeLigoTransport implements LigoTransport {
       .then(({ envelope }) => envelope);
   }
 
-  private async downloadMessage(
-    connection: NodeConnection,
-    contentPath: string,
-    ownerId: string,
-    delivery: LigoDelivery,
-    envelope: NodeEnvelope,
-  ): Promise<LigoMessage> {
+  async hydrate(delivery: LigoDelivery, pending: LigoMessage): Promise<LigoMessage> {
+    const connection = await this.connection(delivery.nodeId);
+    const contentPath = PATHS[delivery.storage].content;
     const attachments: LigoAttachment[] = [];
-    for (const attachment of envelope.attachments) {
+    for (const { blob: _blob, ...attachment } of pending.attachments) {
       const blob = await connection.blob(
         `${contentPath}/${encodeURIComponent(attachment.id)}`,
         attachment.mimeType,
@@ -123,17 +139,7 @@ export class NodeLigoTransport implements LigoTransport {
       );
       attachments.push({ ...attachment, blob });
     }
-    const message: LigoMessage = {
-      attachments,
-      body: envelope.body,
-      conversationId: delivery.sender.id === ownerId ? delivery.recipient.id : delivery.sender.id,
-      createdAt: delivery.createdAt,
-      id: envelope.id,
-      recipientId: delivery.recipient.id,
-      senderId: delivery.sender.id,
-      status: delivery.status,
-    };
-    return message;
+    return { ...pending, attachments };
   }
 
   async complete(delivery: LigoDelivery): Promise<void> {
@@ -267,6 +273,22 @@ type NodeEnvelope = {
   recipient: string;
   sender: string;
 };
+
+function messageMetadata(ownerId: string, delivery: LigoDelivery, envelope: NodeEnvelope): LigoMessage {
+  return {
+    attachments: envelope.attachments.map((attachment) => ({
+      ...attachment,
+      blob: new Blob([], { type: attachment.mimeType }),
+    })),
+    body: envelope.body,
+    conversationId: delivery.sender.id === ownerId ? delivery.recipient.id : delivery.sender.id,
+    createdAt: delivery.createdAt,
+    id: envelope.id,
+    recipientId: delivery.recipient.id,
+    senderId: delivery.sender.id,
+    status: delivery.status,
+  };
+}
 
 function reservationHeader(id?: string): Record<string, string> {
   const name = ['x-veri', 'dimensio-public-reservation'].join('');

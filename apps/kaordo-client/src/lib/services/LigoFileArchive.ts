@@ -8,12 +8,14 @@ type ArchiveFile = {
   attachment: LigoLocalAttachment;
   dateLabel: string;
   key: string;
+  ready: boolean;
 };
 type ArchiveTarget = { fileName: string; key: string; needsWrite: boolean };
 
 export interface LigoFileArchive {
   readonly available: boolean;
   open(ownerId: string, peer: LigoUser, attachments: readonly LigoLocalAttachment[]): Promise<void>;
+  sync(ownerId: string, peer: LigoUser, attachments: readonly LigoLocalAttachment[]): Promise<void>;
 }
 
 export function createLigoFileArchive(): LigoFileArchive {
@@ -23,19 +25,49 @@ export function createLigoFileArchive(): LigoFileArchive {
 export const UNAVAILABLE_LIGO_FILE_ARCHIVE: LigoFileArchive = {
   available: false,
   async open() { throw new Error('Local chat folders are available in the desktop app.'); },
+  async sync() {},
 };
 
 class TauriLigoFileArchive implements LigoFileArchive {
   readonly available = true;
+  readonly #syncQueues = new Map<string, Promise<void>>();
 
   async open(ownerId: string, peer: LigoUser, attachments: readonly LigoLocalAttachment[]): Promise<void> {
+    // Opening Explorer must not depend on every remote attachment already being
+    // hydrated. A later background sync fills in files that are still pending.
+    await this.sync(ownerId, peer, attachments).catch(() => undefined);
+    await tauriInvoke('ligo_open_chat_files', {
+      conversationId: peer.id,
+      ownerId,
+      peerUsername: peer.username,
+    });
+  }
+
+  sync(ownerId: string, peer: LigoUser, attachments: readonly LigoLocalAttachment[]): Promise<void> {
+    const queueKey = `${ownerId}:${peer.id}`;
+    const previous = this.#syncQueues.get(queueKey) ?? Promise.resolve();
+    const current = previous.catch(() => undefined)
+      .then(() => this.syncNow(ownerId, peer, attachments));
+    this.#syncQueues.set(queueKey, current);
+    void current.finally(() => {
+      if (this.#syncQueues.get(queueKey) === current) this.#syncQueues.delete(queueKey);
+    }).catch(() => undefined);
+    return current;
+  }
+
+  private async syncNow(
+    ownerId: string,
+    peer: LigoUser,
+    attachments: readonly LigoLocalAttachment[],
+  ): Promise<void> {
     const files = attachments.map(toArchiveFile);
     const targets = await tauriInvoke<ArchiveTarget[]>('ligo_prepare_chat_files', {
       conversationId: peer.id,
-      entries: files.map(({ attachment, dateLabel, key }) => ({
+      entries: files.map(({ attachment, dateLabel, key, ready }) => ({
         dateLabel,
         key,
         name: attachment.name,
+        ready,
         size: attachment.size,
       })),
       ownerId,
@@ -45,14 +77,9 @@ class TauriLigoFileArchive implements LigoFileArchive {
     for (const target of targets) {
       if (!target.needsWrite) continue;
       const file = filesByKey.get(target.key);
-      if (!file) throw new Error('The local chat file plan is invalid.');
+      if (!file?.ready) continue;
       await writeInChunks(ownerId, peer, target.fileName, file.attachment.blob);
     }
-    await tauriInvoke('ligo_open_chat_files', {
-      conversationId: peer.id,
-      ownerId,
-      peerUsername: peer.username,
-    });
   }
 }
 
@@ -61,6 +88,7 @@ function toArchiveFile(attachment: LigoLocalAttachment): ArchiveFile {
     attachment,
     dateLabel: new Date(attachment.createdAt).toISOString().replace(/[.:]/gu, '-').replace('T', '_'),
     key: `${attachment.messageId}:${attachment.id}`,
+    ready: attachment.blob instanceof Blob && attachment.blob.size === attachment.size,
   };
 }
 
@@ -73,6 +101,7 @@ async function writeInChunks(ownerId: string, peer: LigoUser, fileName: string, 
       'x-kaordo-offset': String(offset),
       'x-kaordo-owner-id': encodeHeader(ownerId),
       'x-kaordo-peer-username': encodeHeader(peer.username),
+      'x-kaordo-total': String(blob.size),
     } });
   }
 }

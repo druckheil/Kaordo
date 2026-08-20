@@ -2,6 +2,7 @@ import type {
   LigoConversation,
   LigoConversationDeletion,
   LigoDeletion,
+  LigoDelivery,
   LigoMessage,
   LigoMessageStatus,
   LigoReceiptStatus,
@@ -51,7 +52,19 @@ type PendingOutgoing = {
   recipient: LigoUser;
 };
 
-type CloudMessageUpdate = { message: LigoMessage; replacePayload: boolean };
+type CloudMessageUpdate = {
+  delivery: LigoDelivery;
+  message: LigoMessage;
+  pending: LigoMessage | null;
+  replacePayload: boolean;
+  verified: boolean;
+};
+type IncomingHydration = {
+  complete: boolean;
+  lifecycleId: number;
+  ownerId: string;
+  update: CloudMessageUpdate;
+};
 
 export type LigoScrollPosition = {
   atBottom: boolean;
@@ -114,6 +127,10 @@ export class LigoGState extends GState<LigoSnapshot> {
   readonly #readInFlight = new Set<string>();
   readonly #deletedMessageIds = new Set<string>();
   readonly #deletingConversationPeers = new Set<string>();
+  readonly #archiveSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  #incomingHydrations: IncomingHydration[] = [];
+  readonly #hydratingDeliveries = new Map<string, IncomingHydration>();
+  #activeHydrations = 0;
   #liveGeneration = 0;
   #liveFailures = 0;
   #syncRequested = false;
@@ -207,6 +224,13 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#readInFlight.clear();
     this.#deletedMessageIds.clear();
     this.#deletingConversationPeers.clear();
+    for (const timer of this.#archiveSyncTimers.values()) clearTimeout(timer);
+    this.#archiveSyncTimers.clear();
+    for (const task of this.#incomingHydrations) {
+      const key = `${task.ownerId}:${task.update.delivery.id}`;
+      if (this.#hydratingDeliveries.get(key) === task) this.#hydratingDeliveries.delete(key);
+    }
+    this.#incomingHydrations = [];
     this.transport.reset();
     this.publish(emptySnapshot());
   }
@@ -345,6 +369,7 @@ export class LigoGState extends GState<LigoSnapshot> {
         loadingHistory: true,
         messages: messages.reverse(),
       });
+      this.scheduleArchiveSync(ownerId, user);
       void this.markVisibleRead();
       void this.reconcileConversation(ownerId, user, requestId);
     } catch (error) {
@@ -364,8 +389,16 @@ export class LigoGState extends GState<LigoSnapshot> {
     try {
       let cursor = this.#messageCursor;
       if (!cursor) {
-        if (this.#peerCloudCursor) await this.downloadCloudPage(ownerId, user, 'peer', this.#peerCloudCursor);
-        if (this.#ownCloudCursor) await this.downloadCloudPage(ownerId, user, 'self', this.#ownCloudCursor);
+        const cloudUpdates: CloudMessageUpdate[] = [];
+        if (this.#peerCloudCursor) {
+          cloudUpdates.push(...await this.downloadCloudPage(ownerId, user, 'peer', this.#peerCloudCursor));
+        }
+        if (this.#ownCloudCursor) {
+          cloudUpdates.push(...await this.downloadCloudPage(ownerId, user, 'self', this.#ownCloudCursor));
+        }
+        for (const update of cloudUpdates) {
+          if (update.pending) this.enqueueHydration(ownerId, this.#lifecycleId, update, false);
+        }
         cursor = this.snapshot.messages[0] ? messageCursor(this.snapshot.messages[0]) : null;
       }
       const page = await this.local.page(ownerId, userId, cursor, MESSAGE_PAGE);
@@ -548,6 +581,7 @@ export class LigoGState extends GState<LigoSnapshot> {
         if (this.#deletingConversationPeers.has(pending.recipient.id)) continue;
         const message = { ...result.message, createdAt: pending.createdAt, status: 'queued' as const };
         await this.local.put(pending.ownerId, message);
+        this.scheduleArchiveSync(pending.ownerId, pending.recipient);
         if (lifecycleId === this.#lifecycleId && this.#ownerId === pending.ownerId) {
           this.publish({
             ...this.snapshot,
@@ -563,6 +597,7 @@ export class LigoGState extends GState<LigoSnapshot> {
         if (this.#deletingConversationPeers.has(pending.recipient.id)) continue;
         const failed = pendingMessage(pending, 'failed');
         await this.local.put(pending.ownerId, failed).catch(() => undefined);
+        this.scheduleArchiveSync(pending.ownerId, pending.recipient);
         if (lifecycleId === this.#lifecycleId && this.#ownerId === pending.ownerId) {
           this.publish({
             ...this.snapshot,
@@ -605,37 +640,13 @@ export class LigoGState extends GState<LigoSnapshot> {
           if (page.deletions.length === 64) this.#syncRequested = true;
         }
         deliveryCount += page.deliveries.length + page.deletions.length + page.conversationDeletions.length;
-        for (const delivery of page.deliveries) {
-          if (lifecycleId !== this.#lifecycleId || this.#ownerId !== ownerId) return;
-          if (this.#deletedMessageIds.has(delivery.id)) continue;
-          try {
-            const cached = await this.local.get(ownerId, delivery.id);
-            const message = cached
-              ? await this.transport.reconcile(ownerId, delivery, cached)
-              : await this.transport.receive(ownerId, delivery);
-            if (this.#deletedMessageIds.has(delivery.id)) continue;
-            const replacePayload = !cached || !sameLocalPayload(cached, message);
-            if (!replacePayload) {
-              await this.local.updateStatus(ownerId, message.id, message.status);
-            } else {
-              await this.local.put(ownerId, message);
-            }
-            const user = delivery.sender;
-            const conversation = toConversation(user, message, false, preview(message.body, message.attachments));
-            const visibleMessage = messageForView(this.snapshot.messages, message, replacePayload);
-            const visible = this.snapshot.activeUser?.id === user.id
-              ? [...this.snapshot.messages.filter(({ id }) => id !== message.id), visibleMessage]
-                .sort(compareOldest).slice(-MAX_MESSAGE_WINDOW)
-              : this.snapshot.messages;
-            this.publish({
-              ...this.snapshot,
-              conversations: upsertConversation(this.snapshot.conversations, conversation),
-              messages: visible,
-            });
-            await this.transport.complete(delivery);
-          } catch {
-            // Leave this delivery queued. The next poll retries without losing data.
-          }
+        const updates = (await Promise.all(page.deliveries.map((delivery) =>
+          this.prepareCloudMessage(ownerId, delivery)))).filter((update): update is CloudMessageUpdate => update !== null);
+        if (lifecycleId !== this.#lifecycleId || this.#ownerId !== ownerId) return;
+        this.publishInboxMetadata(ownerId, updates);
+        for (const update of updates) {
+          if (update.pending) this.enqueueHydration(ownerId, lifecycleId, update, true);
+          else if (update.verified) void this.transport.complete(update.delivery).catch(() => undefined);
         }
         cursor = page.nextCursor;
       } while (cursor && this.#ownerId === ownerId);
@@ -673,34 +684,8 @@ export class LigoGState extends GState<LigoSnapshot> {
         if (source === 'peer') this.#peerCloudCursor = page.nextCursor;
         else this.#ownCloudCursor = page.nextCursor;
       }
-      for (const remote of page.messages) {
-        if (this.#deletedMessageIds.has(remote.id)) continue;
-        const cached = await this.local.get(ownerId, remote.id);
-        try {
-          const message = cached
-            ? await this.transport.reconcile(ownerId, remote, cached)
-            : await this.transport.receive(ownerId, remote);
-          if (this.#deletedMessageIds.has(remote.id)) continue;
-          const replacePayload = !cached || !sameLocalPayload(cached, message);
-          if (!replacePayload) {
-            await this.local.updateStatus(ownerId, message.id, message.status);
-          } else {
-            await this.local.put(ownerId, message);
-          }
-          updates.push({ message, replacePayload });
-        } catch {
-          // A temporarily unavailable Nodo is not allowed to hide local history.
-          if (cached) {
-            if (source === 'self') {
-              await this.local.updateStatus(ownerId, remote.id, remote.status).catch(() => undefined);
-            }
-            updates.push({
-              message: { ...cached, status: advancedStatus(cached.status, remote.status) },
-              replacePayload: false,
-            });
-          }
-        }
-      }
+      const prepared = await Promise.all(page.messages.map((remote) => this.prepareCloudMessage(ownerId, remote)));
+      updates.push(...prepared.filter((update): update is CloudMessageUpdate => update !== null));
     } catch {
       if (requestId === this.#conversationRequestId && this.#ownerId === ownerId &&
           this.snapshot.activeUser?.id === user.id) {
@@ -731,10 +716,136 @@ export class LigoGState extends GState<LigoSnapshot> {
         loadingHistory: false,
         messages: [...messages].sort(compareOldest).slice(-MAX_MESSAGE_WINDOW),
       });
+      for (const update of pages.flat()) {
+        if (update.pending) this.enqueueHydration(ownerId, this.#lifecycleId, update, false);
+      }
       void this.markVisibleRead();
     } catch (error) {
       if (requestId !== this.#conversationRequestId || this.snapshot.activeUser?.id !== user.id) return;
       this.publish({ ...this.snapshot, error: readableError(error), loadingHistory: false });
+    }
+  }
+
+  private async prepareCloudMessage(
+    ownerId: string,
+    delivery: LigoDelivery,
+  ): Promise<CloudMessageUpdate | null> {
+    if (this.#deletedMessageIds.has(delivery.id)) return null;
+    const cached = await this.local.get(ownerId, delivery.id);
+    try {
+      const prepared = await this.transport.prepare(ownerId, delivery, cached);
+      if (this.#deletedMessageIds.has(delivery.id)) return null;
+      if (cached && !prepared.replacePayload) {
+        await this.local.updateStatus(ownerId, prepared.message.id, prepared.message.status);
+      } else {
+        // Persist the light envelope immediately. Attachments use zero-byte
+        // placeholders until independent background hydration replaces them.
+        await this.local.put(ownerId, prepared.message);
+      }
+      return {
+        delivery,
+        message: prepared.message,
+        pending: prepared.pending,
+        replacePayload: prepared.replacePayload,
+        verified: true,
+      };
+    } catch {
+      // A temporarily unavailable Nodo must never hide an existing local copy.
+      if (!cached) return null;
+      await this.local.updateStatus(ownerId, delivery.id, delivery.status).catch(() => undefined);
+      return {
+        delivery,
+        message: { ...cached, status: advancedStatus(cached.status, delivery.status) },
+        pending: null,
+        replacePayload: false,
+        verified: false,
+      };
+    }
+  }
+
+  private publishInboxMetadata(ownerId: string, updates: readonly CloudMessageUpdate[]): void {
+    let conversations = this.snapshot.conversations;
+    let messages = this.snapshot.messages;
+    for (const update of updates) {
+      const { delivery, message, replacePayload } = update;
+      if (this.#deletedMessageIds.has(message.id)) continue;
+      const peer = delivery.sender.id === ownerId
+        ? {
+            ...delivery.recipient,
+            online: this.snapshot.activeUser?.id === delivery.recipient.id
+              ? this.snapshot.activeUser.online
+              : this.snapshot.conversations.find(({ user }) => user.id === delivery.recipient.id)?.user.online ?? false,
+          }
+        : delivery.sender;
+      conversations = upsertConversation(
+        conversations,
+        toConversation(peer, message, delivery.sender.id === ownerId, preview(message.body, message.attachments)),
+      );
+      if (this.snapshot.activeUser?.id === peer.id) {
+        const visible = messageForView(messages, message, replacePayload);
+        messages = [...messages.filter(({ id }) => id !== message.id), visible]
+          .sort(compareOldest).slice(-MAX_MESSAGE_WINDOW);
+      }
+    }
+    this.publish({ ...this.snapshot, conversations, messages });
+  }
+
+  private enqueueHydration(
+    ownerId: string,
+    lifecycleId: number,
+    update: CloudMessageUpdate,
+    complete: boolean,
+  ): void {
+    const key = `${ownerId}:${update.delivery.id}`;
+    const existing = this.#hydratingDeliveries.get(key);
+    if (existing) {
+      // An inbox delivery upgrades a history-only hydration so it is
+      // acknowledged as soon as the shared download finishes.
+      if (complete) existing.complete = true;
+      return;
+    }
+    const task = { complete, lifecycleId, ownerId, update };
+    this.#hydratingDeliveries.set(key, task);
+    this.#incomingHydrations.push(task);
+    this.drainHydrations();
+  }
+
+  private drainHydrations(): void {
+    while (this.#activeHydrations < 3) {
+      const task = this.#incomingHydrations.shift();
+      if (!task) return;
+      this.#activeHydrations += 1;
+      void this.hydrateMessage(task).finally(() => {
+        const key = `${task.ownerId}:${task.update.delivery.id}`;
+        if (this.#hydratingDeliveries.get(key) === task) this.#hydratingDeliveries.delete(key);
+        this.#activeHydrations -= 1;
+        this.drainHydrations();
+      });
+    }
+  }
+
+  private async hydrateMessage(task: IncomingHydration): Promise<void> {
+    const { delivery, pending } = task.update;
+    if (!pending || this.#deletedMessageIds.has(delivery.id)) return;
+    try {
+      const message = await this.transport.hydrate(delivery, pending);
+      if (this.#deletedMessageIds.has(delivery.id)) return;
+      await this.local.put(task.ownerId, message);
+      this.scheduleArchiveSync(task.ownerId, this.peerForDelivery(task.ownerId, delivery));
+      if (task.lifecycleId === this.#lifecycleId && this.#ownerId === task.ownerId &&
+          this.snapshot.activeUser?.id === message.conversationId) {
+        this.publish({
+          ...this.snapshot,
+          messages: replaceMessage(this.snapshot.messages, message),
+        });
+      }
+      if (task.complete && task.lifecycleId === this.#lifecycleId && this.#ownerId === task.ownerId) {
+        await this.transport.complete(delivery);
+      }
+      if (task.lifecycleId === this.#lifecycleId) void this.markVisibleRead();
+    } catch {
+      // The zero-byte placeholder remains retryable. Other messages and their
+      // attachments continue hydrating independently.
     }
   }
 
@@ -743,7 +854,8 @@ export class LigoGState extends GState<LigoSnapshot> {
     const activeUser = this.snapshot.activeUser;
     if (!ownerId || !activeUser) return;
     const ids = this.snapshot.messages
-      .filter(({ id, senderId, status }) => senderId === activeUser.id && status !== 'read' && !this.#readInFlight.has(id))
+      .filter((message) => message.senderId === activeUser.id && message.status !== 'read' &&
+        messagePayloadReady(message) && !this.#readInFlight.has(message.id))
       .map(({ id }) => id);
     for (let offset = 0; offset < ids.length; offset += 64) {
       const chunk = ids.slice(offset, offset + 64);
@@ -819,6 +931,9 @@ export class LigoGState extends GState<LigoSnapshot> {
   }
 
   private async removeLocalConversation(ownerId: string, peerId: string): Promise<void> {
+    const peer = this.snapshot.activeUser?.id === peerId
+      ? this.snapshot.activeUser
+      : this.snapshot.conversations.find(({ user }) => user.id === peerId)?.user ?? null;
     const deleted = await this.local.deleteConversation(ownerId, peerId);
     for (const message of deleted) {
       this.#deletedMessageIds.add(message.id);
@@ -826,6 +941,7 @@ export class LigoGState extends GState<LigoSnapshot> {
     }
     this.removeQueuedOutgoing(ownerId, peerId);
     this.#scrollPositions.delete(peerId);
+    if (peer) this.scheduleArchiveSync(ownerId, peer);
     if (this.#ownerId !== ownerId) return;
     const active = this.snapshot.activeUser?.id === peerId;
     if (active) {
@@ -885,6 +1001,11 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#deletedMessageIds.add(messageId);
     const deleted = await this.local.delete(ownerId, messageId);
     ligoAttachmentUrls.release((deleted ?? visible)?.attachments ?? []);
+    const peerId = (deleted ?? message)?.conversationId;
+    const peer = peerId === this.snapshot.activeUser?.id
+      ? this.snapshot.activeUser
+      : this.snapshot.conversations.find(({ user }) => user.id === peerId)?.user ?? null;
+    if (peer) this.scheduleArchiveSync(ownerId, peer);
     if (this.#ownerId !== ownerId) return;
     this.publish({
       ...this.snapshot,
@@ -907,6 +1028,28 @@ export class LigoGState extends GState<LigoSnapshot> {
       })),
       searchResults: this.snapshot.searchResults.map(update),
     });
+  }
+
+  private peerForDelivery(ownerId: string, delivery: LigoDelivery): LigoUser {
+    if (delivery.sender.id !== ownerId) return delivery.sender;
+    const known = this.snapshot.activeUser?.id === delivery.recipient.id
+      ? this.snapshot.activeUser
+      : this.snapshot.conversations.find(({ user }) => user.id === delivery.recipient.id)?.user;
+    return { ...delivery.recipient, online: known?.online ?? false };
+  }
+
+  private scheduleArchiveSync(ownerId: string, peer: LigoUser): void {
+    if (!this.fileArchive.available) return;
+    const key = `${ownerId}:${peer.id}`;
+    const previous = this.#archiveSyncTimers.get(key);
+    if (previous) clearTimeout(previous);
+    this.#archiveSyncTimers.set(key, setTimeout(() => {
+      this.#archiveSyncTimers.delete(key);
+      if (this.#ownerId !== ownerId) return;
+      void this.local.attachments(ownerId, peer.id)
+        .then((attachments) => this.fileArchive.sync(ownerId, peer, attachments))
+        .catch(() => undefined);
+    }, 100));
   }
 
   private async syncActiveReceipts(): Promise<void> {
@@ -1105,14 +1248,9 @@ function pendingMessage(pending: PendingOutgoing, status: 'sending' | 'failed'):
     status,
   };
 }
-function sameLocalPayload(left: LigoMessage, right: LigoMessage): boolean {
-  return left.id === right.id && left.body === right.body && left.createdAt === right.createdAt &&
-    left.senderId === right.senderId && left.recipientId === right.recipientId &&
-    left.attachments.length === right.attachments.length && left.attachments.every((attachment, index) => {
-      const next = right.attachments[index];
-      return next !== undefined && attachment.id === next.id && attachment.name === next.name &&
-        attachment.mimeType === next.mimeType && attachment.size === next.size && attachment.blob === next.blob;
-    });
+function messagePayloadReady(message: LigoMessage): boolean {
+  return message.attachments.every((attachment) =>
+    attachment.blob instanceof Blob && attachment.blob.size === attachment.size);
 }
 function messageForView(
   current: readonly LigoMessage[],

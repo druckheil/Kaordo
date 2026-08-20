@@ -220,6 +220,59 @@ describe('LigoGState live inbox', () => {
     expect(await local.page('owner', friend.id, null, 10)).toMatchObject({ messages: [] });
     state.exit();
   });
+
+  it('publishes every message envelope before attachment hydration finishes', async () => {
+    const friend = { id: 'friend', online: true, username: 'friend' };
+    const deliveries = ['large-video', 'next-message'].map((id, index): LigoDelivery => ({
+      createdAt: 1_000 + index,
+      id,
+      nodeId: 'node',
+      recipient: { id: 'owner', username: 'owner' },
+      sender: friend,
+      sizeBytes: 100_000_000,
+      status: 'queued',
+      storage: 'private',
+    }));
+    const gateway = new DeliveryGateway(deliveries);
+    const transport: LigoTransport = {
+      complete: async () => {},
+      discard: async () => {},
+      hydrate: () => new Promise(() => {}),
+      prepare: async (ownerId, delivery) => {
+        const message: LigoMessage = {
+          attachments: [{
+            blob: new Blob([], { type: 'video/quicktime' }),
+            id: `${delivery.id}-file`,
+            mimeType: 'video/quicktime',
+            name: `${delivery.id}.mov`,
+            size: delivery.sizeBytes,
+          }],
+          body: delivery.id,
+          conversationId: friend.id,
+          createdAt: delivery.createdAt,
+          id: delivery.id,
+          recipientId: ownerId,
+          senderId: friend.id,
+          status: delivery.status,
+        };
+        return { message, pending: message, replacePayload: true };
+      },
+      reset: () => {},
+      send: async () => { throw new Error('Not used.'); },
+    };
+    const state = new LigoGState(
+      gateway, transport, new MemoryLigoLocalStore(), async () => [],
+      async () => ({ limitBytes: 1_073_741_824, nodeCandidates: [], reservedBytes: 0, usedBytes: 0 }),
+    );
+    state.configure('owner');
+    state.enter();
+
+    await vi.waitFor(() => expect(state.snapshot.conversations).toHaveLength(1));
+    await state.openConversation(friend);
+
+    expect(state.snapshot.messages.map(({ id }) => id)).toEqual(['large-video', 'next-message']);
+    state.exit();
+  });
 });
 
 class MemoryLigoGateway implements LigoGateway {
@@ -298,6 +351,21 @@ class GatedHistoryGateway extends MemoryLigoGateway {
   }
 }
 
+class DeliveryGateway extends MemoryLigoGateway {
+  #delivered = false;
+
+  constructor(private readonly deliveries: LigoDelivery[]) { super(); }
+
+  override inbox(): Promise<LigoInbox> {
+    this.inboxCalls += 1;
+    if (this.#delivered) {
+      return Promise.resolve({ conversationDeletions: [], deletions: [], deliveries: [], nextCursor: null });
+    }
+    this.#delivered = true;
+    return Promise.resolve({ conversationDeletions: [], deletions: [], deliveries: this.deliveries, nextCursor: null });
+  }
+}
+
 class TestWebSocket {
   onclose: ((event: CloseEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
@@ -325,8 +393,11 @@ class TestWebSocket {
 const EMPTY_TRANSPORT: LigoTransport = {
   complete: async (_delivery: LigoDelivery) => {},
   discard: async () => {},
-  receive: async () => { throw new Error('Not used.'); },
-  reconcile: async (_ownerId, _delivery, cached) => cached,
+  hydrate: async () => { throw new Error('Not used.'); },
+  prepare: async (_ownerId, _delivery, cached) => {
+    if (!cached) throw new Error('Not used.');
+    return { message: cached, pending: null, replacePayload: false };
+  },
   reset: () => {},
   send: async () => { throw new Error('Not used.'); },
 };
