@@ -2,16 +2,23 @@
   import { onMount } from 'svelte';
   import type { FluoAttachment, FluoGState } from '../../lib/states/FluoGState';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
-  import { getFluoMediaLayout } from './fluoMediaLayout';
+  import { FLUO_MAX_MEDIA_WIDTH, getFluoMediaLayout } from './fluoMediaLayout';
 
   type Props = {
     attachment: FluoAttachment;
     fluoState: FluoGState;
+    maxWidth?: number;
     postId: string;
     register: (load: () => Promise<void>) => () => void;
   };
 
-  let { attachment, fluoState, postId, register }: Props = $props();
+  let {
+    attachment,
+    fluoState,
+    maxWidth = FLUO_MAX_MEDIA_WIDTH,
+    postId,
+    register,
+  }: Props = $props();
   let retrying = $state(false);
   let automaticRetryUsed = $state(false);
   let mediaUrl = $state<string>();
@@ -22,6 +29,7 @@
   let mediaLayout = $derived(getFluoMediaLayout(
     discoveredDimensions?.width ?? attachment.width,
     discoveredDimensions?.height ?? attachment.height,
+    maxWidth,
   ));
 
   onMount(() => register(ensureLoaded));

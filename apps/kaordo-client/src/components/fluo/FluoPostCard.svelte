@@ -2,6 +2,7 @@
   import type { FluoGState, FluoPost } from '../../lib/states/FluoGState';
   import { openContextMenu } from '../../lib/ui/contextMenu';
   import FluoMedia from './FluoMedia.svelte';
+  import FluoMediaCarousel from './FluoMediaCarousel.svelte';
 
   type Props = {
     fluoState: FluoGState;
@@ -52,16 +53,23 @@
     </header>
     {#if post.body}<p>{post.body}</p>{/if}
     {#if post.attachments.length}
-      <div class:post-media--single={post.attachments.length === 1} class="post-media">
-        {#each post.attachments as attachment (attachment.id)}
+      {#if post.attachments.length === 1}
+        <div class="post-media post-media--single">
           <FluoMedia
-            {attachment}
+            attachment={post.attachments[0]!}
             {fluoState}
             postId={post.id}
             register={registerMedia}
           />
-        {/each}
-      </div>
+        </div>
+      {:else}
+        <FluoMediaCarousel
+          attachments={post.attachments}
+          {fluoState}
+          postId={post.id}
+          registerMedia={registerMedia}
+        />
+      {/if}
     {/if}
     <footer class="post-actions">
       <button type="button" disabled aria-label="Reply, coming later" title="Replies are coming later">

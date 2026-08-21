@@ -1,6 +1,8 @@
 export const FLUO_MIN_MEDIA_HEIGHT = 148;
 export const FLUO_MAX_MEDIA_HEIGHT = 430;
 export const FLUO_MAX_MEDIA_WIDTH = 620;
+/** Maximum width of one item in the multi-media carousel. */
+export const FLUO_CAROUSEL_MEDIA_WIDTH = 320;
 
 export type FluoMediaLayout = {
   height: number;

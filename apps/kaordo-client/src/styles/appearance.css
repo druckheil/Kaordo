@@ -221,6 +221,12 @@ html[data-theme='dark'] :is(.draft-media figure, .post-media figure) {
   border-color: #3a473f !important;
 }
 
+html[data-theme='dark'] .carousel-nav {
+  color: #c9e1d5 !important;
+  background: rgb(25 38 32 / 92%) !important;
+  border-color: #486357 !important;
+}
+
 html[data-theme='dark'] .attach-button {
   color: #a9d8c7 !important;
   background: #263a32 !important;

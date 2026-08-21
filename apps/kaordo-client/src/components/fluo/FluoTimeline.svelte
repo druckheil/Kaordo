@@ -5,6 +5,7 @@
   import type { FluoGState, FluoPost } from '../../lib/states/FluoGState';
   import FluoPostCard from './FluoPostCard.svelte';
   import {
+    FLUO_CAROUSEL_MEDIA_WIDTH,
     FLUO_MAX_MEDIA_WIDTH,
     getFluoMediaLayout,
   } from './fluoMediaLayout';
@@ -32,7 +33,6 @@
   const MEDIA_PREFETCH_POSTS = 12;
   const MAX_CONCURRENT_MEDIA_LOADS = 6;
   const MEDIA_STARTS_PER_FRAME = 3;
-  const MEDIA_GRID_GAP = 3;
   const POST_GAP = 8;
 
   let {
@@ -162,19 +162,16 @@
     if (!post) return 220;
     const textLines = post.body ? Math.min(8, Math.max(1, Math.ceil(post.body.length / 58))) : 0;
     if (!post.attachments.length) return 91 + textLines * 20;
-    const columnWidth = (FLUO_MAX_MEDIA_WIDTH - MEDIA_GRID_GAP) / 2;
-    const rowHeights: number[] = [];
-    for (const [attachmentIndex, attachment] of post.attachments.entries()) {
-      const row = Math.floor(attachmentIndex / 2);
-      const mediaHeight = getFluoMediaLayout(
+    const mediaWidth = post.attachments.length === 1
+      ? FLUO_MAX_MEDIA_WIDTH
+      : FLUO_CAROUSEL_MEDIA_WIDTH;
+    const mediaHeight = post.attachments.reduce((maximum, attachment) => Math.max(maximum,
+      getFluoMediaLayout(
         attachment.width,
         attachment.height,
-        post.attachments.length === 1 ? FLUO_MAX_MEDIA_WIDTH : columnWidth,
-      ).height;
-      rowHeights[row] = Math.max(rowHeights[row] ?? 0, mediaHeight);
-    }
-    return 113 + textLines * 20 + rowHeights.reduce((total, height) => total + height, 0)
-      + MEDIA_GRID_GAP * Math.max(0, rowHeights.length - 1);
+        mediaWidth,
+      ).height), 0);
+    return 113 + textLines * 20 + mediaHeight;
   }
 
   function measurePostElement(element: HTMLDivElement): number {
