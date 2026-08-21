@@ -737,18 +737,32 @@ export class LigoGState extends GState<LigoSnapshot> {
     try {
       const prepared = await this.transport.prepare(ownerId, delivery, cached);
       if (this.#deletedMessageIds.has(delivery.id)) return null;
-      if (cached && !prepared.replacePayload) {
-        await this.local.updateStatus(ownerId, prepared.message.id, prepared.message.status);
+      // History and inbox reconciliation can prepare the same delivery at the
+      // same time. One request may have read an empty cache while the other
+      // has already persisted the complete attachment. Re-read only in that
+      // race-prone case and never let a metadata-only envelope overwrite a
+      // complete local payload.
+      const current = !cached && prepared.replacePayload
+        ? await this.local.get(ownerId, delivery.id)
+        : cached;
+      const keepCurrentPayload = Boolean(current && messagePayloadReady(current) &&
+        !messagePayloadReady(prepared.message));
+      const message = keepCurrentPayload
+        ? { ...current!, status: advancedStatus(current!.status, prepared.message.status) }
+        : prepared.message;
+      const replacePayload = keepCurrentPayload ? false : prepared.replacePayload;
+      if (current && !replacePayload) {
+        await this.local.updateStatus(ownerId, message.id, message.status);
       } else {
         // Persist the light envelope immediately. Attachments use zero-byte
         // placeholders until independent background hydration replaces them.
-        await this.local.put(ownerId, prepared.message);
+        await this.local.put(ownerId, message);
       }
       return {
         delivery,
-        message: prepared.message,
+        message,
         pending: prepared.pending,
-        replacePayload: prepared.replacePayload,
+        replacePayload,
         verified: true,
       };
     } catch {
@@ -1260,7 +1274,21 @@ function messageForView(
   replacePayload: boolean,
 ): LigoMessage {
   const visible = current.find(({ id }) => id === update.id);
-  if (!visible || replacePayload) return update;
+  if (!visible) return update;
+  const visibleReady = messagePayloadReady(visible);
+  const updateReady = messagePayloadReady(update);
+  // A complete payload is always allowed to upgrade a metadata-only row,
+  // even when the surrounding reconciliation marked it as status-only.
+  if (!visibleReady && updateReady) return update;
+  // A late inbox/history response can contain the zero-byte metadata
+  // envelope for a file that has already finished hydrating. Keep the
+  // complete local message visible until a complete replacement is ready;
+  // otherwise the list briefly shrinks and the browser clamps the scroll to
+  // the tail of the last media item.
+  if (replacePayload) {
+    if (visibleReady && !updateReady) return { ...visible, status: advancedStatus(visible.status, update.status) };
+    return update;
+  }
   return { ...visible, status: advancedStatus(visible.status, update.status) };
 }
 function replaceMessage(messages: LigoMessage[], replacement: LigoMessage): LigoMessage[] {

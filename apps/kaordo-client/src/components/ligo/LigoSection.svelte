@@ -1,16 +1,19 @@
 <script lang="ts">
+  import { createVirtualizer } from '@tanstack/svelte-virtual';
+  import { get } from 'svelte/store';
   import { onDestroy, onMount, tick } from 'svelte';
   import type { LigoAttachment, LigoConversation, LigoMessage, LigoUser } from '../../lib/domain/ligo';
   import { PUBLIC_LIGO_DESTINATION } from '../../lib/gateways/NodeLigoTransport';
   import { ligoAttachmentUrls } from '../../lib/services/LigoAttachmentUrls';
   import type { LigoGState, LigoSnapshot } from '../../lib/states/LigoGState';
   import { openContextMenu } from '../../lib/ui/contextMenu';
-  import LigoImageViewer from './LigoImageViewer.svelte';
   import LigoStorageDialog from './LigoStorageDialog.svelte';
   import LigoVideoPlayer from './LigoVideoPlayer.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import PhotoViewer from '../ui/PhotoViewer.svelte';
 
   type Props = { snapshot: Readonly<LigoSnapshot>; state: LigoGState };
+  type ImageDimensions = { height: number; width: number };
   let { snapshot, state: ligoState }: Props = $props();
   let fileInput = $state<HTMLInputElement>();
   let composer = $state<HTMLTextAreaElement>();
@@ -20,10 +23,20 @@
   let conversationEnd = $state(24);
   let storageOpen = $state(false);
   let previewImage = $state<LigoAttachment | null>(null);
+  let previewImageDimensions = $state<ImageDimensions | null>(null);
+  const imageDimensions = new Map<string, ImageDimensions>();
   let latestMessageId = '';
   let restoringUserId = $state<string | null>(null);
   let initialRestore = $state(true);
+  let followsBottom = true;
+  let lastVirtualHeight = 0;
+  let bottomSyncFrame = 0;
+  let messageLayoutFrame = 0;
+  let lastMessageListWidth = 0;
   const conversationHeight = 62;
+  const messageGap = 6;
+  const messagePadding = 24;
+  const messageOverscan = 50;
   let visibleConversations = $derived(snapshot.conversations.slice(conversationStart, conversationEnd));
   let publicAvailable = $derived(Boolean(snapshot.publicStorage?.nodeCandidates.length));
   let selectedPrivate = $derived(snapshot.nodes.find(({ id }) => id === snapshot.selectedNodeId));
@@ -35,13 +48,62 @@
   let progress = $derived(snapshot.uploadProgress ? Math.round(snapshot.uploadProgress.uploadedBytes /
     Math.max(1, snapshot.uploadProgress.totalBytes) * 100) : 0);
 
+  const messageVirtualizer = createVirtualizer<HTMLElement, HTMLDivElement>({
+    count: 0,
+    estimateSize: estimateMessageHeight,
+    gap: messageGap,
+    getItemKey: messageKey,
+    getScrollElement: () => messageList ?? null,
+    initialRect: { height: 720, width: 820 },
+    measureElement: measureMessageElement,
+    overscan: messageOverscan,
+    paddingEnd: messagePadding,
+    paddingStart: messagePadding,
+    useAnimationFrameWithResizeObserver: false,
+  });
+  let virtualMessages = $derived($messageVirtualizer.getVirtualItems());
+  let virtualMessageHeight = $derived($messageVirtualizer.getTotalSize());
+
   onMount(() => {
     latestMessageId = snapshot.messages.at(-1)?.id ?? '';
     restoringUserId = snapshot.activeUser?.id ?? null;
     initialRestore = false;
     if (restoringUserId) void restoreScroll(restoringUserId);
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(scheduleMessageLayout);
+    if (messageList) resizeObserver?.observe(messageList);
+    scheduleMessageLayout();
+    return () => {
+      resizeObserver?.disconnect();
+      if (bottomSyncFrame) cancelAnimationFrame(bottomSyncFrame);
+      if (messageLayoutFrame) cancelAnimationFrame(messageLayoutFrame);
+    };
   });
   onDestroy(rememberScroll);
+
+  $effect(() => {
+    const count = snapshot.messages.length;
+    const scrollElement = messageList;
+    get(messageVirtualizer).setOptions({
+      count,
+      estimateSize: estimateMessageHeight,
+      gap: messageGap,
+      getItemKey: messageKey,
+      getScrollElement: () => scrollElement ?? null,
+      overscan: messageOverscan,
+      paddingEnd: messagePadding,
+      paddingStart: messagePadding,
+      useAnimationFrameWithResizeObserver: false,
+    });
+  });
+
+  $effect(() => {
+    const nextHeight = virtualMessageHeight;
+    if (nextHeight === lastVirtualHeight) return;
+    lastVirtualHeight = nextHeight;
+    if (followsBottom && restoringUserId !== snapshot.activeUser?.id) scheduleBottomSync();
+  });
 
   $effect(() => {
     if (initialRestore) return;
@@ -88,8 +150,20 @@
   async function scrollBottom() {
     await tick();
     if (!messageList) return;
+    followsBottom = true;
+    const lastIndex = snapshot.messages.length - 1;
+    if (lastIndex >= 0) get(messageVirtualizer).scrollToIndex(lastIndex, { align: 'end' });
+    await nextFrame();
     messageList.scrollTop = messageList.scrollHeight;
     rememberScroll();
+  }
+  function scheduleBottomSync(): void {
+    if (bottomSyncFrame) return;
+    bottomSyncFrame = requestAnimationFrame(() => {
+      bottomSyncFrame = 0;
+      if (!messageList || !followsBottom || restoringUserId === snapshot.activeUser?.id) return;
+      messageList.scrollTop = messageList.scrollHeight;
+    });
   }
   function rememberScroll() {
     const userId = snapshot.activeUser?.id;
@@ -97,8 +171,9 @@
     const viewport = messageList.getBoundingClientRect();
     const messages = [...messageList.querySelectorAll<HTMLElement>('[data-message-id]')];
     const anchor = messages.find((message) => message.getBoundingClientRect().bottom > viewport.top + 1) ?? null;
+    followsBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 4;
     ligoState.rememberScroll(userId, {
-      atBottom: messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 4,
+      atBottom: followsBottom,
       messageId: anchor?.dataset.messageId ?? null,
       offset: anchor ? anchor.getBoundingClientRect().top - viewport.top : 0,
       scrollTop: messageList.scrollTop,
@@ -109,8 +184,18 @@
     if (!messageList || snapshot.activeUser?.id !== userId || restoringUserId !== userId) return;
     const remembered = ligoState.rememberedScroll(userId);
     if (!remembered || remembered.atBottom) {
+      followsBottom = true;
+      const lastIndex = snapshot.messages.length - 1;
+      if (lastIndex >= 0) get(messageVirtualizer).scrollToIndex(lastIndex, { align: 'end' });
+      await nextFrame();
       messageList.scrollTop = messageList.scrollHeight;
     } else {
+      followsBottom = false;
+      const index = snapshot.messages.findIndex(({ id }) => id === remembered.messageId);
+      if (index >= 0) {
+        get(messageVirtualizer).scrollToIndex(index, { align: 'start' });
+        await nextFrame();
+      }
       const viewportTop = messageList.getBoundingClientRect().top;
       const anchor = [...messageList.querySelectorAll<HTMLElement>('[data-message-id]')]
         .find((message) => message.dataset.messageId === remembered.messageId);
@@ -123,35 +208,43 @@
     latestMessageId = snapshot.messages.at(-1)?.id ?? '';
     restoringUserId = null;
   }
-  function stabilizeMessage(node: HTMLElement, messageId: string) {
-    let layoutKey = messageLayoutKey();
-    const reserve = () => {
-      const height = ligoState.rememberedMessageHeight(messageId, layoutKey);
-      node.style.minHeight = height ? `${height}px` : '';
+  function messageKey(index: number): string | number {
+    return snapshot.messages[index]?.id ?? index;
+  }
+  function estimateMessageHeight(index: number): number {
+    const message = snapshot.messages[index];
+    if (!message) return 52;
+    const remembered = ligoState.rememberedMessageHeight(message.id, messageLayoutKey());
+    if (remembered) return remembered;
+    const listWidth = Math.max(320, messageList?.clientWidth ?? 820);
+    const messageWidth = Math.min(584, Math.max(220, (listWidth - 80) * .7));
+    const mediaHeight = Math.max(148, Math.round((messageWidth - 10) * 9 / 16));
+    let attachmentsHeight = 0;
+    for (const attachment of message.attachments) {
+      if (attachment.mimeType.startsWith('video/')) attachmentsHeight += mediaHeight;
+      else if (attachment.mimeType.startsWith('image/')) attachmentsHeight += Math.min(380, mediaHeight);
+      else attachmentsHeight += 52;
+    }
+    if (message.attachments.length > 1) attachmentsHeight += (message.attachments.length - 1) * 5;
+    const textLines = message.body ? Math.max(1, Math.min(12, Math.ceil(message.body.length / 48))) : 0;
+    return Math.max(38, attachmentsHeight + textLines * 20 + (message.attachments.length ? 32 : 22));
+  }
+  function measureMessageElement(node: HTMLDivElement): number {
+    const measured = node.offsetHeight;
+    if (measured > 0) {
+      const messageId = node.dataset.messageId;
+      if (messageId) ligoState.rememberMessageHeight(messageId, messageLayoutKey(), measured);
+      return measured;
+    }
+    const index = Number(node.dataset.index);
+    return Number.isSafeInteger(index) ? estimateMessageHeight(index) : 52;
+  }
+  function measureMessage(node: HTMLDivElement) {
+    get(messageVirtualizer).measureElement(node);
+    return {
+      update: () => get(messageVirtualizer).measureElement(node),
+      destroy: () => get(messageVirtualizer).measureElement(null),
     };
-    reserve();
-    let previousHeight = node.getBoundingClientRect().height;
-    const observer = new ResizeObserver(() => {
-      const nextLayoutKey = messageLayoutKey();
-      if (nextLayoutKey !== layoutKey) {
-        layoutKey = nextLayoutKey;
-        reserve();
-        previousHeight = node.getBoundingClientRect().height;
-        return;
-      }
-      const nextHeight = node.getBoundingClientRect().height;
-      const delta = nextHeight - previousHeight;
-      if (Math.abs(delta) < 0.5) return;
-      const list = messageList;
-      const aboveViewport = Boolean(list && node.getBoundingClientRect().top < list.getBoundingClientRect().top);
-      previousHeight = nextHeight;
-      ligoState.rememberMessageHeight(messageId, layoutKey, nextHeight);
-      node.style.minHeight = `${ligoState.rememberedMessageHeight(messageId, layoutKey) ?? nextHeight}px`;
-      if (list && aboveViewport && restoringUserId !== snapshot.activeUser?.id) list.scrollTop += delta;
-    });
-    observer.observe(node);
-    ligoState.rememberMessageHeight(messageId, layoutKey, previousHeight);
-    return { destroy: () => observer.disconnect() };
   }
   function messageLayoutKey(): string {
     const textScale = typeof document === 'undefined'
@@ -159,13 +252,38 @@
       : getComputedStyle(document.documentElement).getPropertyValue('--text-scale').trim() || '1';
     return `${Math.round(messageList?.clientWidth ?? 0)}:${textScale}:${globalThis.devicePixelRatio ?? 1}`;
   }
+  function scheduleMessageLayout(): void {
+    if (messageLayoutFrame) return;
+    messageLayoutFrame = requestAnimationFrame(() => {
+      messageLayoutFrame = 0;
+      const width = messageList?.clientWidth ?? 0;
+      if (width <= 0 || width === lastMessageListWidth) return;
+      lastMessageListWidth = width;
+      get(messageVirtualizer).measure();
+    });
+  }
+  function nextFrame(): Promise<void> {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
   async function onScroll() {
     rememberScroll();
-    if (!messageList || messageList.scrollTop > 100 || !snapshot.hasOlder || snapshot.loadingOlder) return;
-    const previousHeight = messageList.scrollHeight;
+    if (!messageList || restoringUserId === snapshot.activeUser?.id || messageList.scrollTop > 100 ||
+        !snapshot.hasOlder || snapshot.loadingOlder) return;
+    const anchorId = snapshot.messages[0]?.id ?? null;
+    const anchor = anchorId
+      ? messageList.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(anchorId)}"]`)
+      : null;
+    const anchorOffset = anchor ? anchor.getBoundingClientRect().top - messageList.getBoundingClientRect().top : 0;
     await ligoState.loadOlder();
     await tick();
-    messageList.scrollTop += messageList.scrollHeight - previousHeight;
+    const index = anchorId ? snapshot.messages.findIndex(({ id }) => id === anchorId) : -1;
+    if (index >= 0) {
+      get(messageVirtualizer).scrollToIndex(index, { align: 'start' });
+      await nextFrame();
+      const restored = messageList.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(anchorId!)}"]`);
+      if (restored) messageList.scrollTop += restored.getBoundingClientRect().top -
+        messageList.getBoundingClientRect().top - anchorOffset;
+    }
   }
   function onConversationScroll() {
     if (!conversationList) return;
@@ -186,9 +304,32 @@
   function fileUrl(attachment: LigoAttachment): string {
     return ligoAttachmentUrls.get(attachment);
   }
+  function rememberImageDimensions(event: Event, attachmentId: string): void {
+    const image = event.currentTarget as HTMLImageElement;
+    if (image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+    imageDimensions.set(attachmentId, {
+      height: image.naturalHeight,
+      width: image.naturalWidth,
+    });
+  }
+  function openImagePreview(event: MouseEvent, attachment: LigoAttachment): void {
+    const image = (event.currentTarget as HTMLElement).querySelector('img');
+    const dimensions = image && image.naturalWidth > 0 && image.naturalHeight > 0
+      ? { height: image.naturalHeight, width: image.naturalWidth }
+      : imageDimensions.get(attachment.id) ?? null;
+    previewImageDimensions = dimensions;
+    previewImage = attachment;
+  }
+  function closeImagePreview(): void {
+    previewImage = null;
+    previewImageDimensions = null;
+  }
   function fileReady(attachment: LigoAttachment): boolean {
     return attachment.blob instanceof Blob && attachment.blob.size === attachment.size &&
       (typeof File === 'undefined' || !(attachment.blob instanceof File));
+  }
+  function isMediaAttachment(attachment: LigoAttachment): boolean {
+    return attachment.mimeType.startsWith('image/') || attachment.mimeType.startsWith('video/');
   }
   function isMine(message: LigoMessage): boolean { return message.senderId !== snapshot.activeUser?.id; }
   function statusMark(message: LigoMessage): string {
@@ -308,51 +449,59 @@
         </div>
       </header>
 
-      <div bind:this={messageList} class="message-list"
-        class:restoring={initialRestore || restoringUserId === snapshot.activeUser.id} onscroll={onScroll}>
+      <div bind:this={messageList} class="message-list" onscroll={onScroll}>
         {#if snapshot.loadingOlder || snapshot.loadingHistory}<div class="history-loader"><LoadingSpinner compact /> {snapshot.loadingHistory ? 'Checking message clouds' : 'Loading older messages'}</div>{/if}
         {#if !snapshot.messages.length}<div class="chat-empty">
           <span class="avatar avatar--hero">{avatar(snapshot.activeUser.username)}</span>
           <h2>Start a conversation with {snapshot.activeUser.username}</h2>
           <p>Messages are kept locally on both devices. Nodo only holds a message while delivery is pending.</p>
-        </div>{/if}
-        {#each snapshot.messages as message (message.id)}
-          <div class="message-slot" class:mine={isMine(message)} data-message-id={message.id}
-            use:stabilizeMessage={message.id}>
-            <article class="message" class:media-message={message.attachments.some((attachment) =>
-                attachment.mimeType.startsWith('image/') || attachment.mimeType.startsWith('video/'))}
-              class:sending={message.status === 'sending'}
-              class:failed={message.status === 'failed'}
-              oncontextmenu={(event) => openMessageMenu(event, message)}>
-              {#if message.attachments.length}<div class="message-files">
-                {#each message.attachments as attachment (attachment.id)}
-                  {#if !fileReady(attachment)}
-                    <div class="restoring-file" aria-live="polite">
-                      <LoadingSpinner compact />
-                      <span><strong>{attachment.name}</strong><small>Restoring local file…</small></span>
-                    </div>
-                  {:else if attachment.mimeType.startsWith('image/')}
-                    <button class="image-file" type="button" onclick={() => { previewImage = attachment; }}
-                      title="Open image" aria-label={`Open ${attachment.name}`}>
-                      <img src={fileUrl(attachment)} alt={attachment.name} />
-                    </button>
-                  {:else if attachment.mimeType.startsWith('video/')}
-                    <LigoVideoPlayer {attachment} />
-                  {:else if attachment.mimeType.startsWith('audio/')}
-                    <div class="audio-file"><strong>{attachment.name}</strong><audio src={fileUrl(attachment)} controls></audio></div>
-                  {:else}
-                    <a class="generic-file" href={fileUrl(attachment)} download={attachment.name}>
-                      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h6l4 4v11H5z"/><path d="M11 2.5v4h4"/></svg>
-                      <span><strong>{attachment.name}</strong><small>{formatBytes(attachment.size)}</small></span>
-                    </a>
-                  {/if}
-                {/each}
-              </div>{/if}
-              {#if message.body}<p>{message.body}</p>{/if}
-              <footer><time>{time(message.createdAt)}</time>{#if isMine(message)}<span title={statusTitle(message)}>{statusMark(message)}</span>{/if}</footer>
-            </article>
+        </div>{:else}
+          <div class="message-track" style={`height:${virtualMessageHeight}px`}>
+            {#each virtualMessages as row (row.key)}
+              {@const message = snapshot.messages[row.index]}
+              {#if message}
+                <div class="virtual-message" data-index={row.index} data-message-id={message.id}
+                  style={`transform:translateY(${row.start}px)`} use:measureMessage>
+                  <div class="message-slot" class:mine={isMine(message)}>
+                    <article class="message" class:media-message={message.attachments.some((attachment) =>
+                        attachment.mimeType.startsWith('image/') || attachment.mimeType.startsWith('video/'))}
+                      class:sending={message.status === 'sending'}
+                      class:failed={message.status === 'failed'}
+                      oncontextmenu={(event) => openMessageMenu(event, message)}>
+                      {#if message.attachments.length}<div class="message-files">
+                        {#each message.attachments as attachment (attachment.id)}
+                          {#if !fileReady(attachment)}
+                            <div class="restoring-file" class:restoring-media={isMediaAttachment(attachment)} aria-live="polite">
+                              <LoadingSpinner compact />
+                              <span><strong>{attachment.name}</strong><small>Restoring local file…</small></span>
+                            </div>
+                          {:else if attachment.mimeType.startsWith('image/')}
+                            <button class="image-file" type="button" onclick={(event) => openImagePreview(event, attachment)}
+                              title="Open image" aria-label={`Open ${attachment.name}`}>
+                              <img src={fileUrl(attachment)} alt={attachment.name}
+                                onload={(event) => rememberImageDimensions(event, attachment.id)} />
+                            </button>
+                          {:else if attachment.mimeType.startsWith('video/')}
+                            <LigoVideoPlayer {attachment} />
+                          {:else if attachment.mimeType.startsWith('audio/')}
+                            <div class="audio-file"><strong>{attachment.name}</strong><audio src={fileUrl(attachment)} controls></audio></div>
+                          {:else}
+                            <a class="generic-file" href={fileUrl(attachment)} download={attachment.name}>
+                              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h6l4 4v11H5z"/><path d="M11 2.5v4h4"/></svg>
+                              <span><strong>{attachment.name}</strong><small>{formatBytes(attachment.size)}</small></span>
+                            </a>
+                          {/if}
+                        {/each}
+                      </div>{/if}
+                      {#if message.body}<p>{message.body}</p>{/if}
+                      <footer><time>{time(message.createdAt)}</time>{#if isMine(message)}<span title={statusTitle(message)}>{statusMark(message)}</span>{/if}</footer>
+                    </article>
+                  </div>
+                </div>
+              {/if}
+            {/each}
           </div>
-        {/each}
+        {/if}
       </div>
 
       <div class="composer-wrap">
@@ -404,7 +553,14 @@
 {/if}
 
 {#if previewImage}
-  <LigoImageViewer attachment={previewImage} url={fileUrl(previewImage)} onClose={() => { previewImage = null; }} />
+  <PhotoViewer
+    alt={previewImage.name}
+    height={previewImageDimensions?.height}
+    name={previewImage.name}
+    onClose={closeImagePreview}
+    url={fileUrl(previewImage)}
+    width={previewImageDimensions?.width}
+  />
 {/if}
 
 <style>
@@ -418,11 +574,11 @@
   .avatar{position:relative;display:grid;flex:none;width:44px;height:44px;color:white;background:linear-gradient(145deg,var(--accent),color-mix(in srgb,var(--accent) 62%,#143d35));border-radius:14px;place-items:center;font-size:calc(12px * var(--text-scale));font-weight:750;box-shadow:inset 0 0 0 1px rgb(255 255 255 / 15%)}.avatar i{position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;background:var(--muted);border:2px solid var(--panel);border-radius:50%}.avatar i.online{background:#3fbd83}
   .conversation-copy{display:grid;min-width:0;flex:1;gap:4px}.conversation-copy>span{display:flex;align-items:center;gap:8px}.conversation-copy strong{overflow:hidden;flex:1;font-size:calc(13px * var(--text-scale));text-overflow:ellipsis}.conversation-copy time{color:var(--muted);font-size:calc(10px * var(--text-scale))}.conversation-copy small{overflow:hidden;color:var(--muted);font-size:calc(11px * var(--text-scale));text-overflow:ellipsis;white-space:nowrap}.empty-list{padding:22px 12px;color:var(--muted);font-size:calc(12px * var(--text-scale));line-height:1.55}.loading-list{display:flex;align-items:center;gap:10px;padding:24px 12px;color:var(--muted);font-size:calc(11px * var(--text-scale))}
   .chat-panel{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-width:0;min-height:0;background:radial-gradient(circle at 90% 0,color-mix(in srgb,var(--accent) 6%,transparent),transparent 36%),var(--canvas)}.chat-header{display:flex;align-items:center;gap:11px;min-height:64px;padding:0 22px;background:color-mix(in srgb,var(--panel) 88%,transparent);border-bottom:1px solid var(--line);backdrop-filter:blur(16px)}.avatar--small{width:38px;height:38px;border-radius:12px}.chat-header>div{display:grid;gap:2px}.chat-header strong{font-size:calc(13px * var(--text-scale))}.chat-header small{color:var(--muted);font-size:calc(10px * var(--text-scale))}.chat-header .chat-actions{display:flex;align-items:center;gap:9px;margin-left:auto}.local-files{display:grid;width:32px;height:32px;padding:0;color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid color-mix(in srgb,var(--accent) 18%,var(--line));border-radius:10px;cursor:pointer;place-items:center;transition:background 140ms ease,border-color 140ms ease,transform 140ms ease}.local-files:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 14%,transparent);border-color:color-mix(in srgb,var(--accent) 32%,var(--line));transform:translateY(-1px)}.local-files:disabled{cursor:default;opacity:.65}.local-files svg{width:18px;fill:color-mix(in srgb,var(--accent) 12%,transparent);stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.45}.route-state{color:var(--accent);font-size:calc(10px * var(--text-scale));font-weight:650}.route-state.unavailable{color:#b45b61}
-  .message-list{position:relative;display:flex;flex-direction:column;gap:6px;overflow:auto;padding:24px clamp(20px,5vw,72px);scroll-behavior:auto}.message-list.restoring{visibility:hidden}.history-loader{position:absolute;z-index:2;top:10px;left:50%;display:flex;align-items:center;gap:8px;padding:7px 11px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;box-shadow:0 4px 14px rgb(20 48 39 / 8%);font-size:calc(10px * var(--text-scale));transform:translateX(-50%)}.chat-empty{margin:auto;text-align:center;max-width:430px}.avatar--hero{width:68px;height:68px;margin:0 auto 16px;border-radius:22px;font-size:calc(18px * var(--text-scale))}.chat-empty h2,.welcome h2{margin:0 0 8px;font-size:calc(20px * var(--text-scale));letter-spacing:-.025em}.chat-empty p,.welcome p{margin:0;color:var(--muted);font-size:calc(12px * var(--text-scale));line-height:1.6}
+  .message-list{position:relative;min-height:0;height:100%;overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scroll-behavior:auto;contain:layout paint style;isolation:isolate}.message-track{position:relative;width:100%;min-height:1px;overflow-anchor:none}.virtual-message{position:absolute;top:0;left:0;width:100%;padding-inline:clamp(20px,5vw,72px);contain:layout paint style}.history-loader{position:sticky;z-index:3;top:10px;display:flex;width:max-content;align-items:center;gap:8px;margin:10px auto -42px;padding:7px 11px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;box-shadow:0 4px 14px rgb(20 48 39 / 8%);font-size:calc(10px * var(--text-scale))}.chat-empty{display:grid;min-height:100%;padding:24px;place-content:center;text-align:center}.chat-empty>*{justify-self:center}.chat-empty p{max-width:430px}.avatar--hero{width:68px;height:68px;margin:0 auto 16px;border-radius:22px;font-size:calc(18px * var(--text-scale))}.chat-empty h2,.welcome h2{margin:0 0 8px;font-size:calc(20px * var(--text-scale));letter-spacing:-.025em}.chat-empty p,.welcome p{margin:0;color:var(--muted);font-size:calc(12px * var(--text-scale));line-height:1.6}
   .message-slot{display:flex;flex:0 0 auto;min-width:0;width:100%;align-items:flex-start;justify-content:flex-start}.message-slot.mine{justify-content:flex-end}.message{box-sizing:border-box;min-width:0;max-width:min(70%,680px);padding:9px 12px 6px;background:var(--panel);border:1px solid var(--line);border-radius:6px 16px 16px 16px;box-shadow:0 5px 18px rgb(20 48 39 / 5%);transition:opacity 150ms ease,border-color 150ms ease}.message.media-message{width:min(70%,584px);padding:5px 5px 6px}.message-slot.mine .message{background:color-mix(in srgb,var(--accent) 13%,var(--panel));border-color:color-mix(in srgb,var(--accent) 20%,var(--line));border-radius:16px 6px 16px 16px}.message.sending{opacity:.48}.message.failed{border-color:color-mix(in srgb,#b44b55 45%,var(--line));opacity:.72}.message p{margin:0;overflow-wrap:anywhere;white-space:pre-wrap;font-size:calc(13px * var(--text-scale));line-height:1.48}.message.media-message>p{padding:3px 7px 0}.message footer{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:3px;color:var(--muted);font-size:calc(9px * var(--text-scale))}.message.media-message>footer{padding-inline:6px}.message-slot.mine footer span{color:var(--accent);font-weight:800;letter-spacing:-.12em}.message.failed footer span{color:#b44b55}
-  .message-files{display:grid;gap:5px;max-width:100%;margin-bottom:7px}.message-files img{display:block;max-width:100%;max-height:380px;border-radius:10px;background:#111;object-fit:contain}.image-file{display:block;max-width:100%;padding:0;background:transparent;border:0;border-radius:10px;cursor:zoom-in;overflow:hidden}.image-file img{transition:transform 180ms ease,filter 180ms ease}.image-file:hover img{filter:brightness(.94);transform:scale(1.012)}.image-file:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.generic-file,.restoring-file{display:flex;align-items:center;gap:9px;min-width:220px;padding:8px;color:inherit;text-decoration:none;background:color-mix(in srgb,var(--canvas) 75%,transparent);border-radius:10px}.generic-file svg{width:28px;fill:none;stroke:var(--accent);stroke-width:1.4}.generic-file span,.audio-file,.restoring-file span{display:grid;gap:2px}.generic-file strong,.audio-file strong,.restoring-file strong{overflow:hidden;max-width:360px;font-size:calc(11px * var(--text-scale));text-overflow:ellipsis}.generic-file small,.restoring-file small{color:var(--muted);font-size:calc(9px * var(--text-scale))}.audio-file audio{max-width:360px;height:34px}
+  .message-files{display:grid;gap:5px;max-width:100%;margin-bottom:7px}.message-files img{display:block;max-width:100%;max-height:380px;border-radius:10px;background:#111;object-fit:contain}.image-file{display:block;max-width:100%;padding:0;background:transparent;border:0;border-radius:10px;cursor:zoom-in;overflow:hidden}.image-file img{transition:transform 180ms ease,filter 180ms ease}.image-file:hover img{filter:brightness(.94);transform:scale(1.012)}.image-file:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.generic-file,.restoring-file{display:flex;align-items:center;gap:9px;min-width:220px;padding:8px;color:inherit;text-decoration:none;background:color-mix(in srgb,var(--canvas) 75%,transparent);border-radius:10px}.restoring-file.restoring-media{width:100%;min-width:0;min-height:148px;aspect-ratio:16/9;justify-content:center;padding:16px}.generic-file svg{width:28px;fill:none;stroke:var(--accent);stroke-width:1.4}.generic-file span,.audio-file,.restoring-file span{display:grid;gap:2px}.generic-file strong,.audio-file strong,.restoring-file strong{overflow:hidden;max-width:360px;font-size:calc(11px * var(--text-scale));text-overflow:ellipsis}.generic-file small,.restoring-file small{color:var(--muted);font-size:calc(9px * var(--text-scale))}.audio-file audio{max-width:360px;height:34px}
   .composer-wrap{padding:8px clamp(18px,4vw,58px) 16px}.composer{display:flex;align-items:flex-end;gap:7px;padding:7px;background:var(--panel);border:1px solid var(--line-strong);border-radius:16px;box-shadow:0 10px 28px rgb(20 48 39 / 8%)}.composer input{display:none}.composer textarea{min-width:0;flex:1;min-height:22px;max-height:148px;padding:6px 3px;overflow-x:hidden;overflow-y:auto;resize:none;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:none;color:var(--ink);background:transparent;border:0;outline:0;font:inherit;font-size:calc(13px * var(--text-scale));line-height:1.45}.composer textarea::-webkit-scrollbar{display:none;width:0;height:0}.composer button{display:grid;flex:none;width:34px;height:34px;border:0;border-radius:11px;cursor:pointer;place-items:center}.composer button:disabled{cursor:default;opacity:.4}.composer svg{width:18px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7}.attach{color:var(--muted);background:transparent}.attach:hover{color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}.send{color:white;background:var(--accent)}.send svg{fill:currentColor;stroke:var(--accent-bright)}.composer-hint{display:block;margin:5px 6px 0;color:var(--muted);font-size:calc(9px * var(--text-scale))}
   .draft-files{display:flex;gap:6px;overflow:auto;padding:0 2px 7px}.draft-files>span{display:flex;align-items:center;gap:7px;max-width:250px;padding:7px 8px;background:var(--panel);border:1px solid var(--line);border-radius:10px}.draft-files strong{overflow:hidden;font-size:calc(10px * var(--text-scale));text-overflow:ellipsis;white-space:nowrap}.draft-files small{flex:none;color:var(--muted);font-size:calc(9px * var(--text-scale))}.draft-files button{color:var(--muted);background:none;border:0;cursor:pointer}.upload{display:grid;grid-template-columns:1fr auto;gap:5px;margin-bottom:7px;padding:8px 11px;color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel));border-radius:10px;font-size:calc(10px * var(--text-scale))}.upload i{grid-column:1/-1;height:4px;overflow:hidden;background:color-mix(in srgb,var(--accent) 14%,transparent);border-radius:999px}.upload b{display:block;height:100%;background:var(--accent);border-radius:inherit}.error{margin:0 0 7px;padding:8px 10px;color:#a1454c;background:rgb(180 70 78 / 9%);border-radius:9px;font-size:calc(10px * var(--text-scale))}
   .welcome{align-self:center;justify-self:center;max-width:420px;padding:30px;text-align:center}.welcome-mark{display:grid;width:68px;height:68px;margin:0 auto 18px;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--panel));border:1px solid color-mix(in srgb,var(--accent) 18%,var(--line));border-radius:22px;place-items:center}.welcome-mark svg{width:35px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.5}
-  @media(max-width:760px){.ligo-shell{grid-template-columns:240px minmax(0,1fr)}.conversation-header{padding-inline:12px}.message{max-width:88%}.message.media-message{width:88%}.message-list{padding-inline:16px}}
+  @media(max-width:760px){.ligo-shell{grid-template-columns:240px minmax(0,1fr)}.conversation-header{padding-inline:12px}.message{max-width:88%}.message.media-message{width:88%}.virtual-message{padding-inline:16px}}
 </style>
