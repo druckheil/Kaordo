@@ -73,6 +73,27 @@ class NodeHttpServerTest {
             assertEquals(206, range.first)
             assertEquals("2345", range.second)
 
+            val unchanged = request(
+                port,
+                "GET",
+                "/v1/files/${streamed.id}?access_token=$OWNER_TICKET",
+                null,
+                null,
+                ifNoneMatch = "\"${streamed.id}-10\"",
+            )
+            assertEquals(304, unchanged.first)
+            assertEquals("", unchanged.second)
+
+            val head = request(
+                port,
+                "HEAD",
+                "/v1/files/${streamed.id}?access_token=$OWNER_TICKET",
+                null,
+                null,
+            )
+            assertEquals(200, head.first)
+            assertEquals("", head.second)
+
             val tested = request(port, "POST", "/v1/diagnostics/quick-test", OWNER_TICKET, null)
             assertEquals(200, tested.first)
             assertEquals(120_000_000, JSONObject(tested.second).getLong("diskReadBps"))
@@ -325,6 +346,7 @@ class NodeHttpServerTest {
         body: String?,
         reservationId: String? = null,
         range: String? = null,
+        ifNoneMatch: String? = null,
         rondoSpaceId: String? = null,
         rondoRoomId: String? = null,
     ): Pair<Int, String> {
@@ -337,6 +359,7 @@ class NodeHttpServerTest {
             connection.setRequestProperty("X-Kaordo-Public-Reservation", it)
         }
         range?.let { connection.setRequestProperty("Range", it) }
+        ifNoneMatch?.let { connection.setRequestProperty("If-None-Match", it) }
         rondoSpaceId?.let { connection.setRequestProperty("X-Kaordo-Rondo-Space", it) }
         rondoRoomId?.let { connection.setRequestProperty("X-Kaordo-Rondo-Room", it) }
         body?.let {

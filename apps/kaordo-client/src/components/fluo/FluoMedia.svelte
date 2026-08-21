@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { FluoAttachment, FluoGState } from '../../lib/states/FluoGState';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
 
@@ -6,55 +7,118 @@
     attachment: FluoAttachment;
     fluoState: FluoGState;
     postId: string;
+    register: (load: () => Promise<void>) => () => void;
   };
 
-  let { attachment, fluoState, postId }: Props = $props();
-  let container = $state<HTMLElement>();
+  let { attachment, fluoState, postId, register }: Props = $props();
+  let retrying = $state(false);
+  let automaticRetryUsed = $state(false);
+  let mediaUrl = $state<string>();
+  let loadState = $state<'error' | 'idle' | 'loading' | 'ready'>('idle');
+  let loadingRequest: Promise<void> | null = null;
 
-  // Keep this effect reactive to refreshed attachment objects. A keyed post
-  // can survive a feed refresh, so onMount alone would leave its new idle
-  // media stuck on a skeleton until virtualization remounted the component.
+  const MIN_MEDIA_HEIGHT = 148;
+  const MAX_MEDIA_HEIGHT = 430;
+  const MAX_MEDIA_WIDTH = 520;
+  let mediaRatio = $derived(validRatio(attachment.width, attachment.height));
+  let mediaWidth = $derived(displayWidth(attachment.width, mediaRatio));
+
+  onMount(() => register(ensureLoaded));
+
+  // Locally published media already carries an object URL. Synchronize that
+  // exceptional path without pushing remote-media progress through posts[].
   $effect(() => {
-    const element = container;
-    const loadState = attachment.loadState;
-    const url = attachment.url;
-    if (!element || url || (loadState && loadState !== 'idle')) return;
-    if (typeof IntersectionObserver === 'undefined') {
-      void fluoState.loadMedia(postId, attachment.id);
-      return;
-    }
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some(({ isIntersecting }) => isIntersecting)) return;
-      observer.disconnect();
-      void fluoState.loadMedia(postId, attachment.id);
-    }, {
-      root: element.closest('.fluo-shell'),
-      // Fetch the media while it is still well ahead of the viewport. The
-      // surrounding virtual window keeps this bounded, while the browser's
-      // native loader streams and caches the immutable response.
-      rootMargin: '1800px 0px',
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
+    if (!attachment.url || attachment.url === mediaUrl) return;
+    mediaUrl = attachment.url;
+    loadState = 'ready';
   });
 
+  function validRatio(width?: number, height?: number): number {
+    if (!width || !height || !Number.isFinite(width) || !Number.isFinite(height)) return 16 / 9;
+    return Math.min(4, Math.max(0.35, width / height));
+  }
+
+  function displayWidth(width: number | undefined, ratio: number): number {
+    const minimum = MIN_MEDIA_HEIGHT * ratio;
+    const maximum = Math.min(MAX_MEDIA_WIDTH, MAX_MEDIA_HEIGHT * ratio);
+    return Math.round(Math.min(maximum, Math.max(minimum, width ?? maximum)));
+  }
+
+  function ensureLoaded(): Promise<void> {
+    if (mediaUrl) return Promise.resolve();
+    if (loadingRequest) return loadingRequest;
+    loadState = 'loading';
+    loadingRequest = fluoState.loadMedia(postId, attachment.id).then((url) => {
+      if (url) {
+        mediaUrl = url;
+        loadState = 'ready';
+      } else {
+        loadState = 'error';
+      }
+    }).finally(() => {
+      loadingRequest = null;
+    });
+    return loadingRequest;
+  }
+
+  function retry(): Promise<void> {
+    if (retrying) return loadingRequest ?? Promise.resolve();
+    retrying = true;
+    mediaUrl = undefined;
+    loadState = 'loading';
+    loadingRequest = fluoState.retryMedia(postId, attachment.id).then((url) => {
+      if (url) {
+        mediaUrl = url;
+        loadState = 'ready';
+      } else {
+        loadState = 'error';
+      }
+    }).finally(() => {
+      loadingRequest = null;
+      retrying = false;
+    });
+    return loadingRequest;
+  }
+
+  function handleImageError(): void {
+    if (automaticRetryUsed) {
+      fluoState.markMediaUnavailable(postId, attachment.id);
+      mediaUrl = undefined;
+      loadState = 'error';
+      return;
+    }
+    automaticRetryUsed = true;
+    void retry();
+  }
+
+  function retryFromButton(): void {
+    automaticRetryUsed = false;
+    void retry();
+  }
 </script>
 
-<figure bind:this={container} class:media-unavailable={attachment.loadState === 'error'}>
-  {#if attachment.kind === 'video'}
+<figure
+  class:media-unavailable={loadState === 'error'}
+  style={`--media-ratio:${mediaRatio};--media-width:${mediaWidth}px`}
+>
+  {#if loadState === 'error'}
+    <button class="media-retry" type="button" disabled={retrying} onclick={retryFromButton}>
+      {retrying ? 'Retrying media…' : 'Media unavailable · Retry'}
+    </button>
+  {:else if attachment.kind === 'video' && mediaUrl}
     <KaordoVideoPlayer
       mimeType={attachment.mimeType}
-      src={attachment.url ?? ''}
+      preload="none"
+      src={mediaUrl}
       title={attachment.name}
     />
-  {:else if attachment.url}
-    <img src={attachment.url} alt={attachment.name} decoding="async" />
-  {:else if attachment.loadState === 'error'}
-    <button class="media-retry" type="button" onclick={() => fluoState.loadMedia(postId, attachment.id)}>
-      Media unavailable · Retry
-    </button>
+  {:else if attachment.kind !== 'video' && mediaUrl}
+    <img src={mediaUrl} alt={attachment.name} decoding="async" onerror={handleImageError} />
   {:else}
-    <span class="media-skeleton" aria-label={`Loading ${attachment.name}`}></span>
+    <span
+      class="media-skeleton"
+      aria-label={`Loading ${attachment.name}`}
+    ></span>
   {/if}
   {#if attachment.kind === 'gif'}<span class="media-kind">GIF</span>{/if}
 </figure>
@@ -63,37 +127,35 @@
   figure {
     position: relative;
     min-width: 0;
-    min-height: 148px;
-    aspect-ratio: 16 / 9;
+    width: min(100%, var(--media-width));
+    aspect-ratio: var(--media-ratio);
     margin: 0;
     overflow: hidden;
+    border: 1px solid #d8dfda;
+    border-radius: 11px;
     background: #e9eeea;
+    justify-self: start;
   }
 
   img {
     display: block;
     width: 100%;
     height: 100%;
-    min-height: 148px;
-    max-height: 430px;
-    object-fit: cover;
+    object-fit: contain;
+    object-position: left center;
   }
 
   .media-skeleton {
     display: block;
     width: 100%;
     height: 100%;
-    min-height: 148px;
-    background: linear-gradient(105deg, #e7ece8 20%, #f5f7f5 38%, #e7ece8 56%);
-    background-size: 220% 100%;
-    animation: shimmer 1.35s linear infinite;
+    background: #e7ece8;
   }
 
   .media-retry {
     display: flex;
     width: 100%;
     height: 100%;
-    min-height: 148px;
     border: 0;
     color: #52625a;
     background: #edf1ee;
@@ -117,5 +179,4 @@
     font-weight: 750;
   }
 
-  @keyframes shimmer { to { background-position: -220% 0; } }
 </style>

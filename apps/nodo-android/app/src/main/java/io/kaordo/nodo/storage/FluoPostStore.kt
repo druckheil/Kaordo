@@ -84,6 +84,9 @@ class FluoPostStore(
             require(attachment.mimeType.length in 1..120 && !hasControls(attachment.mimeType))
             require(attachment.name.length in 1..180 && !hasControls(attachment.name))
             require(attachment.size >= 0)
+            require((attachment.width == null) == (attachment.height == null))
+            require(attachment.width == null || attachment.width in 1..MAX_MEDIA_DIMENSION)
+            require(attachment.height == null || attachment.height in 1..MAX_MEDIA_DIMENSION)
             val (record, file) = uploads.completedFile(attachment.id) ?: throw MissingMedia()
             if (record.createdBy != author && !(record.createdBy == null && author == legacyOwner)) {
                 throw MissingMedia()
@@ -268,6 +271,10 @@ class FluoPostStore(
         .put("mimeType", attachment.mimeType)
         .put("name", attachment.name)
         .put("size", attachment.size)
+        .apply {
+            attachment.width?.let { put("width", it) }
+            attachment.height?.let { put("height", it) }
+        }
 
     private fun parse(value: JSONObject): Post {
         val items = value.getJSONArray("attachments")
@@ -281,6 +288,8 @@ class FluoPostStore(
                     mimeType = item.getString("mimeType"),
                     name = item.getString("name"),
                     size = item.getLong("size"),
+                    width = item.optInt("width", 0).takeIf { it > 0 },
+                    height = item.optInt("height", 0).takeIf { it > 0 },
                 )
             },
             author = value.getString("author"),
@@ -291,6 +300,11 @@ class FluoPostStore(
         ).also {
             require(ID.matches(it.id) && it.body.length <= MAX_BODY_LENGTH)
             require(it.author.length in 1..32 && !hasControls(it.author))
+            require(it.attachments.all { attachment ->
+                (attachment.width == null) == (attachment.height == null) &&
+                    (attachment.width == null || attachment.width in 1..MAX_MEDIA_DIMENSION) &&
+                    (attachment.height == null || attachment.height in 1..MAX_MEDIA_DIMENSION)
+            })
         }
     }
 
@@ -302,6 +316,8 @@ class FluoPostStore(
         val mimeType: String,
         val name: String,
         val size: Long,
+        val width: Int? = null,
+        val height: Int? = null,
     )
 
     data class Post(
@@ -332,6 +348,7 @@ class FluoPostStore(
 
     companion object {
         const val MAX_ATTACHMENTS = 4
+        private const val MAX_MEDIA_DIMENSION = 100_000
         const val MAX_BODY_LENGTH = 500
         private const val MAX_POST_FILE_BYTES = 32 * 1_024L
         private const val MAX_POSTS = 2_000

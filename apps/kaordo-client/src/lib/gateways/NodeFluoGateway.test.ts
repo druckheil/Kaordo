@@ -43,6 +43,8 @@ describe('NodeFluoGateway', () => {
           mimeType: 'video/mp4',
           name: 'clip.mp4',
           size: 4 * 1_024 * 1_024 + 1,
+          width: 1_920,
+          height: 1_080,
         }],
         author: 'Nova_User',
         body: 'From Nodo',
@@ -59,6 +61,8 @@ describe('NodeFluoGateway', () => {
       name: 'clip.mp4',
       size: 4 * 1_024 * 1_024 + 1,
       url: 'blob:preview',
+      width: 1_920,
+      height: 1_080,
     };
 
     const progress = vi.fn();
@@ -79,7 +83,13 @@ describe('NodeFluoGateway', () => {
     expect(post.attachments[0]?.blob).toBe(attachment.blob);
     const postCall = calls.find(({ url }) => url.endsWith('/v1/fluo/posts'));
     expect(JSON.parse(String(postCall?.body))).toMatchObject({
-      attachments: [{ kind: 'video', mimeType: 'video/mp4', name: 'clip.mp4' }],
+      attachments: [{
+        height: 1_080,
+        kind: 'video',
+        mimeType: 'video/mp4',
+        name: 'clip.mp4',
+        width: 1_920,
+      }],
       body: 'From Nodo',
     });
   });

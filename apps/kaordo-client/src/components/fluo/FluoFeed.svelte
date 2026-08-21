@@ -1,16 +1,13 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
   import {
     FLUO_MAX_POST_LENGTH,
     FLUO_MAX_ATTACHMENTS,
     type FluoGState,
-    type FluoPost,
     type FluoSnapshot,
   } from '../../lib/states/FluoGState';
-  import { openContextMenu } from '../../lib/ui/contextMenu';
   import { PUBLIC_FLUO_DESTINATION } from '../../lib/gateways/FluoGateway';
   import NodoPickerDialog from '../nodo/NodoPickerDialog.svelte';
-  import FluoMedia from './FluoMedia.svelte';
+  import FluoTimeline from './FluoTimeline.svelte';
 
   type Props = {
     snapshot: Readonly<FluoSnapshot>;
@@ -21,27 +18,8 @@
   let attachmentInput = $state<HTMLInputElement>();
   let composer = $state<HTMLTextAreaElement>();
   let shell = $state<HTMLElement>();
-  let virtualList = $state<HTMLElement>();
   let nodePickerOpen = $state(false);
-  let virtualStart = $state(0);
-  let virtualEnd = $state(18);
-  let heightVersion = $state(0);
-  let scrollFrame = 0;
-  const postHeights = new Map<string, number>();
-  const estimatedPostHeight = 250;
-  let postOffsets = $derived.by(() => {
-    heightVersion;
-    const offsets = [0];
-    for (const post of snapshot.posts) {
-      const key = `${post.space}:${post.nodeId}:${post.id}`;
-      offsets.push(offsets[offsets.length - 1]! + (postHeights.get(key) ?? estimatedPostHeight));
-    }
-    return offsets;
-  });
-  let virtualPosts = $derived(snapshot.posts.slice(virtualStart, virtualEnd));
-  let topSpacer = $derived(postOffsets[virtualStart] ?? 0);
-  let bottomSpacer = $derived(Math.max(0,
-    (postOffsets[postOffsets.length - 1] ?? 0) - (postOffsets[virtualEnd] ?? 0)));
+  let mediaPreparation = Promise.resolve();
   let remaining = $derived(FLUO_MAX_POST_LENGTH - snapshot.draft.length);
   let mediaCount = $derived(snapshot.draftAttachments.length);
   let selectedNode = $derived(snapshot.nodes.find(({ id }) => id === snapshot.selectedNodeId));
@@ -64,13 +42,8 @@
         Math.max(1, snapshot.uploadProgress.totalBytes) * 100))
     : 0);
 
-  onDestroy(() => {
-    if (scrollFrame) cancelAnimationFrame(scrollFrame);
-    scrollFrame = 0;
-    postHeights.clear();
-  });
-
   async function publish() {
+    await mediaPreparation;
     if (await fluoState.publishPost()) {
       if (composer) composer.style.height = '';
       composer?.focus({ preventScroll: true });
@@ -84,8 +57,73 @@
 
   function attachFiles(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
-    if (input.files) fluoState.addAttachments([...input.files]);
+    const files = input.files ? [...input.files] : [];
     input.value = '';
+    if (!files.length || !fluoState.addAttachments(files)) return;
+    const preparation = Promise.all(files.map(async (file) => {
+      const dimensions = await readMediaDimensions(file);
+      if (dimensions) fluoState.setDraftAttachmentDimensions(file, dimensions.width, dimensions.height);
+    })).then(() => undefined);
+    mediaPreparation = Promise.all([mediaPreparation, preparation]).then(() => undefined);
+  }
+
+  async function readMediaDimensions(file: File): Promise<{ height: number; width: number } | null> {
+    const source = URL.createObjectURL(file);
+    try {
+      return isVideoFile(file)
+        ? await readVideoDimensions(source)
+        : await readImageDimensions(source);
+    } catch {
+      return null;
+    } finally {
+      URL.revokeObjectURL(source);
+    }
+  }
+
+  function readImageDimensions(source: string): Promise<{ height: number; width: number } | null> {
+    return new Promise((resolve) => {
+      const image = new Image();
+      const timeout = window.setTimeout(() => finish(null), 1_600);
+      const finish = (dimensions: { height: number; width: number } | null) => {
+        window.clearTimeout(timeout);
+        image.onload = null;
+        image.onerror = null;
+        resolve(dimensions);
+      };
+      image.onload = () => finish(image.naturalWidth && image.naturalHeight
+        ? { height: image.naturalHeight, width: image.naturalWidth }
+        : null);
+      image.onerror = () => finish(null);
+      image.src = source;
+    });
+  }
+
+  function readVideoDimensions(source: string): Promise<{ height: number; width: number } | null> {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'metadata';
+      const timeout = window.setTimeout(() => finish(null), 1_600);
+      const finish = (dimensions: { height: number; width: number } | null) => {
+        window.clearTimeout(timeout);
+        video.onloadedmetadata = null;
+        video.onerror = null;
+        video.removeAttribute('src');
+        video.load();
+        resolve(dimensions);
+      };
+      video.onloadedmetadata = () => finish(video.videoWidth && video.videoHeight
+        ? { height: video.videoHeight, width: video.videoWidth }
+        : null);
+      video.onerror = () => finish(null);
+      video.src = source;
+    });
+  }
+
+  function isVideoFile(file: File): boolean {
+    return file.type.toLowerCase().startsWith('video/') ||
+      /\.(?:3gp|avi|m4v|mkv|mov|mp4|mpeg|mpg|ogv|webm)$/i.test(file.name);
   }
 
   function resizeComposer(event: Event) {
@@ -100,21 +138,6 @@
     publish();
   }
 
-  function postDate(post: FluoPost): string {
-    const date = new Date(post.createdAt);
-    const today = new Date();
-    const sameDay = date.toDateString() === today.toDateString();
-    return sameDay
-      ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : date.toLocaleDateString([], { day: 'numeric', month: 'short' });
-  }
-
-  function postMenuLabel(post: FluoPost): string {
-    const body = post.body.trim();
-    if (body) return body.length > 34 ? `${body.slice(0, 34)}…` : body;
-    return `Post with ${post.attachments.length} media`;
-  }
-
   function uploadBytes(value: number): string {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let amount = value;
@@ -124,69 +147,9 @@
     return `${amount.toFixed(precision)} ${units[unit]}`;
   }
 
-  function scheduleVirtualWindow() {
-    if (scrollFrame) return;
-    scrollFrame = requestAnimationFrame(() => {
-      scrollFrame = 0;
-      updateVirtualWindow();
-    });
-  }
-
-  function updateVirtualWindow() {
-    if (!shell || !virtualList || !snapshot.posts.length) return;
-    const shellRect = shell.getBoundingClientRect();
-    const listTop = shell.scrollTop + virtualList.getBoundingClientRect().top - shellRect.top;
-    const relativeTop = Math.max(0, shell.scrollTop - listTop - 900);
-    const relativeBottom = Math.max(0, shell.scrollTop - listTop + shell.clientHeight + 1_200);
-    virtualStart = offsetIndex(postOffsets, relativeTop);
-    virtualEnd = Math.min(snapshot.posts.length, Math.max(virtualStart + 1,
-      offsetIndex(postOffsets, relativeBottom) + 1));
-    if (snapshot.hasMore && !snapshot.isLoadingMore && virtualEnd >= snapshot.posts.length - 6) {
-      void fluoState.loadMore();
-    }
-  }
-
-  function measurePost(node: HTMLElement, key: string) {
-    if (typeof ResizeObserver === 'undefined') {
-      const measured = Math.ceil(node.getBoundingClientRect().height) + 8;
-      postHeights.set(key, measured > 32 ? measured : estimatedPostHeight);
-      return { destroy: () => undefined };
-    }
-    const observer = new ResizeObserver(([entry]) => {
-      const height = Math.ceil(entry?.borderBoxSize?.[0]?.blockSize ?? node.getBoundingClientRect().height) + 8;
-      if (height <= 0 || postHeights.get(key) === height) return;
-      postHeights.set(key, height);
-      heightVersion += 1;
-      scheduleVirtualWindow();
-    });
-    observer.observe(node);
-    return { destroy: () => observer.disconnect() };
-  }
-
-  $effect(() => {
-    snapshot.posts.length;
-    postOffsets;
-    queueMicrotask(scheduleVirtualWindow);
-  });
-
-  $effect(() => {
-    const visible = new Set(virtualPosts.map((post) => `${post.space}:${post.nodeId}:${post.id}`));
-    fluoState.unloadMediaOutside(visible);
-  });
-
-  function offsetIndex(offsets: number[], value: number): number {
-    let low = 0;
-    let high = Math.max(0, offsets.length - 1);
-    while (low < high) {
-      const middle = Math.floor((low + high + 1) / 2);
-      if ((offsets[middle] ?? 0) <= value) low = middle;
-      else high = middle - 1;
-    }
-    return Math.min(low, Math.max(0, offsets.length - 2));
-  }
 </script>
 
-<main bind:this={shell} class="fluo-shell" aria-labelledby="fluo-title" onscroll={scheduleVirtualWindow}>
+<main bind:this={shell} class="fluo-shell" aria-labelledby="fluo-title">
   <div class="fluo-layout">
     <section class="feed-column" aria-label="Global Fluo timeline">
       <header class="feed-header">
@@ -341,72 +304,15 @@
       </div>
 
       {#if snapshot.posts.length}
-        <div bind:this={virtualList} class="post-list" aria-label="Posts">
-          <div class="virtual-spacer" style={`height:${topSpacer}px`}></div>
-          {#each virtualPosts as post (`${post.space}:${post.nodeId}:${post.id}`)}
-            <article
-              use:measurePost={`${post.space}:${post.nodeId}:${post.id}`}
-              class="post-card"
-              oncontextmenu={(event) => openContextMenu(event, postMenuLabel(post), [
-                {
-                  action: async () => { await fluoState.deletePost(post.id); },
-                  confirmation: 'Delete this post?',
-                  danger: true,
-                  icon: 'delete',
-                  id: 'delete-fluo-post',
-                  label: 'Delete post',
-                },
-              ])}
-            >
-              <span class="avatar" aria-hidden="true">Y</span>
-              <div class="post-content">
-                <header>
-                  <strong>{post.author}</strong>
-                  <span>@{post.author.toLowerCase()}</span>
-                  <i aria-hidden="true">·</i>
-                  <time datetime={new Date(post.createdAt).toISOString()}>{postDate(post)}</time>
-                  <span class="post-node-mark" title={`Stored in ${post.space} space on Nodo ${post.nodeId}`}>
-                    {post.space === 'public' ? 'Public Nodo' : 'Private Nodo'}
-                  </span>
-                </header>
-                {#if post.body}<p>{post.body}</p>{/if}
-                {#if post.attachments.length}
-                  <div class:post-media--single={post.attachments.length === 1} class="post-media">
-                    {#each post.attachments as attachment (attachment.id)}
-                      <FluoMedia {attachment} {fluoState} postId={post.id} />
-                    {/each}
-                  </div>
-                {/if}
-                <footer class="post-actions">
-                  <button type="button" disabled aria-label="Reply, coming later" title="Replies are coming later">
-                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12v8H9l-3.5 3v-3H4z" /></svg>
-                  </button>
-                  <button type="button" disabled aria-label="Reflow, coming later" title="Reflow is coming later">
-                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 5-2 2 2 2M4 7h9a3 3 0 0 1 3 3m-2 5 2-2-2-2m2 2H7a3 3 0 0 1-3-3" /></svg>
-                  </button>
-                  <button
-                    class:post-action--active={post.liked}
-                    type="button"
-                    aria-label={post.liked ? 'Unlike post' : 'Like post'}
-                    aria-pressed={post.liked}
-                    onclick={() => fluoState.toggleLike(post.id)}
-                  >
-                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16S4 12.6 4 8.2C4 5 8 4 10 6.7 12 4 16 5 16 8.2 16 12.6 10 16 10 16Z" /></svg>
-                  </button>
-                  <button type="button" disabled aria-label="Share, coming later" title="Sharing is coming later">
-                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 10.5 13 5m0 0H9.5M13 5v3.5M12 9h3v7H5V6h4" /></svg>
-                  </button>
-                </footer>
-              </div>
-            </article>
-          {/each}
-          <div class="virtual-spacer" style={`height:${bottomSpacer}px`}></div>
-          {#if snapshot.isLoadingMore}
-            <div class="feed-page-loader"><i></i><span>Loading more posts…</span></div>
-          {:else if !snapshot.hasMore}
-            <p class="feed-end">You reached the beginning of this timeline.</p>
-          {/if}
-        </div>
+        <FluoTimeline
+          hasMore={snapshot.hasMore}
+          isLoading={snapshot.isLoading}
+          isLoadingMore={snapshot.isLoadingMore}
+          isRefreshing={snapshot.isRefreshing}
+          posts={snapshot.posts}
+          scrollElement={shell}
+          {fluoState}
+        />
       {:else}
         <div class="empty-feed">
           <span aria-hidden="true">
@@ -459,10 +365,16 @@
     min-width: 0;
     min-height: 0;
     overflow: auto;
+    overflow-anchor: none;
+    overscroll-behavior: contain;
+    scroll-behavior: auto;
+    scrollbar-gutter: stable;
+    touch-action: pan-y;
+    will-change: scroll-position;
     color: #2b3530;
-    background:
-      radial-gradient(circle at 78% 8%, rgb(77 143 121 / 8%), transparent 24%),
-      #f4f6f2;
+    background: #f4f6f2;
+    contain: layout paint style;
+    isolation: isolate;
   }
 
   .fluo-layout {
@@ -563,12 +475,11 @@
   @keyframes feed-refresh-spin { to { transform: rotate(360deg); } }
 
 
-  .composer-card,
-  .post-card {
+  .composer-card {
     display: grid;
     grid-template-columns: 40px minmax(0, 1fr);
     gap: 12px;
-    background: rgb(255 255 255 / 88%);
+    background: #fff;
     border: 1px solid #d9e0db;
   }
 
@@ -769,109 +680,6 @@
   .timeline-divider span { color: #717d76; font-size: calc(9px * var(--text-scale)); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
   .timeline-divider i { flex: 1; height: 1px; background: #dce2dd; }
 
-  .post-list { display: block; overflow-anchor: none; }
-
-  .virtual-spacer { width: 1px; pointer-events: none; }
-
-  .post-card {
-    margin-bottom: 8px;
-    padding: 15px 17px 10px;
-    border-radius: 12px;
-    transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
-  }
-
-  .feed-page-loader,
-  .feed-end {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    min-height: 48px;
-    color: #839088;
-    font-size: calc(9px * var(--text-scale));
-  }
-
-  .feed-page-loader i {
-    width: 14px;
-    height: 14px;
-    border: 2px solid #d6e0da;
-    border-top-color: #4c8a76;
-    border-radius: 50%;
-    animation: feed-spin .7s linear infinite;
-  }
-
-  @keyframes feed-spin { to { transform: rotate(360deg); } }
-
-  .post-card:hover {
-    border-color: #c6d5cd;
-    box-shadow: 0 10px 26px rgb(35 64 52 / 6%);
-    transform: translateY(-1px);
-  }
-
-  .post-content { min-width: 0; }
-  .post-content > header { display: flex; align-items: center; gap: 5px; min-height: 18px; }
-  .post-content > header strong { color: #2b3731; font-size: calc(11px * var(--text-scale)); font-weight: 690; }
-  .post-content > header span,
-  .post-content > header time,
-  .post-content > header i { color: #8a948e; font-size: calc(9px * var(--text-scale)); font-style: normal; }
-
-  .post-content > header .post-node-mark {
-    margin-left: auto;
-    padding: 3px 6px;
-    color: #648276;
-    background: #edf4f0;
-    border-radius: 999px;
-    font-size: calc(8px * var(--text-scale));
-    font-weight: 650;
-  }
-
-  .post-content > p {
-    margin-top: 7px;
-    color: #35413b;
-    font-size: calc(12px * var(--text-scale));
-    line-height: 1.62;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-  }
-
-  .post-media {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 3px;
-    margin-top: 11px;
-    overflow: hidden;
-    border: 1px solid #d8dfda;
-    border-radius: 11px;
-  }
-
-  .post-media--single { grid-template-columns: minmax(0, 1fr); }
-
-  .post-actions {
-    display: grid;
-    grid-template-columns: repeat(4, 32px);
-    gap: 15px;
-    margin-top: 10px;
-  }
-
-  .post-actions button {
-    display: grid;
-    width: 29px;
-    height: 27px;
-    padding: 0;
-    color: #8b9891;
-    background: transparent;
-    border: 0;
-    border-radius: 7px;
-    cursor: pointer;
-    place-items: center;
-  }
-
-  .post-actions button:hover:not(:disabled) { color: #377765; background: #ebf3ef; }
-  .post-actions button:disabled { opacity: 0.42; cursor: default; }
-  .post-actions .post-action--active { color: #b45461; background: #faedf0; }
-  .post-actions svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.45; }
-  .post-actions .post-action--active svg { fill: currentColor; }
-
   .empty-feed {
     display: flex;
     align-items: center;
@@ -915,7 +723,4 @@
     .media-limits { display: none; }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .post-card { transition: none; }
-  }
 </style>

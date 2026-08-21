@@ -339,7 +339,7 @@ class NodeHttpServer(
         val fileId = contentPath?.remainder?.removePrefix("/")?.takeIf {
             contentPath.remainder.startsWith('/') && !it.contains('/')
         }
-        if (request.method == "GET" && fileId != null) {
+        if ((request.method == "GET" || request.method == "HEAD") && fileId != null) {
             if (!policy().allowDownloads) return transferDenied(output)
             storageLock.read { download(storage(contentPath.space).uploads, fileId, request, output) }
             return
@@ -864,6 +864,8 @@ class NodeHttpServer(
                     mimeType = item.getString("mimeType"),
                     name = item.getString("name"),
                     size = item.getLong("size"),
+                    width = item.optInt("width", 0).takeIf { it > 0 },
+                    height = item.optInt("height", 0).takeIf { it > 0 },
                 )
             }
             val reservation = grant.publicReservation.takeIf { space == NodeSpace.PUBLIC }
@@ -926,6 +928,10 @@ class NodeHttpServer(
             .put("mimeType", attachment.mimeType)
             .put("name", attachment.name)
             .put("size", attachment.size)
+            .apply {
+                attachment.width?.let { put("width", it) }
+                attachment.height?.let { put("height", it) }
+            }
         }))
         .put("author", post.author)
         .put("body", post.body)
@@ -1054,6 +1060,18 @@ class NodeHttpServer(
             return
         }
         val filename = safeFilename(metadataFilename(record.metadata)) ?: "${record.id}.bin"
+        val etag = "\"${record.id}-${file.length()}\""
+        val cacheHeaders = mapOf(
+            // Upload IDs are content-immutable after completion. A private
+            // year-long cache lets WebKit remount feed media without another
+            // network transfer or main-thread decode pipeline.
+            "Cache-Control" to "private, max-age=31536000, immutable",
+            "ETag" to etag,
+        )
+        if (request.headers["if-none-match"] == etag) {
+            writeResponse(output, 304, "Not Modified", cacheHeaders)
+            return
+        }
         val requestedRange = request.headers["range"]
         val range = if (requestedRange == null) {
             0L until file.length()
@@ -1067,18 +1085,15 @@ class NodeHttpServer(
             }
         }
         val partial = requestedRange != null
-        val headers = mutableMapOf(
+        val headers = (cacheHeaders + mapOf(
             "Accept-Ranges" to "bytes",
-            // Attachment IDs are immutable. Allow the native image/video
-            // loader to reuse bytes while the access ticket remains in the
-            // URL; a refreshed ticket naturally creates a new cache key.
-            "Cache-Control" to "private, max-age=3_600, immutable",
             "Content-Type" to (metadataMediaType(record.metadata) ?: mediaType(filename)),
             "Content-Length" to (range.last - range.first + 1).toString(),
             "Content-Disposition" to "inline; filename=\"$filename\"",
-        )
+        )).toMutableMap()
         if (partial) headers["Content-Range"] = "bytes ${range.first}-${range.last}/${file.length()}"
         writeResponse(output, if (partial) 206 else 200, if (partial) "Partial Content" else "OK", headers, body = null)
+        if (request.method == "HEAD") return
         RandomAccessFile(file, "r").use { source ->
             source.seek(range.first)
             var remaining = range.last - range.first + 1
@@ -1261,7 +1276,7 @@ class NodeHttpServer(
             "X-Kaordo-Rondo-Space", "X-Kaordo-Rondo-Room", LEGACY_CHUNK_LENGTH_HEADER,
             LEGACY_PUBLIC_RESERVATION_HEADER, LEGACY_RONDO_SPACE_HEADER, LEGACY_RONDO_ROOM_HEADER,
         ).joinToString(","),
-        "Access-Control-Expose-Headers" to "Location,Tus-Resumable,Tus-Version,Tus-Extension,Tus-Max-Size,Upload-Length,Upload-Offset,Upload-Metadata,Accept-Ranges,Content-Length,Content-Range",
+        "Access-Control-Expose-Headers" to "Location,Tus-Resumable,Tus-Version,Tus-Extension,Tus-Max-Size,Upload-Length,Upload-Offset,Upload-Metadata,Accept-Ranges,Content-Length,Content-Range,ETag",
         "Access-Control-Max-Age" to "600",
         "Access-Control-Allow-Private-Network" to "true",
     )

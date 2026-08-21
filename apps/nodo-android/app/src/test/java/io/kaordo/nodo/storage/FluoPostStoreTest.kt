@@ -20,11 +20,16 @@ class FluoPostStoreTest {
         val posts = FluoPostStore(temporary.root, uploads, "druckheil")
 
         val post = posts.create("druckheil", " Hello from Nodo. ", listOf(
-            FluoPostStore.Attachment(upload.id, "image", "image/png", "hello.png", 5),
+            FluoPostStore.Attachment(
+                upload.id, "image", "image/png", "hello.png", 5,
+                width = 1_920, height = 1_080,
+            ),
         ))
 
         assertEquals("Hello from Nodo.", post.body)
         assertEquals("druckheil", post.author)
+        assertEquals(1_920, post.attachments.single().width)
+        assertEquals(1_080, post.attachments.single().height)
         assertEquals(listOf(post), posts.list())
         assertTrue(uploads.usedBytes() > 5)
         assertEquals(FluoPostStore.DeleteResult.DELETED, posts.delete(post.id))

@@ -178,28 +178,45 @@ describe('FluoGState', () => {
     await state.loadMore();
     expect(state.snapshot.posts).toHaveLength(40);
     const first = state.snapshot.posts[0]!;
+    const snapshotBeforeMedia = state.snapshot;
     expect(await state.loadMedia(first.id, first.attachments[0]!.id)).toBe('blob:lazy-1');
     expect(fluo.mediaLoads).toBe(1);
+    expect(state.snapshot).toBe(snapshotBeforeMedia);
   });
 
-  it('reuses cached image bytes after virtualization unloads the object URL', async () => {
-    const fluo = new PagedFluoGateway();
-    let objectUrlCount = 0;
+  it('keeps a direct Nodo media URL across a feed tab switch', async () => {
+    const fluo = new DirectMediaFluoGateway();
+    const revoked: string[] = [];
     const state = createState(fluo, {
-      createObjectUrl: () => `blob:cached-${++objectUrlCount}`,
-      revokeObjectUrl: () => undefined,
+      revokeObjectUrl: (url) => revoked.push(url),
     });
 
     await state.refreshNodes();
     const first = state.snapshot.posts[0]!;
-    await state.loadMedia(first.id, first.attachments[0]!.id);
-    state.unloadMediaOutside(new Set());
+    const url = await state.loadMedia(first.id, first.attachments[0]!.id);
+    state.exit();
 
-    await state.loadMedia(first.id, first.attachments[0]!.id);
-
+    expect(url).toBe('http://nodo.test/media.png');
+    expect(await state.loadMedia(first.id, first.attachments[0]!.id)).toBe(url);
     expect(fluo.mediaLoads).toBe(1);
-    expect(objectUrlCount).toBe(2);
-    expect(state.snapshot.posts[0]?.attachments[0]?.loadState).toBe('ready');
+    expect(revoked).toEqual([]);
+  });
+
+  it('deduplicates concurrent media resolution without publishing feed state', async () => {
+    const fluo = new SlowMediaFluoGateway();
+    const state = createState(fluo);
+    await state.refreshNodes();
+    const first = state.snapshot.posts[0]!;
+    const snapshotBeforeMedia = state.snapshot;
+
+    const load = state.loadMedia(first.id, first.attachments[0]!.id);
+    const duplicate = state.loadMedia(first.id, first.attachments[0]!.id);
+    expect(fluo.mediaLoads).toBe(1);
+
+    fluo.completeNext();
+    await Promise.all([load, duplicate]);
+
+    expect(state.snapshot).toBe(snapshotBeforeMedia);
   });
 });
 
@@ -367,6 +384,64 @@ class PagedFluoGateway implements FluoGateway {
 
   deletePost(): Promise<void> { return Promise.resolve(); }
   publishPost(): Promise<RemoteFluoPost> { throw new Error('Not used.'); }
+}
+
+class DirectMediaFluoGateway implements FluoGateway {
+  mediaLoads = 0;
+  private readonly posts: RemoteFluoPost[] = [{
+    attachments: [{
+      id: 'direct-media',
+      kind: 'image',
+      mimeType: 'image/png',
+      name: 'cached.png',
+      size: 8,
+    }],
+    author: 'direct',
+    body: 'Cache the immutable URL',
+    createdAt: 1_800_000_000_000,
+    id: 'direct-post',
+    nodeId: NODE.id,
+    space: 'private',
+  }];
+
+  listFeedPage() {
+    return Promise.resolve({ cursor: null, hasMore: false, posts: this.posts });
+  }
+
+  listFeedStates(nodeIds: readonly string[]) {
+    return Promise.resolve(nodeIds.map((nodeId) => ({
+      nodeId,
+      spaces: {
+        private: { postCount: this.posts.length, stateHash: 'direct-private' },
+        public: { postCount: 0, stateHash: 'direct-public' },
+      },
+    })));
+  }
+
+  loadMedia() {
+    this.mediaLoads += 1;
+    return Promise.resolve({ streamUrl: 'http://nodo.test/media.png' });
+  }
+
+  deletePost(): Promise<void> { return Promise.resolve(); }
+  publishPost(): Promise<RemoteFluoPost> { throw new Error('Not used.'); }
+}
+
+class SlowMediaFluoGateway extends PagedFluoGateway {
+  private readonly pending: Array<() => void> = [];
+
+  override loadMedia(): Promise<{ blob: Blob }> {
+    this.mediaLoads += 1;
+    return new Promise((resolve) => {
+      this.pending.push(() => resolve({ blob: new Blob(['image'], { type: 'image/png' }) }));
+    });
+  }
+
+  completeNext(): void {
+    const resolve = this.pending.shift();
+    if (!resolve) throw new Error('No media request is pending.');
+    resolve();
+  }
 }
 
 class MemoryNodoGateway implements NodoGateway {

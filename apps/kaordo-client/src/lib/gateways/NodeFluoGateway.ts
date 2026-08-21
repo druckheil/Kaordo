@@ -310,11 +310,13 @@ async function publishToNode(
       const id = await uploadTus(connection, paths.uploads, attachment, report, reservationId);
       uploaded.push({
         blob: attachment.blob,
+        height: attachment.height,
         id,
         kind: attachment.kind,
         mimeType: attachment.mimeType,
         name: attachment.name,
         size: attachment.size,
+        width: attachment.width,
       });
       completedBytes += attachment.size;
       report(attachment.size);
@@ -335,7 +337,12 @@ async function publishToNode(
       attachments: created.post.attachments.map((attachment) => {
         const source = uploaded.find(({ id }) => id === attachment.id);
         if (!source) throw new Error('Nodo returned unknown post media.');
-        return { ...attachment, blob: source.blob };
+        return {
+          ...attachment,
+          blob: source.blob,
+          height: attachment.height ?? source.height,
+          width: attachment.width ?? source.width,
+        };
       }),
       nodeId,
       space,
@@ -477,6 +484,7 @@ function emptyFeedState(nodeId: string): FluoNodeFeedState {
 export class NodeConnection {
   private lastSuccessfulAt = Date.now();
   private refreshPromise: Promise<void> | null = null;
+  private validatePromise: Promise<void> | null = null;
 
   private constructor(
     private readonly nodes: NodoGateway,
@@ -580,13 +588,22 @@ export class NodeConnection {
   async validate(): Promise<void> {
     await this.ensureFreshTicket();
     if (Date.now() - this.lastSuccessfulAt < 30_000) return;
+    if (this.validatePromise) return this.validatePromise;
+    const validation = (async () => {
+      try {
+        await nodeFetch(this.origin, this.access.ticket, '/v1/status', {}, 4_000);
+      } catch {
+        await this.refreshTicket();
+        await nodeFetch(this.origin, this.access.ticket, '/v1/status', {}, 4_000);
+      }
+      this.lastSuccessfulAt = Date.now();
+    })();
+    this.validatePromise = validation;
     try {
-      await nodeFetch(this.origin, this.access.ticket, '/v1/status', {}, 4_000);
-    } catch {
-      await this.refreshTicket();
-      await nodeFetch(this.origin, this.access.ticket, '/v1/status', {}, 4_000);
+      await validation;
+    } finally {
+      if (this.validatePromise === validation) this.validatePromise = null;
     }
-    this.lastSuccessfulAt = Date.now();
   }
 
   private async ensureFreshTicket(): Promise<void> {

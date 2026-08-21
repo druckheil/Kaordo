@@ -694,9 +694,16 @@
       {/if}
     </main>
 
-    {#if activeSection === 'fluo'}
+    <div
+      class="fluo-host"
+      class:fluo-host--hidden={activeSection !== 'fluo'}
+      aria-hidden={activeSection !== 'fluo' ? 'true' : undefined}
+      inert={activeSection !== 'fluo'}
+    >
       <FluoFeed snapshot={fluoSnapshot} fluoState={editor.fluoState} />
-    {:else if activeSection === 'mi' && authSnapshot.user}
+    </div>
+
+    {#if activeSection === 'mi' && authSnapshot.user}
       <ProfileSection
         busy={isLoggingOut}
         error={authSnapshot.error}
@@ -842,6 +849,19 @@
     grid-area: 1 / 1;
   }
 
+  .fluo-host {
+    display: grid;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    contain: layout paint style;
+  }
+
+  .fluo-host--hidden {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
   .app-section--hidden {
     display: none;
   }
@@ -866,4 +886,5 @@
       animation: none;
     }
   }
+
 </style>

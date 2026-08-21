@@ -18,6 +18,7 @@ export const FLUO_MAX_ATTACHMENTS = 4;
 export type FluoAttachmentKind = 'gif' | 'image' | 'video';
 
 export type FluoAttachment = {
+  height?: number;
   id: string;
   kind: FluoAttachmentKind;
   mimeType: string;
@@ -26,6 +27,7 @@ export type FluoAttachment = {
   loadState?: 'error' | 'idle' | 'loading' | 'ready';
   objectUrl?: boolean;
   url?: string;
+  width?: number;
 };
 
 export type FluoDraftAttachment = FluoAttachment & { blob: Blob; url: string };
@@ -81,6 +83,9 @@ export class FluoGState extends GState<FluoSnapshot> {
   #feedNodeIds: string[] = [];
   #feedStates = new Map<string, FluoNodeFeedState>();
   #mediaCache = new Map<string, CachedFluoMedia>();
+  #mediaRequests = new Map<string, Promise<string | null>>();
+  #mediaSources = new Map<string, ResolvedFluoMedia>();
+  #mediaGeneration = 0;
   #mediaCacheBytes = 0;
   #mediaCacheClock = 0;
   #pageSize = INITIAL_FEED_PAGE_SIZE;
@@ -122,8 +127,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#requestId += 1;
     this.#unsubscribeRegistry?.();
     this.#unsubscribeRegistry = null;
-    const posts = this.releaseMedia(this.snapshot.posts);
-    this.revokeUrls(this.snapshot.draftAttachments);
+    this.revokeUrls(this.snapshot.draftAttachments, false);
     this.publish({
       ...this.snapshot,
       attachmentError: null,
@@ -133,7 +137,6 @@ export class FluoGState extends GState<FluoSnapshot> {
       isRefreshing: false,
       isLoadingMore: false,
       isPublishing: false,
-      posts,
       storageError: null,
       uploadProgress: null,
     });
@@ -148,9 +151,11 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#feedNodeIds = [];
     this.#feedStates.clear();
     this.#pageSize = INITIAL_FEED_PAGE_SIZE;
+    this.#mediaGeneration += 1;
+    this.#mediaRequests.clear();
     this.clearMediaCache();
     this.revokeUrls(this.snapshot.posts.flatMap((post) => post.attachments));
-    this.revokeUrls(this.snapshot.draftAttachments);
+    this.revokeUrls(this.snapshot.draftAttachments, false);
     this.publish({
       ...this.snapshot,
       attachmentError: null,
@@ -221,6 +226,9 @@ export class FluoGState extends GState<FluoSnapshot> {
           ...this.snapshot,
           hasMore: page.hasMore,
           isLoading: false,
+          // Metadata is ready. Do not hold the feed's scroll/prefetch path
+          // hostage to the optional state-hash probe below.
+          isRefreshing: false,
           posts: mergePosts(page.posts.map((post) => this.hydrate(post))),
           publicStorage,
           storageError: null,
@@ -229,7 +237,6 @@ export class FluoGState extends GState<FluoSnapshot> {
         const states = await statesPromise;
         if (requestId !== this.#requestId) return;
         this.#feedStates = new Map(states.map((state) => [state.nodeId, state]));
-        this.publish({ ...this.snapshot, isRefreshing: false });
         return;
       }
 
@@ -328,64 +335,28 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   async loadMedia(postId: string, attachmentId: string): Promise<string | null> {
-    const matches = this.snapshot.posts.filter(({ id }) => id === postId);
-    if (matches.length !== 1) return null;
-    const post = matches[0];
-    const attachment = post?.attachments.find(({ id }) => id === attachmentId);
-    if (!post || !attachment) return null;
-    const lifecycleId = this.#lifecycleId;
-    const key = postKey(post);
-    const mediaKey = `${key}:${attachmentId}`;
-    if (attachment.url) return attachment.url;
-    if (attachment.loadState === 'loading') return null;
-    const cached = this.#mediaCache.get(mediaKey);
-    if (cached) {
-      cached.lastUsed = ++this.#mediaCacheClock;
-      try {
-        const url = this.#createObjectUrl(cached.blob);
-        this.updateAttachment(key, attachmentId, {
-          loadState: 'ready',
-          objectUrl: true,
-          url,
-        });
-        return url;
-      } catch {
-        this.removeCachedMedia(mediaKey);
-      }
-    }
-    this.updateAttachment(key, attachmentId, { loadState: 'loading' });
-    try {
-      const source = await this.#gateway.loadMedia(post.nodeId, post.space, attachment);
-      const objectUrl = 'blob' in source;
-      const url = source.blob ? this.#createObjectUrl(source.blob) : source.streamUrl;
-      if (lifecycleId !== this.#lifecycleId || !this.snapshot.posts.some((candidate) => postKey(candidate) === key)) {
-        if (objectUrl) this.#revokeObjectUrl(url);
-        return null;
-      }
-      if (source.blob) this.cacheMedia(mediaKey, source.blob, attachment.size);
-      this.updateAttachment(key, attachmentId, { loadState: 'ready', objectUrl, url });
-      return url;
-    } catch {
-      if (lifecycleId === this.#lifecycleId) {
-        this.updateAttachment(key, attachmentId, { loadState: 'error' });
-      }
-      return null;
-    }
+    const target = this.findMediaTarget(postId, attachmentId);
+    return target ? this.startMediaLoad(target) : null;
   }
 
-  unloadMediaOutside(visiblePostKeys: ReadonlySet<string>): void {
-    let changed = false;
-    const posts = this.snapshot.posts.map((post) => {
-      if (visiblePostKeys.has(postKey(post))) return post;
-      const attachments = post.attachments.map((attachment) => {
-        if (!attachment.url) return attachment;
-        if (attachment.objectUrl) this.#revokeObjectUrl(attachment.url);
-        changed = true;
-        return { ...attachment, loadState: 'idle' as const, objectUrl: false, url: undefined };
-      });
-      return attachments === post.attachments ? post : { ...post, attachments };
-    });
-    if (changed) this.publish({ ...this.snapshot, posts });
+  async retryMedia(postId: string, attachmentId: string): Promise<string | null> {
+    const target = this.findMediaTarget(postId, attachmentId);
+    if (!target) return null;
+    const mediaKey = `${target.key}:${attachmentId}`;
+    this.removeResolvedMedia(mediaKey);
+    this.removeCachedMedia(mediaKey);
+    if (target.attachment.objectUrl && target.attachment.url) {
+      this.#revokeObjectUrl(target.attachment.url);
+    }
+    return this.startMediaLoad(target, true);
+  }
+
+  markMediaUnavailable(postId: string, attachmentId: string): void {
+    const target = this.findMediaTarget(postId, attachmentId);
+    if (!target) return;
+    const mediaKey = `${target.key}:${attachmentId}`;
+    this.removeResolvedMedia(mediaKey);
+    this.removeCachedMedia(mediaKey);
   }
 
   async selectNode(nodeId: string): Promise<void> {
@@ -447,6 +418,22 @@ export class FluoGState extends GState<FluoSnapshot> {
     });
   }
 
+  setDraftAttachmentDimensions(blob: Blob, width: number, height: number): void {
+    const normalizedWidth = Math.round(width);
+    const normalizedHeight = Math.round(height);
+    if (!Number.isSafeInteger(normalizedWidth) || !Number.isSafeInteger(normalizedHeight) ||
+        normalizedWidth < 1 || normalizedHeight < 1 ||
+        normalizedWidth > MAX_MEDIA_DIMENSION || normalizedHeight > MAX_MEDIA_DIMENSION) return;
+    let changed = false;
+    const draftAttachments = this.snapshot.draftAttachments.map((attachment) => {
+      if (attachment.blob !== blob ||
+          (attachment.width === normalizedWidth && attachment.height === normalizedHeight)) return attachment;
+      changed = true;
+      return { ...attachment, height: normalizedHeight, width: normalizedWidth };
+    });
+    if (changed) this.publish({ ...this.snapshot, draftAttachments });
+  }
+
   async publishPost(): Promise<boolean> {
     const body = this.snapshot.draft.trim();
     const attachments = this.snapshot.draftAttachments;
@@ -472,7 +459,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         }
       });
       if (lifecycleId !== this.#lifecycleId) return true;
-      this.revokeUrls(attachments);
+      this.revokeUrls(attachments, false);
       const post = this.hydrate(remote);
       const publishedBytes = Math.max(1, new TextEncoder().encode(body).byteLength +
         attachments.reduce((total, attachment) => total + attachment.size, 0));
@@ -594,25 +581,73 @@ export class FluoGState extends GState<FluoSnapshot> {
     };
   }
 
-  private updateAttachment(
-    key: string,
-    attachmentId: string,
-    update: Partial<FluoAttachment>,
-  ): void {
-    this.publish({
-      ...this.snapshot,
-      posts: this.snapshot.posts.map((post) => postKey(post) !== key ? post : {
-        ...post,
-        attachments: post.attachments.map((attachment) => attachment.id === attachmentId
-          ? { ...attachment, ...update }
-          : attachment),
-      }),
-    });
+  private findMediaTarget(postId: string, attachmentId: string): FluoMediaTarget | null {
+    const matches = this.snapshot.posts.filter(({ id }) => id === postId);
+    if (matches.length !== 1) return null;
+    const post = matches[0]!;
+    const attachment = post.attachments.find(({ id }) => id === attachmentId);
+    return attachment ? { attachment, key: postKey(post), post } : null;
   }
 
-  private revokeUrls(attachments: readonly FluoAttachment[]): void {
-    for (const attachment of attachments) if (attachment.url) this.#revokeObjectUrl(attachment.url);
+  private startMediaLoad(target: FluoMediaTarget, forceRemote = false): Promise<string | null> {
+    const { attachment, key, post } = target;
+    const mediaKey = `${key}:${attachment.id}`;
+    if (!forceRemote && attachment.url) return Promise.resolve(attachment.url);
+    const resolved = this.#mediaSources.get(mediaKey);
+    if (resolved) return Promise.resolve(resolved.url);
+    const inFlight = this.#mediaRequests.get(mediaKey);
+    if (inFlight) return inFlight;
+
+    const cached = this.#mediaCache.get(mediaKey);
+    if (cached) {
+      cached.lastUsed = ++this.#mediaCacheClock;
+      try {
+        const url = this.#createObjectUrl(cached.blob);
+        this.#mediaSources.set(mediaKey, { objectUrl: true, url });
+        return Promise.resolve(url);
+      } catch {
+        this.removeCachedMedia(mediaKey);
+      }
+    }
+
+    const request = this.resolveMediaLoad(target, this.#mediaGeneration, mediaKey);
+    this.#mediaRequests.set(mediaKey, request);
+    return request;
   }
+
+  private async resolveMediaLoad(
+    target: FluoMediaTarget,
+    mediaGeneration: number,
+    mediaKey: string,
+  ): Promise<string | null> {
+    const { attachment, key, post } = target;
+    try {
+      const source = await this.#gateway.loadMedia(post.nodeId, post.space, attachment);
+      const objectUrl = 'blob' in source;
+      const url = source.blob ? this.#createObjectUrl(source.blob) : source.streamUrl;
+      if (mediaGeneration !== this.#mediaGeneration ||
+          !this.snapshot.posts.some((candidate) => postKey(candidate) === key)) {
+        if (objectUrl) this.#revokeObjectUrl(url);
+        if (mediaGeneration === this.#mediaGeneration) this.#mediaRequests.delete(mediaKey);
+        return null;
+      }
+      if (source.blob) this.cacheMedia(mediaKey, source.blob, attachment.size);
+      this.#mediaSources.set(mediaKey, { objectUrl, url });
+      this.#mediaRequests.delete(mediaKey);
+      return url;
+    } catch {
+      if (mediaGeneration === this.#mediaGeneration) this.#mediaRequests.delete(mediaKey);
+      return null;
+    }
+  }
+
+  private revokeUrls(attachments: readonly FluoAttachment[], objectUrlsOnly = true): void {
+    for (const attachment of attachments) {
+      if (!attachment.url || (objectUrlsOnly && !attachment.objectUrl)) continue;
+      this.#revokeObjectUrl(attachment.url);
+    }
+  }
+
 
   private cacheMedia(key: string, blob: Blob, declaredSize: number): void {
     const bytes = blob.size || declaredSize;
@@ -620,14 +655,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.removeCachedMedia(key);
     this.#mediaCache.set(key, { blob, bytes, lastUsed: ++this.#mediaCacheClock });
     this.#mediaCacheBytes += bytes;
-    const protectedKeys = new Set<string>([key]);
-    for (const post of this.snapshot.posts) {
-      for (const attachment of post.attachments) {
-        if (attachment.url && attachment.objectUrl) {
-          protectedKeys.add(`${postKey(post)}:${attachment.id}`);
-        }
-      }
-    }
+    const protectedKeys = new Set<string>([key, ...this.#mediaSources.keys()]);
     while (this.#mediaCacheBytes > MAX_MEDIA_CACHE_BYTES) {
       const candidate = [...this.#mediaCache.entries()]
         .filter(([candidateKey]) => !protectedKeys.has(candidateKey))
@@ -644,26 +672,27 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#mediaCacheBytes = Math.max(0, this.#mediaCacheBytes - cached.bytes);
   }
 
+  private removeResolvedMedia(key: string): void {
+    const source = this.#mediaSources.get(key);
+    if (!source) return;
+    this.#mediaSources.delete(key);
+    if (source.objectUrl) this.#revokeObjectUrl(source.url);
+  }
+
   private clearMediaCacheForPost(key: string): void {
     const prefix = `${key}:`;
     for (const mediaKey of this.#mediaCache.keys()) {
       if (mediaKey.startsWith(prefix)) this.removeCachedMedia(mediaKey);
     }
+    for (const mediaKey of this.#mediaSources.keys()) {
+      if (mediaKey.startsWith(prefix)) this.removeResolvedMedia(mediaKey);
+    }
   }
 
   private clearMediaCache(): void {
+    for (const key of this.#mediaSources.keys()) this.removeResolvedMedia(key);
     this.#mediaCache.clear();
     this.#mediaCacheBytes = 0;
-  }
-
-  private releaseMedia(posts: readonly FluoPost[]): FluoPost[] {
-    return posts.map((post) => ({
-      ...post,
-      attachments: post.attachments.map((attachment) => {
-        if (attachment.url && attachment.objectUrl) this.#revokeObjectUrl(attachment.url);
-        return { ...attachment, loadState: 'idle' as const, objectUrl: false, url: undefined };
-      }),
-    }));
   }
 }
 
@@ -671,6 +700,17 @@ type CachedFluoMedia = {
   blob: Blob;
   bytes: number;
   lastUsed: number;
+};
+
+type FluoMediaTarget = {
+  attachment: FluoAttachment;
+  key: string;
+  post: FluoPost;
+};
+
+type ResolvedFluoMedia = {
+  objectUrl: boolean;
+  url: string;
 };
 
 function attachmentKind(file: File): FluoAttachmentKind | null {
@@ -701,6 +741,7 @@ function readableError(error: unknown): string {
 
 const INITIAL_FEED_PAGE_SIZE = 24;
 const MAX_MEDIA_CACHE_BYTES = 96 * 1_024 * 1_024;
+const MAX_MEDIA_DIMENSION = 100_000;
 
 function postKey(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
   return `${post.space}:${post.nodeId}:${post.id}`;

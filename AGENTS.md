@@ -134,8 +134,25 @@ never be returned to a client.
   filter.
 - Load post metadata/text first. Lazy-load images/GIFs; videos initially show
   an unloaded player and begin streaming only after user interaction.
-- Keep backend pagination and frontend virtualization/unloading. Do not
-  download every attachment before rendering the feed.
+- Keep backend pagination and do not download every attachment before
+  rendering the feed. Metadata pages fill a render-ahead buffer independently
+  from media transfer.
+- Fluo uses the official TanStack Svelte virtualizer in the component that owns
+  the scroll-element contract. Rows have stable post keys, real dynamic
+  measurements, and an overscan of 50 posts in each direction. Keep this
+  deterministic adapter; do not layer another virtualizer, manual spacer math,
+  `content-visibility`, or timer-based scroll rendering on top of it.
+- Preserve the Fluo scroll element's geometry across app-section changes with
+  `visibility`, not `display:none`; otherwise the virtualizer learns a zero
+  viewport and produces blank reverse-scroll frames. Compensate the
+  virtualizer's scroll margin for CSS application scale and remeasure rows only
+  when their logical width changes.
+- `FluoGState` owns page/cache state, but remote media loading state is local to
+  each `FluoMedia` component: resolving one attachment must never replace
+  `FluoSnapshot.posts` or rerender the whole timeline. The shared media
+  scheduler starts visible work first in bounded animation-frame batches, and
+  immutable Nodo responses use native private HTTP caching, ETags, and byte
+  ranges so remounted images/video do not transfer again.
 - Media limits and public reservations are enforced by the existing gateway,
   Worker, and Nodo contracts; keep upload progress and cancellation behavior.
 
@@ -178,6 +195,11 @@ never be returned to a client.
   loopback test, and camera are global preferences and must be applied by the
   voice layer. Device selection must use the actual MediaStream constraints
   and permission flow, not a display-only hardcoded label.
+- Tauri application scale uses the same CSS scale path as the browser. Do not
+  call native WebView `setZoom`: WKWebView page zoom discards its backing/tile
+  cache and previously made Fluo performance depend randomly on Agordoj scale
+  changes. The virtualizer explicitly converts visual offsets back to logical
+  CSS coordinates.
 
 ## Windows/Tauri regression checklist
 
