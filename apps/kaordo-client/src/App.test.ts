@@ -294,6 +294,26 @@ function mockCanvasViewportSize(width: number, height: number) {
   };
 }
 
+function mockFluoViewportSize(element: HTMLElement, width = 680, height = 900) {
+  Object.defineProperties(element, {
+    clientHeight: { configurable: true, value: height },
+    clientWidth: { configurable: true, value: width },
+    offsetHeight: { configurable: true, value: height },
+    offsetWidth: { configurable: true, value: width },
+  });
+  element.getBoundingClientRect = () => ({
+    bottom: height,
+    height,
+    left: 0,
+    right: width,
+    toJSON: () => ({}),
+    top: 0,
+    width,
+    x: 0,
+    y: 0,
+  });
+}
+
 describe('workspace navigation and objects', () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
@@ -324,6 +344,7 @@ describe('workspace navigation and objects', () => {
     expect(screen.getByRole('heading', { name: 'Files' }).closest('main')).toHaveClass(
       'app-section--hidden',
     );
+    mockFluoViewportSize(screen.getByRole('heading', { name: 'Global timeline' }).closest('main')!);
 
     const composer = screen.getByRole('textbox', { name: 'Post text' });
     await fireEvent.input(composer, { target: { value: 'Hello from this device.' } });
