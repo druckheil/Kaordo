@@ -152,7 +152,12 @@
     justify-items: start;
   }
 
-  .post-media--single { grid-template-columns: minmax(0, 1fr); }
+  .post-media--single {
+    display: flex;
+    width: fit-content;
+    max-width: 100%;
+    align-items: flex-start;
+  }
 
   .post-actions {
     display: grid;

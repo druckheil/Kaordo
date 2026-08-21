@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import type { FluoAttachment, FluoGState } from '../../lib/states/FluoGState';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
+  import { getFluoMediaLayout } from './fluoMediaLayout';
 
   type Props = {
     attachment: FluoAttachment;
@@ -16,12 +17,12 @@
   let mediaUrl = $state<string>();
   let loadState = $state<'error' | 'idle' | 'loading' | 'ready'>('idle');
   let loadingRequest: Promise<void> | null = null;
+  let discoveredDimensions = $state<{ height: number; width: number }>();
 
-  const MIN_MEDIA_HEIGHT = 148;
-  const MAX_MEDIA_HEIGHT = 430;
-  const MAX_MEDIA_WIDTH = 520;
-  let mediaRatio = $derived(validRatio(attachment.width, attachment.height));
-  let mediaWidth = $derived(displayWidth(attachment.width, mediaRatio));
+  let mediaLayout = $derived(getFluoMediaLayout(
+    discoveredDimensions?.width ?? attachment.width,
+    discoveredDimensions?.height ?? attachment.height,
+  ));
 
   onMount(() => register(ensureLoaded));
 
@@ -31,25 +32,24 @@
     if (!attachment.url || attachment.url === mediaUrl) return;
     mediaUrl = attachment.url;
     loadState = 'ready';
+    if (attachment.kind !== 'video' && (!attachment.width || !attachment.height)) {
+      const directUrl = attachment.url;
+      void discoverImageDimensions(directUrl).then((dimensions) => {
+        if (dimensions) applyMediaDimensions(dimensions.width, dimensions.height);
+      });
+    }
   });
-
-  function validRatio(width?: number, height?: number): number {
-    if (!width || !height || !Number.isFinite(width) || !Number.isFinite(height)) return 16 / 9;
-    return Math.min(4, Math.max(0.35, width / height));
-  }
-
-  function displayWidth(width: number | undefined, ratio: number): number {
-    const minimum = MIN_MEDIA_HEIGHT * ratio;
-    const maximum = Math.min(MAX_MEDIA_WIDTH, MAX_MEDIA_HEIGHT * ratio);
-    return Math.round(Math.min(maximum, Math.max(minimum, width ?? maximum)));
-  }
 
   function ensureLoaded(): Promise<void> {
     if (mediaUrl) return Promise.resolve();
     if (loadingRequest) return loadingRequest;
     loadState = 'loading';
-    loadingRequest = fluoState.loadMedia(postId, attachment.id).then((url) => {
+    loadingRequest = fluoState.loadMedia(postId, attachment.id).then(async (url) => {
       if (url) {
+        if (attachment.kind !== 'video' && (!attachment.width || !attachment.height)) {
+          const dimensions = await discoverImageDimensions(url);
+          if (dimensions) applyMediaDimensions(dimensions.width, dimensions.height);
+        }
         mediaUrl = url;
         loadState = 'ready';
       } else {
@@ -66,8 +66,12 @@
     retrying = true;
     mediaUrl = undefined;
     loadState = 'loading';
-    loadingRequest = fluoState.retryMedia(postId, attachment.id).then((url) => {
+    loadingRequest = fluoState.retryMedia(postId, attachment.id).then(async (url) => {
       if (url) {
+        if (attachment.kind !== 'video') {
+          const dimensions = await discoverImageDimensions(url);
+          if (dimensions) applyMediaDimensions(dimensions.width, dimensions.height);
+        }
         mediaUrl = url;
         loadState = 'ready';
       } else {
@@ -91,6 +95,42 @@
     void retry();
   }
 
+  function handleImageLoad(event: Event): void {
+    const image = event.currentTarget as HTMLImageElement;
+    if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+      applyMediaDimensions(image.naturalWidth, image.naturalHeight);
+    }
+  }
+
+  function handleVideoDimensions(width: number, height: number): void {
+    applyMediaDimensions(width, height);
+  }
+
+  function applyMediaDimensions(width: number, height: number): void {
+    discoveredDimensions = { height, width };
+    fluoState.setMediaDimensions(postId, attachment.id, width, height);
+  }
+
+  async function discoverImageDimensions(url: string): Promise<{ height: number; width: number } | null> {
+    if (typeof Image === 'undefined') return null;
+    const probe = new Image();
+    const dimensions = await new Promise<{ height: number; width: number } | null>((resolve) => {
+      const finish = () => {
+        const width = probe.naturalWidth;
+        const height = probe.naturalHeight;
+        resolve(width > 0 && height > 0 ? { height, width } : null);
+      };
+      probe.onload = finish;
+      probe.onerror = () => resolve(null);
+      probe.src = url;
+      if (probe.complete) finish();
+    });
+    probe.onload = null;
+    probe.onerror = null;
+    probe.src = '';
+    return dimensions;
+  }
+
   function retryFromButton(): void {
     automaticRetryUsed = false;
     void retry();
@@ -99,7 +139,7 @@
 
 <figure
   class:media-unavailable={loadState === 'error'}
-  style={`--media-ratio:${mediaRatio};--media-width:${mediaWidth}px`}
+  style={`--media-ratio:${mediaLayout.ratio};--media-width:${mediaLayout.width}px;width:${mediaLayout.width}px`}
 >
   {#if loadState === 'error'}
     <button class="media-retry" type="button" disabled={retrying} onclick={retryFromButton}>
@@ -108,12 +148,13 @@
   {:else if attachment.kind === 'video' && mediaUrl}
     <KaordoVideoPlayer
       mimeType={attachment.mimeType}
+      onDimensions={handleVideoDimensions}
       preload="none"
       src={mediaUrl}
       title={attachment.name}
     />
   {:else if attachment.kind !== 'video' && mediaUrl}
-    <img src={mediaUrl} alt={attachment.name} decoding="async" onerror={handleImageError} />
+    <img src={mediaUrl} alt={attachment.name} decoding="async" onerror={handleImageError} onload={handleImageLoad} />
   {:else}
     <span
       class="media-skeleton"
@@ -126,8 +167,10 @@
 <style>
   figure {
     position: relative;
+    display: block;
     min-width: 0;
-    width: min(100%, var(--media-width));
+    width: var(--media-width);
+    max-width: 100%;
     aspect-ratio: var(--media-ratio);
     margin: 0;
     overflow: hidden;
@@ -135,6 +178,7 @@
     border-radius: 11px;
     background: #e9eeea;
     justify-self: start;
+    align-self: start;
   }
 
   img {

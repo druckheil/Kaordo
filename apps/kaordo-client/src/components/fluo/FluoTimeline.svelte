@@ -4,6 +4,10 @@
   import { onMount, tick } from 'svelte';
   import type { FluoGState, FluoPost } from '../../lib/states/FluoGState';
   import FluoPostCard from './FluoPostCard.svelte';
+  import {
+    FLUO_MAX_MEDIA_WIDTH,
+    getFluoMediaLayout,
+  } from './fluoMediaLayout';
 
   type Props = {
     hasMore: boolean;
@@ -28,6 +32,7 @@
   const MEDIA_PREFETCH_POSTS = 12;
   const MAX_CONCURRENT_MEDIA_LOADS = 6;
   const MEDIA_STARTS_PER_FRAME = 3;
+  const MEDIA_GRID_GAP = 3;
   const POST_GAP = 8;
 
   let {
@@ -157,16 +162,19 @@
     if (!post) return 220;
     const textLines = post.body ? Math.min(8, Math.max(1, Math.ceil(post.body.length / 58))) : 0;
     if (!post.attachments.length) return 91 + textLines * 20;
-    const media = post.attachments[0];
-    const ratio = validRatio(media?.width, media?.height);
-    const mediaHeight = Math.min(430, Math.max(148, Math.round(520 / ratio)));
-    const rows = post.attachments.length > 2 ? 2 : 1;
-    return 113 + textLines * 20 + mediaHeight * rows + POST_GAP * (rows - 1);
-  }
-
-  function validRatio(width?: number, height?: number): number {
-    if (!width || !height || !Number.isFinite(width) || !Number.isFinite(height)) return 16 / 9;
-    return Math.min(4, Math.max(0.35, width / height));
+    const columnWidth = (FLUO_MAX_MEDIA_WIDTH - MEDIA_GRID_GAP) / 2;
+    const rowHeights: number[] = [];
+    for (const [attachmentIndex, attachment] of post.attachments.entries()) {
+      const row = Math.floor(attachmentIndex / 2);
+      const mediaHeight = getFluoMediaLayout(
+        attachment.width,
+        attachment.height,
+        post.attachments.length === 1 ? FLUO_MAX_MEDIA_WIDTH : columnWidth,
+      ).height;
+      rowHeights[row] = Math.max(rowHeights[row] ?? 0, mediaHeight);
+    }
+    return 113 + textLines * 20 + rowHeights.reduce((total, height) => total + height, 0)
+      + MEDIA_GRID_GAP * Math.max(0, rowHeights.length - 1);
   }
 
   function measurePostElement(element: HTMLDivElement): number {

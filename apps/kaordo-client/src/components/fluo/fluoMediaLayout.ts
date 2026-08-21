@@ -1,0 +1,52 @@
+export const FLUO_MIN_MEDIA_HEIGHT = 148;
+export const FLUO_MAX_MEDIA_HEIGHT = 430;
+export const FLUO_MAX_MEDIA_WIDTH = 620;
+
+export type FluoMediaLayout = {
+  height: number;
+  ratio: number;
+  width: number;
+};
+
+/**
+ * Calculates one stable display box from the media metadata.
+ *
+ * The original dimensions remain the primary input. The height and width
+ * limits only keep extreme portraits, panoramas, and tiny thumbnails usable.
+ * The returned dimensions always have the same ratio so the skeleton, image,
+ * and video occupy one identical box while the content is loading.
+ */
+export function getFluoMediaLayout(
+  width?: number,
+  height?: number,
+  availableWidth = FLUO_MAX_MEDIA_WIDTH,
+): FluoMediaLayout {
+  const ratio = normalizeFluoMediaRatio(width, height);
+  const maxWidth = Math.max(1, Math.min(FLUO_MAX_MEDIA_WIDTH, availableWidth));
+  const maxByHeight = FLUO_MAX_MEDIA_HEIGHT * ratio;
+  const upperWidth = Math.max(1, Math.min(maxWidth, maxByHeight));
+  const lowerWidth = Math.min(upperWidth, FLUO_MIN_MEDIA_HEIGHT * ratio);
+  const sourceWidth = positiveFinite(width) ? width : upperWidth;
+  const boundedWidth = clamp(sourceWidth, lowerWidth, upperWidth);
+  const displayHeight = clamp(boundedWidth / ratio, FLUO_MIN_MEDIA_HEIGHT, FLUO_MAX_MEDIA_HEIGHT);
+  const displayWidth = displayHeight * ratio;
+
+  return {
+    height: Math.max(1, Math.round(displayHeight)),
+    ratio,
+    width: Math.max(1, Math.round(displayWidth)),
+  };
+}
+
+export function normalizeFluoMediaRatio(width?: number, height?: number): number {
+  if (!positiveFinite(width) || !positiveFinite(height)) return 16 / 9;
+  return clamp(width / height, 0.35, 4);
+}
+
+function positiveFinite(value: number | undefined): value is number {
+  return value !== undefined && Number.isFinite(value) && value > 0;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}

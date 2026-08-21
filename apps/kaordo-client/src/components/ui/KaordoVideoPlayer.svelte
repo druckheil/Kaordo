@@ -4,6 +4,7 @@
 
   type Props = {
     mimeType?: string;
+    onDimensions?: (width: number, height: number) => void;
     onError?: () => void;
     onReady?: () => void;
     preload?: 'metadata' | 'none' | 'auto';
@@ -13,6 +14,7 @@
 
   let {
     mimeType = 'video/mp4',
+    onDimensions,
     onError,
     onReady,
     preload = 'metadata',
@@ -26,13 +28,26 @@
     const element = player;
     if (!element) return;
 
-    const ready = () => onReady?.();
+    const ready = () => {
+      dimensions();
+      onReady?.();
+    };
     const failed = () => onError?.();
+    const dimensions = () => {
+      const video = element.querySelector('video');
+      const width = video?.videoWidth ?? 0;
+      const height = video?.videoHeight ?? 0;
+      if (width > 0 && height > 0) onDimensions?.(width, height);
+    };
     element.addEventListener('can-play', ready);
     element.addEventListener('media-error', failed);
+    element.addEventListener('loaded-metadata', dimensions);
+    element.addEventListener('loadedmetadata', dimensions);
     return () => {
       element.removeEventListener('can-play', ready);
       element.removeEventListener('media-error', failed);
+      element.removeEventListener('loaded-metadata', dimensions);
+      element.removeEventListener('loadedmetadata', dimensions);
     };
   });
 

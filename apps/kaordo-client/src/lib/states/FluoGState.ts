@@ -88,6 +88,7 @@ export class FluoGState extends GState<FluoSnapshot> {
   #mediaGeneration = 0;
   #mediaCacheBytes = 0;
   #mediaCacheClock = 0;
+  #mediaDimensions = new Map<string, { height: number; width: number }>();
   #pageSize = INITIAL_FEED_PAGE_SIZE;
   #unsubscribeRegistry: (() => void) | null = null;
 
@@ -153,6 +154,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#pageSize = INITIAL_FEED_PAGE_SIZE;
     this.#mediaGeneration += 1;
     this.#mediaRequests.clear();
+    this.#mediaDimensions.clear();
     this.clearMediaCache();
     this.revokeUrls(this.snapshot.posts.flatMap((post) => post.attachments));
     this.revokeUrls(this.snapshot.draftAttachments, false);
@@ -337,6 +339,40 @@ export class FluoGState extends GState<FluoSnapshot> {
   async loadMedia(postId: string, attachmentId: string): Promise<string | null> {
     const target = this.findMediaTarget(postId, attachmentId);
     return target ? this.startMediaLoad(target) : null;
+  }
+
+  /**
+   * Stores dimensions discovered by the browser for legacy media whose Nodo
+   * metadata predates dimension recording. Keeping this in the state means a
+   * feed refresh reuses the measured box instead of falling back to 16:9.
+   */
+  setMediaDimensions(postId: string, attachmentId: string, width: number, height: number): void {
+    const normalizedWidth = Math.round(width);
+    const normalizedHeight = Math.round(height);
+    if (!Number.isSafeInteger(normalizedWidth) || !Number.isSafeInteger(normalizedHeight) ||
+        normalizedWidth < 1 || normalizedHeight < 1 ||
+        normalizedWidth > MAX_MEDIA_DIMENSION || normalizedHeight > MAX_MEDIA_DIMENSION) return;
+    const target = this.findMediaTarget(postId, attachmentId);
+    if (!target) return;
+    const mediaKey = `${target.key}:${attachmentId}`;
+    const previous = this.#mediaDimensions.get(mediaKey);
+    if (previous?.width === normalizedWidth && previous.height === normalizedHeight &&
+        target.attachment.width === normalizedWidth && target.attachment.height === normalizedHeight) return;
+    this.#mediaDimensions.set(mediaKey, { height: normalizedHeight, width: normalizedWidth });
+    const posts = this.snapshot.posts.map((post) => {
+      if (postKey(post) !== target.key) return post;
+      let changed = false;
+      const attachments = post.attachments.map((attachment) => {
+        if (attachment.id !== attachmentId ||
+            (attachment.width === normalizedWidth && attachment.height === normalizedHeight)) return attachment;
+        changed = true;
+        return { ...attachment, height: normalizedHeight, width: normalizedWidth };
+      });
+      return changed ? { ...post, attachments } : post;
+    });
+    if (posts.some((post, index) => post !== this.snapshot.posts[index])) {
+      this.publish({ ...this.snapshot, posts });
+    }
   }
 
   async retryMedia(postId: string, attachmentId: string): Promise<string | null> {
@@ -524,6 +560,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       if (lifecycleId !== this.#lifecycleId) return true;
       this.revokeUrls(post.attachments);
       this.clearMediaCacheForPost(key);
+      this.forgetMediaDimensionsForPost(key);
       this.publish({
         ...this.snapshot,
         posts: this.snapshot.posts.filter((candidate) => postKey(candidate) !== key),
@@ -545,7 +582,11 @@ export class FluoGState extends GState<FluoSnapshot> {
     if (!removed.length) return;
     this.#requestId += 1;
     this.revokeUrls(removed.flatMap((post) => post.attachments));
-    removed.forEach((post) => this.clearMediaCacheForPost(postKey(post)));
+    removed.forEach((post) => {
+      const key = postKey(post);
+      this.clearMediaCacheForPost(key);
+      this.forgetMediaDimensionsForPost(key);
+    });
     this.publish({
       ...this.snapshot,
       isLoading: false,
@@ -569,14 +610,20 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   private hydrate(post: RemoteFluoPost): FluoPost {
+    const key = postKey(post);
     return {
       ...post,
-      attachments: post.attachments.map(({ blob, ...attachment }) => blob ? {
-        ...attachment,
-        loadState: 'ready',
-        objectUrl: true,
-        url: this.#createObjectUrl(blob),
-      } : { ...attachment, loadState: 'idle' }),
+      attachments: post.attachments.map(({ blob, ...attachment }) => {
+        const measured = this.#mediaDimensions.get(`${key}:${attachment.id}`);
+        const dimensions = attachment.width && attachment.height ? attachment : measured;
+        return blob ? {
+          ...attachment,
+          ...dimensions,
+          loadState: 'ready',
+          objectUrl: true,
+          url: this.#createObjectUrl(blob),
+        } : { ...attachment, ...dimensions, loadState: 'idle' };
+      }),
       liked: false,
     };
   }
@@ -686,6 +733,13 @@ export class FluoGState extends GState<FluoSnapshot> {
     }
     for (const mediaKey of this.#mediaSources.keys()) {
       if (mediaKey.startsWith(prefix)) this.removeResolvedMedia(mediaKey);
+    }
+  }
+
+  private forgetMediaDimensionsForPost(key: string): void {
+    const prefix = `${key}:`;
+    for (const mediaKey of this.#mediaDimensions.keys()) {
+      if (mediaKey.startsWith(prefix)) this.#mediaDimensions.delete(mediaKey);
     }
   }
 

@@ -216,7 +216,7 @@ html[data-theme='dark'] :is(
   border-color: #46544c !important;
 }
 
-html[data-theme='dark'] :is(.draft-media figure, .post-media, .post-media figure) {
+html[data-theme='dark'] :is(.draft-media figure, .post-media figure) {
   background: #18201c !important;
   border-color: #3a473f !important;
 }

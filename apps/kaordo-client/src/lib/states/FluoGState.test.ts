@@ -184,6 +184,34 @@ describe('FluoGState', () => {
     expect(state.snapshot).toBe(snapshotBeforeMedia);
   });
 
+  it('keeps measured dimensions for legacy media when the feed is refreshed', async () => {
+    const fluo = new MemoryFluoGateway();
+    fluo.posts = [{
+      attachments: [{
+        id: 'legacy-media',
+        kind: 'image',
+        mimeType: 'image/jpeg',
+        name: 'legacy.jpg',
+        size: 10,
+      }],
+      author: 'legacy',
+      body: '',
+      createdAt: 1_800_000_000_000,
+      id: 'legacy-post',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    const state = createState(fluo);
+
+    await state.refreshNodes();
+    state.setMediaDimensions('legacy-post', 'legacy-media', 400, 700);
+    expect(state.snapshot.posts[0]?.attachments[0]).toMatchObject({ width: 400, height: 700 });
+
+    fluo.stateHash = 'memory-2';
+    await state.refreshNodes();
+    expect(state.snapshot.posts[0]?.attachments[0]).toMatchObject({ width: 400, height: 700 });
+  });
+
   it('keeps a direct Nodo media URL across a feed tab switch', async () => {
     const fluo = new DirectMediaFluoGateway();
     const revoked: string[] = [];
