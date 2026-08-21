@@ -66,7 +66,6 @@ article h3 { margin: 0 0 8px; font-size: 21px; letter-spacing: -.025em; }
 article p { margin: 0; color: #75867f; line-height: 1.5; }
 article a { display: flex; width: 100%; align-items: center; justify-content: space-between; margin-top: auto; padding: 14px 16px; border-radius: 13px; background: #2d7661; color: white; text-decoration: none; font-size: 14px; font-weight: 700; }
 article a:hover { background: #225f4e; }
-article .download-unavailable { display: flex; width: 100%; align-items: center; justify-content: center; margin-top: auto; padding: 14px 16px; border: 1px solid #dbe6e1; border-radius: 13px; background: #f2f6f3; color: #71837d; font-size: 13px; font-weight: 700; }
 article a.secondary { display: block; margin-top: -15px; padding: 0 4px; background: transparent; color: #52766a; font-weight: 600; }
 .download-footnote { margin: 24px 0 0; color: #7b8c86; font-size: 13px; text-align: center; }
 footer { display: flex; justify-content: space-between; gap: 20px; padding: 42px 2px 54px; color: #84938e; font-size: 13px; }
