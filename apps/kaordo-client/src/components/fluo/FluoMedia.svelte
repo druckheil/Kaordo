@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import type { FluoAttachment, FluoGState } from '../../lib/states/FluoGState';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
+  import PhotoViewer from '../ui/PhotoViewer.svelte';
   import { FLUO_MAX_MEDIA_WIDTH, getFluoMediaLayout } from './fluoMediaLayout';
 
   type Props = {
@@ -25,6 +26,7 @@
   let loadState = $state<'error' | 'idle' | 'loading' | 'ready'>('idle');
   let loadingRequest: Promise<void> | null = null;
   let discoveredDimensions = $state<{ height: number; width: number }>();
+  let showPhotoViewer = $state(false);
 
   let mediaLayout = $derived(getFluoMediaLayout(
     discoveredDimensions?.width ?? attachment.width,
@@ -162,7 +164,14 @@
       title={attachment.name}
     />
   {:else if attachment.kind !== 'video' && mediaUrl}
-    <img src={mediaUrl} alt={attachment.name} decoding="async" onerror={handleImageError} onload={handleImageLoad} />
+    <button
+      class="image-trigger"
+      type="button"
+      aria-label={`Open ${attachment.name}`}
+      onclick={() => { showPhotoViewer = true; }}
+    >
+      <img src={mediaUrl} alt={attachment.name} decoding="async" onerror={handleImageError} onload={handleImageLoad} />
+    </button>
   {:else}
     <span
       class="media-skeleton"
@@ -171,6 +180,17 @@
   {/if}
   {#if attachment.kind === 'gif'}<span class="media-kind">GIF</span>{/if}
 </figure>
+
+{#if showPhotoViewer && mediaUrl && attachment.kind !== 'video'}
+  <PhotoViewer
+    alt={attachment.name}
+    height={discoveredDimensions?.height ?? attachment.height ?? mediaLayout.height}
+    name={attachment.name}
+    onClose={() => { showPhotoViewer = false; }}
+    url={mediaUrl}
+    width={discoveredDimensions?.width ?? attachment.width ?? mediaLayout.width}
+  />
+{/if}
 
 <style>
   figure {
@@ -195,6 +215,21 @@
     height: 100%;
     object-fit: contain;
     object-position: left center;
+  }
+
+  .image-trigger {
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    cursor: zoom-in;
+  }
+
+  .image-trigger:focus-visible {
+    outline: 2px solid #4b8b76;
+    outline-offset: -2px;
   }
 
   .media-skeleton {
