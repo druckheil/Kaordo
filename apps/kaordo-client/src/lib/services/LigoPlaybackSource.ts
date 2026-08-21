@@ -49,13 +49,10 @@ async function writeNativeFile(fileName: string, blob: Blob): Promise<void> {
 }
 
 function blobPlaybackSource(attachment: LigoAttachment): LigoPlaybackSource {
-  const mimeType = isQuickTimeVideo(attachment) ? 'video/mp4' : attachment.mimeType;
-  const url = URL.createObjectURL(attachment.blob.slice(0, attachment.blob.size, mimeType));
+  // Preserve the original bytes and MIME type. Relabelling QuickTime data as
+  // MP4 never converted the container and made platform playback less stable.
+  const url = URL.createObjectURL(attachment.blob.slice(0, attachment.blob.size, attachment.mimeType));
   return { url, release: () => { URL.revokeObjectURL(url); } };
-}
-
-function isQuickTimeVideo(file: LigoAttachment): boolean {
-  return file.mimeType.toLowerCase() === 'video/quicktime' || file.name.toLowerCase().endsWith('.mov');
 }
 
 function encodeHeader(value: string): string {

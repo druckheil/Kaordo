@@ -20,12 +20,20 @@ export class LigoController {
     onStorageChanged?: (nodeId: string, space: 'private' | 'public') => void | Promise<void>,
   ) {
     this.manager = this.director.register(LIGO_STATE);
+    // The Ligo bootstrap needs the same node and public-pool data as Fluo.
+    // Reuse the combined endpoint when the gateway supports it; the shared
+    // in-flight read means both projections still resolve from one Worker
+    // request instead of independently calling /api/nodes and
+    // /api/fluo/public-storage.
+    const loadBootstrap = nodes.fluoBootstrap
+      ? () => nodes.fluoBootstrap!()
+      : null;
     this.state = new LigoGState(
       gateway,
       new NodeLigoTransport(gateway, nodes),
       createLigoLocalStore(),
-      () => nodes.listNodes(),
-      () => nodes.publicStorage(),
+      () => loadBootstrap ? loadBootstrap().then(({ nodes: ownedNodes }) => ownedNodes) : nodes.listNodes(),
+      () => loadBootstrap ? loadBootstrap().then(({ publicStorage }) => publicStorage) : nodes.publicStorage(),
       undefined,
       createLigoFileArchive(),
       onStorageChanged ?? null,

@@ -117,7 +117,9 @@ export class LigoGState extends GState<LigoSnapshot> {
   #liveConnectTimer: ReturnType<typeof setTimeout> | null = null;
   #livePingTimer: ReturnType<typeof setInterval> | null = null;
   #liveSocket: LigoLiveSocket | null = null;
+  #refreshInFlight: Promise<void> | null = null;
   #storageRefresh: Promise<void> | null = null;
+  #storageGeneration = 0;
   readonly #scrollPositions = new Map<string, LigoScrollPosition>();
   readonly #messageHeights = new Map<string, number>();
   #outgoingQueue: PendingOutgoing[] = [];
@@ -171,6 +173,8 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#requestId += 1;
     this.#conversationRequestId += 1;
     this.#searchRequestId += 1;
+    this.#refreshInFlight = null;
+    this.invalidateStorageRefresh();
     this.publish({
       ...this.snapshot,
       loadingHistory: false,
@@ -209,12 +213,13 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#lifecycleId += 1;
     this.#conversationRequestId += 1;
     this.#searchRequestId += 1;
+    this.#refreshInFlight = null;
+    this.invalidateStorageRefresh();
     this.#emptyPolls = 0;
     this.#syncRequested = false;
     this.#messageCursor = null;
     this.#peerCloudCursor = null;
     this.#ownCloudCursor = null;
-    this.#storageRefresh = null;
     this.#scrollPositions.clear();
     this.#messageHeights.clear();
     for (const pending of this.#outgoingQueue.splice(0)) {
@@ -260,6 +265,17 @@ export class LigoGState extends GState<LigoSnapshot> {
   }
 
   async refresh(): Promise<void> {
+    if (!this.#ownerId) return;
+    if (this.#refreshInFlight) return this.#refreshInFlight;
+    let sharedRefresh: Promise<void>;
+    sharedRefresh = this.refreshInternal().finally(() => {
+      if (this.#refreshInFlight === sharedRefresh) this.#refreshInFlight = null;
+    });
+    this.#refreshInFlight = sharedRefresh;
+    return sharedRefresh;
+  }
+
+  private async refreshInternal(): Promise<void> {
     if (!this.#ownerId) return;
     const requestId = ++this.#requestId;
     this.publish({ ...this.snapshot, error: null, phase: 'loading' });
@@ -421,10 +437,12 @@ export class LigoGState extends GState<LigoSnapshot> {
 
   async saveStorage(selectedNodeId: string, stackLimitBytes: number): Promise<boolean> {
     if (this.snapshot.storageSaving) return false;
+    this.invalidateStorageRefresh();
     this.publish({ ...this.snapshot, error: null, storageSaving: true });
     try {
       const update = await this.api.updateStorage(selectedNodeId, stackLimitBytes);
       await this.transport.discard(update.evicted);
+      this.invalidateStorageRefresh();
       this.applyStorage(update.storage, false);
       void this.refreshStorage();
       return true;
@@ -439,9 +457,11 @@ export class LigoGState extends GState<LigoSnapshot> {
     const user = this.snapshot.activeUser;
     const message = this.snapshot.messages.find(({ id }) => id === messageId);
     if (!ownerId || !user || !message || message.senderId !== ownerId || message.status === 'sending') return false;
+    this.invalidateStorageRefresh();
     try {
       if (message.status !== 'failed') {
         const update = await this.api.deleteMessage(messageId, user.username.toLowerCase());
+        this.invalidateStorageRefresh();
         this.applyStorage(update.storage, false);
         // D1 has already persisted a Nodo tombstone. Direct cleanup is the fast
         // path; heartbeat reconciliation remains the durable fallback.
@@ -459,11 +479,13 @@ export class LigoGState extends GState<LigoSnapshot> {
   async deleteConversation(user: LigoUser): Promise<boolean> {
     const ownerId = this.#ownerId;
     if (!ownerId || !this.snapshot.conversations.some((conversation) => conversation.user.id === user.id)) return false;
+    this.invalidateStorageRefresh();
     this.#deletingConversationPeers.add(user.id);
     try {
       this.removeQueuedOutgoing(ownerId, user.id);
       await this.waitForOutgoingPeer(user.id);
       const update = await this.api.deleteConversation(user.username.toLowerCase());
+      this.invalidateStorageRefresh();
       this.applyStorage(update.storage, false);
       await this.transport.discard(update.evicted).catch(() => undefined);
       await this.removeLocalConversation(ownerId, user.id);
@@ -479,9 +501,10 @@ export class LigoGState extends GState<LigoSnapshot> {
   async refreshStorage(): Promise<void> {
     if (this.#storageRefresh) return this.#storageRefresh;
     const lifecycleId = this.#lifecycleId;
+    const storageGeneration = this.#storageGeneration;
     const refresh = Promise.all([this.loadNodes(), this.loadPublicStorage()])
       .then(([nodes, publicStorage]) => {
-        if (lifecycleId !== this.#lifecycleId) return;
+        if (lifecycleId !== this.#lifecycleId || storageGeneration !== this.#storageGeneration) return;
         this.publish({ ...this.snapshot, nodes, publicStorage });
       })
       .catch(() => undefined)
@@ -490,6 +513,11 @@ export class LigoGState extends GState<LigoSnapshot> {
       });
     this.#storageRefresh = refresh;
     return refresh;
+  }
+
+  private invalidateStorageRefresh(): void {
+    this.#storageGeneration += 1;
+    this.#storageRefresh = null;
   }
 
   setDraft(value: string): void { this.publish({ ...this.snapshot, draft: value.slice(0, 16_000) }); }
@@ -592,6 +620,7 @@ export class LigoGState extends GState<LigoSnapshot> {
             stackUsedBytes: result.storage.stackUsedBytes,
             uploadProgress: null,
           });
+          this.invalidateStorageRefresh();
           void this.refreshStorage();
           if (result.nodeId && result.space) void this.onStorageChanged?.(result.nodeId, result.space);
         }
@@ -917,7 +946,10 @@ export class LigoGState extends GState<LigoSnapshot> {
       }
     }
     if (!acknowledged.length) return;
-    if (deletions.some(({ senderId }) => senderId === ownerId)) void this.refreshStorage();
+    if (deletions.some(({ senderId }) => senderId === ownerId)) {
+      this.invalidateStorageRefresh();
+      void this.refreshStorage();
+    }
     try {
       await this.api.acknowledgeDeletions(acknowledged);
     } catch {
@@ -943,6 +975,7 @@ export class LigoGState extends GState<LigoSnapshot> {
     } catch {
       // Reapplying a conversation deletion is safe and retries on next sync.
     }
+    this.invalidateStorageRefresh();
     void this.refreshStorage();
   }
 

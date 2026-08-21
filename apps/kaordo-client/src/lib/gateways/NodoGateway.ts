@@ -19,6 +19,8 @@ export type FluoBootstrap = {
 };
 
 export interface NodoGateway {
+  /** Clears shared read promises when the authenticated session changes. */
+  resetSession?(): void;
   deleteNode(nodeId: string): Promise<void>;
   renameNode(nodeId: string, name: string): Promise<string>;
   accessNode(nodeId: string): Promise<NodoAccess>;

@@ -14,6 +14,29 @@ import { MemoryLigoLocalStore } from '../services/LigoLocalStore';
 import { LigoGState } from './LigoGState';
 
 describe('LigoGState live inbox', () => {
+  it('shares concurrent bootstrap refreshes', async () => {
+    const gateway = new MemoryLigoGateway();
+    let release!: () => void;
+    gateway.bootstrapGate = new Promise<void>((resolve) => { release = resolve; });
+    const state = new LigoGState(
+      gateway,
+      EMPTY_TRANSPORT,
+      new MemoryLigoLocalStore(),
+      async () => [],
+      async () => ({ limitBytes: 1_073_741_824, nodeCandidates: [], reservedBytes: 0, usedBytes: 0 }),
+    );
+
+    state.configure('owner');
+    state.enter();
+    const second = state.refresh();
+    await Promise.resolve();
+
+    expect(gateway.bootstrapCalls).toBe(1);
+    release();
+    await second;
+    state.exit();
+  });
+
   it('synchronizes the open chat as soon as the server signals a delivery', async () => {
     const gateway = new MemoryLigoGateway();
     const socket = new TestWebSocket();
@@ -278,6 +301,8 @@ describe('LigoGState live inbox', () => {
 class MemoryLigoGateway implements LigoGateway {
   acknowledgedConversationDeletions: string[] = [];
   acknowledgedDeletions: string[] = [];
+  bootstrapCalls = 0;
+  bootstrapGate: Promise<void> | null = null;
   inboxCalls = 0;
   liveTicketCalls = 0;
 
@@ -291,12 +316,14 @@ class MemoryLigoGateway implements LigoGateway {
     return Promise.resolve();
   }
   confirmCleanup(): Promise<void> { return Promise.resolve(); }
-  bootstrap(): Promise<LigoBootstrap> {
-    return Promise.resolve({
+  async bootstrap(): Promise<LigoBootstrap> {
+    this.bootstrapCalls += 1;
+    await (this.bootstrapGate ?? Promise.resolve());
+    return {
       conversations: [],
       nextCursor: null,
       storage: { selectedNodeId: 'public', stackLimitBytes: 104_857_600, stackUsedBytes: 0 },
-    });
+    };
   }
   createDelivery() { return Promise.resolve({
     evicted: [],

@@ -91,6 +91,7 @@ export class FluoGState extends GState<FluoSnapshot> {
   #mediaDimensions = new Map<string, { height: number; width: number }>();
   #pageSize = INITIAL_FEED_PAGE_SIZE;
   #unsubscribeRegistry: (() => void) | null = null;
+  #refreshInFlight: { lifecycleId: number; promise: Promise<void> } | null = null;
 
   constructor(gateway: FluoGateway, nodes: NodoGateway, options: FluoGStateOptions = {}) {
     super({
@@ -153,6 +154,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#feedStates.clear();
     this.#pageSize = INITIAL_FEED_PAGE_SIZE;
     this.#mediaGeneration += 1;
+    this.#nodes.resetSession?.();
     this.#mediaRequests.clear();
     this.#mediaDimensions.clear();
     this.clearMediaCache();
@@ -182,6 +184,20 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   async refreshNodes(forceReload = false): Promise<void> {
+    const existing = this.#refreshInFlight;
+    if (existing?.lifecycleId === this.#lifecycleId) return existing.promise;
+
+    const lifecycleId = this.#lifecycleId;
+    const request = this.refreshNodesInternal(forceReload);
+    let sharedRequest: Promise<void>;
+    sharedRequest = request.finally(() => {
+      if (this.#refreshInFlight?.promise === sharedRequest) this.#refreshInFlight = null;
+    });
+    this.#refreshInFlight = { lifecycleId, promise: sharedRequest };
+    return sharedRequest;
+  }
+
+  private async refreshNodesInternal(forceReload: boolean): Promise<void> {
     const requestId = ++this.#requestId;
     const hasCachedFeed = this.#feedNodeIds.length > 0 || this.#feedStates.size > 0 ||
       this.snapshot.posts.length > 0;
@@ -205,7 +221,10 @@ export class FluoGState extends GState<FluoSnapshot> {
           ]);
       if (requestId !== this.#requestId) return;
       this.#registry.replace(nodes);
-      this.applyNodes(this.#registry.nodes);
+      // replace() synchronously notifies the subscription created in enter().
+      // Direct state consumers do not have that subscription, so only apply
+      // the registry snapshot explicitly in that mode.
+      if (!this.#unsubscribeRegistry) this.applyNodes(this.#registry.nodes);
       // The first metadata page and the lightweight state probe are
       // independent. Start both together so posts become visible as soon as
       // the Node metadata responds; media is still loaded by FluoMedia later.
@@ -235,10 +254,15 @@ export class FluoGState extends GState<FluoSnapshot> {
           publicStorage,
           storageError: null,
         });
-
-        const states = await statesPromise;
-        if (requestId !== this.#requestId) return;
-        this.#feedStates = new Map(states.map((state) => [state.nodeId, state]));
+        // State hashes are only needed to reconcile a later refresh. Do not
+        // keep the refresh promise pending after metadata is visible; a slow
+        // legacy Nodo state endpoint must not make the Refresh button appear
+        // to work while silently coalescing the user's next refresh.
+        void statesPromise.then((states) => {
+          if (requestId === this.#requestId) {
+            this.#feedStates = new Map(states.map((state) => [state.nodeId, state]));
+          }
+        });
         return;
       }
 
@@ -475,6 +499,10 @@ export class FluoGState extends GState<FluoSnapshot> {
     const attachments = this.snapshot.draftAttachments;
     const nodeId = this.snapshot.selectedNodeId;
     if (!nodeId || (!body && !attachments.length) || this.snapshot.isPublishing) return false;
+    // A metadata refresh can still be awaiting a page while the composer is
+    // being used. Invalidate that stale request before the upload starts so a
+    // late empty page cannot overwrite the newly published post.
+    this.#requestId += 1;
     const lifecycleId = this.#lifecycleId;
     this.publish({
       ...this.snapshot,

@@ -32,6 +32,7 @@
   let lastVirtualHeight = 0;
   let bottomSyncFrame = 0;
   let messageLayoutFrame = 0;
+  let messageScrollFrame = 0;
   let lastMessageListWidth = 0;
   const conversationHeight = 62;
   const messageGap = 6;
@@ -78,6 +79,7 @@
       resizeObserver?.disconnect();
       if (bottomSyncFrame) cancelAnimationFrame(bottomSyncFrame);
       if (messageLayoutFrame) cancelAnimationFrame(messageLayoutFrame);
+      if (messageScrollFrame) cancelAnimationFrame(messageScrollFrame);
     };
   });
   onDestroy(rememberScroll);
@@ -265,7 +267,14 @@
   function nextFrame(): Promise<void> {
     return new Promise((resolve) => requestAnimationFrame(() => resolve()));
   }
-  async function onScroll() {
+  function onScroll(): void {
+    if (messageScrollFrame) return;
+    messageScrollFrame = requestAnimationFrame(() => {
+      messageScrollFrame = 0;
+      void processMessageScroll();
+    });
+  }
+  async function processMessageScroll(): Promise<void> {
     rememberScroll();
     if (!messageList || restoringUserId === snapshot.activeUser?.id || messageList.scrollTop > 100 ||
         !snapshot.hasOlder || snapshot.loadingOlder) return;

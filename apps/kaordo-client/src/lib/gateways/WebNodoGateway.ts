@@ -22,8 +22,16 @@ import {
   readNodeUsage,
 } from './NodeStorageGateway';
 import { requestJson } from './WebApiClient';
+import { InFlightRequests } from './InFlightRequests';
 
 export class WebNodoGateway implements NodoGateway {
+  /** Share concurrent reads without introducing stale time-based caching. */
+  readonly #inFlight = new InFlightRequests();
+
+  resetSession(): void {
+    this.#inFlight.clear();
+  }
+
   accessNode(nodeId: string): Promise<NodoAccess> {
     return requestJson<NodoAccess>(`/api/nodes/${encodeURIComponent(nodeId)}/access`, { method: 'POST' }, NODO_UNAVAILABLE);
   }
@@ -49,19 +57,27 @@ export class WebNodoGateway implements NodoGateway {
   }
 
   async listNodes(): Promise<NodoNode[]> {
-    return (await requestJson<{ nodes: NodoNode[] }>('/api/nodes', {}, NODO_UNAVAILABLE)).nodes;
+    return this.shared('nodes', async () =>
+      (await requestJson<{ nodes: NodoNode[] }>('/api/nodes', {}, NODO_UNAVAILABLE)).nodes,
+    );
   }
 
   async listFeedNodeIds(): Promise<string[]> {
-    return (await requestJson<{ nodeIds: string[] }>('/api/fluo/nodes', {}, NODO_UNAVAILABLE)).nodeIds;
+    return this.shared('fluo-node-ids', async () =>
+      (await requestJson<{ nodeIds: string[] }>('/api/fluo/nodes', {}, NODO_UNAVAILABLE)).nodeIds,
+    );
   }
 
   fluoBootstrap(): Promise<FluoBootstrap> {
-    return requestJson('/api/fluo/bootstrap', {}, NODO_UNAVAILABLE);
+    return this.shared('fluo-bootstrap', () =>
+      requestJson<FluoBootstrap>('/api/fluo/bootstrap', {}, NODO_UNAVAILABLE),
+    );
   }
 
   publicStorage(): Promise<PublicNodoStorage> {
-    return requestJson('/api/fluo/public-storage', {}, NODO_UNAVAILABLE);
+    return this.shared('public-storage', () =>
+      requestJson<PublicNodoStorage>('/api/fluo/public-storage', {}, NODO_UNAVAILABLE),
+    );
   }
 
   reservePublicStorage(nodeId: string, bytes: number): Promise<PublicNodoReservation> {
@@ -136,6 +152,10 @@ export class WebNodoGateway implements NodoGateway {
       headers: { 'content-type': 'application/json' },
       method: 'PATCH',
     }, NODO_UNAVAILABLE)).spaces;
+  }
+
+  private shared<T>(key: string, request: () => Promise<T>): Promise<T> {
+    return this.#inFlight.get(key, request);
   }
 }
 

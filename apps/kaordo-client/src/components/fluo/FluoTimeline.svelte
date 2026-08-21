@@ -77,7 +77,14 @@
     useAnimationFrameWithResizeObserver: false,
   });
 
-  let virtualRows = $derived($virtualizer.getVirtualItems());
+  let virtualRows = $derived.by(() => {
+    const rows = $virtualizer.getVirtualItems();
+    // A tab can be mounted while its host has a zero geometry (for example
+    // during the first layout pass). TanStack correctly returns no range in
+    // that state; keep a small estimated bootstrap buffer visible until the
+    // real ResizeObserver rectangle arrives instead of showing a blank feed.
+    return rows.length || !posts.length ? rows : bootstrapRows();
+  });
   let totalHeight = $derived($virtualizer.getTotalSize());
   let postIndices = $derived.by(() => new Map(
     posts.map((post, index) => [postKey(post), index] as const),
@@ -155,6 +162,18 @@
   function itemKey(index: number): string | number {
     const post = posts[index];
     return post ? postKey(post) : index;
+  }
+
+  function bootstrapRows(): BootstrapVirtualItem[] {
+    const rows: BootstrapVirtualItem[] = [];
+    const count = Math.min(posts.length, VIRTUAL_OVERSCAN_POSTS * 2 + 1);
+    let start = 0;
+    for (let index = 0; index < count; index += 1) {
+      const size = estimatePostHeight(index);
+      rows.push({ index, key: itemKey(index), lane: 0, size, start, end: start + size });
+      start += size + POST_GAP;
+    }
+    return rows;
   }
 
   function estimatePostHeight(index: number): number {
@@ -338,6 +357,15 @@
   function postKey(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
     return `${post.space}:${post.nodeId}:${post.id}`;
   }
+
+  type BootstrapVirtualItem = {
+    end: number;
+    index: number;
+    key: string | number;
+    lane: number;
+    size: number;
+    start: number;
+  };
 </script>
 
 <div

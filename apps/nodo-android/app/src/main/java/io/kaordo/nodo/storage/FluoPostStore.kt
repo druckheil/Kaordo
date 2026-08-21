@@ -42,7 +42,15 @@ class FluoPostStore(
     }
 
     private fun readPage(limit: Int, cursor: Long?): Page {
-        if (!indexFile.isFile) rebuildIndex()
+        if (!indexFile.isFile) {
+            val rebuiltCount = rebuildIndex()
+            if (rebuiltCount != postCount) {
+                postCount = rebuiltCount
+                advanceState()
+            } else {
+                postCount = rebuiltCount
+            }
+        }
         RandomAccessFile(indexFile, "r").use { index ->
             var offset = (cursor ?: index.length()).coerceIn(0, index.length())
             offset -= offset % INDEX_ENTRY_BYTES
@@ -109,6 +117,11 @@ class FluoPostStore(
             appendIndex(post)
         } catch (error: Throwable) {
             postFile(post.id).delete()
+            // Media is written before the compact index. Roll it back too so
+            // a failed index write cannot leave quota-consuming orphan files.
+            post.attachments.forEach { attachment ->
+                runCatching { uploads.delete(attachment.id, isNodeOwner = true) }
+            }
             throw error
         }
         post.publicReservationId?.let { reservation ->

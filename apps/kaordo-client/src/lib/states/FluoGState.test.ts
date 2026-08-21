@@ -16,6 +16,21 @@ describe('FluoGState', () => {
     expect(nodes.individualCalls).toBe(0);
   });
 
+  it('shares concurrent node refreshes within one lifecycle', async () => {
+    const nodes = new MemoryNodoGateway();
+    let release!: () => void;
+    nodes.bootstrapGate = new Promise<void>((resolve) => { release = resolve; });
+    const state = createState(new MemoryFluoGateway(), {}, nodes);
+
+    const first = state.refreshNodes();
+    const second = state.refreshNodes();
+    await Promise.resolve();
+
+    expect(nodes.bootstrapCalls).toBe(1);
+    release();
+    await Promise.all([first, second]);
+  });
+
   it('reuses cached post metadata when every Nodo state hash is unchanged', async () => {
     const fluo = new MemoryFluoGateway();
     fluo.posts = [{
@@ -251,8 +266,9 @@ describe('FluoGState', () => {
 function createState(
   fluo: FluoGateway,
   options: ConstructorParameters<typeof FluoGState>[2] = {},
+  nodes: NodoGateway = new MemoryNodoGateway(),
 ) {
-  return new FluoGState(fluo, new MemoryNodoGateway(), {
+  return new FluoGState(fluo, nodes, {
     createObjectUrl: () => 'blob:remote',
     revokeObjectUrl: () => undefined,
     ...options,
@@ -475,6 +491,7 @@ class SlowMediaFluoGateway extends PagedFluoGateway {
 class MemoryNodoGateway implements NodoGateway {
   bootstrapCalls = 0;
   individualCalls = 0;
+  bootstrapGate: Promise<void> | null = null;
   accessNode(): Promise<NodoAccess> { throw new Error('Not used by state tests.'); }
   cancelPublicStorage() { return Promise.resolve(); }
   clearStorage() { return Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }); }
@@ -485,11 +502,11 @@ class MemoryNodoGateway implements NodoGateway {
   renameNode(_nodeId: string, name: string): Promise<string> { return Promise.resolve(name); }
   fluoBootstrap() {
     this.bootstrapCalls += 1;
-    return Promise.resolve({
-      nodeIds: [NODE.id],
-      nodes: [NODE],
-      publicStorage: PUBLIC_STORAGE,
-    });
+    return (this.bootstrapGate ?? Promise.resolve()).then(() => ({
+        nodeIds: [NODE.id],
+        nodes: [NODE],
+        publicStorage: PUBLIC_STORAGE,
+      }));
   }
   listNodes(): Promise<NodoNode[]> {
     this.individualCalls += 1;

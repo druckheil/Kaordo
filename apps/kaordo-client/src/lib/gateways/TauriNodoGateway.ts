@@ -23,24 +23,31 @@ import {
   listNodeStorageItems,
   readNodeUsage,
 } from './NodeStorageGateway';
+import { InFlightRequests } from './InFlightRequests';
 
 export class TauriNodoGateway implements NodoGateway {
+  readonly #inFlight = new InFlightRequests();
+
   constructor(private readonly invoke: TauriInvoke = tauriInvoke) {}
 
+  resetSession(): void {
+    this.#inFlight.clear();
+  }
+
   listNodes(): Promise<NodoNode[]> {
-    return this.invoke<NodoNode[]>('nodo_list');
+    return this.#inFlight.get('nodes', () => this.invoke<NodoNode[]>('nodo_list'));
   }
 
   listFeedNodeIds(): Promise<string[]> {
-    return this.invoke<string[]>('fluo_node_ids');
+    return this.#inFlight.get('fluo-node-ids', () => this.invoke<string[]>('fluo_node_ids'));
   }
 
   fluoBootstrap(): Promise<FluoBootstrap> {
-    return this.invoke('fluo_bootstrap');
+    return this.#inFlight.get('fluo-bootstrap', () => this.invoke('fluo_bootstrap'));
   }
 
   publicStorage(): Promise<PublicNodoStorage> {
-    return this.invoke('fluo_public_storage');
+    return this.#inFlight.get('public-storage', () => this.invoke('fluo_public_storage'));
   }
 
   reservePublicStorage(nodeId: string, bytes: number): Promise<PublicNodoReservation> {

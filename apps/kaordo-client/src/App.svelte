@@ -575,7 +575,6 @@
     else editor.stopFluo();
     if (section === 'rondo') rondo.start();
     else rondo.stop();
-    if (section === 'ligo') void ligo.state.refresh();
   }
 
   function markPresent() {
