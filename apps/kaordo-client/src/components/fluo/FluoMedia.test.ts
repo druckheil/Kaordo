@@ -30,4 +30,39 @@ describe('FluoMedia', () => {
     expect(figure?.style.getPropertyValue('--media-ratio')).toBe(String(400 / 700));
     view.unmount();
   });
+
+  it('keeps the reserved media box when intrinsic dimensions arrive later', async () => {
+    const register = vi.fn(() => () => undefined);
+    const fluoState = {
+      loadMedia: vi.fn(() => Promise.resolve(null)),
+    } as unknown as FluoGState;
+    const attachment = {
+      id: 'legacy-media',
+      kind: 'image' as const,
+      mimeType: 'image/jpeg',
+      name: 'legacy.jpg',
+      size: 1,
+    };
+    const view = render(FluoMedia, {
+      attachment,
+      fluoState,
+      postId: 'post-1',
+      register,
+    });
+    const figure = view.container.querySelector('figure');
+    expect(figure).not.toBeNull();
+    const reservedWidth = figure?.style.width;
+    const reservedHeight = figure?.style.height;
+
+    await view.rerender({
+      attachment: { ...attachment, height: 700, width: 400 },
+      fluoState,
+      postId: 'post-1',
+      register,
+    });
+
+    expect(figure?.style.width).toBe(reservedWidth);
+    expect(figure?.style.height).toBe(reservedHeight);
+    view.unmount();
+  });
 });

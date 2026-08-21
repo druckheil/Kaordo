@@ -1,9 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import type { FluoAttachment, FluoGState } from '../../lib/states/FluoGState';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
   import PhotoViewer from '../ui/PhotoViewer.svelte';
-  import { FLUO_MAX_MEDIA_WIDTH, getFluoMediaLayout } from './fluoMediaLayout';
+  import {
+    FLUO_MAX_MEDIA_WIDTH,
+    getFluoMediaLayout,
+    normalizeFluoMediaRatio,
+  } from './fluoMediaLayout';
 
   type Props = {
     attachment: FluoAttachment;
@@ -28,11 +32,35 @@
   let discoveredDimensions = $state<{ height: number; width: number }>();
   let showPhotoViewer = $state(false);
 
-  let mediaLayout = $derived(getFluoMediaLayout(
-    discoveredDimensions?.width ?? attachment.width,
-    discoveredDimensions?.height ?? attachment.height,
+  // Use persisted metadata (or a dimension learned during an earlier mount)
+  // for the first paint. Legacy posts fall back to a bounded 16:9 slot until
+  // their actual intrinsic dimensions are known locally.
+  const initialDimensions = untrack(() => fluoState.getMediaDimensions?.(
+    postId,
+    attachment.id,
+  ) ?? { height: attachment.height, width: attachment.width });
+  // The reserved box is intentionally immutable for this mount. The post
+  // manifest carries source dimensions for newly-created media; old posts
+  // without them use the same bounded fallback for both skeleton and content.
+  // Intrinsic decode events are still recorded for future mounts/viewers, but
+  // they must never change a row's height after it entered the timeline.
+  const reservedLayout = untrack(() => getFluoMediaLayout(
+    attachment.width ?? initialDimensions.width,
+    attachment.height ?? initialDimensions.height,
     maxWidth,
   ));
+  // Keep the reserved height stable, but once intrinsic dimensions are known
+  // let the box narrow/widen to the real ratio. This removes the old fallback
+  // background beside portrait media without causing a vertical reflow.
+  let mediaLayout = $derived.by(() => {
+    if (!discoveredDimensions) return reservedLayout;
+    const ratio = normalizeFluoMediaRatio(discoveredDimensions.width, discoveredDimensions.height);
+    return {
+      ...reservedLayout,
+      ratio,
+      width: Math.max(1, Math.round(Math.min(maxWidth, reservedLayout.height * ratio))),
+    };
+  });
 
   onMount(() => register(ensureLoaded));
 
@@ -117,6 +145,7 @@
   }
 
   function applyMediaDimensions(width: number, height: number): void {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
     discoveredDimensions = { height, width };
     fluoState.setMediaDimensions(postId, attachment.id, width, height);
   }
@@ -149,7 +178,7 @@
 
 <figure
   class:media-unavailable={loadState === 'error'}
-  style={`--media-ratio:${mediaLayout.ratio};--media-width:${mediaLayout.width}px;width:${mediaLayout.width}px`}
+  style={`--media-ratio:${mediaLayout.ratio};--media-width:${mediaLayout.width}px;--media-height:${mediaLayout.height}px;width:${mediaLayout.width}px;height:${mediaLayout.height}px`}
 >
   {#if loadState === 'error'}
     <button class="media-retry" type="button" disabled={retrying} onclick={retryFromButton}>
@@ -198,6 +227,7 @@
     display: block;
     min-width: 0;
     width: var(--media-width);
+    height: var(--media-height);
     max-width: 100%;
     aspect-ratio: var(--media-ratio);
     margin: 0;

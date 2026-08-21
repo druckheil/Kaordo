@@ -135,6 +135,8 @@ describe('FluoGState', () => {
     expect(state.snapshot.posts[0]?.attachments.map(({ kind }) => kind)).toEqual([
       'image', 'gif', 'video', 'image',
     ]);
+    expect(state.snapshot.posts[0]?.attachments.every(({ width, height }) =>
+      width === 1_600 && height === 900)).toBe(true);
     const postId = state.snapshot.posts[0]?.id;
     expect(postId).toBeDefined();
     expect(await state.deletePost(postId!)).toBe(true);
@@ -199,7 +201,7 @@ describe('FluoGState', () => {
     expect(state.snapshot).toBe(snapshotBeforeMedia);
   });
 
-  it('keeps measured dimensions for legacy media when the feed is refreshed', async () => {
+  it('keeps measured legacy dimensions without publishing a feed update', async () => {
     const fluo = new MemoryFluoGateway();
     fluo.posts = [{
       attachments: [{
@@ -219,12 +221,14 @@ describe('FluoGState', () => {
     const state = createState(fluo);
 
     await state.refreshNodes();
+    const snapshotBeforeDimensions = state.snapshot;
     state.setMediaDimensions('legacy-post', 'legacy-media', 400, 700);
-    expect(state.snapshot.posts[0]?.attachments[0]).toMatchObject({ width: 400, height: 700 });
+    expect(state.snapshot).toBe(snapshotBeforeDimensions);
+    expect(state.getMediaDimensions('legacy-post', 'legacy-media')).toEqual({ width: 400, height: 700 });
 
     fluo.stateHash = 'memory-2';
     await state.refreshNodes();
-    expect(state.snapshot.posts[0]?.attachments[0]).toMatchObject({ width: 400, height: 700 });
+    expect(state.getMediaDimensions('legacy-post', 'legacy-media')).toEqual({ width: 400, height: 700 });
   });
 
   it('keeps a direct Nodo media URL across a feed tab switch', async () => {

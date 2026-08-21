@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { createVirtualizer } from '@tanstack/svelte-virtual';
+  import {
+    createVirtualizer,
+    measureElement as tanstackMeasureElement,
+  } from '@tanstack/svelte-virtual';
+  import type { Virtualizer } from '@tanstack/svelte-virtual';
   import { get } from 'svelte/store';
   import { onMount, tick } from 'svelte';
   import type { FluoGState, FluoPost } from '../../lib/states/FluoGState';
@@ -77,14 +81,11 @@
     useAnimationFrameWithResizeObserver: false,
   });
 
-  let virtualRows = $derived.by(() => {
-    const rows = $virtualizer.getVirtualItems();
-    // A tab can be mounted while its host has a zero geometry (for example
-    // during the first layout pass). TanStack correctly returns no range in
-    // that state; keep a small estimated bootstrap buffer visible until the
-    // real ResizeObserver rectangle arrives instead of showing a blank feed.
-    return rows.length || !posts.length ? rows : bootstrapRows();
-  });
+  // TanStack owns both the row range and its geometry. Do not provide a
+  // second, estimated row list while the scroll element is settling: mixing
+  // independently calculated starts with TanStack's measured total is what
+  // makes cards occasionally overlap or leave an oversized gap.
+  let virtualRows = $derived($virtualizer.getVirtualItems());
   let totalHeight = $derived($virtualizer.getTotalSize());
   let postIndices = $derived.by(() => new Map(
     posts.map((post, index) => [postKey(post), index] as const),
@@ -164,18 +165,6 @@
     return post ? postKey(post) : index;
   }
 
-  function bootstrapRows(): BootstrapVirtualItem[] {
-    const rows: BootstrapVirtualItem[] = [];
-    const count = Math.min(posts.length, VIRTUAL_OVERSCAN_POSTS * 2 + 1);
-    let start = 0;
-    for (let index = 0; index < count; index += 1) {
-      const size = estimatePostHeight(index);
-      rows.push({ index, key: itemKey(index), lane: 0, size, start, end: start + size });
-      start += size + POST_GAP;
-    }
-    return rows;
-  }
-
   function estimatePostHeight(index: number): number {
     const post = posts[index];
     if (!post) return 220;
@@ -184,17 +173,21 @@
     const mediaWidth = post.attachments.length === 1
       ? FLUO_MAX_MEDIA_WIDTH
       : FLUO_CAROUSEL_MEDIA_WIDTH;
-    const mediaHeight = post.attachments.reduce((maximum, attachment) => Math.max(maximum,
-      getFluoMediaLayout(
-        attachment.width,
-        attachment.height,
-        mediaWidth,
-      ).height), 0);
+    const mediaHeight = post.attachments.reduce((maximum, attachment) => {
+      const measured = attachment.width && attachment.height
+        ? attachment
+        : fluoState.getMediaDimensions?.(post.id, attachment.id);
+      return Math.max(maximum, getFluoMediaLayout(measured?.width, measured?.height, mediaWidth).height);
+    }, 0);
     return 113 + textLines * 20 + mediaHeight;
   }
 
-  function measurePostElement(element: HTMLDivElement): number {
-    const measured = element.offsetHeight;
+  function measurePostElement(
+    element: HTMLDivElement,
+    entry: Parameters<typeof tanstackMeasureElement>[1],
+    instance: Virtualizer<HTMLElement, HTMLDivElement>,
+  ): number {
+    const measured = tanstackMeasureElement(element, entry, instance);
     if (measured > 0) return measured;
     const index = Number(element.dataset.index);
     return Number.isSafeInteger(index) ? estimatePostHeight(index) : 220;
@@ -358,14 +351,6 @@
     return `${post.space}:${post.nodeId}:${post.id}`;
   }
 
-  type BootstrapVirtualItem = {
-    end: number;
-    index: number;
-    key: string | number;
-    lane: number;
-    size: number;
-    start: number;
-  };
 </script>
 
 <div

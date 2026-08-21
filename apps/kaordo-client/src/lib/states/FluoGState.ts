@@ -366,9 +366,9 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   /**
-   * Stores dimensions discovered by the browser for legacy media whose Nodo
-   * metadata predates dimension recording. Keeping this in the state means a
-   * feed refresh reuses the measured box instead of falling back to 16:9.
+   * Keeps intrinsic dimensions outside the feed snapshot. They can improve a
+   * later mount of a legacy attachment without replacing `posts` or
+   * invalidating the virtualizer's measurements for every row.
    */
   setMediaDimensions(postId: string, attachmentId: string, width: number, height: number): void {
     const normalizedWidth = Math.round(width);
@@ -379,24 +379,15 @@ export class FluoGState extends GState<FluoSnapshot> {
     const target = this.findMediaTarget(postId, attachmentId);
     if (!target) return;
     const mediaKey = `${target.key}:${attachmentId}`;
+    if (target.attachment.width === normalizedWidth && target.attachment.height === normalizedHeight) return;
     const previous = this.#mediaDimensions.get(mediaKey);
-    if (previous?.width === normalizedWidth && previous.height === normalizedHeight &&
-        target.attachment.width === normalizedWidth && target.attachment.height === normalizedHeight) return;
+    if (previous?.width === normalizedWidth && previous.height === normalizedHeight) return;
     this.#mediaDimensions.set(mediaKey, { height: normalizedHeight, width: normalizedWidth });
-    const posts = this.snapshot.posts.map((post) => {
-      if (postKey(post) !== target.key) return post;
-      let changed = false;
-      const attachments = post.attachments.map((attachment) => {
-        if (attachment.id !== attachmentId ||
-            (attachment.width === normalizedWidth && attachment.height === normalizedHeight)) return attachment;
-        changed = true;
-        return { ...attachment, height: normalizedHeight, width: normalizedWidth };
-      });
-      return changed ? { ...post, attachments } : post;
-    });
-    if (posts.some((post, index) => post !== this.snapshot.posts[index])) {
-      this.publish({ ...this.snapshot, posts });
-    }
+  }
+
+  getMediaDimensions(postId: string, attachmentId: string): { height: number; width: number } | undefined {
+    const target = this.findMediaTarget(postId, attachmentId);
+    return target ? this.#mediaDimensions.get(`${target.key}:${attachmentId}`) : undefined;
   }
 
   async retryMedia(postId: string, attachmentId: string): Promise<string | null> {
@@ -496,7 +487,12 @@ export class FluoGState extends GState<FluoSnapshot> {
 
   async publishPost(): Promise<boolean> {
     const body = this.snapshot.draft.trim();
-    const attachments = this.snapshot.draftAttachments;
+    // The layout is based on the post manifest, not on a later media decode.
+    // The composer normally resolves these dimensions before publishing; a
+    // deterministic 16:9 reservation keeps direct gateway callers and media
+    // formats without readable metadata stable as well.
+    const attachments = this.snapshot.draftAttachments.map((attachment) =>
+      withReservedDimensions(attachment));
     const nodeId = this.snapshot.selectedNodeId;
     if (!nodeId || (!body && !attachments.length) || this.snapshot.isPublishing) return false;
     // A metadata refresh can still be awaiting a page while the composer is
@@ -524,7 +520,14 @@ export class FluoGState extends GState<FluoSnapshot> {
       });
       if (lifecycleId !== this.#lifecycleId) return true;
       this.revokeUrls(attachments, false);
-      const post = this.hydrate(remote);
+      const preparedById = new Map(attachments.map((attachment) => [attachment.id, attachment]));
+      const post = this.hydrate({
+        ...remote,
+        attachments: remote.attachments.map((attachment, index) => {
+          const prepared = preparedById.get(attachment.id) ?? attachments[index];
+          return withReservedDimensions(attachment, prepared);
+        }),
+      });
       const publishedBytes = Math.max(1, new TextEncoder().encode(body).byteLength +
         attachments.reduce((total, attachment) => total + attachment.size, 0));
       const publicStorage = nodeId === PUBLIC_FLUO_DESTINATION && this.snapshot.publicStorage
@@ -638,19 +641,15 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   private hydrate(post: RemoteFluoPost): FluoPost {
-    const key = postKey(post);
     return {
       ...post,
       attachments: post.attachments.map(({ blob, ...attachment }) => {
-        const measured = this.#mediaDimensions.get(`${key}:${attachment.id}`);
-        const dimensions = attachment.width && attachment.height ? attachment : measured;
         return blob ? {
           ...attachment,
-          ...dimensions,
           loadState: 'ready',
           objectUrl: true,
           url: this.#createObjectUrl(blob),
-        } : { ...attachment, ...dimensions, loadState: 'idle' };
+        } : { ...attachment, loadState: 'idle' };
       }),
       liked: false,
     };
@@ -815,6 +814,27 @@ function fallbackMimeType(kind: FluoAttachmentKind): string {
   return kind === 'gif' ? 'image/gif' : kind === 'video' ? 'video/mp4' : 'image/jpeg';
 }
 
+function withReservedDimensions<T extends FluoAttachment>(
+  attachment: T,
+  fallback?: FluoAttachment,
+): T {
+  if (validMediaDimensions(attachment.width, attachment.height)) return attachment;
+  const width = validMediaDimensions(fallback?.width, fallback?.height)
+    ? fallback!.width!
+    : RESERVED_MEDIA_WIDTH;
+  const height = validMediaDimensions(fallback?.width, fallback?.height)
+    ? fallback!.height!
+    : RESERVED_MEDIA_HEIGHT;
+  return attachment.width === width && attachment.height === height
+    ? attachment
+    : { ...attachment, height, width } as T;
+}
+
+function validMediaDimensions(width?: number, height?: number): boolean {
+  return Number.isSafeInteger(width) && Number.isSafeInteger(height) &&
+    width! > 0 && height! > 0 && width! <= MAX_MEDIA_DIMENSION && height! <= MAX_MEDIA_DIMENSION;
+}
+
 function readableError(error: unknown): string {
   return error instanceof Error && error.message.trim()
     ? error.message
@@ -824,6 +844,8 @@ function readableError(error: unknown): string {
 const INITIAL_FEED_PAGE_SIZE = 24;
 const MAX_MEDIA_CACHE_BYTES = 96 * 1_024 * 1_024;
 const MAX_MEDIA_DIMENSION = 100_000;
+const RESERVED_MEDIA_WIDTH = 1_600;
+const RESERVED_MEDIA_HEIGHT = 900;
 
 function postKey(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
   return `${post.space}:${post.nodeId}:${post.id}`;
