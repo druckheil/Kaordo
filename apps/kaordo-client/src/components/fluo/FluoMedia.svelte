@@ -10,6 +10,7 @@
   } from './fluoMediaLayout';
 
   type Props = {
+    active?: boolean;
     attachment: FluoAttachment;
     fluoState: FluoGState;
     maxWidth?: number;
@@ -18,6 +19,7 @@
   };
 
   let {
+    active = true,
     attachment,
     fluoState,
     maxWidth = FLUO_MAX_MEDIA_WIDTH,
@@ -186,6 +188,7 @@
     </button>
   {:else if attachment.kind === 'video' && mediaUrl}
     <KaordoVideoPlayer
+      {active}
       mimeType={attachment.mimeType}
       onDimensions={handleVideoDimensions}
       preload="none"

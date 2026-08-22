@@ -15,6 +15,7 @@
   } from './fluoMediaLayout';
 
   type Props = {
+    active?: boolean;
     hasMore: boolean;
     isLoading: boolean;
     isLoadingMore: boolean;
@@ -40,6 +41,7 @@
   const POST_GAP = 8;
 
   let {
+    active = true,
     hasMore,
     isLoading,
     isLoadingMore,
@@ -371,6 +373,7 @@
         use:measurePost
       >
         <FluoPostCard
+          {active}
           {post}
           {fluoState}
           registerMedia={(load) => registerMedia(postKey(post), load)}

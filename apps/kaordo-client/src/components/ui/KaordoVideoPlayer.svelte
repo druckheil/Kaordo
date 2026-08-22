@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import type { VideoMimeType, VideoSrc } from 'vidstack';
   import type { MediaPlayerElement } from 'vidstack/elements';
 
   type Props = {
+    active?: boolean;
     mimeType?: string;
     onDimensions?: (width: number, height: number) => void;
     onError?: () => void;
@@ -13,6 +15,7 @@
   };
 
   let {
+    active = true,
     mimeType = 'video/mp4',
     onDimensions,
     onError,
@@ -23,6 +26,26 @@
   }: Props = $props();
   let player = $state<MediaPlayerElement>();
   let source = $derived<VideoSrc>({ src, type: normalizeMimeType(mimeType) });
+
+  // Keep the player and its decoded resource alive across app-section
+  // changes, but never let a background Fluo video continue playing audio.
+  $effect(() => {
+    const element = player;
+    if (!element || active) return;
+    element.querySelector('video')?.pause();
+  });
+
+  // Vidstack owns a native video element underneath the provider. Explicitly
+  // release it when a virtualized Fluo row is actually destroyed. Switching
+  // app sections does not destroy this component, so its source and decoder
+  // state remain available when the user returns to Fluo.
+  onDestroy(() => {
+    const video = player?.querySelector('video');
+    if (!video) return;
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  });
 
   $effect(() => {
     const element = player;

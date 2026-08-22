@@ -5,13 +5,14 @@
   import FluoMedia from './FluoMedia.svelte';
 
   type Props = {
+    active?: boolean;
     attachments: readonly FluoAttachment[];
     fluoState: FluoGState;
     postId: string;
     registerMedia: (load: () => Promise<void>) => () => void;
   };
 
-  let { attachments, fluoState, postId, registerMedia }: Props = $props();
+  let { active = true, attachments, fluoState, postId, registerMedia }: Props = $props();
   let scroller = $state<HTMLDivElement>();
   let track = $state<HTMLDivElement>();
   let canScrollLeft = $state(false);
@@ -75,6 +76,7 @@
       {#each attachments as attachment (attachment.id)}
         <FluoMedia
           {attachment}
+          {active}
           {fluoState}
           maxWidth={FLUO_CAROUSEL_MEDIA_WIDTH}
           {postId}

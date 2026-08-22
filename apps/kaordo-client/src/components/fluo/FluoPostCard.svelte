@@ -5,12 +5,13 @@
   import FluoMediaCarousel from './FluoMediaCarousel.svelte';
 
   type Props = {
+    active?: boolean;
     fluoState: FluoGState;
     post: FluoPost;
     registerMedia: (load: () => Promise<void>) => () => void;
   };
 
-  let { fluoState, post, registerMedia }: Props = $props();
+  let { active = true, fluoState, post, registerMedia }: Props = $props();
 
   function postDate(value: number): string {
     const date = new Date(value);
@@ -57,6 +58,7 @@
         <div class="post-media post-media--single">
           <FluoMedia
             attachment={post.attachments[0]!}
+            {active}
             {fluoState}
             postId={post.id}
             register={registerMedia}
@@ -65,6 +67,7 @@
       {:else}
         <FluoMediaCarousel
           attachments={post.attachments}
+          {active}
           {fluoState}
           postId={post.id}
           registerMedia={registerMedia}

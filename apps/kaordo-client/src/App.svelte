@@ -699,7 +699,11 @@
       aria-hidden={activeSection !== 'fluo' ? 'true' : undefined}
       inert={activeSection !== 'fluo'}
     >
-      <FluoFeed snapshot={fluoSnapshot} fluoState={editor.fluoState} />
+      <FluoFeed
+        active={activeSection === 'fluo'}
+        snapshot={fluoSnapshot}
+        fluoState={editor.fluoState}
+      />
     </div>
 
     {#if activeSection === 'mi' && authSnapshot.user}
@@ -859,6 +863,14 @@
   .fluo-host--hidden {
     visibility: hidden;
     pointer-events: none;
+  }
+
+  /* A hidden Fluo feed keeps its scroll geometry and video elements alive for
+     instant return, but native video layers must be removed from the
+     compositor immediately. The player remains mounted with its source so
+     returning to Fluo does not restart the download or decoder. */
+  .fluo-host--hidden :global(media-player) {
+    display: none !important;
   }
 
   .app-section--hidden {

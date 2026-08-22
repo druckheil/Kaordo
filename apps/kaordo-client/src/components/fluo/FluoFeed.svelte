@@ -10,11 +10,12 @@
   import FluoTimeline from './FluoTimeline.svelte';
 
   type Props = {
+    active?: boolean;
     snapshot: Readonly<FluoSnapshot>;
     fluoState: FluoGState;
   };
 
-  let { snapshot, fluoState }: Props = $props();
+  let { active = true, snapshot, fluoState }: Props = $props();
   let attachmentInput = $state<HTMLInputElement>();
   let composer = $state<HTMLTextAreaElement>();
   let shell = $state<HTMLElement>();
@@ -309,10 +310,11 @@
           isLoading={snapshot.isLoading}
           isLoadingMore={snapshot.isLoadingMore}
           isRefreshing={snapshot.isRefreshing}
-          posts={snapshot.posts}
-          scrollElement={shell}
-          {fluoState}
-        />
+        posts={snapshot.posts}
+        scrollElement={shell}
+        {active}
+        {fluoState}
+      />
       {:else}
         <div class="empty-feed">
           <span aria-hidden="true">
