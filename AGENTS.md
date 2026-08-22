@@ -6,13 +6,14 @@ English, even when the request is written in another language.
 
 ## Current baseline and version vocabulary
 
-- Kaordo is currently working from the scope-0.1.3 branch.
+- Kaordo is currently working from the scope-0.1.4 branch.
 - Scope 0.1.2 is complete and was fast-forward merged into main; main was
   pushed to origin/main at commit 4a18465. Keep the completed scope-0.1.2
   and scope-0.1.1 branches for history.
 - 0.1.0 is the current product/runtime version in the app manifests.
 - 0.1.2 is the completed scope and current Open Beta download/site version.
-- 0.1.3 is the active development scope. Do not bump all manifests or
+- 0.1.3 is the completed previous scope. 0.1.4 is the active development
+  scope. Do not bump all manifests or
   release URLs merely because a scope branch changed; do that only when the
   requested release actually changes.
 - Nodo development builds carry a short scope build suffix in the Android
@@ -42,6 +43,11 @@ rooms), Fluo (social feed), Mi (profile), Nodo (hosted storage node), Regado
   relational metadata and Durable Objects for live Ligo coordination.
 - apps/nodo-android is the Android Nodo host; Android 12 / API 31 is the
   minimum supported platform.
+- apps/nodo-linux is the headless Ubuntu/Linux Nodo host. It is a standalone
+  Rust CLI with the same direct HTTP/TUS wire paths, Worker ticket
+  verification, durable payload layout, heartbeat/reconciliation,
+  systemd-user mode, and HTTPS + SHA-256 self-update flow. It has no graphical
+  UI or desktop-client dependency.
 - apps/downloads is the Cloudflare Pages download site. Its Pages Functions
   serve release objects from the kaordo-releases R2 bucket.
 - crates/ contains the shared Rust workspace, CLI, core, and SDK crates.
@@ -105,8 +111,12 @@ never be returned to a client.
   fake perpetual online status.
 - Clients prefer LAN addresses and then the observed address returned by the
   Worker. The current Worker coordinates authentication, tickets, reservations,
-  and reconciliation; it does not proxy arbitrary payload bytes or magically
-  solve every NAT case. Diagnose reachability separately from quota/status.
+  and reconciliation; it does not magically solve every NAT case. For hosts
+  that cannot be reached directly (for example an IPv6-only Linux VPS from an
+  IPv4-only desktop), the authenticated HTTPS `/api/nodes/:id/relay/v1/*`
+  fallback streams the existing Nodo HTTP/TUS protocol without storing payload
+  bytes in D1. Direct LAN/public routes remain preferred; relay uploads use
+  bounded resumable chunks. Diagnose reachability separately from quota/status.
 - Public storage is a global logical pool assembled from all eligible public
   spaces, not one duplicated copy of a physical disk in every service.
 - A public candidate must be online, allow uploads/downloads as required, have
@@ -126,6 +136,24 @@ never be returned to a client.
   live Nodo reporting 0.1.0 is silently filtered from public services even
   when it has ample space. Always verify both the Worker deployment and the
   D1 heartbeat row when a public Nodo appears unavailable.
+
+### Linux Nodo
+
+- `kaordo-nodo login` uses the same PBKDF2 password proof as Android and keeps
+  the session in an owner-readable (`0600`) XDG config file. Never print or
+  commit that file. `logout` clears that local session without deleting
+  payloads.
+- `setup` asks only for the total quota; public/private space is assigned by
+  the Kaordo client through the coordinator after heartbeat. The local node
+  starts private-only until that allocation arrives. `run` is foreground
+  diagnostics; `start` installs/enables a user-level systemd unit when
+  available and otherwise uses a pid/log fallback.
+- The Linux service binds TCP 49321 by default, stores payloads below
+  `$XDG_DATA_HOME/kaordo/nodo`, and preserves `/v1/files`, `/files`,
+  `/v1/spaces/{private,public}`, Fluo, Ligo, Rondo and TUS contracts.
+- Self-update is HTTPS-only, streams to a temporary file, verifies the SHA-256
+  listed by the manifest, atomically replaces the executable, and requires an
+  explicit restart. Do not add unsigned arbitrary download URLs.
 
 ### Fluo
 
@@ -234,7 +262,13 @@ waiting for another request.
 
 - Desktop/frontend/Rust changed: build and provide Windows x64 NSIS.
 - Android Nodo changed: build and provide the signed release APK.
-- Both changed: provide both files.
+- Linux Nodo changed: build the Ubuntu/Linux x86_64 release, immediately
+  upload the versioned binary and checksum manifest to the `kaordo-releases`
+  R2 bucket through Pages, and provide the `update --apply` command. This is
+  mandatory for every Linux Nodo change; do not wait for a separate upload
+  request.
+- Multiple targets changed: provide every affected build and complete the
+  required Linux R2 upload when Linux is among them.
 - Do not build macOS during ordinary iteration; the user runs macOS through
   the IDE. Build it only when explicitly requested.
 - Do not run the full test suite or extra packaging during quick iteration
@@ -243,10 +277,14 @@ waiting for another request.
   service; no desktop build is required unless client/Rust code also changed.
 - Overwrite stable artifact names. Never create p2, fixed, timestamped, or
   other duplicate artifacts.
-- For the active scope 0.1.3, release/scope-0.1.3 may contain at most:
-  - Kaordo_scope-0.1.3_windows_x64-setup.exe
-  - Kaordo-Nodo_scope-0.1.3_android.apk
-  - Kaordo_scope-0.1.3_macos_universal.dmg
+- For the active scope 0.1.4, release/scope-0.1.4 may contain at most:
+  - Kaordo_scope-0.1.4_windows_x64-setup.exe
+  - Kaordo-Nodo_scope-0.1.4_android.apk
+  - Kaordo_scope-0.1.4_macos_universal.dmg
+- Linux Nodo artifacts remain ignored build output, but the current Linux
+  development binary and its manifest are always published to Pages/R2 after
+  a Linux Nodo change so installed nodes can self-update immediately. Never
+  commit the binary, manifest, or release directory.
 - Historical release folders are left intact. release/ is ignored and must
   never be committed.
 

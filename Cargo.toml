@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "apps/kaordo-client/src-tauri",
+    "apps/nodo-linux",
     "crates/kaordo-cli",
     "crates/kaordo-core",
     "crates/kaordo-sdk-wasm",
