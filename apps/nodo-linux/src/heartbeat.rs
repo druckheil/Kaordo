@@ -622,8 +622,13 @@ fn local_addresses() -> Vec<String> {
         })
         .unwrap_or_default();
     if values.is_empty() {
-        for (bind, target) in [("0.0.0.0:0", "8.8.8.8:80"), ("[::]:0", "[2001:4860:4860::8888]:80")] {
-            let Ok(socket) = UdpSocket::bind(bind) else { continue };
+        for (bind, target) in [
+            ("0.0.0.0:0", "8.8.8.8:80"),
+            ("[::]:0", "[2001:4860:4860::8888]:80"),
+        ] {
+            let Ok(socket) = UdpSocket::bind(bind) else {
+                continue;
+            };
             if socket.connect(target).is_ok() {
                 if let Ok(address) = socket.local_addr() {
                     let ip = address.ip();
@@ -632,7 +637,9 @@ fn local_addresses() -> Vec<String> {
                     }
                 }
             }
-            if !values.is_empty() { break; }
+            if !values.is_empty() {
+                break;
+            }
         }
     }
     values.sort_unstable();

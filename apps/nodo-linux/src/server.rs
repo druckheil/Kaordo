@@ -84,9 +84,13 @@ fn accept_connections(listener: TcpListener, runtime: Arc<NodeRuntime>) -> io::R
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                if runtime.connections.fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                    (count < MAX_NODE_CONNECTIONS).then_some(count + 1)
-                }).is_err() {
+                if runtime
+                    .connections
+                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                        (count < MAX_NODE_CONNECTIONS).then_some(count + 1)
+                    })
+                    .is_err()
+                {
                     let mut stream = stream;
                     let _ = response_json_with_status(
                         &mut stream,
@@ -187,9 +191,12 @@ impl TicketVerifier {
         reservation: Option<&str>,
         rondo: Option<(&str, &str)>,
     ) -> Option<AccessGrant> {
-        if token.len() != ONLINE_TICKET_LENGTH ||
-            !token.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-') ||
-            config.node_id.is_none() {
+        if token.len() != ONLINE_TICKET_LENGTH
+            || !token
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+            || config.node_id.is_none()
+        {
             return None;
         }
         let node_id = config.node_id.as_deref()?;
@@ -1147,10 +1154,16 @@ struct VoiceSignal {
 
 impl VoiceHub {
     fn room(&mut self, space: &str, room: &str) -> &mut VoiceRoom {
-        if !self.rooms.contains_key(&(space.to_owned(), room.to_owned())) &&
-            self.rooms.len() >= MAX_VOICE_ROOMS {
-            if let Some(key) = self.rooms.iter()
-                .find_map(|(key, room)| room.participants.is_empty().then(|| key.clone())) {
+        if !self
+            .rooms
+            .contains_key(&(space.to_owned(), room.to_owned()))
+            && self.rooms.len() >= MAX_VOICE_ROOMS
+        {
+            if let Some(key) = self
+                .rooms
+                .iter()
+                .find_map(|(key, room)| room.participants.is_empty().then(|| key.clone()))
+            {
                 self.rooms.remove(&key);
             }
         }
