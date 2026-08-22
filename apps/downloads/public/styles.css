@@ -56,12 +56,13 @@ h1 { margin: 0; max-width: 850px; font-size: clamp(50px, 8vw, 92px); line-height
 .section-heading .eyebrow { margin-bottom: 9px; }
 .section-heading > p { margin: 0 0 5px; color: #7b8c86; font-size: 14px; }
 h2 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -.045em; }
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 article { display: flex; min-height: 310px; flex-direction: column; align-items: flex-start; gap: 24px; padding: 27px; border: 1px solid #dbe6e1; border-radius: 22px; background: rgba(249, 252, 250, .9); transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease; }
 article:hover { transform: translateY(-3px); border-color: #a8cabb; box-shadow: 0 18px 38px rgba(48, 92, 76, .1); }
 .platform-icon { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 15px; background: #1f332d; color: white; font-size: 26px; font-weight: 700; }
 .platform-icon.windows { background: #347b67; }
 .platform-icon.nodo { background: #d8ebe2; color: #286552; }
+.platform-icon.linux { background: #263c36; color: #b8e2cc; }
 article h3 { margin: 0 0 8px; font-size: 21px; letter-spacing: -.025em; }
 article p { margin: 0; color: #75867f; line-height: 1.5; }
 article a { display: flex; width: 100%; align-items: center; justify-content: space-between; margin-top: auto; padding: 14px 16px; border-radius: 13px; background: #2d7661; color: white; text-decoration: none; font-size: 14px; font-weight: 700; }
@@ -74,7 +75,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 42px
   .hero { padding: 68px 0 78px; }
   .inside { padding: 88px 0 78px; }
   .downloads { padding: 26px; }
-  .cards { grid-template-columns: 1fr; }
+  .cards { grid-template-columns: repeat(2, 1fr); }
   article { min-height: 245px; }
   .feature-grid { grid-template-columns: repeat(2, 1fr); }
   .feature-wide { grid-column: span 2; }
@@ -91,6 +92,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 42px
   .feature-grid { grid-template-columns: 1fr; }
   .feature-wide { grid-column: auto; }
   .downloads { padding: 18px; border-radius: 22px; }
+  .cards { grid-template-columns: 1fr; }
   .section-heading { align-items: flex-start; flex-direction: column; }
   footer { flex-direction: column; }
 }
