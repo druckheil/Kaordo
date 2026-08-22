@@ -95,6 +95,11 @@
           <article>
             <div class="platform-icon linux" aria-hidden="true">⌘</div>
             <div><h3>Nodo for Linux</h3><p>Lightweight headless Nodo for Ubuntu and other Linux x86_64 hosts. Includes HTTPS self-update.</p></div>
+            <div class="install-command">
+              <label for="linux-install-command">Install from terminal</label>
+              <textarea id="linux-install-command" readonly rows="3" spellcheck="false">mkdir -p ~/.local/bin && curl --fail --location --proto '=https' --tlsv1.2 -o ~/.local/bin/kaordo-nodo https://kaordo.pages.dev/downloads/Kaordo-Nodo_0.1.4-12a_linux_x86_64 && chmod 0755 ~/.local/bin/kaordo-nodo && ~/.local/bin/kaordo-nodo login</textarea>
+              <button type="button" class="copy-command" data-copy-target="linux-install-command">Copy command</button>
+            </div>
             <a href="/downloads/Kaordo-Nodo_0.1.4-12a_linux_x86_64">Download CLI <span>↓</span></a>
           </article>
         </div>
@@ -103,5 +108,27 @@
 
       <footer><span>© 2026 Kaordo</span><span>Private by design. Built to connect.</span></footer>
     </main>
+    <script>
+      for (const button of document.querySelectorAll('[data-copy-target]')) {
+        const target = document.getElementById(button.dataset.copyTarget ?? '');
+        if (!(target instanceof HTMLTextAreaElement)) continue;
+        const label = button.textContent;
+        button.addEventListener('click', async () => {
+          let copied = false;
+          try {
+            if (navigator.clipboard?.writeText) {
+              await navigator.clipboard.writeText(target.value);
+              copied = true;
+            }
+          } catch {
+            copied = false;
+          }
+          target.focus();
+          target.select();
+          button.textContent = copied ? 'Copied' : 'Press Ctrl/Cmd+C';
+          window.setTimeout(() => { button.textContent = label; }, 1800);
+        });
+      }
+    </script>
   </body>
 </html>

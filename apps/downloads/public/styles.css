@@ -65,6 +65,12 @@ article:hover { transform: translateY(-3px); border-color: #a8cabb; box-shadow: 
 .platform-icon.linux { background: #263c36; color: #b8e2cc; }
 article h3 { margin: 0 0 8px; font-size: 21px; letter-spacing: -.025em; }
 article p { margin: 0; color: #75867f; line-height: 1.5; }
+.install-command { display: grid; width: 100%; gap: 8px; margin-top: auto; }
+.install-command label { color: #6c8278; font-size: 11px; font-weight: 750; letter-spacing: .04em; }
+.install-command textarea { width: 100%; min-height: 82px; resize: none; overflow: auto; padding: 10px; border: 1px solid #dbe6e1; border-radius: 10px; background: #f4f8f5; color: #345449; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.install-command textarea:focus { outline: 2px solid rgba(45, 118, 97, .35); outline-offset: 1px; }
+.copy-command { justify-self: start; padding: 7px 10px; border: 1px solid rgba(45, 118, 97, .24); border-radius: 9px; background: #e5f1eb; color: #286552; cursor: pointer; font: inherit; font-size: 12px; font-weight: 750; transition: background 180ms ease, transform 180ms ease; }
+.copy-command:hover { transform: translateY(-1px); background: #d6ebe0; }
 article a { display: flex; width: 100%; align-items: center; justify-content: space-between; margin-top: auto; padding: 14px 16px; border-radius: 13px; background: #2d7661; color: white; text-decoration: none; font-size: 14px; font-weight: 700; }
 article a:hover { background: #225f4e; }
 article a.secondary { display: block; margin-top: -15px; padding: 0 4px; background: transparent; color: #52766a; font-weight: 600; }
