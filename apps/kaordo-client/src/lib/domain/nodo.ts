@@ -49,7 +49,12 @@ export type NodoNode = {
 };
 
 export type NodoAccess = {
-  candidates: Array<{ address: string; kind: 'lan' | 'public'; port: number }>;
+  candidates: Array<{
+    address: string;
+    kind: 'lan' | 'public' | 'relay';
+    origin?: string;
+    port: number;
+  }>;
   expiresAt: number;
   node: NodoNode;
   ticket: string;

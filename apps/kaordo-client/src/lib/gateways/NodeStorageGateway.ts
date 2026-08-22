@@ -6,8 +6,10 @@ import type {
   NodoStorageItemKind,
   NodoStorageSpace,
 } from '../domain/nodo';
+import { nodoOrigin, orderedNodoCandidates } from './NodoRoute';
 
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 6_000;
+const CLEAR_REQUEST_TIMEOUT_MS = 30_000;
 
 export async function clearNodeStorage(access: NodoAccess): Promise<NodoStorageClearResult> {
   return clearStorageAt(access, '/v1/storage');
@@ -55,12 +57,11 @@ export async function deleteNodeStorageItem(
 
 async function clearStorageAt(access: NodoAccess, path: string): Promise<NodoStorageClearResult> {
   let lastError: unknown = null;
-  for (const candidate of uniqueLanCandidates(access)) {
+  for (const candidate of orderedNodoCandidates(access)) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), CLEAR_REQUEST_TIMEOUT_MS);
     try {
-      const host = candidate.address.includes(':') ? `[${candidate.address}]` : candidate.address;
-      const response = await fetch(`http://${host}:${candidate.port}${path}`, {
+      const response = await fetch(`${nodoOrigin(candidate)}${path}`, {
         cache: 'no-store',
         headers: { authorization: `Bearer ${access.ticket}` },
         method: 'DELETE',
@@ -82,25 +83,37 @@ async function clearStorageAt(access: NodoAccess, path: string): Promise<NodoSto
 }
 
 async function requestAt(access: NodoAccess, path: string, init: RequestInit = {}): Promise<unknown> {
-  let lastError: unknown = null;
-  for (const candidate of uniqueLanCandidates(access)) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const candidates = orderedNodoCandidates(access);
+  const readOnly = !init.method || init.method === 'GET' || init.method === 'HEAD';
+  if (readOnly && candidates.length > 1) {
+    const controllers = candidates.map(() => new AbortController());
     try {
-      const host = candidate.address.includes(':') ? `[${candidate.address}]` : candidate.address;
-      const response = await fetch(`http://${host}:${candidate.port}${path}`, {
-        ...init,
-        cache: 'no-store',
-        headers: { ...(init.headers ?? {}), authorization: `Bearer ${access.ticket}` },
-        signal: controller.signal,
-      });
-      const value: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(nodeError(value, response.status));
-      return value;
+      // Reads are safe to race: an unreachable IPv6 public route must not
+      // block the HTTPS relay (or a LAN route) for the full timeout.
+      const result = await Promise.any(candidates.map((candidate, index) => requestCandidate(
+        access,
+        candidate,
+        path,
+        init,
+        controllers[index]!,
+      )));
+      return result;
+    } catch (error) {
+      const errors = error instanceof AggregateError ? error.errors : [];
+      const lastError = errors.at(-1);
+      throw lastError instanceof Error
+        ? new Error(`Nodo storage could not be reached. ${lastError.message}`)
+        : new Error('Nodo storage could not be reached. Keep the host online and use the same network.');
+    } finally {
+      controllers.forEach((controller) => controller.abort());
+    }
+  }
+  let lastError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      return await requestCandidate(access, candidate, path, init);
     } catch (error) {
       lastError = error;
-    } finally {
-      clearTimeout(timer);
     }
   }
   throw lastError instanceof Error
@@ -108,14 +121,27 @@ async function requestAt(access: NodoAccess, path: string, init: RequestInit = {
     : new Error('Nodo storage could not be reached. Keep the host online and use the same network.');
 }
 
-function uniqueLanCandidates(access: NodoAccess) {
-  const seen = new Set<string>();
-  return access.candidates.filter((candidate) => {
-    const key = `${candidate.address}:${candidate.port}`;
-    if (candidate.kind !== 'lan' || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+async function requestCandidate(
+  access: NodoAccess,
+  candidate: NodoAccess['candidates'][number],
+  path: string,
+  init: RequestInit,
+  controller = new AbortController(),
+): Promise<unknown> {
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${nodoOrigin(candidate)}${path}`, {
+      ...init,
+      cache: 'no-store',
+      headers: { ...(init.headers ?? {}), authorization: `Bearer ${access.ticket}` },
+      signal: controller.signal,
+    });
+    const value: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(nodeError(value, response.status));
+    return value;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function isClearResult(value: unknown): value is NodoStorageClearResult {

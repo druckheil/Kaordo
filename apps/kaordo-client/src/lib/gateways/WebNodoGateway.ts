@@ -58,25 +58,25 @@ export class WebNodoGateway implements NodoGateway {
 
   async listNodes(): Promise<NodoNode[]> {
     return this.shared('nodes', async () =>
-      (await requestJson<{ nodes: NodoNode[] }>('/api/nodes', {}, NODO_UNAVAILABLE)).nodes,
+      (await requestJson<{ nodes: NodoNode[] }>('/api/nodes', { cache: 'no-store' }, NODO_UNAVAILABLE)).nodes,
     );
   }
 
   async listFeedNodeIds(): Promise<string[]> {
     return this.shared('fluo-node-ids', async () =>
-      (await requestJson<{ nodeIds: string[] }>('/api/fluo/nodes', {}, NODO_UNAVAILABLE)).nodeIds,
+      (await requestJson<{ nodeIds: string[] }>('/api/fluo/nodes', { cache: 'no-store' }, NODO_UNAVAILABLE)).nodeIds,
     );
   }
 
   fluoBootstrap(): Promise<FluoBootstrap> {
     return this.shared('fluo-bootstrap', () =>
-      requestJson<FluoBootstrap>('/api/fluo/bootstrap', {}, NODO_UNAVAILABLE),
+      requestJson<FluoBootstrap>('/api/fluo/bootstrap', { cache: 'no-store' }, NODO_UNAVAILABLE),
     );
   }
 
   publicStorage(): Promise<PublicNodoStorage> {
     return this.shared('public-storage', () =>
-      requestJson<PublicNodoStorage>('/api/fluo/public-storage', {}, NODO_UNAVAILABLE),
+      requestJson<PublicNodoStorage>('/api/fluo/public-storage', { cache: 'no-store' }, NODO_UNAVAILABLE),
     );
   }
 
@@ -129,7 +129,16 @@ export class WebNodoGateway implements NodoGateway {
   }
 
   async requestQuickTest(nodeId: string): Promise<NodoQuickTest> {
-    return runNodeQuickTest(await this.accessNode(nodeId));
+    const result = await runNodeQuickTest(await this.accessNode(nodeId));
+    return requestJson<NodoQuickTest>(
+      `/api/nodes/${encodeURIComponent(nodeId)}/test`,
+      {
+        body: JSON.stringify(result),
+        headers: { 'content-type': 'application/json' },
+        method: 'PATCH',
+      },
+      NODO_UNAVAILABLE,
+    );
   }
 
   async updatePolicy(

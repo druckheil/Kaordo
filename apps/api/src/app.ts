@@ -28,8 +28,10 @@ import {
   listFluoNodeIds,
   nodeHeartbeat,
   issueNodeAccess,
+  completeNodeQuickTest,
   nodeQuickTest,
   nodeRoute,
+  relayNodeRequest,
   verifyNodeAccess,
   renameNode,
   updateNodePolicy,
@@ -237,9 +239,16 @@ export function handleRequest(
   if (request.method === 'GET' && nodeRouteMatch?.[1]) {
     return nodeRoute(request, env, nodeRouteMatch[1]);
   }
+  const nodeRelayMatch = pathname.match(/^\/api\/nodes\/([0-9a-f-]+)\/relay(\/.*)?$/u);
+  if (nodeRelayMatch?.[1]) {
+    return relayNodeRequest(request, env, nodeRelayMatch[1], nodeRelayMatch[2] ?? '/v1/health');
+  }
   const nodeTestMatch = pathname.match(/^\/api\/nodes\/([0-9a-f-]+)\/test$/u);
   if (request.method === 'POST' && nodeTestMatch?.[1]) {
     return nodeQuickTest(request, env, nodeTestMatch[1]);
+  }
+  if (request.method === 'PATCH' && nodeTestMatch?.[1]) {
+    return completeNodeQuickTest(request, env, nodeTestMatch[1]);
   }
   const nodeAccessMatch = pathname.match(/^\/api\/nodes\/([0-9a-f-]+)\/access$/u);
   if (request.method === 'POST' && nodeAccessMatch?.[1]) {

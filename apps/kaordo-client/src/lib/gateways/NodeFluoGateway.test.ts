@@ -212,6 +212,33 @@ describe('NodeFluoGateway', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('uses the HTTPS relay for an IPv6-only Nodo in the Tauri WebView', async () => {
+    vi.stubGlobal('__TAURI_INTERNALS__', {});
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith('/v1/status')) return json({ status: 'online' });
+      if (url.includes('/v1/fluo/posts?')) return json({ posts: [] });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const nodes = new AccessGateway();
+    nodes.accessNode = async () => ({
+      candidates: [
+        { address: '2001:db8::10', kind: 'public', port: 49_321 },
+        { address: 'relay', kind: 'relay', origin: 'https://api.example.test/api/nodes/node/relay', port: 443 },
+      ],
+      expiresAt: Math.floor(Date.now() / 1_000) + 600,
+      node: null as never,
+      ticket: 'A'.repeat(43),
+    });
+
+    await new NodeFluoGateway(nodes).listPosts(NODE_ID);
+
+    expect(calls[0]).toBe('https://api.example.test/api/nodes/node/relay/v1/status');
+    expect(calls[1]).toBe('https://api.example.test/api/nodes/node/relay/v1/fluo/posts?limit=50');
+  });
+
   it('renews an expiring ticket without restarting the post', async () => {
     const gateway = new AccessGateway(true);
     const authorizations: string[] = [];

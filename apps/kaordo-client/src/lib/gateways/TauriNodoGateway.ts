@@ -103,7 +103,8 @@ export class TauriNodoGateway implements NodoGateway {
   }
 
   async requestQuickTest(nodeId: string): Promise<NodoQuickTest> {
-    return runNodeQuickTest(await this.accessNode(nodeId));
+    const result = await runNodeQuickTest(await this.accessNode(nodeId));
+    return this.invoke<NodoQuickTest>('nodo_complete_quick_test', { nodeId, result });
   }
 
   updatePolicy(nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy> {

@@ -16,7 +16,7 @@ export class NodoGState extends GState<NodoSnapshot> {
   readonly #gateway: NodoGateway;
   readonly #registry: NodoRegistry;
   #refreshTimer: ReturnType<typeof setInterval> | null = null;
-  #testRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  #refreshInFlight: Promise<void> | null = null;
   #entered = false;
   #lifecycleId = 0;
   #requestId = 0;
@@ -51,9 +51,8 @@ export class NodoGState extends GState<NodoSnapshot> {
     this.#entered = false;
     this.#requestId += 1;
     if (this.#refreshTimer) clearInterval(this.#refreshTimer);
-    if (this.#testRefreshTimer) clearTimeout(this.#testRefreshTimer);
     this.#refreshTimer = null;
-    this.#testRefreshTimer = null;
+    this.#refreshInFlight = null;
     this.#unsubscribeRegistry?.();
     this.#unsubscribeRegistry = null;
     if (typeof document !== 'undefined') {
@@ -68,8 +67,18 @@ export class NodoGState extends GState<NodoSnapshot> {
     this.publish({ error: null, nodes: [], operation: null, phase: 'idle' });
   }
 
-  async refresh(background = false): Promise<void> {
+  refresh(background = false): Promise<void> {
+    if (this.#refreshInFlight) return this.#refreshInFlight;
     const requestId = ++this.#requestId;
+    const refresh = this.refreshInternal(requestId, background);
+    const shared = refresh.finally(() => {
+      if (this.#refreshInFlight === shared) this.#refreshInFlight = null;
+    });
+    this.#refreshInFlight = shared;
+    return shared;
+  }
+
+  private async refreshInternal(requestId: number, background: boolean): Promise<void> {
     if (!background) this.publish({ ...this.snapshot, error: null, phase: 'loading' });
     try {
       const nodes = await this.#gateway.listNodes();
@@ -213,32 +222,20 @@ export class NodoGState extends GState<NodoSnapshot> {
     try {
       const result = await this.#gateway.requestQuickTest(nodeId);
       if (lifecycleId !== this.#lifecycleId) return true;
-      this.publish({
-        ...this.snapshot,
-        nodes: this.snapshot.nodes.map((node) => node.id === nodeId
-          ? {
-              ...node,
-              diagnostics: {
-                completedAt: result.completedAt,
-                requestedAt: result.completedAt,
-                running: false,
-              },
-              metrics: {
-                ...node.metrics,
-                diskReadBps: result.diskReadBps,
-                diskWriteBps: result.diskWriteBps,
-              },
-            }
-          : node),
-        operation: null,
-      });
-      if (this.#testRefreshTimer) clearTimeout(this.#testRefreshTimer);
-      if (this.#entered) {
-        this.#testRefreshTimer = setTimeout(() => {
-          this.#testRefreshTimer = null;
-          void this.refresh(true);
-        }, 1_200);
-      }
+      this.#registry.update(nodeId, (node) => ({
+        ...node,
+        diagnostics: {
+          completedAt: result.completedAt,
+          requestedAt: result.completedAt,
+          running: false,
+        },
+        metrics: {
+          ...node.metrics,
+          diskReadBps: result.diskReadBps,
+          diskWriteBps: result.diskWriteBps,
+        },
+      }));
+      this.publish({ ...this.#registrySnapshot(), error: null, operation: null });
       return true;
     } catch (error) {
       if (lifecycleId !== this.#lifecycleId) return false;
@@ -294,6 +291,9 @@ export class NodoGState extends GState<NodoSnapshot> {
 }
 
 function readableError(error: unknown): string {
+  if (typeof error === 'string' && error.trim()) return error;
+  if (typeof error === 'object' && error !== null && 'message' in error &&
+      typeof error.message === 'string' && error.message.trim()) return error.message;
   return error instanceof Error && error.message.trim()
     ? error.message
     : 'Nodo service is unavailable.';

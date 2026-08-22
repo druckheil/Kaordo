@@ -533,6 +533,28 @@ describe('authentication API', () => {
     });
     expect(testBody.requestedAt).toBeGreaterThan(0);
 
+    const completedTest = await api(`/api/nodes/${heartbeatBody.nodeId}/test`, {
+      body: JSON.stringify({
+        completedAt: testBody.requestedAt,
+        diskReadBps: 120_000_000,
+        diskWriteBps: 80_000_000,
+      }),
+      headers: { ...authorization, 'content-type': 'application/json' },
+      method: 'PATCH',
+    });
+    expect(completedTest.status).toBe(200);
+    await expect(completedTest.json()).resolves.toMatchObject({
+      diskReadBps: 120_000_000,
+      diskWriteBps: 80_000_000,
+    });
+    const nodesAfterTest = await api('/api/nodes', { headers: authorization });
+    await expect(nodesAfterTest.json()).resolves.toMatchObject({
+      nodes: [{
+        diagnostics: { running: false },
+        metrics: { diskReadBps: 120_000_000, diskWriteBps: 80_000_000 },
+      }],
+    });
+
     const route = await api(`/api/nodes/${heartbeatBody.nodeId}/route`, {
       headers: authorization,
     });
@@ -540,8 +562,9 @@ describe('authentication API', () => {
       candidates: [
         { address: '192.168.1.44', kind: 'lan', port: 49_321 },
         { address: '203.0.113.10', kind: 'public', port: 49_321 },
+        { address: 'relay', kind: 'relay', port: 443 },
       ],
-      strategy: ['lan', 'public'],
+      strategy: ['lan', 'public', 'relay'],
     });
 
     const access = await api(`/api/nodes/${heartbeatBody.nodeId}/access`, {
@@ -552,6 +575,17 @@ describe('authentication API', () => {
     expect(access.status).toBe(200);
     expect(accessBody.ticket).toMatch(/^[A-Za-z0-9_-]{43}$/u);
     expect(accessBody.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1_000));
+    const uploadPreflight = await api(`/api/nodes/${heartbeatBody.nodeId}/relay/files`, {
+      headers: {
+        'access-control-request-headers': 'authorization,tus-resumable,upload-length,upload-metadata',
+        'access-control-request-method': 'POST',
+        origin: 'tauri://localhost',
+      },
+      method: 'OPTIONS',
+    });
+    expect(uploadPreflight.status).toBe(204);
+    expect(uploadPreflight.headers.get('access-control-allow-methods')).toContain('PATCH');
+    expect(uploadPreflight.headers.get('access-control-allow-origin')).toBe('tauri://localhost');
     const verified = await api('/api/nodes/tickets/verify', {
       body: JSON.stringify({ nodeId: heartbeatBody.nodeId, ticket: accessBody.ticket }),
       headers: { 'content-type': 'application/json' },

@@ -41,6 +41,18 @@
     return `${amount.toFixed(precision)} ${units[unit]}${speed ? '/s' : ''}`;
   }
 
+  function isLinuxHost(node: NodoNode): boolean {
+    return node.metrics.androidSdk === null && node.metrics.appVersion !== null;
+  }
+
+  function telemetryWaiting(node: NodoNode): string {
+    return isLinuxHost(node) ? 'Awaiting telemetry' : 'Waiting for host';
+  }
+
+  function metricBytes(node: NodoNode, value: number | null, speed = false, empty = telemetryWaiting(node)): string {
+    return value === null ? empty : bytes(value, speed);
+  }
+
   function relative(timestamp: number): string {
     const seconds = Math.max(0, Math.floor(Date.now() / 1_000 - timestamp));
     if (seconds < 45) return 'Just now';
@@ -55,12 +67,13 @@
 
   function networkLabel(node: NodoNode): string {
     const type = node.metrics.networkType;
-    if (!type) return 'Waiting for host';
+    if (!type) return telemetryWaiting(node);
     const label = type === 'wifi' ? 'Wi-Fi' : `${type.slice(0, 1).toUpperCase()}${type.slice(1)}`;
     return node.metrics.networkMetered ? `${label} · metered` : label;
   }
 
   function batteryLabel(node: NodoNode): string {
+    if (isLinuxHost(node) && node.metrics.batteryPercent === null) return 'Not available on Linux';
     if (node.metrics.batteryPercent === null) return 'Waiting for host';
     return `${node.metrics.batteryPercent}%${node.metrics.charging ? ' · charging' : ''}`;
   }
@@ -68,12 +81,12 @@
   function memoryLabel(node: NodoNode): string {
     const available = node.metrics.memoryAvailableBytes;
     const total = node.metrics.memoryTotalBytes;
-    return available === null || total === null ? 'Waiting for host' : `${bytes(available)} free of ${bytes(total)}`;
+    return available === null || total === null ? telemetryWaiting(node) : `${bytes(available)} free of ${bytes(total)}`;
   }
 
   function latencyLabel(node: NodoNode): string {
     const value = node.metrics.coordinatorLatencyMs;
-    return value === null ? 'Waiting for host' : `${value} ms to coordinator`;
+    return value === null ? telemetryWaiting(node) : `${value} ms to coordinator`;
   }
 
   type MetricKind = 'battery' | 'connection' | 'download' | 'latency' | 'memory' | 'read' | 'upload' | 'write';
@@ -346,7 +359,7 @@
               </div>
               <div class="host-version">
                 <strong>{selected.metrics.appVersion ? `Nodo ${selected.metrics.appVersion}` : 'Legacy host'}</strong>
-                <span>{nodeMode(selected)} node · {selected.metrics.androidSdk ? `Android API ${selected.metrics.androidSdk}` : 'Basic telemetry'}</span>
+                <span>{nodeMode(selected)} node · {isLinuxHost(selected) ? 'Linux host · full telemetry' : selected.metrics.androidSdk ? `Android API ${selected.metrics.androidSdk}` : 'Basic telemetry'}</span>
               </div>
             </header>
 
@@ -373,19 +386,19 @@
                 <article data-health={healthLabel(metricScore(selected, 'memory'))} style={healthStyle(metricScore(selected, 'memory'))} title={`Memory: ${healthLabel(metricScore(selected, 'memory'))}`}><span class="metric-icon">M</span><div><span>Memory</span><strong>{memoryLabel(selected)}</strong></div></article>
                 <article data-health={healthLabel(metricScore(selected, 'connection'))} style={healthStyle(metricScore(selected, 'connection'))} title={`Connection: ${healthLabel(metricScore(selected, 'connection'))}`}><span class="metric-icon">⌁</span><div><span>Connection</span><strong>{networkLabel(selected)}</strong></div></article>
                 <article data-health={healthLabel(metricScore(selected, 'latency'))} style={healthStyle(metricScore(selected, 'latency'))} title={`Latency: ${healthLabel(metricScore(selected, 'latency'))}`}><span class="metric-icon">◷</span><div><span>Latency</span><strong>{latencyLabel(selected)}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'download'))} style={healthStyle(metricScore(selected, 'download'))} title={`Link download: ${healthLabel(metricScore(selected, 'download'))}`}><span class="metric-icon">⇣</span><div><span>Link download</span><strong>{bytes(selected.metrics.networkDownBps, true)}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'upload'))} style={healthStyle(metricScore(selected, 'upload'))} title={`Link upload: ${healthLabel(metricScore(selected, 'upload'))}`}><span class="metric-icon">⇡</span><div><span>Link upload</span><strong>{bytes(selected.metrics.networkUpBps, true)}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'read'))} style={healthStyle(metricScore(selected, 'read'))} title={`Disk read: ${healthLabel(metricScore(selected, 'read'))}`}><span class="metric-icon">↓</span><div><span>Disk read</span><strong>{bytes(selected.metrics.diskReadBps, true)}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'write'))} style={healthStyle(metricScore(selected, 'write'))} title={`Disk write: ${healthLabel(metricScore(selected, 'write'))}`}><span class="metric-icon">↑</span><div><span>Disk write</span><strong>{bytes(selected.metrics.diskWriteBps, true)}</strong></div></article>
+                <article data-health={healthLabel(metricScore(selected, 'download'))} style={healthStyle(metricScore(selected, 'download'))} title={`Link download: ${healthLabel(metricScore(selected, 'download'))}`}><span class="metric-icon">⇣</span><div><span>Link download</span><strong>{metricBytes(selected, selected.metrics.networkDownBps, true)}</strong></div></article>
+                <article data-health={healthLabel(metricScore(selected, 'upload'))} style={healthStyle(metricScore(selected, 'upload'))} title={`Link upload: ${healthLabel(metricScore(selected, 'upload'))}`}><span class="metric-icon">⇡</span><div><span>Link upload</span><strong>{metricBytes(selected, selected.metrics.networkUpBps, true)}</strong></div></article>
+                <article data-health={healthLabel(metricScore(selected, 'read'))} style={healthStyle(metricScore(selected, 'read'))} title={`Disk read: ${healthLabel(metricScore(selected, 'read'))}`}><span class="metric-icon">↓</span><div><span>Disk read</span><strong>{metricBytes(selected, selected.metrics.diskReadBps, true, 'Run quick test')}</strong></div></article>
+                <article data-health={healthLabel(metricScore(selected, 'write'))} style={healthStyle(metricScore(selected, 'write'))} title={`Disk write: ${healthLabel(metricScore(selected, 'write'))}`}><span class="metric-icon">↑</span><div><span>Disk write</span><strong>{metricBytes(selected, selected.metrics.diskWriteBps, true, 'Run quick test')}</strong></div></article>
               </div>
               <div class="quick-test-row">
                 <div><strong>Quick device test</strong><span>Measures local read/write speed and refreshes coordinator latency.</span></div>
                 <button
                   type="button"
-                  disabled={!selected.online || selected.diagnostics.running || snapshot.operation !== null}
+                  disabled={!selected.online || snapshot.operation !== null}
                   onclick={() => onQuickTest(selected.id)}
                 >
-                  {#if selected.diagnostics.running || (snapshot.operation?.nodeId === selected.id && snapshot.operation.type === 'test')}<LoadingSpinner compact /> Testing…{:else}Run test{/if}
+                  {#if snapshot.operation?.nodeId === selected.id && snapshot.operation.type === 'test'}<LoadingSpinner compact /> Testing…{:else}Run test{/if}
                 </button>
               </div>
             </section>

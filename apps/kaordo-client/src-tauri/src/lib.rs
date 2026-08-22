@@ -357,6 +357,7 @@ pub fn run() {
             auth::nodo_delete,
             auth::nodo_access,
             auth::nodo_list,
+            auth::nodo_complete_quick_test,
             auth::nodo_quick_test,
             auth::nodo_rename,
             auth::nodo_update_policy,

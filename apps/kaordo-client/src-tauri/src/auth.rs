@@ -391,6 +391,14 @@ struct NodeTestResponse {
     requested_at: i64,
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeQuickTest {
+    completed_at: i64,
+    disk_read_bps: u64,
+    disk_write_bps: u64,
+}
+
 impl AuthClient {
     pub fn new() -> Result<Self, String> {
         let http = Client::builder()
@@ -1265,6 +1273,23 @@ pub async fn nodo_quick_test(
     Ok(decode_response::<NodeTestResponse>(response)
         .await?
         .requested_at)
+}
+
+#[tauri::command]
+pub async fn nodo_complete_quick_test(
+    client: State<'_, AuthClient>,
+    node_id: String,
+    result: NodeQuickTest,
+) -> Result<NodeQuickTest, String> {
+    let node_id = node_id_path(&node_id)?;
+    let response = authenticated_json_request(
+        &client,
+        Method::PATCH,
+        &format!("/api/nodes/{node_id}/test"),
+        &result,
+    )
+    .await?;
+    decode_response(response).await
 }
 
 #[tauri::command]

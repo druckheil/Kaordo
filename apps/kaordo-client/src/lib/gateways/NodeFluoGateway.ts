@@ -11,6 +11,7 @@ import {
   type RemoteFluoPost,
 } from './FluoGateway';
 import type { NodoGateway } from './NodoGateway';
+import { nodoOrigin, orderedNodoCandidates } from './NodoRoute';
 
 const TUS_VERSION = '1.0.0';
 const WIRE_CHUNK_LENGTH_HEADER = ['x-veri', 'dimensio-chunk-length'].join('');
@@ -20,6 +21,7 @@ const PATCH_ACK_TIMEOUT_MS = 1_000;
 const FETCH_PATCH_TIMEOUT_MS = 2 * 60_000;
 const RECOVERY_TIMEOUT_MS = 5_000;
 const MAX_CHUNK_RETRIES = 6;
+const RELAY_CHUNK_SIZE = 8 * 1024 * 1024;
 const CONNECTION_IDLE_MILLISECONDS = 90 * 60_000;
 export type NodoUploadFile = { blob: Blob; mimeType: string; name: string; size: number };
 let feedSessionSequence = 0;
@@ -491,16 +493,19 @@ export class NodeConnection {
     private readonly nodeId: string,
     private access: NodoAccess,
     private origin: string,
+    private relay = false,
   ) {}
 
   static async open(nodes: NodoGateway, nodeId: string): Promise<NodeConnection> {
     const access = await nodes.accessNode(nodeId);
     let lastError: unknown = null;
-    for (const candidate of uniqueCandidates(access)) {
-      const origin = nodeOrigin(candidate.address, candidate.port);
+    const candidates = orderedNodoCandidates(access);
+    if (!candidates.length) throw new Error('Nodo access returned no usable routes.');
+    for (const candidate of candidates) {
+      const origin = nodoOrigin(candidate);
       try {
         await nodeFetch(origin, access.ticket, '/v1/status', {}, 4_000);
-        return new NodeConnection(nodes, nodeId, access, origin);
+        return new NodeConnection(nodes, nodeId, access, origin, candidate.kind === 'relay');
       } catch (error) {
         lastError = error;
       }
@@ -585,6 +590,10 @@ export class NodeConnection {
     return Date.now() - this.lastSuccessfulAt < CONNECTION_IDLE_MILLISECONDS;
   }
 
+  usesRelay(): boolean {
+    return this.relay;
+  }
+
   async validate(): Promise<void> {
     await this.ensureFreshTicket();
     if (Date.now() - this.lastSuccessfulAt < 30_000) return;
@@ -615,12 +624,13 @@ export class NodeConnection {
     if (this.refreshPromise) return this.refreshPromise;
     this.refreshPromise = (async () => {
       const access = await this.nodes.accessNode(this.nodeId);
-      const candidates = uniqueCandidates(access);
-      const current = candidates.find((candidate) => nodeOrigin(candidate.address, candidate.port) === this.origin);
+      const candidates = orderedNodoCandidates(access);
+      const current = candidates.find((candidate) => nodoOrigin(candidate) === this.origin);
       const candidate = current ?? candidates[0];
-      if (!candidate) throw new Error('Nodo no longer has a safe LAN route.');
+      if (!candidate) throw new Error('Nodo no longer has a reachable route.');
       this.access = access;
-      this.origin = nodeOrigin(candidate.address, candidate.port);
+      this.origin = nodoOrigin(candidate);
+      this.relay = candidate.kind === 'relay';
     })();
     try {
       await this.refreshPromise;
@@ -653,10 +663,15 @@ export async function uploadTus(
     let offset = 0;
     let failures = 0;
     while (offset < attachment.blob.size) {
-      // Stream the whole remaining range. tus still makes this safely resumable:
-      // after a real interruption HEAD returns the exact persisted offset and
-      // the next PATCH starts there. Fixed chunks only added an ACK pause.
-      const chunk = attachment.blob.slice(offset);
+      // Keep direct uploads as one streaming request. Cloudflare's relay has
+      // a bounded request body, so use small resumable pieces only when the
+      // connection is using that fallback route.
+      const chunk = attachment.blob.slice(
+        offset,
+        connection.usesRelay()
+          ? Math.min(attachment.blob.size, offset + RELAY_CHUNK_SIZE)
+          : attachment.blob.size,
+      );
       try {
         const nextOffset = await connection.patch(location, chunk, offset, onOffset, reservationId);
         if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > attachment.size) {
@@ -825,22 +840,6 @@ async function nodeFetch(
 
 export class NodeRequestError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
-}
-
-function uniqueCandidates(access: NodoAccess) {
-  const seen = new Set<string>();
-  return access.candidates.filter((candidate) => {
-    if (candidate.kind !== 'lan') return false;
-    const key = `${candidate.address}:${candidate.port}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function nodeOrigin(address: string, port: number): string {
-  const host = address.includes(':') ? `[${address}]` : address;
-  return `http://${host}:${port}`;
 }
 
 function publicReservationHeader(reservationId?: string): Record<string, string> {
