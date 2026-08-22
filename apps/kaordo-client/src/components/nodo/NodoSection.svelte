@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { NodoNode, NodoPolicy, NodoStorageSpace } from '../../lib/domain/nodo';
+  import type { NodoNode, NodoPolicy, NodoStorageSpace, NodoTelemetryField } from '../../lib/domain/nodo';
   import type { NodoSnapshot } from '../../lib/states/NodoGState';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
 
@@ -43,6 +43,15 @@
 
   function isLinuxHost(node: NodoNode): boolean {
     return node.metrics.androidSdk === null && node.metrics.appVersion !== null;
+  }
+
+  function isBatterylessHost(node: NodoNode): boolean {
+    return isLinuxHost(node) && node.metrics.batteryPercent === null && node.metrics.charging === null;
+  }
+
+  function telemetryState(node: NodoNode, field: NodoTelemetryField): 'error' | 'loading' | 'ready' {
+    const test = snapshot.telemetryTest;
+    return test?.nodeId === node.id ? test.fields[field] : 'ready';
   }
 
   function telemetryWaiting(node: NodoNode): string {
@@ -129,6 +138,12 @@
     if (score >= 0.45) return 'Fair';
     if (score >= 0.25) return 'Weak';
     return 'Poor';
+  }
+
+  function metricHealthLabel(node: NodoNode, kind: MetricKind): string {
+    return kind === 'battery' && isBatterylessHost(node)
+      ? 'Not applicable'
+      : healthLabel(metricScore(node, kind));
   }
 
   function storageScore(node: NodoNode): number {
@@ -359,7 +374,7 @@
               </div>
               <div class="host-version">
                 <strong>{selected.metrics.appVersion ? `Nodo ${selected.metrics.appVersion}` : 'Legacy host'}</strong>
-                <span>{nodeMode(selected)} node · {isLinuxHost(selected) ? 'Linux host · full telemetry' : selected.metrics.androidSdk ? `Android API ${selected.metrics.androidSdk}` : 'Basic telemetry'}</span>
+                <span>{nodeMode(selected)} node · {isLinuxHost(selected) ? 'Linux host · server telemetry' : selected.metrics.androidSdk ? `Android API ${selected.metrics.androidSdk}` : 'Basic telemetry'}</span>
               </div>
             </header>
 
@@ -382,17 +397,17 @@
             <section class="telemetry-section" aria-labelledby="telemetry-heading">
               <div class="section-title"><div><span class="section-number">01</span><h3 id="telemetry-heading">Live telemetry</h3></div><span class:online={selected.online} class="live-badge">{selected.online ? 'Live' : 'Offline'}</span></div>
               <div class="metric-grid">
-                <article data-health={healthLabel(metricScore(selected, 'battery'))} style={healthStyle(metricScore(selected, 'battery'))} title={`Battery: ${healthLabel(metricScore(selected, 'battery'))}`}><span class="metric-icon">↯</span><div><span>Battery</span><strong>{batteryLabel(selected)}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'memory'))} style={healthStyle(metricScore(selected, 'memory'))} title={`Memory: ${healthLabel(metricScore(selected, 'memory'))}`}><span class="metric-icon">M</span><div><span>Memory</span><strong>{memoryLabel(selected)}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'connection'))} style={healthStyle(metricScore(selected, 'connection'))} title={`Connection: ${healthLabel(metricScore(selected, 'connection'))}`}><span class="metric-icon">⌁</span><div><span>Connection</span><strong>{networkLabel(selected)}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'latency'))} style={healthStyle(metricScore(selected, 'latency'))} title={`Latency: ${healthLabel(metricScore(selected, 'latency'))}`}><span class="metric-icon">◷</span><div><span>Latency</span><strong>{latencyLabel(selected)}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'download'))} style={healthStyle(metricScore(selected, 'download'))} title={`Link download: ${healthLabel(metricScore(selected, 'download'))}`}><span class="metric-icon">⇣</span><div><span>Link download</span><strong>{metricBytes(selected, selected.metrics.networkDownBps, true)}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'upload'))} style={healthStyle(metricScore(selected, 'upload'))} title={`Link upload: ${healthLabel(metricScore(selected, 'upload'))}`}><span class="metric-icon">⇡</span><div><span>Link upload</span><strong>{metricBytes(selected, selected.metrics.networkUpBps, true)}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'read'))} style={healthStyle(metricScore(selected, 'read'))} title={`Disk read: ${healthLabel(metricScore(selected, 'read'))}`}><span class="metric-icon">↓</span><div><span>Disk read</span><strong>{metricBytes(selected, selected.metrics.diskReadBps, true, 'Run quick test')}</strong></div></article>
-                <article data-health={healthLabel(metricScore(selected, 'write'))} style={healthStyle(metricScore(selected, 'write'))} title={`Disk write: ${healthLabel(metricScore(selected, 'write'))}`}><span class="metric-icon">↑</span><div><span>Disk write</span><strong>{metricBytes(selected, selected.metrics.diskWriteBps, true, 'Run quick test')}</strong></div></article>
+                <article class:metric-loading={telemetryState(selected, 'battery') === 'loading'} class:metric-error={telemetryState(selected, 'battery') === 'error'} aria-busy={telemetryState(selected, 'battery') === 'loading'} data-health={metricHealthLabel(selected, 'battery')} style={healthStyle(metricScore(selected, 'battery'))} title={`Battery: ${metricHealthLabel(selected, 'battery')}`}><div class="metric-content"><span class="metric-icon">↯</span><div><span>Battery</span><strong>{batteryLabel(selected)}</strong></div></div>{#if telemetryState(selected, 'battery') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'battery') === 'error'}<span class="metric-failure" title="Battery could not be refreshed">!</span>{/if}</article>
+                <article class:metric-loading={telemetryState(selected, 'memory') === 'loading'} class:metric-error={telemetryState(selected, 'memory') === 'error'} aria-busy={telemetryState(selected, 'memory') === 'loading'} data-health={healthLabel(metricScore(selected, 'memory'))} style={healthStyle(metricScore(selected, 'memory'))} title={`Memory: ${healthLabel(metricScore(selected, 'memory'))}`}><div class="metric-content"><span class="metric-icon">M</span><div><span>Memory</span><strong>{memoryLabel(selected)}</strong></div></div>{#if telemetryState(selected, 'memory') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'memory') === 'error'}<span class="metric-failure" title="Memory could not be refreshed">!</span>{/if}</article>
+                <article class:metric-loading={telemetryState(selected, 'connection') === 'loading'} class:metric-error={telemetryState(selected, 'connection') === 'error'} aria-busy={telemetryState(selected, 'connection') === 'loading'} data-health={healthLabel(metricScore(selected, 'connection'))} style={healthStyle(metricScore(selected, 'connection'))} title={`Connection: ${healthLabel(metricScore(selected, 'connection'))}`}><div class="metric-content"><span class="metric-icon">⌁</span><div><span>Connection</span><strong>{networkLabel(selected)}</strong></div></div>{#if telemetryState(selected, 'connection') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'connection') === 'error'}<span class="metric-failure" title="Connection could not be refreshed">!</span>{/if}</article>
+                <article class:metric-loading={telemetryState(selected, 'latency') === 'loading'} class:metric-error={telemetryState(selected, 'latency') === 'error'} aria-busy={telemetryState(selected, 'latency') === 'loading'} data-health={healthLabel(metricScore(selected, 'latency'))} style={healthStyle(metricScore(selected, 'latency'))} title={`Latency: ${healthLabel(metricScore(selected, 'latency'))}`}><div class="metric-content"><span class="metric-icon">◷</span><div><span>Latency</span><strong>{latencyLabel(selected)}</strong></div></div>{#if telemetryState(selected, 'latency') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'latency') === 'error'}<span class="metric-failure" title="Latency could not be refreshed">!</span>{/if}</article>
+                <article class:metric-loading={telemetryState(selected, 'download') === 'loading'} class:metric-error={telemetryState(selected, 'download') === 'error'} aria-busy={telemetryState(selected, 'download') === 'loading'} data-health={healthLabel(metricScore(selected, 'download'))} style={healthStyle(metricScore(selected, 'download'))} title={`Link download: ${healthLabel(metricScore(selected, 'download'))}`}><div class="metric-content"><span class="metric-icon">⇣</span><div><span>Link download</span><strong>{metricBytes(selected, selected.metrics.networkDownBps, true)}</strong></div></div>{#if telemetryState(selected, 'download') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'download') === 'error'}<span class="metric-failure" title="Download link could not be refreshed">!</span>{/if}</article>
+                <article class:metric-loading={telemetryState(selected, 'upload') === 'loading'} class:metric-error={telemetryState(selected, 'upload') === 'error'} aria-busy={telemetryState(selected, 'upload') === 'loading'} data-health={healthLabel(metricScore(selected, 'upload'))} style={healthStyle(metricScore(selected, 'upload'))} title={`Link upload: ${healthLabel(metricScore(selected, 'upload'))}`}><div class="metric-content"><span class="metric-icon">⇡</span><div><span>Link upload</span><strong>{metricBytes(selected, selected.metrics.networkUpBps, true)}</strong></div></div>{#if telemetryState(selected, 'upload') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'upload') === 'error'}<span class="metric-failure" title="Upload link could not be refreshed">!</span>{/if}</article>
+                <article class:metric-loading={telemetryState(selected, 'read') === 'loading'} class:metric-error={telemetryState(selected, 'read') === 'error'} aria-busy={telemetryState(selected, 'read') === 'loading'} data-health={healthLabel(metricScore(selected, 'read'))} style={healthStyle(metricScore(selected, 'read'))} title={`Disk read: ${healthLabel(metricScore(selected, 'read'))}`}><div class="metric-content"><span class="metric-icon">↓</span><div><span>Disk read</span><strong>{metricBytes(selected, selected.metrics.diskReadBps, true, 'Run quick test')}</strong></div></div>{#if telemetryState(selected, 'read') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'read') === 'error'}<span class="metric-failure" title="Disk read could not be refreshed">!</span>{/if}</article>
+                <article class:metric-loading={telemetryState(selected, 'write') === 'loading'} class:metric-error={telemetryState(selected, 'write') === 'error'} aria-busy={telemetryState(selected, 'write') === 'loading'} data-health={healthLabel(metricScore(selected, 'write'))} style={healthStyle(metricScore(selected, 'write'))} title={`Disk write: ${healthLabel(metricScore(selected, 'write'))}`}><div class="metric-content"><span class="metric-icon">↑</span><div><span>Disk write</span><strong>{metricBytes(selected, selected.metrics.diskWriteBps, true, 'Run quick test')}</strong></div></div>{#if telemetryState(selected, 'write') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'write') === 'error'}<span class="metric-failure" title="Disk write could not be refreshed">!</span>{/if}</article>
               </div>
               <div class="quick-test-row">
-                <div><strong>Quick device test</strong><span>Measures local read/write speed and refreshes coordinator latency.</span></div>
+                <div><strong>Fresh device test</strong><span>Refreshes every metric independently and finishes within five seconds.</span></div>
                 <button
                   type="button"
                   disabled={!selected.online || snapshot.operation !== null}
@@ -454,7 +469,11 @@
                 <div class="policy-row"><div><strong>Allow uploads</strong><span>Clients can store new data on this node.</span></div><button aria-label="Allow uploads" class:on={selected.policy.allowUploads} class="switch" type="button" role="switch" aria-checked={selected.policy.allowUploads} disabled={snapshot.operation !== null} onclick={() => toggle(selected, 'allowUploads')}><i></i></button></div>
                 <div class="policy-row"><div><strong>Allow downloads</strong><span>Clients can retrieve completed files.</span></div><button aria-label="Allow downloads" class:on={selected.policy.allowDownloads} class="switch" type="button" role="switch" aria-checked={selected.policy.allowDownloads} disabled={snapshot.operation !== null} onclick={() => toggle(selected, 'allowDownloads')}><i></i></button></div>
                 <div class="policy-row"><div><strong>Wi-Fi only</strong><span>Pause transfers while the host is on cellular data.</span></div><button aria-label="Wi-Fi only" class:on={selected.policy.wifiOnly} class="switch" type="button" role="switch" aria-checked={selected.policy.wifiOnly} disabled={snapshot.operation !== null} onclick={() => toggle(selected, 'wifiOnly')}><i></i></button></div>
-                <div class="policy-row"><div><strong>Charging only</strong><span>Pause transfers while the device is on battery.</span></div><button aria-label="Charging only" class:on={selected.policy.chargingOnly} class="switch" type="button" role="switch" aria-checked={selected.policy.chargingOnly} disabled={snapshot.operation !== null} onclick={() => toggle(selected, 'chargingOnly')}><i></i></button></div>
+                {#if isBatterylessHost(selected)}
+                  <div class="policy-row"><div><strong>Charging condition</strong><span>This batteryless Linux host always uses external power.</span></div><span class="policy-unavailable">Not applicable</span></div>
+                {:else}
+                  <div class="policy-row"><div><strong>Charging only</strong><span>Pause transfers while the device is on battery.</span></div><button aria-label="Charging only" class:on={selected.policy.chargingOnly} class="switch" type="button" role="switch" aria-checked={selected.policy.chargingOnly} disabled={snapshot.operation !== null} onclick={() => toggle(selected, 'chargingOnly')}><i></i></button></div>
+                {/if}
               </div>
             </section>
 
@@ -621,12 +640,17 @@
   .space-save button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 82px; height: 29px; padding: 0 10px; color: #fff; background: #467f66; border: 0; border-radius: 7px; cursor: pointer; font-size: calc(8px * var(--text-scale)); font-weight: 680; }
   .space-save button:disabled { cursor: default; opacity: .5; }
   .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .metric-grid article { position: relative; display: flex; align-items: center; gap: 9px; min-width: 0; overflow: hidden; padding: 10px; background: var(--health-bg); border: 1px solid var(--health-border); border-radius: 9px; transition: background 220ms ease, border-color 220ms ease; }
+  .metric-grid article { position: relative; min-width: 0; overflow: hidden; padding: 10px; background: var(--health-bg); border: 1px solid var(--health-border); border-radius: 9px; transition: background 220ms ease, border-color 220ms ease; }
   .metric-grid article::after { position: absolute; inset: 0 0 auto; height: 2px; background: var(--health-accent); content: ''; opacity: .48; }
+  .metric-content { display: flex; align-items: center; gap: 9px; min-width: 0; transition: filter 160ms ease, opacity 160ms ease; }
+  .metric-content > div { min-width: 0; }
+  .metric-loading .metric-content { filter: blur(3px); opacity: .38; }
+  .metric-spinner, .metric-failure { position: absolute; z-index: 2; inset: 50% auto auto 50%; display: grid; width: 22px; height: 22px; color: #3e7d64; background: rgb(255 255 255 / 88%); border: 1px solid rgb(117 158 140 / 35%); border-radius: 50%; box-shadow: 0 4px 12px rgb(41 67 55 / 12%); place-items: center; transform: translate(-50%, -50%); }
+  .metric-failure { color: #9d4c44; background: #fff7f5; border-color: #e6bbb5; font-size: calc(8px * var(--text-scale)); font-weight: 800; }
+  .metric-error { --health-bg: #fff8f6 !important; --health-border: #edcbc5 !important; --health-accent: #b86659 !important; }
   .metric-icon { display: grid; width: 26px; height: 26px; flex: none; color: var(--health-accent); background: var(--health-icon); border-radius: 7px; font-size: calc(9px * var(--text-scale)); font-weight: 760; place-items: center; transition: color 220ms ease, background 220ms ease; }
-  .metric-grid article > div { min-width: 0; }
-  .metric-grid article span:not(.metric-icon), .metric-grid article strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .metric-grid article span:not(.metric-icon) { color: #929c96; font-size: calc(7px * var(--text-scale)); }
+  .metric-content span:not(.metric-icon), .metric-content strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .metric-content span:not(.metric-icon) { color: #929c96; font-size: calc(7px * var(--text-scale)); }
   .metric-grid article strong { margin-top: 3px; color: #394b41; font-size: calc(8px * var(--text-scale)); }
   .quick-test-row { justify-content: space-between; gap: 15px; margin-top: 10px; padding-top: 11px; border-top: 1px solid #e7ebe8; }
   .quick-test-row strong, .quick-test-row span { display: block; }
@@ -640,6 +664,7 @@
   .policy-row strong, .policy-row span { display: block; }
   .policy-row strong { color: #3c4d43; font-size: calc(8px * var(--text-scale)); }
   .policy-row span { margin-top: 2px; color: #929c96; font-size: calc(7px * var(--text-scale)); }
+  .policy-row .policy-unavailable { flex: none; margin: 0; padding: 4px 7px; color: #738078; background: #f0f3f1; border: 1px solid #dfe5e1; border-radius: 999px; font-weight: 680; }
   .switch { position: relative; width: 29px; height: 17px; flex: none; padding: 0; background: #d8ded9; border: 0; border-radius: 99px; cursor: pointer; transition: background 150ms ease; }
   .switch i { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgb(30 48 39 / 18%); transition: transform 150ms ease; }
   .switch.on { background: #4f9b7c; } .switch.on i { transform: translateX(12px); }

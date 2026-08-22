@@ -1,15 +1,29 @@
-import type { NodoNode, NodoPolicy } from '../domain/nodo';
+import {
+  NODO_TELEMETRY_FIELDS,
+  type NodoNode,
+  type NodoPolicy,
+  type NodoTelemetryField,
+  type NodoTelemetryUpdate,
+} from '../domain/nodo';
 import type { NodoGateway } from '../gateways/NodoGateway';
 import { GState } from '../state/GState';
 import { NodoRegistry } from '../services/NodoRegistry';
 
 export type NodoOperation = { nodeId: string; type: 'clear' | 'clear-private' | 'delete' | 'policy' | 'rename' | 'spaces' | 'test' };
 
+export type NodoTelemetryState = 'error' | 'loading' | 'ready';
+
+export type NodoTelemetryTest = {
+  fields: Record<NodoTelemetryField, NodoTelemetryState>;
+  nodeId: string;
+};
+
 export type NodoSnapshot = {
   error: string | null;
   nodes: NodoNode[];
   operation: NodoOperation | null;
   phase: 'idle' | 'loading' | 'ready';
+  telemetryTest?: NodoTelemetryTest | null;
 };
 
 export class NodoGState extends GState<NodoSnapshot> {
@@ -26,7 +40,7 @@ export class NodoGState extends GState<NodoSnapshot> {
   };
 
   constructor(gateway: NodoGateway, registry = new NodoRegistry()) {
-    super({ error: null, nodes: [...registry.nodes], operation: null, phase: 'idle' });
+    super({ error: null, nodes: [...registry.nodes], operation: null, phase: 'idle', telemetryTest: null });
     this.#gateway = gateway;
     this.#registry = registry;
   }
@@ -64,7 +78,7 @@ export class NodoGState extends GState<NodoSnapshot> {
     this.#requestId += 1;
     this.#lifecycleId += 1;
     this.#registry.reset();
-    this.publish({ error: null, nodes: [], operation: null, phase: 'idle' });
+    this.publish({ error: null, nodes: [], operation: null, phase: 'idle', telemetryTest: null });
   }
 
   refresh(background = false): Promise<void> {
@@ -218,30 +232,77 @@ export class NodoGState extends GState<NodoSnapshot> {
   async requestQuickTest(nodeId: string): Promise<boolean> {
     if (this.snapshot.operation) return false;
     const lifecycleId = this.#lifecycleId;
-    this.publish({ ...this.snapshot, error: null, operation: { nodeId, type: 'test' } });
+    const fields = Object.fromEntries(
+      NODO_TELEMETRY_FIELDS.map((field) => [field, 'loading']),
+    ) as Record<NodoTelemetryField, NodoTelemetryState>;
+    this.publish({
+      ...this.snapshot,
+      error: null,
+      operation: { nodeId, type: 'test' },
+      telemetryTest: { fields, nodeId },
+    });
     try {
-      const result = await this.#gateway.requestQuickTest(nodeId);
+      const result = await this.#gateway.requestQuickTest(nodeId, (update) => {
+        if (lifecycleId !== this.#lifecycleId) return;
+        this.#applyTelemetryUpdate(nodeId, update);
+      });
       if (lifecycleId !== this.#lifecycleId) return true;
+      const { completedAt, ...metrics } = result;
       this.#registry.update(nodeId, (node) => ({
         ...node,
         diagnostics: {
-          completedAt: result.completedAt,
-          requestedAt: result.completedAt,
+          completedAt,
+          requestedAt: completedAt,
           running: false,
         },
         metrics: {
           ...node.metrics,
-          diskReadBps: result.diskReadBps,
-          diskWriteBps: result.diskWriteBps,
+          ...metrics,
         },
       }));
-      this.publish({ ...this.#registrySnapshot(), error: null, operation: null });
+      const telemetryTest = this.snapshot.telemetryTest?.nodeId === nodeId
+        ? {
+            ...this.snapshot.telemetryTest,
+            fields: Object.fromEntries(
+              NODO_TELEMETRY_FIELDS.map((field) => [field, 'ready']),
+            ) as Record<NodoTelemetryField, NodoTelemetryState>,
+          }
+        : this.snapshot.telemetryTest;
+      this.publish({ ...this.#registrySnapshot(), error: null, operation: null, telemetryTest });
       return true;
     } catch (error) {
       if (lifecycleId !== this.#lifecycleId) return false;
-      this.publish({ ...this.snapshot, error: readableError(error), operation: null });
+      const telemetryTest = this.snapshot.telemetryTest?.nodeId === nodeId
+        ? {
+            ...this.snapshot.telemetryTest,
+            fields: Object.fromEntries(NODO_TELEMETRY_FIELDS.map((field) => [
+              field,
+              this.snapshot.telemetryTest?.fields[field] === 'loading'
+                ? 'error'
+                : this.snapshot.telemetryTest?.fields[field] ?? 'error',
+            ])) as Record<NodoTelemetryField, NodoTelemetryState>,
+          }
+        : this.snapshot.telemetryTest;
+      this.publish({ ...this.snapshot, error: readableError(error), operation: null, telemetryTest });
       return false;
     }
+  }
+
+  #applyTelemetryUpdate(nodeId: string, update: NodoTelemetryUpdate): void {
+    if (update.metrics) {
+      this.#registry.update(nodeId, (node) => ({
+        ...node,
+        metrics: { ...node.metrics, ...update.metrics },
+      }));
+    }
+    const current = this.snapshot.telemetryTest;
+    if (!current || current.nodeId !== nodeId) return;
+    const fields = { ...current.fields };
+    for (const field of update.fields) fields[field] = update.error ? 'error' : 'ready';
+    this.publish({
+      ...this.#registrySnapshot(),
+      telemetryTest: { fields, nodeId },
+    });
   }
 
   async updatePolicy(

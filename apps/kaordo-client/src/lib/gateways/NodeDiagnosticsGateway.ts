@@ -1,52 +1,186 @@
-import type { NodoAccess, NodoQuickTest } from '../domain/nodo';
-import { nodoOrigin, orderedNodoCandidates } from './NodoRoute';
+import type {
+  NodoAccess,
+  NodoQuickTest,
+  NodoTelemetryField,
+  NodoTelemetryMetrics,
+  NodoTelemetryProgress,
+} from '../domain/nodo';
+import { nodoOrigin, orderedNodoCandidates, type NodoRouteCandidate } from './NodoRoute';
 
-const TEST_TIMEOUT_MS = 8_000;
+const TEST_DEADLINE_MS = 4_900;
+const ROUTE_PROBE_MS = 1_100;
 
-export async function runNodeQuickTest(access: NodoAccess): Promise<NodoQuickTest> {
-  let lastError: unknown = null;
-  const failures: string[] = [];
-  // A Linux Nodo is commonly hosted on a VPS and therefore has no LAN
-  // candidate. Prefer the low-latency LAN route when it exists, but always
-  // fall back to the observed public address instead of silently skipping the
-  // diagnostic altogether.
-  for (const candidate of orderedNodoCandidates(access)) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
-    try {
-      const response = await fetch(`${nodoOrigin(candidate)}/v1/diagnostics/quick-test`, {
-        cache: 'no-store',
-        headers: { authorization: `Bearer ${access.ticket}` },
-        method: 'POST',
-        signal: controller.signal,
-      });
-      const value: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(errorMessage(value, response.status));
-      if (!isQuickTest(value)) throw new Error('Nodo returned an invalid test result.');
-      return value;
-    } catch (error) {
-      lastError = error;
-      const detail = error instanceof Error && error.message.trim()
-        ? error.message.trim()
-        : error instanceof Error ? error.name : 'Network error';
-      failures.push(`${candidate.kind}: ${detail}`);
-    } finally {
-      clearTimeout(timer);
+type TestGroup = {
+  fields: readonly NodoTelemetryField[];
+  path: string;
+  read: (value: Record<string, unknown>) => Partial<NodoTelemetryMetrics>;
+};
+
+const TEST_GROUPS: readonly TestGroup[] = [
+  {
+    fields: ['battery'],
+    path: '/v1/diagnostics/battery',
+    read: (value) => ({
+      batteryPercent: nullableNumber(value.batteryPercent, 0, 100),
+      charging: nullableBoolean(value.charging),
+    }),
+  },
+  {
+    fields: ['memory'],
+    path: '/v1/diagnostics/memory',
+    read: (value) => ({
+      memoryAvailableBytes: requiredNumber(value.memoryAvailableBytes),
+      memoryTotalBytes: requiredNumber(value.memoryTotalBytes),
+      storageAvailableBytes: requiredNumber(value.storageAvailableBytes),
+    }),
+  },
+  {
+    fields: ['connection', 'download', 'upload'],
+    path: '/v1/diagnostics/network',
+    read: (value) => ({
+      networkDownBps: nullableNumber(value.networkDownBps),
+      networkMetered: nullableBoolean(value.networkMetered),
+      networkType: networkType(value.networkType),
+      networkUpBps: nullableNumber(value.networkUpBps),
+    }),
+  },
+  {
+    fields: ['latency'],
+    path: '/v1/diagnostics/latency',
+    read: (value) => ({ coordinatorLatencyMs: requiredNumber(value.coordinatorLatencyMs) }),
+  },
+  {
+    fields: ['read', 'write'],
+    path: '/v1/diagnostics/disk',
+    read: (value) => ({
+      diskReadBps: requiredNumber(value.diskReadBps, 1),
+      diskWriteBps: requiredNumber(value.diskWriteBps, 1),
+    }),
+  },
+] as const;
+
+/** Runs fresh host diagnostics concurrently under one hard five-second deadline. */
+export async function runNodeQuickTest(
+  access: NodoAccess,
+  onUpdate?: NodoTelemetryProgress,
+): Promise<NodoQuickTest> {
+  const deadline = new AbortController();
+  const deadlineTimer = setTimeout(() => deadline.abort(), TEST_DEADLINE_MS);
+  const runId = `${Date.now()}-${crypto.randomUUID()}`;
+  try {
+    const candidate = await selectResponsiveCandidate(access, deadline.signal, runId);
+    const origin = nodoOrigin(candidate);
+    const completedAt: number[] = [];
+    const metrics: Partial<NodoTelemetryMetrics> = {};
+    const failures: string[] = [];
+
+    await Promise.all(TEST_GROUPS.map(async (group) => {
+      try {
+        const response = await fetch(`${origin}${group.path}?fresh=${encodeURIComponent(runId)}`, {
+          cache: 'no-store',
+          headers: {
+            authorization: `Bearer ${access.ticket}`,
+            'cache-control': 'no-cache, no-store',
+          },
+          method: 'POST',
+          signal: deadline.signal,
+        });
+        const value: unknown = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(errorMessage(value, response.status));
+        const record = objectValue(value);
+        const timestamp = requiredNumber(record.completedAt, 1);
+        const update = group.read(record);
+        completedAt.push(timestamp);
+        Object.assign(metrics, update);
+        onUpdate?.({ fields: group.fields, metrics: update });
+      } catch (error) {
+        const message = readableError(error);
+        failures.push(`${group.fields.join('/')}: ${message}`);
+        onUpdate?.({ error: message, fields: group.fields });
+      }
+    }));
+
+    if (failures.length) {
+      throw new Error(`Some Nodo diagnostics could not be refreshed. ${failures.join(' · ')}`);
     }
+    if (!isCompleteMetrics(metrics)) throw new Error('Nodo returned an incomplete test result.');
+    return { ...metrics, completedAt: Math.max(...completedAt) };
+  } finally {
+    clearTimeout(deadlineTimer);
   }
-  const detail = lastError instanceof Error && lastError.name !== 'AbortError'
-    ? ` ${lastError.message}`
-    : '';
-  const attempts = failures.length ? ` Attempts: ${failures.join(' · ')}` : '';
-  throw new Error(`The Nodo quick test could not be completed.${detail}${attempts}`);
 }
 
-function isQuickTest(value: unknown): value is NodoQuickTest {
-  if (typeof value !== 'object' || value === null) return false;
-  const result = value as Record<string, unknown>;
-  return Number.isSafeInteger(result.completedAt) &&
-    typeof result.diskReadBps === 'number' && result.diskReadBps > 0 &&
-    typeof result.diskWriteBps === 'number' && result.diskWriteBps > 0;
+async function selectResponsiveCandidate(
+  access: NodoAccess,
+  deadline: AbortSignal,
+  runId: string,
+): Promise<NodoRouteCandidate> {
+  const candidates = orderedNodoCandidates(access);
+  if (!candidates.length) throw new Error('The Nodo has no reachable route.');
+  const probe = new AbortController();
+  const abortProbe = () => probe.abort();
+  deadline.addEventListener('abort', abortProbe, { once: true });
+  const timer = setTimeout(() => probe.abort(), ROUTE_PROBE_MS);
+  try {
+    return await Promise.any(candidates.map(async (candidate) => {
+      const response = await fetch(`${nodoOrigin(candidate)}/v1/status?fresh=${encodeURIComponent(runId)}`, {
+        cache: 'no-store',
+        headers: {
+          authorization: `Bearer ${access.ticket}`,
+          'cache-control': 'no-cache, no-store',
+        },
+        signal: probe.signal,
+      });
+      if (!response.ok) throw new Error(`${candidate.kind} route returned ${response.status}.`);
+      await response.body?.cancel().catch(() => undefined);
+      return candidate;
+    }));
+  } catch {
+    throw new Error('The Nodo did not respond before the telemetry deadline.');
+  } finally {
+    clearTimeout(timer);
+    deadline.removeEventListener('abort', abortProbe);
+    probe.abort();
+  }
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) throw new Error('Nodo returned invalid telemetry.');
+  return value as Record<string, unknown>;
+}
+
+function requiredNumber(value: unknown, minimum = 0): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum) {
+    throw new Error('Nodo returned invalid telemetry.');
+  }
+  return value;
+}
+
+function nullableNumber(value: unknown, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): number | null {
+  if (value === null) return null;
+  const number = requiredNumber(value, minimum);
+  if (number > maximum) throw new Error('Nodo returned invalid telemetry.');
+  return number;
+}
+
+function nullableBoolean(value: unknown): boolean | null {
+  if (value === null) return null;
+  if (typeof value !== 'boolean') throw new Error('Nodo returned invalid telemetry.');
+  return value;
+}
+
+function networkType(value: unknown): NodoTelemetryMetrics['networkType'] {
+  if (value === 'cellular' || value === 'ethernet' || value === 'offline' ||
+    value === 'other' || value === 'wifi') return value;
+  throw new Error('Nodo returned invalid telemetry.');
+}
+
+function isCompleteMetrics(value: Partial<NodoTelemetryMetrics>): value is NodoTelemetryMetrics {
+  return 'batteryPercent' in value && 'charging' in value &&
+    'coordinatorLatencyMs' in value && 'diskReadBps' in value && 'diskWriteBps' in value &&
+    'memoryAvailableBytes' in value && 'memoryTotalBytes' in value &&
+    'networkDownBps' in value && 'networkMetered' in value && 'networkType' in value &&
+    'networkUpBps' in value && 'storageAvailableBytes' in value;
 }
 
 function errorMessage(value: unknown, status: number): string {
@@ -54,4 +188,9 @@ function errorMessage(value: unknown, status: number): string {
     typeof value.error === 'string'
     ? value.error
     : `Nodo request failed (${status}).`;
+}
+
+function readableError(error: unknown): string {
+  if (error instanceof Error && error.name === 'AbortError') return 'Timed out after five seconds.';
+  return error instanceof Error && error.message.trim() ? error.message.trim() : 'Network error.';
 }

@@ -63,38 +63,53 @@ describe('WebNodoGateway', () => {
   });
 
   it('runs one direct quick test and immediately persists its completed result', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+    const completed = {
+      batteryPercent: null,
+      charging: null,
+      completedAt: 1_800_000_001,
+      coordinatorLatencyMs: 18,
+      diskReadBps: 40_000_000,
+      diskWriteBps: 20_000_000,
+      memoryAvailableBytes: 2_000_000_000,
+      memoryTotalBytes: 6_000_000_000,
+      networkDownBps: 1_000_000_000,
+      networkMetered: null,
+      networkType: 'ethernet',
+      networkUpBps: 1_000_000_000,
+      storageAvailableBytes: 40_000_000_000,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/access')) return new Response(JSON.stringify({
         candidates: [{ address: '198.51.100.12', kind: 'public', port: 49_321 }],
         expiresAt: 1_800_000_300,
         node: null,
         ticket: 'B'.repeat(43),
-      }), { headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        completedAt: 1_800_000_001,
-        diskReadBps: 40_000_000,
-        diskWriteBps: 20_000_000,
-      }), { headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        completedAt: 1_800_000_001,
-        diskReadBps: 40_000_000,
-        diskWriteBps: 20_000_000,
-      }), { headers: { 'content-type': 'application/json' } }));
+      }), { headers: { 'content-type': 'application/json' } });
+      if (url === '/api/nodes/node-id/test') {
+        return new Response(String(init?.body), { headers: { 'content-type': 'application/json' } });
+      }
+      if (url.includes('/v1/status')) return new Response(JSON.stringify({ status: 'online' }));
+      const value = url.includes('/battery')
+        ? { batteryPercent: null, charging: null, completedAt: completed.completedAt }
+        : url.includes('/memory')
+          ? { completedAt: completed.completedAt, memoryAvailableBytes: completed.memoryAvailableBytes, memoryTotalBytes: completed.memoryTotalBytes, storageAvailableBytes: completed.storageAvailableBytes }
+          : url.includes('/network')
+            ? { completedAt: completed.completedAt, networkDownBps: completed.networkDownBps, networkMetered: null, networkType: 'ethernet', networkUpBps: completed.networkUpBps }
+            : url.includes('/latency')
+              ? { completedAt: completed.completedAt, coordinatorLatencyMs: completed.coordinatorLatencyMs }
+              : { completedAt: completed.completedAt, diskReadBps: completed.diskReadBps, diskWriteBps: completed.diskWriteBps };
+      return new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await new WebNodoGateway().requestQuickTest('node-id');
 
     expect(result.diskReadBps).toBe(40_000_000);
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/nodes/node-id/access');
-    expect(fetchMock.mock.calls[1]?.[0]).toBe(
-      'http://198.51.100.12:49321/v1/diagnostics/quick-test',
-    );
-    expect(fetchMock.mock.calls[2]?.[0]).toBe('/api/nodes/node-id/test');
-    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ method: 'PATCH' });
-    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
-      completedAt: 1_800_000_001,
-      diskReadBps: 40_000_000,
-      diskWriteBps: 20_000_000,
-    });
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/diagnostics/disk'))).toBe(true);
+    const persisted = fetchMock.mock.calls.find(([input]) => input === '/api/nodes/node-id/test');
+    expect(persisted?.[1]).toMatchObject({ method: 'PATCH' });
+    expect(JSON.parse(String(persisted?.[1]?.body))).toEqual(completed);
   });
 });

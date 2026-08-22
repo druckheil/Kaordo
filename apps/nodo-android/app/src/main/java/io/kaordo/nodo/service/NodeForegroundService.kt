@@ -132,9 +132,9 @@ class NodeForegroundService : Service() {
             val heartbeatSignal = Channel<Unit>(Channel.CONFLATED)
             val reconciliation = PublicReconciliationStore(configuration.storageRoot)
             val identity = NodeIdentity(this)
-            var coordinatorLatencyMs: Long? = null
+            val coordinatorLatencyMs = AtomicReference<Long?>(null)
             activePolicy.set(configuration.policy())
-            latestMetrics.set(diagnostics.snapshot(benchmark.get(), coordinatorLatencyMs))
+            latestMetrics.set(diagnostics.snapshot(benchmark.get(), coordinatorLatencyMs.get()))
             val httpServer = NodeHttpServer(
                 port = NodeHttpServer.DEFAULT_PORT,
                 spaces = spaces,
@@ -151,9 +151,19 @@ class NodeForegroundService : Service() {
                 quickTest = {
                     val result = synchronized(diagnostics) { diagnostics.quickDiskTest() }
                     benchmark.set(result)
-                    latestMetrics.set(diagnostics.snapshot(result, coordinatorLatencyMs))
+                    latestMetrics.set(diagnostics.snapshot(result, coordinatorLatencyMs.get()))
                     heartbeatSignal.trySend(Unit)
                     result
+                },
+                metricsSnapshot = {
+                    diagnostics.snapshot(benchmark.get(), coordinatorLatencyMs.get()).also(latestMetrics::set)
+                },
+                latencyTest = {
+                    NodeCoordinatorClient().measureLatency().also { latency ->
+                        coordinatorLatencyMs.set(latency)
+                        latestMetrics.set(diagnostics.snapshot(benchmark.get(), latency))
+                        heartbeatSignal.trySend(Unit)
+                    }
                 },
                 onPublicPostDeleted = { postId ->
                     reconciliation.recordPostDeletion(postId)
@@ -200,7 +210,7 @@ class NodeForegroundService : Service() {
                 var waitSeconds = 10L
                 while (isActive) {
                     val addresses = NetworkAddresses.localIpv4()
-                    val metrics = diagnostics.snapshot(benchmark.get(), coordinatorLatencyMs)
+                    val metrics = diagnostics.snapshot(benchmark.get(), coordinatorLatencyMs.get())
                     latestMetrics.set(metrics)
                     val startedAt = System.nanoTime()
                     val pendingReconciliation = reconciliation.pending()
@@ -224,7 +234,7 @@ class NodeForegroundService : Service() {
                         )
                     }.onSuccess {
                         reconciliation.acknowledge(pendingReconciliation)
-                        coordinatorLatencyMs = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0)
+                        coordinatorLatencyMs.set(((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0))
                         configuration.setNodeId(it.nodeId)
                         it.deviceName?.let(configuration::setNodeName)
                         configuration.setPolicy(it.policy)

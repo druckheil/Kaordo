@@ -753,6 +753,70 @@ export async function completeNodeQuickTest(
     const diskReadBps = input.diskReadBps as number;
     const diskWriteBps = input.diskWriteBps as number;
     const now = unixNow();
+    const telemetryKeys = [
+      'batteryPercent', 'charging', 'coordinatorLatencyMs', 'memoryAvailableBytes',
+      'memoryTotalBytes', 'networkMetered', 'networkDownBps', 'networkType',
+      'networkUpBps', 'storageAvailableBytes',
+    ] as const;
+    const isFreshTelemetry = telemetryKeys.every((key) => key in input);
+    if (isFreshTelemetry) {
+      const metrics = readMetrics(input);
+      if (metrics.coordinatorLatencyMs === null || metrics.memoryAvailableBytes === null ||
+          metrics.memoryTotalBytes === null || metrics.networkType === null ||
+          metrics.storageAvailableBytes === null) {
+        throw new NodeInputError('Nodo test result is incomplete.');
+      }
+      const result = await env.DB.prepare(
+        `UPDATE nodes
+            SET test_requested_at = ?1,
+                test_completed_at = ?1,
+                disk_read_bps = ?2,
+                disk_write_bps = ?3,
+                battery_percent = ?4,
+                charging = ?5,
+                coordinator_latency_ms = ?6,
+                memory_available_bytes = ?7,
+                memory_total_bytes = ?8,
+                network_metered = ?9,
+                network_down_bps = ?10,
+                network_type = ?11,
+                network_up_bps = ?12,
+                storage_available_bytes = ?13
+          WHERE id = ?14 AND user_id = ?15`,
+      ).bind(
+        now,
+        diskReadBps,
+        diskWriteBps,
+        metrics.batteryPercent,
+        booleanInteger(metrics.charging),
+        metrics.coordinatorLatencyMs,
+        metrics.memoryAvailableBytes,
+        metrics.memoryTotalBytes,
+        booleanInteger(metrics.networkMetered),
+        metrics.networkDownBps,
+        metrics.networkType,
+        metrics.networkUpBps,
+        metrics.storageAvailableBytes,
+        nodeId,
+        session.userId,
+      ).run();
+      if ((result.meta.changes ?? 0) === 0) return json({ error: 'Node not found.' }, 404);
+      return json({
+        completedAt: now,
+        batteryPercent: metrics.batteryPercent,
+        charging: metrics.charging,
+        coordinatorLatencyMs: metrics.coordinatorLatencyMs,
+        diskReadBps,
+        diskWriteBps,
+        memoryAvailableBytes: metrics.memoryAvailableBytes,
+        memoryTotalBytes: metrics.memoryTotalBytes,
+        networkMetered: metrics.networkMetered,
+        networkDownBps: metrics.networkDownBps,
+        networkType: metrics.networkType,
+        networkUpBps: metrics.networkUpBps,
+        storageAvailableBytes: metrics.storageAvailableBytes,
+      });
+    }
     const result = await env.DB.prepare(
       `UPDATE nodes
           SET test_requested_at = ?1,

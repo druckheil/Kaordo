@@ -8,6 +8,7 @@ import type {
   NodoStorageClearResult,
   NodoStorageItem,
   NodoStorageSpace,
+  NodoTelemetryProgress,
   PublicNodoReservation,
   PublicNodoStorage,
 } from '../domain/nodo';
@@ -38,7 +39,7 @@ export interface NodoGateway {
   commitPublicStorage(reservationId: string, postId: string): Promise<void>;
   cancelPublicStorage(reservationId: string): Promise<void>;
   releasePublicPost(nodeId: string, postId: string): Promise<void>;
-  requestQuickTest(nodeId: string): Promise<NodoQuickTest>;
+  requestQuickTest(nodeId: string, onUpdate?: NodoTelemetryProgress): Promise<NodoQuickTest>;
   updatePolicy(nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy>;
   updateSpaces(nodeId: string, spaces: { privateQuotaBytes: number; publicQuotaBytes: number }): Promise<NodoSpaces>;
 }

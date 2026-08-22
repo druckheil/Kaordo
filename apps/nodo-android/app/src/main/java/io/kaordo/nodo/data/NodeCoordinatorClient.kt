@@ -8,9 +8,27 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.system.measureNanoTime
 
 class NodeCoordinatorClient {
     private val http = NodeHttpClients.withReadTimeout(20)
+
+    fun measureLatency(): Long {
+        val request = Request.Builder()
+            .url("${BuildConfig.API_ORIGIN}/api/health?fresh=${System.currentTimeMillis()}")
+            .header("Cache-Control", "no-cache, no-store")
+            .get()
+            .build()
+        var status = 0
+        val nanos = measureNanoTime {
+            NodeHttpClients.withTimeout(3).newCall(request).execute().use { response ->
+                status = response.code
+                response.body.close()
+            }
+        }
+        if (status !in 200..299) throw IllegalStateException("Coordinator latency test failed.")
+        return (nanos / 1_000_000).coerceAtLeast(0)
+    }
 
     fun heartbeat(
         token: String,

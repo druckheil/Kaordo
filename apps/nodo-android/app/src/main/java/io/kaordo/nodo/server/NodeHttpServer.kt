@@ -7,6 +7,7 @@ import io.kaordo.nodo.storage.LigoEnvelopeStore
 import io.kaordo.nodo.data.NodeAccessClient.AccessGrant
 import io.kaordo.nodo.model.NodePolicy
 import io.kaordo.nodo.model.DiskBenchmark
+import io.kaordo.nodo.model.NodeMetrics
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -34,6 +35,8 @@ class NodeHttpServer(
     private val policy: () -> NodePolicy,
     private val available: () -> Boolean,
     private val quickTest: () -> DiskBenchmark,
+    private val metricsSnapshot: (() -> NodeMetrics)? = null,
+    private val latencyTest: (() -> Long)? = null,
     private val onPublicPostDeleted: (String) -> Unit = {},
     private val onPublicReservationReleased: (String) -> Unit = {},
     private val onPublicStorageChanged: () -> Unit = {},
@@ -127,6 +130,11 @@ class NodeHttpServer(
         if (request.method == "POST" && request.path == "/v1/diagnostics/quick-test") {
             if (!grant.isOwner) return writeForbidden(output)
             runQuickTest(output)
+            return
+        }
+        if (request.method == "POST" && request.path.startsWith("/v1/diagnostics/")) {
+            if (!grant.isOwner) return writeForbidden(output)
+            runFreshDiagnostic(request.path, output)
             return
         }
         if (request.method == "DELETE" && request.path == "/v1/storage") {
@@ -422,6 +430,60 @@ class NodeHttpServer(
                 .put("error", "The quick test could not be completed."))
         }
     }
+
+    private fun runFreshDiagnostic(path: String, output: BufferedOutputStream) {
+        val snapshot = metricsSnapshot
+        if (snapshot == null || latencyTest == null) {
+            writeFreshJson(output, 501, "Not Implemented", JSONObject()
+                .put("error", "Fresh telemetry requires the latest Nodo version."))
+            return
+        }
+        try {
+            val completedAt = System.currentTimeMillis() / 1_000
+            val value = JSONObject().put("completedAt", completedAt)
+            when (path) {
+                "/v1/diagnostics/battery" -> snapshot().also { metrics ->
+                    value.putNullable("batteryPercent", metrics.batteryPercent)
+                    value.putNullable("charging", metrics.charging)
+                }
+                "/v1/diagnostics/memory" -> snapshot().also { metrics ->
+                    value.put("memoryAvailableBytes", metrics.memoryAvailableBytes)
+                    value.put("memoryTotalBytes", metrics.memoryTotalBytes)
+                    value.put("storageAvailableBytes", metrics.storageAvailableBytes)
+                }
+                "/v1/diagnostics/network" -> snapshot().also { metrics ->
+                    value.put("networkType", metrics.networkType)
+                    value.put("networkMetered", metrics.networkMetered)
+                    value.putNullable("networkDownBps", metrics.networkDownBps)
+                    value.putNullable("networkUpBps", metrics.networkUpBps)
+                }
+                "/v1/diagnostics/latency" -> value.put("coordinatorLatencyMs", latencyTest.invoke())
+                "/v1/diagnostics/disk" -> quickTest().also { benchmark ->
+                    value.put("completedAt", benchmark.completedAt)
+                    value.put("diskReadBps", benchmark.readBps)
+                    value.put("diskWriteBps", benchmark.writeBps)
+                }
+                else -> {
+                    writeFreshJson(output, 404, "Not Found", JSONObject().put("error", "Diagnostic not found."))
+                    return
+                }
+            }
+            writeFreshJson(output, 200, "OK", value)
+        } catch (_: Exception) {
+            writeFreshJson(output, 500, "Internal Server Error", JSONObject()
+                .put("error", "This telemetry field could not be refreshed."))
+        }
+    }
+
+    private fun JSONObject.putNullable(name: String, value: Any?): JSONObject =
+        put(name, value ?: JSONObject.NULL)
+
+    private fun writeFreshJson(
+        output: BufferedOutputStream,
+        status: Int,
+        reason: String,
+        value: JSONObject,
+    ) = writeJson(output, status, reason, value, mapOf("Cache-Control" to "no-store"))
 
     private fun listFluoPosts(
         posts: FluoPostStore,

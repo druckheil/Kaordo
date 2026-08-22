@@ -9,6 +9,7 @@ import type {
   NodoStorageItem,
   NodoStorageItemKind,
   NodoStorageSpace,
+  NodoTelemetryProgress,
   PublicNodoReservation,
   PublicNodoStorage,
 } from '../domain/nodo';
@@ -128,8 +129,8 @@ export class WebNodoGateway implements NodoGateway {
     }, NODO_UNAVAILABLE)).deviceName;
   }
 
-  async requestQuickTest(nodeId: string): Promise<NodoQuickTest> {
-    const result = await runNodeQuickTest(await this.accessNode(nodeId));
+  async requestQuickTest(nodeId: string, onUpdate?: NodoTelemetryProgress): Promise<NodoQuickTest> {
+    const result = await runNodeQuickTest(await this.accessNode(nodeId), onUpdate);
     return requestJson<NodoQuickTest>(
       `/api/nodes/${encodeURIComponent(nodeId)}/test`,
       {

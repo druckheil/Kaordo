@@ -200,7 +200,7 @@ function memoryNodoGateway(): NodoGateway {
     releasePublicPost: () => Promise.resolve(),
     renewPublicStorage: () => Promise.resolve({ expiresAt: 1_900_000_000, reservationId: '123e4567-e89b-42d3-a456-426614174099' }),
     reservePublicStorage: () => Promise.resolve({ expiresAt: 1_900_000_000, reservationId: '123e4567-e89b-42d3-a456-426614174099' }),
-    requestQuickTest: () => Promise.resolve({ completedAt: 0, diskReadBps: 1, diskWriteBps: 1 }),
+    requestQuickTest: () => Promise.resolve({ batteryPercent: null, charging: null, completedAt: 0, coordinatorLatencyMs: 0, diskReadBps: 1, diskWriteBps: 1, memoryAvailableBytes: 0, memoryTotalBytes: 0, networkDownBps: null, networkMetered: null, networkType: 'offline' as const, networkUpBps: null, storageAvailableBytes: 0 }),
     refreshUsage: () => Promise.resolve({ spaces: fluoNode.spaces, usedBytes: fluoNode.usedBytes }),
     updatePolicy: (_nodeId, policy) => Promise.resolve({ ...policy, ownerOnly: true }),
     updateSpaces: () => Promise.resolve(fluoNode.spaces),
@@ -485,9 +485,19 @@ describe('workspace navigation and objects', () => {
     const clearPrivateStorage = vi.fn(async () => ({ deletedBytes: 1_073_741_824, deletedPosts: 1, deletedUploads: 1 }));
     const updatePolicy = vi.fn(async (_nodeId, policy) => ({ ...policy, ownerOnly: true as const }));
     const requestQuickTest = vi.fn(async () => ({
+      batteryPercent: 81,
+      charging: true,
       completedAt: 1_800_000_000,
+      coordinatorLatencyMs: 18,
       diskReadBps: 120_000_000,
       diskWriteBps: 80_000_000,
+      memoryAvailableBytes: 2_100_000_000,
+      memoryTotalBytes: 6_000_000_000,
+      networkDownBps: 100_000_000,
+      networkMetered: false,
+      networkType: 'wifi' as const,
+      networkUpBps: 50_000_000,
+      storageAvailableBytes: 39_000_000_000,
     }));
     const updateSpaces = vi.fn(async (_nodeId: string, spaces: { privateQuotaBytes: number; publicQuotaBytes: number }) => ({
       private: { quotaBytes: spaces.privateQuotaBytes, usedBytes: 1_073_741_824 },
@@ -597,7 +607,7 @@ describe('workspace navigation and objects', () => {
       wifiOnly: true,
     });
     await fireEvent.click(screen.getByRole('button', { name: 'Run test' }));
-    expect(requestQuickTest).toHaveBeenCalledWith(node.id);
+    expect(requestQuickTest).toHaveBeenCalledWith(node.id, expect.any(Function));
     expect(await screen.findByText('114 MB/s')).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Delete content…' }));

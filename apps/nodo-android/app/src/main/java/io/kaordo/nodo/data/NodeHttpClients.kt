@@ -13,4 +13,10 @@ internal object NodeHttpClients {
     fun withReadTimeout(seconds: Long): OkHttpClient = base.newBuilder()
         .readTimeout(seconds, TimeUnit.SECONDS)
         .build()
+
+    fun withTimeout(seconds: Long): OkHttpClient = base.newBuilder()
+        .connectTimeout(seconds, TimeUnit.SECONDS)
+        .readTimeout(seconds, TimeUnit.SECONDS)
+        .callTimeout(seconds, TimeUnit.SECONDS)
+        .build()
 }

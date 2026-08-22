@@ -23,7 +23,9 @@ const CHUNK_LENGTH_HEADERS: [&str; 2] = ["x-kaordo-chunk-length", "x-veridimensi
 
 #[derive(Debug, Clone)]
 pub struct NodeRuntime {
+    pub benchmark: Arc<RwLock<Option<DiskBenchmark>>>,
     pub config: Arc<RwLock<Config>>,
+    pub coordinator_latency_ms: Arc<RwLock<Option<u64>>>,
     pub storage: Arc<RwLock<NodeStorage>>,
     verifier: TicketVerifier,
     voice: Arc<Mutex<VoiceHub>>,
@@ -33,7 +35,9 @@ impl NodeRuntime {
     pub fn new(config: Config, storage: NodeStorage) -> Self {
         let api_origin = config.api_origin.clone();
         Self {
+            benchmark: Arc::new(RwLock::new(None)),
             config: Arc::new(RwLock::new(config)),
+            coordinator_latency_ms: Arc::new(RwLock::new(None)),
             storage: Arc::new(RwLock::new(storage)),
             verifier: TicketVerifier::new(api_origin),
             voice: Arc::new(Mutex::new(VoiceHub::default())),
@@ -303,10 +307,94 @@ fn handle_connection(stream: TcpStream, runtime: &Arc<NodeRuntime>) -> io::Resul
             return forbidden(&mut output);
         }
         let result = quick_disk_test(&policy.data_dir).map_err(internal_error)?;
+        *runtime.benchmark.write().map_err(lock_error)? = Some(result.clone());
         return response_json(
             &mut output,
             200,
             json!({ "completedAt": result.completed_at, "diskReadBps": result.read_bps, "diskWriteBps": result.write_bps }),
+        );
+    }
+    if request.method == "POST" && request.path.starts_with("/v1/diagnostics/") {
+        if !grant.is_owner {
+            return forbidden(&mut output);
+        }
+        let completed_at = unix_seconds();
+        return match request.path.as_str() {
+            "/v1/diagnostics/battery" => {
+                let (battery_percent, charging) = crate::heartbeat::battery_snapshot();
+                response_fresh_json(
+                    &mut output,
+                    200,
+                    json!({
+                        "completedAt": completed_at,
+                        "batteryPercent": battery_percent,
+                        "charging": charging,
+                    }),
+                )
+            }
+            "/v1/diagnostics/memory" => {
+                let (memory_total_bytes, memory_available_bytes) =
+                    crate::heartbeat::memory_snapshot();
+                response_fresh_json(
+                    &mut output,
+                    200,
+                    json!({
+                        "completedAt": completed_at,
+                        "memoryAvailableBytes": memory_available_bytes,
+                        "memoryTotalBytes": memory_total_bytes,
+                        "storageAvailableBytes": crate::config::available_bytes(&policy.data_dir),
+                    }),
+                )
+            }
+            "/v1/diagnostics/network" => {
+                let (network_type, network_down_bps, network_up_bps) =
+                    crate::heartbeat::network_snapshot();
+                response_fresh_json(
+                    &mut output,
+                    200,
+                    json!({
+                        "completedAt": completed_at,
+                        "networkDownBps": network_down_bps,
+                        "networkMetered": null,
+                        "networkType": network_type,
+                        "networkUpBps": network_up_bps,
+                    }),
+                )
+            }
+            "/v1/diagnostics/latency" => {
+                let latency = crate::heartbeat::measure_coordinator_latency(&policy.api_origin)
+                    .map_err(internal_error)?;
+                *runtime.coordinator_latency_ms.write().map_err(lock_error)? = Some(latency);
+                response_fresh_json(
+                    &mut output,
+                    200,
+                    json!({
+                        "completedAt": completed_at,
+                        "coordinatorLatencyMs": latency,
+                    }),
+                )
+            }
+            "/v1/diagnostics/disk" => {
+                let result = quick_disk_test(&policy.data_dir).map_err(internal_error)?;
+                *runtime.benchmark.write().map_err(lock_error)? = Some(result.clone());
+                response_fresh_json(
+                    &mut output,
+                    200,
+                    json!({
+                        "completedAt": result.completed_at,
+                        "diskReadBps": result.read_bps,
+                        "diskWriteBps": result.write_bps,
+                    }),
+                )
+            }
+            _ => not_found(&mut output, "Diagnostic not found."),
+        };
+    }
+    if !transfer_conditions_available(&policy) {
+        return response_json_with_status(
+            &mut output,
+            503,
+            json!({ "error": "Nodo policy has paused transfers." }),
         );
     }
     if request.method == "GET" && request.path == "/v1/fluo/state" {
@@ -1277,6 +1365,9 @@ fn parse_range(value: &str, length: u64) -> Option<(u64, u64)> {
 fn response_json(output: &mut TcpStream, status: u16, value: Value) -> io::Result<()> {
     response_json_with_status(output, status, value)
 }
+fn response_fresh_json(output: &mut TcpStream, status: u16, value: Value) -> io::Result<()> {
+    response_json_with_headers(output, status, value, [("Cache-Control", "no-store")])
+}
 fn response_json_with_status(output: &mut TcpStream, status: u16, value: Value) -> io::Result<()> {
     let body = serde_json::to_vec(&value)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -1567,6 +1658,12 @@ fn unix_seconds() -> i64 {
         .unwrap_or_default()
         .as_secs() as i64
 }
+
+fn transfer_conditions_available(policy: &Config) -> bool {
+    let (_, charging) = crate::heartbeat::battery_snapshot();
+    let (network, _, _) = crate::heartbeat::network_snapshot();
+    (!policy.wifi_only || network == "wifi") && (!policy.charging_only || charging.unwrap_or(true))
+}
 fn now_millis() -> i64 {
     unix_seconds() * 1_000
 }
@@ -1583,7 +1680,7 @@ pub fn quick_disk_test(root: &std::path::Path) -> io::Result<DiskBenchmark> {
     std::fs::create_dir_all(root)?;
     let path = root.join(".nodo-benchmark.tmp");
     let buffer = [0x5a_u8; 256 * 1024];
-    let bytes = 8 * 1024 * 1024_u64;
+    let bytes = 4 * 1024 * 1024_u64;
     let started = std::time::Instant::now();
     let mut file = std::fs::File::create(&path)?;
     let mut written = 0;

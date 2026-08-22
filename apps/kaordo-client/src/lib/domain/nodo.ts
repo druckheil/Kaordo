@@ -60,10 +60,44 @@ export type NodoAccess = {
   ticket: string;
 };
 
-export type NodoQuickTest = {
+export const NODO_TELEMETRY_FIELDS = [
+  'battery',
+  'memory',
+  'connection',
+  'latency',
+  'download',
+  'upload',
+  'read',
+  'write',
+] as const;
+
+export type NodoTelemetryField = typeof NODO_TELEMETRY_FIELDS[number];
+
+export type NodoTelemetryMetrics = Pick<NodoNode['metrics'],
+  | 'batteryPercent'
+  | 'charging'
+  | 'coordinatorLatencyMs'
+  | 'diskReadBps'
+  | 'diskWriteBps'
+  | 'memoryAvailableBytes'
+  | 'memoryTotalBytes'
+  | 'networkDownBps'
+  | 'networkMetered'
+  | 'networkType'
+  | 'networkUpBps'
+  | 'storageAvailableBytes'
+>;
+
+export type NodoTelemetryUpdate = {
+  error?: string;
+  fields: readonly NodoTelemetryField[];
+  metrics?: Partial<NodoTelemetryMetrics>;
+};
+
+export type NodoTelemetryProgress = (update: NodoTelemetryUpdate) => void;
+
+export type NodoQuickTest = NodoTelemetryMetrics & {
   completedAt: number;
-  diskReadBps: number;
-  diskWriteBps: number;
 };
 
 export type NodoStorageClearResult = {

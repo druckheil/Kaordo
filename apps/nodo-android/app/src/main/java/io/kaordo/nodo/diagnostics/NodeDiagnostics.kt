@@ -54,7 +54,9 @@ class NodeDiagnostics(private val context: Context, private val storageRoot: Fil
         storageRoot.mkdirs()
         val target = File(storageRoot, ".nodo-benchmark.tmp")
         val buffer = ByteArray(256 * 1_024) { index -> (index * 31).toByte() }
-        val totalBytes = 8L * 1_024 * 1_024
+        // Four MiB is large enough to avoid timer noise while keeping even
+        // slow flash storage comfortably inside the five-second UI deadline.
+        val totalBytes = 4L * 1_024 * 1_024
         val writeNanos = measureNanoTime {
             RandomAccessFile(target, "rw").use { file ->
                 file.setLength(0)

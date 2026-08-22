@@ -394,9 +394,19 @@ struct NodeTestResponse {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeQuickTest {
+    battery_percent: Option<u8>,
+    charging: Option<bool>,
     completed_at: i64,
+    coordinator_latency_ms: u64,
     disk_read_bps: u64,
     disk_write_bps: u64,
+    memory_available_bytes: u64,
+    memory_total_bytes: u64,
+    network_down_bps: Option<u64>,
+    network_metered: Option<bool>,
+    network_type: String,
+    network_up_bps: Option<u64>,
+    storage_available_bytes: u64,
 }
 
 impl AuthClient {

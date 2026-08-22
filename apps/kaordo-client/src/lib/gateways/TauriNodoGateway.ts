@@ -10,6 +10,7 @@ import type {
   NodoStorageItem,
   NodoStorageItemKind,
   NodoStorageSpace,
+  NodoTelemetryProgress,
   PublicNodoReservation,
   PublicNodoStorage,
 } from '../domain/nodo';
@@ -102,8 +103,8 @@ export class TauriNodoGateway implements NodoGateway {
     return this.invoke<string>('nodo_rename', { name, nodeId });
   }
 
-  async requestQuickTest(nodeId: string): Promise<NodoQuickTest> {
-    const result = await runNodeQuickTest(await this.accessNode(nodeId));
+  async requestQuickTest(nodeId: string, onUpdate?: NodoTelemetryProgress): Promise<NodoQuickTest> {
+    const result = await runNodeQuickTest(await this.accessNode(nodeId), onUpdate);
     return this.invoke<NodoQuickTest>('nodo_complete_quick_test', { nodeId, result });
   }
 

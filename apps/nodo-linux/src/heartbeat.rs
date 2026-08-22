@@ -10,7 +10,7 @@ use std::net::UdpSocket;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,9 +109,6 @@ pub fn spawn(
         .name("kaordo-nodo-heartbeat".to_owned())
         .spawn(move || {
             let mut wait_seconds = 10_u64;
-            let mut test_completed_at = None;
-            let mut benchmark = None;
-            let mut coordinator_latency_ms = None;
             let mut reconciliation = {
                 let config = config.read().ok().map(|value| value.data_dir.clone());
                 config
@@ -130,6 +127,16 @@ pub fn spawn(
                 let Some(storage) = storage else {
                     break;
                 };
+                let benchmark = runtime
+                    .benchmark
+                    .read()
+                    .ok()
+                    .and_then(|value| value.clone());
+                let coordinator_latency_ms = runtime
+                    .coordinator_latency_ms
+                    .read()
+                    .ok()
+                    .and_then(|value| *value);
                 let metrics = metrics(
                     &snapshot.data_dir,
                     benchmark.as_ref(),
@@ -141,15 +148,17 @@ pub fn spawn(
                     &token,
                     &storage,
                     &metrics,
-                    test_completed_at,
+                    benchmark.as_ref().map(|value| value.completed_at),
                     &reconciliation,
                 );
                 drop(storage);
                 match result {
                     Ok(response) => {
                         let had_latency = coordinator_latency_ms.is_some();
-                        coordinator_latency_ms =
-                            Some(started.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+                        if let Ok(mut latency) = runtime.coordinator_latency_ms.write() {
+                            *latency =
+                                Some(started.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+                        }
                         if let Ok(mut current) = config.write() {
                             current.node_id = Some(response.node_id.clone());
                             if let Some(name) = response.device_name.clone() {
@@ -184,8 +193,9 @@ pub fn spawn(
                             let completed = match crate::server::quick_disk_test(&snapshot.data_dir)
                             {
                                 Ok(result) => {
-                                    test_completed_at = Some(result.completed_at);
-                                    benchmark = Some(result);
+                                    if let Ok(mut benchmark) = runtime.benchmark.write() {
+                                        *benchmark = Some(result);
+                                    }
                                     true
                                 }
                                 Err(error) => {
@@ -357,9 +367,31 @@ fn metrics(
     benchmark: Option<&DiskBenchmark>,
     coordinator_latency_ms: Option<u64>,
 ) -> Metrics {
-    let memory = fs::read_to_string("/proc/meminfo").ok().map(|value| {
-        let mut total = 0;
-        let mut available = 0;
+    let (memory_total, memory_available) = memory_snapshot();
+    let network = network_info();
+    let battery = battery_info();
+    Metrics {
+        android_sdk: None,
+        app_version: crate::VERSION.to_owned(),
+        battery_percent: battery.percent,
+        charging: battery.charging,
+        coordinator_latency_ms,
+        disk_read_bps: benchmark.map(|value| value.read_bps),
+        disk_write_bps: benchmark.map(|value| value.write_bps),
+        memory_available_bytes: Some(memory_available),
+        memory_total_bytes: Some(memory_total),
+        network_metered: None,
+        network_down_bps: network.speed_bps,
+        network_type: network.kind,
+        network_up_bps: network.speed_bps,
+        storage_available_bytes: crate::config::available_bytes(data_dir),
+    }
+}
+
+pub(crate) fn memory_snapshot() -> (u64, u64) {
+    let mut total = 0;
+    let mut available = 0;
+    if let Ok(value) = fs::read_to_string("/proc/meminfo") {
         for line in value.lines() {
             let mut pieces = line.split_whitespace();
             match pieces.next() {
@@ -380,26 +412,39 @@ fn metrics(
                 _ => {}
             }
         }
-        (total, available)
-    });
-    let network = network_info();
-    let battery = battery_info();
-    Metrics {
-        android_sdk: None,
-        app_version: crate::VERSION.to_owned(),
-        battery_percent: battery.percent,
-        charging: battery.charging,
-        coordinator_latency_ms,
-        disk_read_bps: benchmark.map(|value| value.read_bps),
-        disk_write_bps: benchmark.map(|value| value.write_bps),
-        memory_available_bytes: memory.map(|(_, available)| available),
-        memory_total_bytes: memory.map(|(total, _)| total),
-        network_metered: None,
-        network_down_bps: network.speed_bps,
-        network_type: network.kind,
-        network_up_bps: network.speed_bps,
-        storage_available_bytes: crate::config::available_bytes(data_dir),
     }
+    (total, available)
+}
+
+pub(crate) fn battery_snapshot() -> (Option<u8>, Option<bool>) {
+    let battery = battery_info();
+    (battery.percent, battery.charging)
+}
+
+pub(crate) fn network_snapshot() -> (String, Option<u64>, Option<u64>) {
+    let network = network_info();
+    (network.kind, network.speed_bps, network.speed_bps)
+}
+
+pub(crate) fn measure_coordinator_latency(api_origin: &str) -> io::Result<u64> {
+    let fresh = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let started = Instant::now();
+    let response = auth::client(3)
+        .map_err(io::Error::other)?
+        .get(format!(
+            "{}/api/health?fresh={fresh}",
+            api_origin.trim_end_matches('/')
+        ))
+        .header("Cache-Control", "no-cache, no-store")
+        .send()
+        .map_err(io::Error::other)?;
+    if !response.status().is_success() {
+        return Err(io::Error::other("Coordinator latency test failed."));
+    }
+    Ok(started.elapsed().as_millis().try_into().unwrap_or(u64::MAX))
 }
 
 #[derive(Debug, Clone, Default)]
