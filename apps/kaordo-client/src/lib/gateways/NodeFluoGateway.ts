@@ -623,7 +623,7 @@ export class NodeConnection {
   private async refreshTicket(): Promise<void> {
     if (this.refreshPromise) return this.refreshPromise;
     this.refreshPromise = (async () => {
-      const access = await this.nodes.accessNode(this.nodeId);
+      const access = await this.nodes.accessNode(this.nodeId, { forceRefresh: true });
       const candidates = orderedNodoCandidates(access);
       const current = candidates.find((candidate) => nodoOrigin(candidate) === this.origin);
       const candidate = current ?? candidates[0];

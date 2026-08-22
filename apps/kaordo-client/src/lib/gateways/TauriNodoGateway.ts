@@ -25,14 +25,17 @@ import {
   readNodeUsage,
 } from './NodeStorageGateway';
 import { InFlightRequests } from './InFlightRequests';
+import { NodoAccessCache } from './NodoAccessCache';
 
 export class TauriNodoGateway implements NodoGateway {
   readonly #inFlight = new InFlightRequests();
+  readonly #access = new NodoAccessCache();
 
   constructor(private readonly invoke: TauriInvoke = tauriInvoke) {}
 
   resetSession(): void {
     this.#inFlight.clear();
+    this.#access.clear();
   }
 
   listNodes(): Promise<NodoNode[]> {
@@ -71,8 +74,12 @@ export class TauriNodoGateway implements NodoGateway {
     return this.invoke('fluo_public_release', { nodeId, postId });
   }
 
-  accessNode(nodeId: string): Promise<NodoAccess> {
-    return this.invoke<NodoAccess>('nodo_access', { nodeId });
+  accessNode(nodeId: string, options: { forceRefresh?: boolean } = {}): Promise<NodoAccess> {
+    return this.#access.get(
+      nodeId,
+      () => this.invoke<NodoAccess>('nodo_access', { nodeId }),
+      options.forceRefresh === true,
+    );
   }
 
   async clearStorage(nodeId: string): Promise<NodoStorageClearResult> {
@@ -96,11 +103,16 @@ export class TauriNodoGateway implements NodoGateway {
   }
 
   deleteNode(nodeId: string): Promise<void> {
-    return this.invoke('nodo_delete', { nodeId });
+    return this.invoke('nodo_delete', { nodeId }).then(() => {
+      this.#access.invalidate(nodeId);
+    });
   }
 
   renameNode(nodeId: string, name: string): Promise<string> {
-    return this.invoke<string>('nodo_rename', { name, nodeId });
+    return this.invoke<string>('nodo_rename', { name, nodeId }).then((result) => {
+      this.#access.invalidate(nodeId);
+      return result;
+    });
   }
 
   async requestQuickTest(nodeId: string, onUpdate?: NodoTelemetryProgress): Promise<NodoQuickTest> {
@@ -109,13 +121,19 @@ export class TauriNodoGateway implements NodoGateway {
   }
 
   updatePolicy(nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy> {
-    return this.invoke<NodoPolicy>('nodo_update_policy', { nodeId, policy });
+    return this.invoke<NodoPolicy>('nodo_update_policy', { nodeId, policy }).then((result) => {
+      this.#access.invalidate(nodeId);
+      return result;
+    });
   }
 
   updateSpaces(
     nodeId: string,
     spaces: { privateQuotaBytes: number; publicQuotaBytes: number },
   ): Promise<NodoSpaces> {
-    return this.invoke<NodoSpaces>('nodo_update_spaces', { nodeId, spaces });
+    return this.invoke<NodoSpaces>('nodo_update_spaces', { nodeId, spaces }).then((result) => {
+      this.#access.invalidate(nodeId);
+      return result;
+    });
   }
 }

@@ -24,17 +24,28 @@ import {
 } from './NodeStorageGateway';
 import { requestJson } from './WebApiClient';
 import { InFlightRequests } from './InFlightRequests';
+import { NodoAccessCache } from './NodoAccessCache';
 
 export class WebNodoGateway implements NodoGateway {
   /** Share concurrent reads without introducing stale time-based caching. */
   readonly #inFlight = new InFlightRequests();
+  readonly #access = new NodoAccessCache();
 
   resetSession(): void {
     this.#inFlight.clear();
+    this.#access.clear();
   }
 
-  accessNode(nodeId: string): Promise<NodoAccess> {
-    return requestJson<NodoAccess>(`/api/nodes/${encodeURIComponent(nodeId)}/access`, { method: 'POST' }, NODO_UNAVAILABLE);
+  accessNode(nodeId: string, options: { forceRefresh?: boolean } = {}): Promise<NodoAccess> {
+    return this.#access.get(
+      nodeId,
+      () => requestJson<NodoAccess>(
+        `/api/nodes/${encodeURIComponent(nodeId)}/access`,
+        { method: 'POST' },
+        NODO_UNAVAILABLE,
+      ),
+      options.forceRefresh === true,
+    );
   }
 
   async clearStorage(nodeId: string): Promise<NodoStorageClearResult> {
@@ -119,14 +130,17 @@ export class WebNodoGateway implements NodoGateway {
 
   async deleteNode(nodeId: string): Promise<void> {
     await requestJson<{ ok: boolean }>(`/api/nodes/${encodeURIComponent(nodeId)}`, { method: 'DELETE' }, NODO_UNAVAILABLE);
+    this.#access.invalidate(nodeId);
   }
 
   async renameNode(nodeId: string, name: string): Promise<string> {
-    return (await requestJson<{ deviceName: string }>(`/api/nodes/${encodeURIComponent(nodeId)}/name`, {
+    const result = await requestJson<{ deviceName: string }>(`/api/nodes/${encodeURIComponent(nodeId)}/name`, {
       body: JSON.stringify({ name }),
       headers: { 'content-type': 'application/json' },
       method: 'PATCH',
-    }, NODO_UNAVAILABLE)).deviceName;
+    }, NODO_UNAVAILABLE);
+    this.#access.invalidate(nodeId);
+    return result.deviceName;
   }
 
   async requestQuickTest(nodeId: string, onUpdate?: NodoTelemetryProgress): Promise<NodoQuickTest> {
@@ -146,22 +160,26 @@ export class WebNodoGateway implements NodoGateway {
     nodeId: string,
     policy: Omit<NodoPolicy, 'ownerOnly'>,
   ): Promise<NodoPolicy> {
-    return (await requestJson<{ policy: NodoPolicy }>(`/api/nodes/${encodeURIComponent(nodeId)}`, {
+    const result = await requestJson<{ policy: NodoPolicy }>(`/api/nodes/${encodeURIComponent(nodeId)}`, {
       body: JSON.stringify(policy),
       headers: { 'content-type': 'application/json' },
       method: 'PATCH',
-    }, NODO_UNAVAILABLE)).policy;
+    }, NODO_UNAVAILABLE);
+    this.#access.invalidate(nodeId);
+    return result.policy;
   }
 
   async updateSpaces(
     nodeId: string,
     spaces: { privateQuotaBytes: number; publicQuotaBytes: number },
   ): Promise<NodoSpaces> {
-    return (await requestJson<{ spaces: NodoSpaces }>(`/api/nodes/${encodeURIComponent(nodeId)}/spaces`, {
+    const result = await requestJson<{ spaces: NodoSpaces }>(`/api/nodes/${encodeURIComponent(nodeId)}/spaces`, {
       body: JSON.stringify(spaces),
       headers: { 'content-type': 'application/json' },
       method: 'PATCH',
-    }, NODO_UNAVAILABLE)).spaces;
+    }, NODO_UNAVAILABLE);
+    this.#access.invalidate(nodeId);
+    return result.spaces;
   }
 
   private shared<T>(key: string, request: () => Promise<T>): Promise<T> {

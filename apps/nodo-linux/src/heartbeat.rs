@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
 use std::io;
-use std::net::UdpSocket;
+use std::net::{IpAddr, UdpSocket};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -615,22 +615,28 @@ fn local_addresses() -> Vec<String> {
         .map(|output| {
             String::from_utf8_lossy(&output.stdout)
                 .split_whitespace()
-                .filter(|value| value.parse::<std::net::Ipv4Addr>().is_ok())
-                .map(str::to_owned)
+                .filter_map(|value| value.parse::<IpAddr>().ok())
+                .filter(|address| !address.is_loopback() && !address.is_unspecified())
+                .map(|address| address.to_string())
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
     if values.is_empty() {
-        if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
-            if socket.connect("8.8.8.8:80").is_ok() {
+        for (bind, target) in [("0.0.0.0:0", "8.8.8.8:80"), ("[::]:0", "[2001:4860:4860::8888]:80")] {
+            let Ok(socket) = UdpSocket::bind(bind) else { continue };
+            if socket.connect(target).is_ok() {
                 if let Ok(address) = socket.local_addr() {
-                    if let std::net::IpAddr::V4(address) = address.ip() {
-                        values.push(address.to_string());
+                    let ip = address.ip();
+                    if !ip.is_loopback() && !ip.is_unspecified() {
+                        values.push(ip.to_string());
                     }
                 }
             }
+            if !values.is_empty() { break; }
         }
     }
+    values.sort_unstable();
+    values.dedup();
     values.truncate(16);
     values
 }

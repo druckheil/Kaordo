@@ -24,7 +24,7 @@ export interface NodoGateway {
   resetSession?(): void;
   deleteNode(nodeId: string): Promise<void>;
   renameNode(nodeId: string, name: string): Promise<string>;
-  accessNode(nodeId: string): Promise<NodoAccess>;
+  accessNode(nodeId: string, options?: { forceRefresh?: boolean }): Promise<NodoAccess>;
   clearStorage(nodeId: string): Promise<NodoStorageClearResult>;
   clearPrivateStorage(nodeId: string): Promise<NodoStorageClearResult>;
   listStorageItems(nodeId: string, space: NodoStorageSpace): Promise<NodoStorageItem[]>;

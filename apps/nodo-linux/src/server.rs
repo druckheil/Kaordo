@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -19,6 +20,10 @@ const MAX_LIGO_REQUEST_BYTES: u64 = 80 * 1024;
 const MAX_RONDO_REQUEST_BYTES: u64 = 16 * 1024;
 const MAX_VOICE_REQUEST_BYTES: u64 = 40 * 1024;
 const ONLINE_TICKET_LENGTH: usize = 43;
+const MAX_NODE_CONNECTIONS: usize = 256;
+const MAX_TICKET_CACHE_ENTRIES: usize = 1_024;
+const MAX_VOICE_SIGNALS: usize = 512;
+const MAX_VOICE_ROOMS: usize = 256;
 const CHUNK_LENGTH_HEADERS: [&str; 2] = ["x-kaordo-chunk-length", "x-veridimensio-chunk-length"];
 
 #[derive(Debug, Clone)]
@@ -27,6 +32,7 @@ pub struct NodeRuntime {
     pub config: Arc<RwLock<Config>>,
     pub coordinator_latency_ms: Arc<RwLock<Option<u64>>>,
     pub storage: Arc<RwLock<NodeStorage>>,
+    connections: Arc<AtomicUsize>,
     verifier: TicketVerifier,
     voice: Arc<Mutex<VoiceHub>>,
 }
@@ -39,6 +45,7 @@ impl NodeRuntime {
             config: Arc::new(RwLock::new(config)),
             coordinator_latency_ms: Arc::new(RwLock::new(None)),
             storage: Arc::new(RwLock::new(storage)),
+            connections: Arc::new(AtomicUsize::new(0)),
             verifier: TicketVerifier::new(api_origin),
             voice: Arc::new(Mutex::new(VoiceHub::default())),
         }
@@ -77,10 +84,22 @@ fn accept_connections(listener: TcpListener, runtime: Arc<NodeRuntime>) -> io::R
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
+                if runtime.connections.fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                    (count < MAX_NODE_CONNECTIONS).then_some(count + 1)
+                }).is_err() {
+                    let mut stream = stream;
+                    let _ = response_json_with_status(
+                        &mut stream,
+                        503,
+                        json!({ "error": "Nodo is busy; retry shortly." }),
+                    );
+                    continue;
+                }
                 let runtime = Arc::clone(&runtime);
                 thread::Builder::new()
                     .name("kaordo-nodo-client".to_owned())
                     .spawn(move || {
+                        let _permit = ConnectionPermit(Arc::clone(&runtime.connections));
                         if let Err(error) = handle_connection(stream, &runtime) {
                             crate::ui::warning(&format!("request failed: {error}"));
                         }
@@ -91,6 +110,14 @@ fn accept_connections(listener: TcpListener, runtime: Arc<NodeRuntime>) -> io::R
         }
     }
     Ok(())
+}
+
+struct ConnectionPermit(Arc<AtomicUsize>);
+
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +187,9 @@ impl TicketVerifier {
         reservation: Option<&str>,
         rondo: Option<(&str, &str)>,
     ) -> Option<AccessGrant> {
-        if token.len() != ONLINE_TICKET_LENGTH || config.node_id.is_none() {
+        if token.len() != ONLINE_TICKET_LENGTH ||
+            !token.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-') ||
+            config.node_id.is_none() {
             return None;
         }
         let node_id = config.node_id.as_deref()?;
@@ -219,6 +248,12 @@ impl TicketVerifier {
         };
         if reservation.is_none() && rondo.is_none() {
             if let Ok(mut cache) = self.cache.lock() {
+                cache.retain(|_, cached| cached.expires_at > now);
+                if cache.len() >= MAX_TICKET_CACHE_ENTRIES {
+                    if let Some(key) = cache.keys().next().cloned() {
+                        cache.remove(&key);
+                    }
+                }
                 cache.insert(
                     cache_key,
                     CachedGrant {
@@ -1112,6 +1147,13 @@ struct VoiceSignal {
 
 impl VoiceHub {
     fn room(&mut self, space: &str, room: &str) -> &mut VoiceRoom {
+        if !self.rooms.contains_key(&(space.to_owned(), room.to_owned())) &&
+            self.rooms.len() >= MAX_VOICE_ROOMS {
+            if let Some(key) = self.rooms.iter()
+                .find_map(|(key, room)| room.participants.is_empty().then(|| key.clone())) {
+                self.rooms.remove(&key);
+            }
+        }
         self.rooms
             .entry((space.to_owned(), room.to_owned()))
             .or_default()
@@ -1159,12 +1201,24 @@ impl VoiceHub {
             to_peer_id: to.to_owned(),
             signal_type: signal_type.to_owned(),
         });
+        if room.signals.len() > MAX_VOICE_SIGNALS {
+            let excess = room.signals.len() - MAX_VOICE_SIGNALS;
+            room.signals.drain(..excess);
+        }
         sequence
     }
     fn leave(&mut self, space: &str, room: &str, peer: &str) {
-        let room = self.room(space, room);
-        room.participants.remove(peer);
-        room.cursor += 1;
+        let key = (space.to_owned(), room.to_owned());
+        let should_remove = if let Some(room) = self.rooms.get_mut(&key) {
+            room.participants.remove(peer);
+            room.cursor += 1;
+            room.participants.is_empty()
+        } else {
+            false
+        };
+        if should_remove {
+            self.rooms.remove(&key);
+        }
     }
 }
 

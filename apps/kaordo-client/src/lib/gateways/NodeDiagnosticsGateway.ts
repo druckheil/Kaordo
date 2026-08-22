@@ -8,7 +8,8 @@ import type {
 import { nodoOrigin, orderedNodoCandidates, type NodoRouteCandidate } from './NodoRoute';
 
 const TEST_DEADLINE_MS = 4_900;
-const ROUTE_PROBE_MS = 1_100;
+const ROUTE_PROBE_MS = 850;
+const FALLBACK_ROUTE_PROBE_MS = 650;
 
 type TestGroup = {
   fields: readonly NodoTelemetryField[];
@@ -117,12 +118,20 @@ async function selectResponsiveCandidate(
 ): Promise<NodoRouteCandidate> {
   const candidates = orderedNodoCandidates(access);
   if (!candidates.length) throw new Error('The Nodo has no reachable route.');
-  const probe = new AbortController();
-  const abortProbe = () => probe.abort();
-  deadline.addEventListener('abort', abortProbe, { once: true });
-  const timer = setTimeout(() => probe.abort(), ROUTE_PROBE_MS);
-  try {
-    return await Promise.any(candidates.map(async (candidate) => {
+  // Probe one route of each kind in priority order. Starting every LAN,
+  // public, and relay candidate in parallel used to create duplicate Worker
+  // requests for the same health check. One bounded attempt per route kind
+  // retains fallback reliability without multiplying free-tier traffic.
+  const probes = candidates.filter((candidate, index) =>
+    candidates.findIndex(({ kind }) => kind === candidate.kind) === index,
+  );
+  for (const [index, candidate] of probes.entries()) {
+    if (deadline.aborted) break;
+    const probe = new AbortController();
+    const abortProbe = () => probe.abort();
+    deadline.addEventListener('abort', abortProbe, { once: true });
+    const timer = setTimeout(() => probe.abort(), index === 0 ? ROUTE_PROBE_MS : FALLBACK_ROUTE_PROBE_MS);
+    try {
       const response = await fetch(`${nodoOrigin(candidate)}/v1/status?fresh=${encodeURIComponent(runId)}`, {
         cache: 'no-store',
         headers: {
@@ -134,14 +143,15 @@ async function selectResponsiveCandidate(
       if (!response.ok) throw new Error(`${candidate.kind} route returned ${response.status}.`);
       await response.body?.cancel().catch(() => undefined);
       return candidate;
-    }));
-  } catch {
-    throw new Error('The Nodo did not respond before the telemetry deadline.');
-  } finally {
-    clearTimeout(timer);
-    deadline.removeEventListener('abort', abortProbe);
-    probe.abort();
+    } catch {
+      // Try the next route kind while the shared five-second deadline allows.
+    } finally {
+      clearTimeout(timer);
+      deadline.removeEventListener('abort', abortProbe);
+      probe.abort();
+    }
   }
+  throw new Error('The Nodo did not respond before the telemetry deadline.');
 }
 
 function objectValue(value: unknown): Record<string, unknown> {

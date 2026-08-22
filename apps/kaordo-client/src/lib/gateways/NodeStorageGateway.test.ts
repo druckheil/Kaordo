@@ -71,4 +71,34 @@ describe('clearNodeStorage', () => {
     expect(result.usedBytes).toBe(17);
     expect(fetchMock.mock.calls[0]?.[0]).toBe('http://198.51.100.12:49321/v1/status');
   });
+
+  it('tries storage routes in order without duplicating the read on every route', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('192.168.1.44')) throw new Error('LAN route unavailable');
+      return new Response(JSON.stringify({
+        usedBytes: 17,
+        spaces: {
+          private: { quotaBytes: 100, usedBytes: 12 },
+          public: { quotaBytes: 100, usedBytes: 5 },
+        },
+      }), { headers: { 'content-type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await readNodeUsage({
+      candidates: [
+        { address: '192.168.1.44', kind: 'lan', port: 49_321 },
+        { address: '198.51.100.12', kind: 'public', port: 49_321 },
+      ],
+      expiresAt: Math.floor(Date.now() / 1_000) + 300,
+      node: null as never,
+      ticket: 'D'.repeat(43),
+    });
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      'http://192.168.1.44:49321/v1/status',
+      'http://198.51.100.12:49321/v1/status',
+    ]);
+  });
 });

@@ -9,7 +9,6 @@ import { acknowledgeCloudCleanup } from '../ligo/routes';
 
 const MAX_REQUEST_BYTES = 16_384;
 const NODE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-const IPV4 = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
 const ONLINE_SECONDS = 300;
 const ACCESS_TICKET_SECONDS = 2 * 60 * 60;
 const ACCESS_TICKET = /^[A-Za-z0-9_-]{43}$/u;
@@ -112,20 +111,24 @@ export async function nodeHeartbeat(request: Request, env: Env): Promise<Respons
          local_addresses = excluded.local_addresses,
          observed_address = COALESCE(excluded.observed_address, nodes.observed_address),
          last_seen_at = excluded.last_seen_at,
-         app_version = COALESCE(excluded.app_version, nodes.app_version),
-         android_sdk = COALESCE(excluded.android_sdk, nodes.android_sdk),
-         battery_percent = COALESCE(excluded.battery_percent, nodes.battery_percent),
-         charging = COALESCE(excluded.charging, nodes.charging),
-         memory_available_bytes = COALESCE(excluded.memory_available_bytes, nodes.memory_available_bytes),
-         memory_total_bytes = COALESCE(excluded.memory_total_bytes, nodes.memory_total_bytes),
-         storage_available_bytes = COALESCE(excluded.storage_available_bytes, nodes.storage_available_bytes),
-         disk_read_bps = COALESCE(excluded.disk_read_bps, nodes.disk_read_bps),
-         disk_write_bps = COALESCE(excluded.disk_write_bps, nodes.disk_write_bps),
-         coordinator_latency_ms = COALESCE(excluded.coordinator_latency_ms, nodes.coordinator_latency_ms),
-         network_type = COALESCE(excluded.network_type, nodes.network_type),
-         network_metered = COALESCE(excluded.network_metered, nodes.network_metered),
-         network_down_bps = COALESCE(excluded.network_down_bps, nodes.network_down_bps),
-         network_up_bps = COALESCE(excluded.network_up_bps, nodes.network_up_bps),
+         -- A metrics object is a complete snapshot. When it is present,
+         -- nullable values are allowed to clear a capability that no longer
+         -- exists (for example battery data on Linux). When it is omitted,
+         -- preserve the last known telemetry for lightweight heartbeats.
+         app_version = CASE WHEN ?30 = 1 THEN excluded.app_version ELSE nodes.app_version END,
+         android_sdk = CASE WHEN ?30 = 1 THEN excluded.android_sdk ELSE nodes.android_sdk END,
+         battery_percent = CASE WHEN ?30 = 1 THEN excluded.battery_percent ELSE nodes.battery_percent END,
+         charging = CASE WHEN ?30 = 1 THEN excluded.charging ELSE nodes.charging END,
+         memory_available_bytes = CASE WHEN ?30 = 1 THEN excluded.memory_available_bytes ELSE nodes.memory_available_bytes END,
+         memory_total_bytes = CASE WHEN ?30 = 1 THEN excluded.memory_total_bytes ELSE nodes.memory_total_bytes END,
+         storage_available_bytes = CASE WHEN ?30 = 1 THEN excluded.storage_available_bytes ELSE nodes.storage_available_bytes END,
+         disk_read_bps = CASE WHEN ?30 = 1 THEN excluded.disk_read_bps ELSE nodes.disk_read_bps END,
+         disk_write_bps = CASE WHEN ?30 = 1 THEN excluded.disk_write_bps ELSE nodes.disk_write_bps END,
+         coordinator_latency_ms = CASE WHEN ?30 = 1 THEN excluded.coordinator_latency_ms ELSE nodes.coordinator_latency_ms END,
+         network_type = CASE WHEN ?30 = 1 THEN excluded.network_type ELSE nodes.network_type END,
+         network_metered = CASE WHEN ?30 = 1 THEN excluded.network_metered ELSE nodes.network_metered END,
+         network_down_bps = CASE WHEN ?30 = 1 THEN excluded.network_down_bps ELSE nodes.network_down_bps END,
+         network_up_bps = CASE WHEN ?30 = 1 THEN excluded.network_up_bps ELSE nodes.network_up_bps END,
          test_completed_at = COALESCE(excluded.test_completed_at, nodes.test_completed_at),
          device_key = COALESCE(nodes.device_key, excluded.device_key),
          slot_key = CASE
@@ -163,6 +166,7 @@ export async function nodeHeartbeat(request: Request, env: Env): Promise<Respons
       input.slotKey,
       input.spaces.publicUsedBytes,
       input.spaces.privateUsedBytes,
+      Number(input.metrics !== null),
     ).run();
     if ((result.meta.changes ?? 0) === 0) return json({ error: 'Node not found.' }, 404);
     await applyPublicReconciliationAcks(
@@ -479,7 +483,9 @@ function relayHost(address: string): string {
 }
 
 function isRelayPath(path: string): boolean {
-  return path.startsWith('/v1/') || path === '/files' || path.startsWith('/files/');
+  return path.length <= 512 && !path.includes('..') && !/%(?:2e|2f|5c|00)/iu.test(path) &&
+    !/[\u0000-\u001f\u007f]/u.test(path) &&
+    (path.startsWith('/v1/') || path === '/files' || path.startsWith('/files/'));
 }
 
 function relayOptions(request: Request): Response {
@@ -936,7 +942,7 @@ async function readHeartbeat(request: Request) {
   const deletedLigoMessageIds = reconciliationIds(value.deletedLigoMessageIds);
   const releasedPublicReservationIds = reconciliationIds(value.releasedPublicReservationIds);
   if (!Array.isArray(value.localAddresses) || value.localAddresses.length > 16 ||
-      value.localAddresses.some((address) => typeof address !== 'string' || !validIpv4(address))) {
+      value.localAddresses.some((address) => typeof address !== 'string' || !validIpAddress(address))) {
     throw new NodeInputError('Node addresses are invalid.');
   }
   const metrics = value.metrics === undefined ? null : readMetrics(value.metrics);
@@ -1133,8 +1139,20 @@ function safeTimestamp(value: unknown): number {
 }
 
 function validIpv4(value: string): boolean {
-  if (!IPV4.test(value)) return false;
-  return value.split('.').every((part) => Number(part) <= 255);
+  const parts = value.split('.');
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/u.test(part) && Number(part) <= 255);
+}
+
+function validIpAddress(value: string): boolean {
+  if (validIpv4(value)) return true;
+  if (!value.includes(':') || value.length > 45) return false;
+  try {
+    // URL parsing is available in Workers and validates compressed IPv6,
+    // IPv4-mapped IPv6, and rejects zone identifiers/control characters.
+    return new URL(`http://[${value}]/`).hostname.length > 2;
+  } catch {
+    return false;
+  }
 }
 
 function parseAddresses(value: string): string[] {
@@ -1148,7 +1166,7 @@ function parseAddresses(value: string): string[] {
 
 function clientAddress(request: Request): string | null {
   const value = request.headers.get('cf-connecting-ip')?.trim();
-  return value && value.length <= 64 ? value : null;
+  return value && value.length <= 45 && validIpAddress(value) ? value : null;
 }
 
 function booleanInteger(value: boolean | null | undefined): number | null {

@@ -851,6 +851,60 @@ describe('authentication API', () => {
     expect(availableAfterReconciliation.status).toBe(200);
   });
 
+  it('accepts IPv6 local routes and clears nullable telemetry in a fresh snapshot', async () => {
+    const registered = await post('/api/auth/desktop/register', {
+      deviceName: 'Linux host',
+      password: PASSWORD,
+      username: 'ipv6_node_owner',
+    });
+    const sessionToken = (await registered.json<{ sessionToken: string }>()).sessionToken;
+    const headers = { authorization: `Bearer ${sessionToken}`, 'content-type': 'application/json' };
+    const first = await api('/api/nodes/heartbeat', {
+      body: JSON.stringify({
+        deviceKey: 'd'.repeat(64),
+        deviceName: 'Ubuntu VPS',
+        localAddresses: ['2001:db8::10'],
+        metrics: { appVersion: '0.1.4', batteryPercent: 88, charging: true, networkType: 'ethernet' },
+        nodeId: null,
+        port: 49_321,
+        protocol: 'tus/1.0.0',
+        quotaBytes: 1_073_741_824,
+        slotKey: 'primary',
+        usedBytes: 0,
+      }),
+      headers,
+      method: 'POST',
+    });
+    expect(first.status).toBe(200);
+    const nodeId = (await first.json<{ nodeId: string }>()).nodeId;
+
+    const second = await api('/api/nodes/heartbeat', {
+      body: JSON.stringify({
+        deviceKey: 'd'.repeat(64),
+        deviceName: 'Ubuntu VPS',
+        localAddresses: ['2001:db8::11'],
+        metrics: { appVersion: '0.1.4', batteryPercent: null, charging: null, networkType: 'ethernet' },
+        nodeId,
+        port: 49_321,
+        protocol: 'tus/1.0.0',
+        quotaBytes: 1_073_741_824,
+        slotKey: 'primary',
+        usedBytes: 0,
+      }),
+      headers,
+      method: 'POST',
+    });
+    expect(second.status).toBe(200);
+
+    const listed = await api('/api/nodes', { headers: { authorization: `Bearer ${sessionToken}` } });
+    await expect(listed.json()).resolves.toMatchObject({
+      nodes: [{
+        localAddresses: ['2001:db8::11'],
+        metrics: { appVersion: '0.1.4', batteryPercent: null, charging: null, networkType: 'ethernet' },
+      }],
+    });
+  });
+
   it('creates and joins a Rondo Space while allowing only one free Public Space per owner', async () => {
     const nodeOwner = await post('/api/auth/desktop/register', {
       password: PASSWORD,

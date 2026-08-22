@@ -9,6 +9,7 @@ import type {
 import { nodoOrigin, orderedNodoCandidates } from './NodoRoute';
 
 const REQUEST_TIMEOUT_MS = 6_000;
+const DIRECT_REQUEST_TIMEOUT_MS = 2_000;
 const CLEAR_REQUEST_TIMEOUT_MS = 30_000;
 
 export async function clearNodeStorage(access: NodoAccess): Promise<NodoStorageClearResult> {
@@ -85,33 +86,17 @@ async function clearStorageAt(access: NodoAccess, path: string): Promise<NodoSto
 async function requestAt(access: NodoAccess, path: string, init: RequestInit = {}): Promise<unknown> {
   const candidates = orderedNodoCandidates(access);
   const readOnly = !init.method || init.method === 'GET' || init.method === 'HEAD';
-  if (readOnly && candidates.length > 1) {
-    const controllers = candidates.map(() => new AbortController());
-    try {
-      // Reads are safe to race: an unreachable IPv6 public route must not
-      // block the HTTPS relay (or a LAN route) for the full timeout.
-      const result = await Promise.any(candidates.map((candidate, index) => requestCandidate(
-        access,
-        candidate,
-        path,
-        init,
-        controllers[index]!,
-      )));
-      return result;
-    } catch (error) {
-      const errors = error instanceof AggregateError ? error.errors : [];
-      const lastError = errors.at(-1);
-      throw lastError instanceof Error
-        ? new Error(`Nodo storage could not be reached. ${lastError.message}`)
-        : new Error('Nodo storage could not be reached. Keep the host online and use the same network.');
-    } finally {
-      controllers.forEach((controller) => controller.abort());
-    }
-  }
   let lastError: unknown = null;
   for (const candidate of candidates) {
     try {
-      return await requestCandidate(access, candidate, path, init);
+      // Keep a read ordered and cancellable instead of racing every route.
+      // The old Promise.any path sent the same request to LAN, public IPv6,
+      // and the Worker relay at once, multiplying traffic on the free tier.
+      // Direct routes get a short probe; the relay gets its normal budget.
+      const timeout = readOnly && candidate.kind !== 'relay'
+        ? DIRECT_REQUEST_TIMEOUT_MS
+        : REQUEST_TIMEOUT_MS;
+      return await requestCandidate(access, candidate, path, init, new AbortController(), timeout);
     } catch (error) {
       lastError = error;
     }
@@ -127,8 +112,9 @@ async function requestCandidate(
   path: string,
   init: RequestInit,
   controller = new AbortController(),
+  timeoutMilliseconds = REQUEST_TIMEOUT_MS,
 ): Promise<unknown> {
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMilliseconds);
   try {
     const response = await fetch(`${nodoOrigin(candidate)}${path}`, {
       ...init,
@@ -157,14 +143,19 @@ function isNodeUsage(value: unknown): value is NodoNodeUsage {
   if (!Number.isSafeInteger(record.usedBytes) || Number(record.usedBytes) < 0) return false;
   if (typeof record.spaces !== 'object' || record.spaces === null) return false;
   const spaces = record.spaces as Record<string, unknown>;
-  return isSpaceUsage(spaces.private) && isSpaceUsage(spaces.public);
+  if (!isSpaceUsage(spaces.private) || !isSpaceUsage(spaces.public)) return false;
+  const privateSpace = spaces.private as { quotaBytes: number; usedBytes: number };
+  const publicSpace = spaces.public as { quotaBytes: number; usedBytes: number };
+  return privateSpace.usedBytes + publicSpace.usedBytes === record.usedBytes &&
+    record.usedBytes <= privateSpace.quotaBytes + publicSpace.quotaBytes;
 }
 
 function isSpaceUsage(value: unknown): value is { quotaBytes: number; usedBytes: number } {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
   return Number.isSafeInteger(record.quotaBytes) && Number(record.quotaBytes) >= 0 &&
-    Number.isSafeInteger(record.usedBytes) && Number(record.usedBytes) >= 0;
+    Number.isSafeInteger(record.usedBytes) && Number(record.usedBytes) >= 0 &&
+    Number(record.usedBytes) <= Number(record.quotaBytes);
 }
 
 type StorageItemWire = {

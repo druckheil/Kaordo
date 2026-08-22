@@ -229,13 +229,13 @@ pub fn read_status(config: &Config) -> NodeStatus {
             )
         })
         .unwrap_or_default();
-    let online = TcpStream::connect_timeout(
-        &format!("127.0.0.1:{}", config.port)
-            .parse()
-            .unwrap_or_else(|_| "127.0.0.1:49321".parse().expect("valid fallback")),
-        Duration::from_millis(200),
-    )
-    .is_ok();
+    let online = [
+        format!("127.0.0.1:{}", config.port),
+        format!("[::1]:{}", config.port),
+    ]
+    .into_iter()
+    .filter_map(|address| address.parse().ok())
+    .any(|address| TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok());
     NodeStatus {
         online,
         used_bytes: used,
