@@ -15,7 +15,7 @@
   </svg>
 </span>
 <span class="canvas-card-copy">
-  <small>{object.type}</small>
+  <small>Panel</small>
   <strong>{object.title}</strong>
 </span>
 <span class="canvas-card-grip" aria-hidden="true">

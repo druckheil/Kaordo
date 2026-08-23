@@ -202,7 +202,7 @@
     }
 
     if (finished.kind === 'draw' && !isRectangleDrawValid(finished)) {
-      canvas.state.announce('Rectangle is too small and was not created.');
+      canvas.state.announce('Card is too small and was not created.');
       return;
     }
     canvas.state.setTool('select');
@@ -239,16 +239,16 @@
         version: 1,
       });
       const location = element.type === 'text' && element.parentElementId
-        ? 'attached to rectangle'
+        ? 'attached to card'
         : element.parentObjectId
-          ? `attached to ${trayTitle(element.parentObjectId)}`
-          : 'detached from object';
-      const name = element.type === 'text' ? 'Text' : 'Rectangle';
+          ? `attached to ${panelTitle(element.parentObjectId)}`
+          : 'detached from panel';
+      const name = element.type === 'text' ? 'Text' : 'Card';
       canvas.state.announce(
         exists ? `${name} ${location}.` : `${name} added and ${location}.`,
       );
     } catch {
-      canvas.state.announce('Rectangle could not be saved.');
+      canvas.state.announce('Card could not be saved.');
     } finally {
       optimisticElement = null;
     }
@@ -338,9 +338,9 @@
     ].join(';');
   }
 
-  function trayTitle(objectId: string): string {
+  function panelTitle(objectId: string): string {
     return snapshot.placements[workspaceId]
-      ?.find((candidate) => candidate.id === objectId)?.title ?? 'object';
+      ?.find((candidate) => candidate.id === objectId)?.title ?? 'panel';
   }
 
   function createElementId(): string {
@@ -365,7 +365,7 @@
   class:card-nested-canvas--moving={gesture?.kind === 'move'}
   bind:this={board}
   role="application"
-  aria-label={`${placement.title} tray`}
+  aria-label={`${placement.title} panel`}
   onpointerdown={startDraw}
   onpointermove={continueGesture}
   onpointerup={(event) => void finishGesture(event)}
@@ -379,16 +379,16 @@
         class:nested-rectangle--selected={snapshot.selectedGlobalElementId === element.id}
         data-canvas-element-id={element.id}
         type="button"
-        aria-label="Rectangle"
+        aria-label="Card"
         style={rectangleStyle(displayed)}
         onpointerdown={(event) => startMove(event, element)}
         ondblclick={(event) => beginRectangleEditing(event, displayed)}
-        oncontextmenu={(event) => openContextMenu(event, 'Rectangle', [
+        oncontextmenu={(event) => openContextMenu(event, 'Card', [
           {
             action: () => canvas.state.selectGlobalElement(element.id),
             icon: 'select',
-            id: 'select-rectangle',
-            label: 'Select Rectangle',
+            id: 'select-card',
+            label: 'Select Card',
           },
           {
             action: () => canvas.state.setTool('text'),
@@ -398,11 +398,11 @@
           },
           {
             action: () => canvas.deleteCanvasElement(workspaceId, element.id),
-            confirmation: 'Delete this rectangle?',
+            confirmation: 'Delete this card?',
             danger: true,
             icon: 'delete',
-            id: 'delete-rectangle',
-            label: 'Delete Rectangle',
+            id: 'delete-card',
+            label: 'Delete Card',
           },
         ])}
       ></button>
@@ -412,7 +412,6 @@
         editing={snapshot.editingTextId === element.id}
         element={displayed}
         maxWidth={Math.max(100, placement.width - displayed.x)}
-        moving={gesture?.kind === 'move' && gesture.element.id === element.id}
         onStartMove={startMove}
         selected={snapshot.selectedGlobalElementId === element.id}
         {workspaceId}
@@ -435,7 +434,7 @@
 
   {#if elements.length === 0 && !preview && !optimisticElement}
     <span class="nested-canvas-empty" aria-hidden="true">
-      {snapshot.activeTool === 'rectangle' ? 'Draw a shape on this tray' : 'Drop shapes here to attach them'}
+      {snapshot.activeTool === 'rectangle' ? 'Draw a card here' : 'Add cards here to attach them'}
     </span>
   {/if}
 </div>

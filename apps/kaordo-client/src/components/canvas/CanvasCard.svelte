@@ -28,7 +28,7 @@
     class:canvas-card--entering={entering}
     class:canvas-card--selected={snapshot.selectedCardId === placement.id}
     role="group"
-    aria-roledescription="canvas object"
+    aria-roledescription="canvas panel"
     data-canvas-object-id={placement.id}
     onanimationend={() => canvas.state.clearEntering(workspaceId, placement.id)}
     oncontextmenu={(event) => openContextMenu(event, placement.title, [
@@ -36,13 +36,13 @@
         action: () => canvas.handleObjectSourceClick(placement),
         icon: 'focus',
         id: 'focus-object',
-        label: 'Focus Object',
+        label: 'Focus Panel',
       },
       {
         action: () => canvas.state.setTool('rectangle'),
         icon: 'rectangle',
         id: 'rectangle-tool',
-        label: 'Rectangle Tool',
+        label: 'Card Tool',
       },
       {
         action: () => canvas.state.setTool('text'),
@@ -58,14 +58,14 @@
         danger: true,
         icon: 'delete',
         id: 'delete-object',
-        label: 'Delete Object',
+        label: 'Delete Panel',
       },
     ])}
   >
     <button
       class="canvas-card-drag-handle"
       type="button"
-      aria-label={`${placement.title}, ${placement.type}. Drag or use arrow keys to move.`}
+      aria-label={`${placement.title}, Panel. Drag or use arrow keys to move.`}
       title="Drag to move · Arrow keys to nudge"
       onpointerdown={(event) => {
         canvas.state.selectCard(placement.id);

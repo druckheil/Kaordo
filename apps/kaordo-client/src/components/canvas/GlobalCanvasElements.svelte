@@ -183,7 +183,7 @@
       layer.releasePointerCapture(event.pointerId);
     }
     if (finished.kind === 'draw' && !isRectangleDrawValid(finished)) {
-      canvas.state.announce('Rectangle is too small and was not created.');
+      canvas.state.announce('Card is too small and was not created.');
       return;
     }
     canvas.state.setTool('select');
@@ -219,16 +219,16 @@
         version: 1,
       });
       const location = element.type === 'text' && element.parentElementId
-        ? 'attached to rectangle'
+        ? 'attached to card'
         : element.parentObjectId
-          ? 'attached to object'
+          ? 'attached to panel'
           : 'on canvas';
-      const name = element.type === 'text' ? 'Text' : 'Rectangle';
+      const name = element.type === 'text' ? 'Text' : 'Card';
       canvas.state.announce(
         exists ? `${name} moved ${location}.` : `${name} added ${location}.`,
       );
     } catch {
-      canvas.state.announce('Rectangle could not be saved.');
+      canvas.state.announce('Card could not be saved.');
     } finally {
       optimisticElement = null;
     }
@@ -361,16 +361,16 @@
         class:global-rectangle--selected={snapshot.selectedGlobalElementId === element.id}
         data-canvas-element-id={element.id}
         type="button"
-        aria-label="Canvas rectangle"
+        aria-label="Canvas card"
         style={rectangleStyle(displayed)}
         onpointerdown={(event) => startMove(event, element)}
         ondblclick={(event) => beginRectangleEditing(event, displayed)}
-        oncontextmenu={(event) => openContextMenu(event, 'Rectangle', [
+        oncontextmenu={(event) => openContextMenu(event, 'Card', [
           {
             action: () => canvas.state.selectGlobalElement(element.id),
             icon: 'select',
-            id: 'select-rectangle',
-            label: 'Select Rectangle',
+            id: 'select-card',
+            label: 'Select Card',
           },
           {
             action: () => canvas.state.setTool('text'),
@@ -380,11 +380,11 @@
           },
           {
             action: () => canvas.deleteCanvasElement(workspaceId, element.id),
-            confirmation: 'Delete this rectangle?',
+            confirmation: 'Delete this card?',
             danger: true,
             icon: 'delete',
-            id: 'delete-rectangle',
-            label: 'Delete Rectangle',
+            id: 'delete-card',
+            label: 'Delete Card',
           },
         ])}
       ></button>

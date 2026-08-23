@@ -27,10 +27,10 @@
     return { destroy: () => canvas.attachViewport(null) };
   }
 
-  function skippedObjectMessage(count: number): string {
+  function skippedPanelMessage(count: number): string {
     return count === 1
-      ? '1 object could not be loaded.'
-      : `${count} objects could not be loaded.`;
+      ? '1 panel could not be loaded.'
+      : `${count} panels could not be loaded.`;
   }
 </script>
 
@@ -74,7 +74,7 @@
         action: () => canvas.state.setTool('rectangle'),
         icon: 'rectangle',
         id: 'rectangle-tool',
-        label: 'Rectangle Tool',
+        label: 'Card Tool',
       },
       {
         action: () => canvas.state.setTool('text'),
@@ -139,15 +139,15 @@
       role="status"
       title={workspace.warnings.join('\n')}
     >
-      {skippedObjectMessage(workspace.warnings.length)}
+      {skippedPanelMessage(workspace.warnings.length)}
     </p>
   {:else if workspace.warning}
     <p class="canvas-warning" role="status">{workspace.warning}</p>
   {/if}
 
   <p id="canvas-instructions" class="visually-hidden">
-    Drag an object from the Objects panel onto this scrollable canvas. Use an
-    object's Place button for keyboard access, then use arrow keys to move it.
+    Select a panel from Contents to place it on this scrollable canvas. Use an
+    panel's Place button for keyboard access, then use arrow keys to move it.
     Use the mouse wheel or pinch to zoom around the pointer position.
   </p>
   <p class="visually-hidden" role="status" aria-live="polite">

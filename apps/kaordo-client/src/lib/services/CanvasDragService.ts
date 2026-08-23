@@ -269,6 +269,27 @@ export class CanvasDragService {
     void this.#viewport.focusCard(workspace.id, object.id, 'center');
   }
 
+  /** Places a newly-created panel in the center of the currently visible canvas. */
+  placeObjectAtVisibleCenter(object: ObjectSummary): void {
+    const workspace = this.#getWorkspace();
+    if (!workspace) return;
+    const existing = this.#state
+      .placementsFor(workspace.id)
+      .find((placement) => placement.id === object.id);
+    if (existing) {
+      void this.#viewport.focusCard(workspace.id, object.id, 'center');
+      return;
+    }
+
+    const point = automaticPlacement(this.#viewport.metrics(), 0, {
+      height: object.document.frame?.height ?? CANVAS_CARD_HEIGHT,
+      width: object.document.frame?.width ?? CANVAS_CARD_WIDTH,
+    });
+    const placement = this.#state.place(workspace.id, object, point);
+    this.#commitPlacement(placement);
+    void this.#viewport.focusCard(workspace.id, object.id, 'center');
+  }
+
   handleCanvasCardKeydown(
     event: KeyboardEvent,
     placement: CanvasPlacement,

@@ -2,11 +2,11 @@
   import { flushSync, onDestroy, onMount, tick, untrack } from 'svelte';
   import AppHeader from './components/AppHeader.svelte';
   import AuthScreen from './components/auth/AuthScreen.svelte';
-  import CreateObjectDialog from './components/CreateObjectDialog.svelte';
+  import CreatePanelDialog from './components/CreatePanelDialog.svelte';
   import CreateWorkspaceDialog from './components/CreateWorkspaceDialog.svelte';
   import EditorPanel from './components/EditorPanel.svelte';
   import FilesPanel from './components/FilesPanel.svelte';
-  import ObjectsPanel from './components/ObjectsPanel.svelte';
+  import ContentsPanel from './components/ContentsPanel.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import FloatingDragCard from './components/canvas/FloatingDragCard.svelte';
   import FluoFeed from './components/fluo/FluoFeed.svelte';
@@ -151,7 +151,7 @@
   type FocusableHeader = { focusBack(): void };
   type FocusableFiles = { focusRetry(): void; focusTitle(): void };
   type FocusableEditor = { focusCreateWorkspace(): void; focusRetry(): void };
-  type FocusableObjects = { focusNewObject(): void };
+  type FocusableContents = { focusNewPanel(): void };
 
   let {
     autoloadWorkspaceLibrary = true,
@@ -234,14 +234,14 @@
   let storageItemsError = $state<string | null>(null);
   let storageItemsRequestId = 0;
   let isCreateWorkspaceOpen = $state(false);
-  let isCreateObjectOpen = $state(false);
+  let isCreatePanelOpen = $state(false);
   let isLoggingOut = $state(false);
   let accountAction = $state<'username' | 'password' | null>(null);
   let authenticatedUserId: string | null = null;
   let header = $state<FocusableHeader>();
   let filesPanel = $state<FocusableFiles>();
   let editorPanel = $state<FocusableEditor>();
-  let objectsPanel = $state<FocusableObjects>();
+  let contentsPanel = $state<FocusableContents>();
   let activeFile = $derived(
     workspaceSnapshot.active
       ? workspaceSummary(workspaceSnapshot.active)
@@ -393,7 +393,7 @@
     }
   }
 
-  let isModalOpen = $derived(showCreateWorkspace || isCreateObjectOpen);
+  let isModalOpen = $derived(showCreateWorkspace || isCreatePanelOpen);
 
   const unsubscribeAuth = auth.manager.subscribe((snapshot) => {
     if (!snapshot) return;
@@ -625,7 +625,7 @@
   async function retryOpenWorkspace() {
     const opened = await editor.retryOpenWorkspace();
     await tick();
-    if (opened) objectsPanel?.focusNewObject();
+    if (opened) contentsPanel?.focusNewPanel();
     else editorPanel?.focusRetry();
   }
 
@@ -640,7 +640,7 @@
     closeContextMenu();
     editor.canvas.clearInteractions();
     isCreateWorkspaceOpen = false;
-    isCreateObjectOpen = false;
+    isCreatePanelOpen = false;
     closeStorageBrowser();
     activeSection = section;
     if (section === 'regado') regado.start();
@@ -681,26 +681,27 @@
     appearance.state.setTextScale(textScale);
   }
 
-  function openCreateObjectDialog() {
+  function openCreatePanelDialog() {
     if (!workspaceSnapshot.active) return;
     editor.workspaceState.clearCreateObjectError();
-    isCreateObjectOpen = true;
+    isCreatePanelOpen = true;
   }
 
-  async function closeCreateObjectDialog() {
+  async function closeCreatePanelDialog() {
     if (workspaceSnapshot.isCreatingObject) return;
-    isCreateObjectOpen = false;
+    isCreatePanelOpen = false;
     editor.workspaceState.clearCreateObjectError();
     await tick();
-    objectsPanel?.focusNewObject();
+    contentsPanel?.focusNewPanel();
   }
 
-  async function createObject(title: string) {
+  async function createPanel(title: string) {
     const created = await editor.workspaceState.createObject(title);
     if (!created) return;
-    isCreateObjectOpen = false;
+    editor.canvas.placeObjectAtVisibleCenter(created);
+    isCreatePanelOpen = false;
     flushSync();
-    objectsPanel?.focusNewObject();
+    contentsPanel?.focusNewPanel();
   }
 </script>
 
@@ -766,12 +767,12 @@
       />
 
       {#if activeFile}
-        <ObjectsPanel
-          bind:this={objectsPanel}
+        <ContentsPanel
+          bind:this={contentsPanel}
           canvas={editor.canvas}
           {canvasSnapshot}
           isOpening={workspaceSnapshot.openPhase === 'opening'}
-          onNewObject={openCreateObjectDialog}
+          onNewPanel={openCreatePanelDialog}
           openError={workspaceSnapshot.openError}
           workspace={workspaceSnapshot.active}
         />
@@ -901,13 +902,13 @@
   />
 {/if}
 
-{#if isCreateObjectOpen && workspaceSnapshot.active}
-  <CreateObjectDialog
+{#if isCreatePanelOpen && workspaceSnapshot.active}
+  <CreatePanelDialog
     workspaceName={workspaceSnapshot.active.name}
     busy={workspaceSnapshot.isCreatingObject}
     error={workspaceSnapshot.createObjectError}
-    onCreate={createObject}
-    onCancel={closeCreateObjectDialog}
+    onCreate={createPanel}
+    onCancel={closeCreatePanelDialog}
   />
 {/if}
 {:else}

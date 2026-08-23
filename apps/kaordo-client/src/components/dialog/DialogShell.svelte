@@ -13,7 +13,7 @@
     submittingLabel: string;
     title: string;
     titleId: string;
-    variant?: 'workspace' | 'object';
+    variant?: 'workspace' | 'panel';
   };
 
   let {
@@ -74,7 +74,7 @@
   <div class="modal-backdrop" aria-hidden="true"></div>
   <div
     class="create-workspace-dialog"
-    class:create-object-dialog={variant === 'object'}
+    class:create-panel-dialog={variant === 'panel'}
     bind:this={dialogElement}
     role="dialog"
     aria-modal="true"
@@ -87,7 +87,7 @@
       <div class="dialog-title-group">
         <span
           class="dialog-mark"
-          class:dialog-mark--object={variant === 'object'}
+          class:dialog-mark--panel={variant === 'panel'}
           aria-hidden="true"
         >
           {@render icon()}

@@ -255,7 +255,7 @@ class MemoryFluoGateway implements FluoGateway {
 
 async function openResearchFile() {
   await fireEvent.click(screen.getByRole('button', { name: /Research\.vdw/ }));
-  const createObjectButton = await screen.findByRole('button', { name: 'New Object' });
+  const createObjectButton = await screen.findByRole('button', { name: 'New Panel' });
   const canvas = screen.getByRole('region', { name: 'Knowledge canvas' });
   await waitFor(() => {
     expect(canvas).not.toHaveClass('canvas-viewport--camera-pending');
@@ -328,7 +328,7 @@ describe('workspace navigation and objects', () => {
     renderApp({ autoloadWorkspaceLibrary: false });
 
     expect(screen.getByRole('heading', { name: 'Files' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Objects' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Contents' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Inspector' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Workspace' })).toBeInTheDocument();
   });
@@ -813,7 +813,7 @@ describe('workspace navigation and objects', () => {
     expect(await screen.findByRole('button', { name: /Research\.vdw/ })).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledWith('list_workspaces');
     expect(invoke).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('heading', { name: 'Objects' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Contents' })).not.toBeInTheDocument();
   });
 
   it('keeps valid files visible when another workspace cannot be listed', async () => {
@@ -907,9 +907,9 @@ describe('workspace navigation and objects', () => {
       'aria-current',
       'page',
     );
-    expect(screen.getByRole('heading', { name: 'Objects' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'New Object' })).toBeInTheDocument();
-    expect(screen.getByText('No objects yet.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Contents' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New Panel' })).toBeInTheDocument();
+    expect(screen.getByText('No content yet.')).toBeInTheDocument();
   });
 
   it('opens a file through open_workspace and renders draggable objects with a canvas', async () => {
@@ -925,14 +925,14 @@ describe('workspace navigation and objects', () => {
     await fireEvent.click(screen.getByRole('button', { name: /Research\.vdw/ }));
 
     expect(screen.getByRole('heading', { name: 'Opening workspace' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Objects' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Contents' })).toBeInTheDocument();
     expect(screen.queryByText('Project brief')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'New Object' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New Panel' })).not.toBeInTheDocument();
 
     opening.resolve(openedResearch);
 
     expect(await screen.findByText('Project brief')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'New Object' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New Panel' })).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledWith('open_workspace', {
       workspaceId: researchFile.id,
     });
@@ -942,7 +942,7 @@ describe('workspace navigation and objects', () => {
       within(objectRow as HTMLLIElement).getByRole('button', {
         name: 'Place Project brief on canvas',
       }),
-    ).toHaveAttribute('title', 'Drag to canvas · Press Enter to place');
+    ).toHaveAttribute('title', 'Place panel on canvas');
     expect(
       screen.getByRole('region', { name: 'Knowledge canvas' }),
     ).toBeInTheDocument();
@@ -970,7 +970,7 @@ describe('workspace navigation and objects', () => {
     await fireEvent.click(
       within(fileMenu).getByRole('menuitem', { name: /Open Workspace/ }),
     );
-    await screen.findByRole('button', { name: 'New Object' });
+    await screen.findByRole('button', { name: 'New Panel' });
 
     const objectButton = screen.getByRole('button', {
       name: 'Place Project brief on canvas',
@@ -985,9 +985,9 @@ describe('workspace navigation and objects', () => {
     await fireEvent.contextMenu(canvas, { clientX: 500, clientY: 400 });
     const canvasMenu = screen.getByRole('menu', { name: 'Canvas actions' });
     await fireEvent.click(
-      within(canvasMenu).getByRole('menuitem', { name: 'Rectangle Tool' }),
+      within(canvasMenu).getByRole('menuitem', { name: 'Card Tool' }),
     );
-    expect(screen.getByRole('button', { name: 'Rectangle tool' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Card tool' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
@@ -1025,7 +1025,7 @@ describe('workspace navigation and objects', () => {
     });
 
     await fireEvent.contextMenu(objectButton);
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Object' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Panel' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(objectButton).not.toBeInTheDocument());
@@ -1132,7 +1132,7 @@ describe('workspace navigation and objects', () => {
       return element as HTMLElement;
     });
     const dragHandle = within(card).getByRole('button', {
-      name: /Project brief, Knowledge object/,
+      name: /Project brief, Panel/,
     });
     await waitFor(() => expect(dragHandle).toHaveFocus());
     expect(card.parentElement).toHaveStyle({
@@ -1200,7 +1200,7 @@ describe('workspace navigation and objects', () => {
     expect(new Set(positions).size).toBe(7);
   });
 
-  it('drops at scrolled canvas coordinates and redropping repositions one card', async () => {
+  it('places a panel from Contents and repositions it on the canvas', async () => {
     mockCommands({ open_workspace: () => openedResearch });
     renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
     await openResearchFile();
@@ -1209,42 +1209,24 @@ describe('workspace navigation and objects', () => {
       name: 'Place Project brief on canvas',
     });
     const canvas = screen.getByRole('region', { name: 'Knowledge canvas' });
-    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
-      bottom: 650,
+    Object.defineProperties(canvas, {
+      clientHeight: { configurable: true, value: 600 },
+      clientWidth: { configurable: true, value: 900 },
+    });
+    canvas.getBoundingClientRect = () => ({
+      bottom: 600,
       height: 600,
-      left: 100,
+      left: 0,
       right: 900,
-      top: 50,
-      width: 800,
-      x: 100,
-      y: 50,
+      top: 0,
+      width: 900,
+      x: 0,
+      y: 0,
       toJSON: () => ({}),
     });
-    canvas.scrollLeft = 120;
-    canvas.scrollTop = 90;
-    await fireEvent.pointerDown(source, {
-      button: 0,
-      clientX: 1050,
-      clientY: 150,
-      pointerId: 8,
-    });
-    await fireEvent.pointerMove(source, {
-      clientX: 500,
-      clientY: 330,
-      pointerId: 8,
-    });
-    expect(canvas).toHaveClass('canvas-viewport--drop-target');
-    const floatingCard = document.querySelector<HTMLElement>('.object-drag-card');
-    expect(floatingCard).not.toBeNull();
-    expect(floatingCard).toHaveClass('canvas-card');
-    expect(floatingCard).toHaveStyle({ height: '286px', width: '360px' });
-    expect(floatingCard?.querySelector('.canvas-card-icon')).not.toBeNull();
-    expect(floatingCard?.querySelector('.canvas-card-copy')).not.toBeNull();
-    await fireEvent.pointerUp(source, {
-      clientX: 500,
-      clientY: 330,
-      pointerId: 8,
-    });
+    canvas.scrollLeft = 0;
+    canvas.scrollTop = 0;
+    await fireEvent.click(source);
 
     const card = document.querySelector<HTMLElement>(
       '[data-canvas-object-id="object-1"]',
@@ -1252,11 +1234,9 @@ describe('workspace navigation and objects', () => {
     expect(card).not.toBeNull();
     const positioner = card!.parentElement as HTMLElement;
     expect(positioner).toHaveStyle({
-      transform: 'translate3d(340px, 227px, 0)',
+      transform: 'translate3d(270px, 157px, 0)',
     });
     expect(card).toHaveClass('canvas-card--entering');
-    expect(document.querySelector('.object-drag-card')).toBeNull();
-    expect(canvas).not.toHaveClass('canvas-viewport--drop-target');
     await fireEvent.animationEnd(card as HTMLElement, {
       animationName: 'canvas-card-enter',
     });
@@ -1286,10 +1266,9 @@ describe('workspace navigation and objects', () => {
       pointerId: 9,
     });
     expect(positioner).toHaveStyle({
-      transform: 'translate3d(700px, 512px, 0)',
+      transform: 'translate3d(680px, 472px, 0)',
     });
     expect(card).toHaveClass('canvas-card--dragging');
-    expect(document.querySelector('.object-drag-card')).toBeNull();
     expect(screen.queryByText(/Project brief moved to/)).not.toBeInTheDocument();
     await fireEvent.pointerUp(dragHandle, {
       clientX: 700,
@@ -1298,13 +1277,13 @@ describe('workspace navigation and objects', () => {
     });
 
     expect(positioner).toHaveStyle({
-      transform: 'translate3d(700px, 512px, 0)',
+      transform: 'translate3d(680px, 472px, 0)',
     });
     expect(card).not.toHaveClass('canvas-card--dragging');
     expect(card).not.toHaveClass('canvas-card--entering');
     expect(document.querySelectorAll('[data-canvas-object-id="object-1"]')).toHaveLength(1);
     expect(
-      screen.getByText('Project brief moved to 700, 512 on the canvas.'),
+      screen.getByText('Project brief moved to 680, 472 on the canvas.'),
     ).toBeInTheDocument();
   });
 
@@ -1323,9 +1302,9 @@ describe('workspace navigation and objects', () => {
       { key: 'Enter' },
     );
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Rectangle tool' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Card tool' }));
     const nestedCanvas = screen.getByRole('application', {
-      name: 'Project brief tray',
+      name: 'Project brief panel',
     });
     vi.spyOn(nestedCanvas, 'getBoundingClientRect').mockReturnValue({
       bottom: 318,
@@ -1355,7 +1334,7 @@ describe('workspace navigation and objects', () => {
       pointerId: 14,
     });
 
-    expect(await screen.findByRole('button', { name: 'Rectangle' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Card' })).toBeInTheDocument();
     await waitFor(() => {
       expect(savedDocuments.some((document) =>
         Array.isArray(document.elements) && document.elements.length > 0,
@@ -1387,7 +1366,7 @@ describe('workspace navigation and objects', () => {
     renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
     await openResearchFile();
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Rectangle tool' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Card tool' }));
     const drawingSurface = screen.getByRole('application', {
       name: 'Workspace canvas drawing surface',
     });
@@ -1424,7 +1403,7 @@ describe('workspace navigation and objects', () => {
       'aria-pressed',
       'true',
     );
-    expect(await screen.findByRole('button', { name: 'Canvas rectangle' }))
+    expect(await screen.findByRole('button', { name: 'Canvas card' }))
       .toBeInTheDocument();
     await waitFor(() => expect(savedDocument).not.toBeNull());
     expect(savedDocument).toMatchObject({
@@ -1488,7 +1467,7 @@ describe('workspace navigation and objects', () => {
       y: 0,
       toJSON: () => ({}),
     });
-    const rectangle = await screen.findByRole('button', { name: 'Canvas rectangle' });
+    const rectangle = await screen.findByRole('button', { name: 'Canvas card' });
     await fireEvent.pointerDown(rectangle, {
       button: 0,
       clientX: 110,
@@ -1660,7 +1639,7 @@ describe('workspace navigation and objects', () => {
     });
     await fireEvent.click(screen.getByRole('button', { name: 'Text tool' }));
     await fireEvent.pointerDown(
-      await screen.findByRole('button', { name: 'Canvas rectangle' }),
+      await screen.findByRole('button', { name: 'Canvas card' }),
       { button: 0, clientX: 140, clientY: 140, pointerId: 29 },
     );
 
@@ -1676,7 +1655,7 @@ describe('workspace navigation and objects', () => {
         y: 122,
       });
     });
-    expect(screen.getByText('Text · Rectangle')).toBeInTheDocument();
+    expect(screen.getByText('Text · Card')).toBeInTheDocument();
     await fireEvent.blur(editor);
     Object.defineProperty(document, 'execCommand', {
       configurable: true,
@@ -1738,7 +1717,7 @@ describe('workspace navigation and objects', () => {
       toJSON: () => ({}),
     });
     const globalRectangle = await screen.findByRole('button', {
-      name: 'Canvas rectangle',
+      name: 'Canvas card',
     });
     await fireEvent.pointerDown(globalRectangle, {
       button: 0,
@@ -1761,14 +1740,14 @@ describe('workspace navigation and objects', () => {
     });
 
     const attachedRectangle = await screen.findByRole('button', {
-      name: 'Rectangle',
+      name: 'Card',
     });
     expect(document.querySelector('.global-element-drag-layer'))
       .not.toBeInTheDocument();
     expect(
       attachedRectangle.closest('[data-canvas-positioner-id="object-1"]'),
     ).not.toBeNull();
-    expect(screen.queryByRole('button', { name: 'Canvas rectangle' }))
+    expect(screen.queryByRole('button', { name: 'Canvas card' }))
       .not.toBeInTheDocument();
     expect(savedDocuments.at(-1)?.elements[0]).toMatchObject({
       parentObjectId: 'object-1',
@@ -1776,7 +1755,7 @@ describe('workspace navigation and objects', () => {
       y: 27,
     });
 
-    const tray = screen.getByRole('application', { name: 'Project brief tray' });
+    const tray = screen.getByRole('application', { name: 'Project brief panel' });
     vi.spyOn(tray, 'getBoundingClientRect').mockReturnValue({
       bottom: 586,
       height: 218,
@@ -1805,7 +1784,7 @@ describe('workspace navigation and objects', () => {
       pointerId: 22,
     });
 
-    expect(await screen.findByRole('button', { name: 'Canvas rectangle' }))
+    expect(await screen.findByRole('button', { name: 'Canvas card' }))
       .toBeInTheDocument();
     expect(savedDocuments.at(-1)?.elements[0]).toMatchObject({ x: 25, y: 75 });
     expect(savedDocuments.at(-1)?.elements[0]).not.toHaveProperty('parentObjectId');
@@ -1831,7 +1810,7 @@ describe('workspace navigation and objects', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     await fireEvent.click(screen.getByRole('button', { name: /Research\.vdw/ }));
 
-    await screen.findByText('No objects yet.');
+    await screen.findByText('No content yet.');
     expect(document.querySelector('[data-canvas-object-id="object-1"]')).toBeNull();
     expect(screen.getByText('0 placed')).toBeInTheDocument();
   });
@@ -1883,7 +1862,7 @@ describe('workspace navigation and objects', () => {
 
     expect(await screen.findByText('Project brief')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'New Object' })).toHaveFocus();
+      expect(screen.getByRole('button', { name: 'New Panel' })).toHaveFocus();
     });
     expect(invoke).toHaveBeenNthCalledWith(1, 'open_workspace', {
       workspaceId: researchFile.id,
@@ -1920,7 +1899,7 @@ describe('workspace navigation and objects', () => {
     expect(await screen.findByText('Project brief')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
 
-    expect(screen.queryByRole('heading', { name: 'Objects' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Contents' })).not.toBeInTheDocument();
     expect(fileButton).not.toHaveAttribute('aria-current');
     expect(screen.getByRole('heading', { name: 'Files' })).toHaveFocus();
 
@@ -1937,10 +1916,10 @@ describe('workspace navigation and objects', () => {
     const trigger = await openResearchFile();
 
     await fireEvent.click(trigger);
-    let dialog = screen.getByRole('dialog', { name: 'Create object' });
-    const input = within(dialog).getByRole('textbox', { name: 'Object title' });
+    let dialog = screen.getByRole('dialog', { name: 'Create panel' });
+    const input = within(dialog).getByRole('textbox', { name: 'Panel title' });
     const close = within(dialog).getByRole('button', { name: 'Close' });
-    const submit = within(dialog).getByRole('button', { name: 'Create object' });
+    const submit = within(dialog).getByRole('button', { name: 'Create panel' });
     expect(input).toHaveFocus();
 
     submit.focus();
@@ -1950,14 +1929,14 @@ describe('workspace navigation and objects', () => {
     expect(submit).toHaveFocus();
 
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('dialog', { name: 'Create object' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Create panel' })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
 
     await fireEvent.click(trigger);
-    dialog = screen.getByRole('dialog', { name: 'Create object' });
+    dialog = screen.getByRole('dialog', { name: 'Create panel' });
     await fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: 'Create object' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog', { name: 'Create panel' })).not.toBeInTheDocument();
     });
     expect(trigger).toHaveFocus();
     expect(
@@ -1975,12 +1954,12 @@ describe('workspace navigation and objects', () => {
     });
     renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
     await fireEvent.click(await openResearchFile());
-    const dialog = screen.getByRole('dialog', { name: 'Create object' });
-    const input = within(dialog).getByRole('textbox', { name: 'Object title' });
-    const submit = within(dialog).getByRole('button', { name: 'Create object' });
+    const dialog = screen.getByRole('dialog', { name: 'Create panel' });
+    const input = within(dialog).getByRole('textbox', { name: 'Panel title' });
+    const submit = within(dialog).getByRole('button', { name: 'Create panel' });
 
     await fireEvent.click(submit);
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('Enter an object title.');
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Enter a panel title.');
     expect(input).toHaveFocus();
     expect(input).toHaveAttribute('aria-invalid', 'true');
     expect(
@@ -1990,7 +1969,7 @@ describe('workspace navigation and objects', () => {
     await fireEvent.input(input, { target: { value: 'é'.repeat(101) } });
     await fireEvent.click(submit);
     expect(within(dialog).getByRole('alert')).toHaveTextContent(
-      'Object titles must be 200 bytes or fewer.',
+      'Panel titles must be 200 bytes or fewer.',
     );
     expect(input).toHaveFocus();
     expect(
@@ -2004,14 +1983,14 @@ describe('workspace navigation and objects', () => {
       workspaceId: researchFile.id,
       title: 'Draft',
     });
-    expect(screen.getByRole('dialog', { name: 'Create object' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Create panel' })).toBeInTheDocument();
     expect(within(dialog).getByRole('alert')).toHaveTextContent(
       'The object could not be written.',
     );
     expect(input).toHaveAttribute('aria-invalid', 'true');
     expect(input).toHaveAttribute(
       'aria-describedby',
-      'object-title-help object-create-error',
+      'panel-title-help panel-create-error',
     );
   });
 
@@ -2035,19 +2014,19 @@ describe('workspace navigation and objects', () => {
     renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
     const trigger = await openResearchFile();
     await fireEvent.click(trigger);
-    const dialog = screen.getByRole('dialog', { name: 'Create object' });
-    await fireEvent.input(within(dialog).getByRole('textbox', { name: 'Object title' }), {
+    const dialog = screen.getByRole('dialog', { name: 'Create panel' });
+    await fireEvent.input(within(dialog).getByRole('textbox', { name: 'Panel title' }), {
       target: { value: 'Interview notes' },
     });
 
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Create object' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Create panel' }));
 
-    expect(screen.queryByRole('dialog', { name: 'Create object' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Create panel' })).not.toBeInTheDocument();
     expect(screen.getByText('Project brief')).toBeInTheDocument();
-    expect(screen.getByText('Interview notes')).toBeInTheDocument();
+    expect(screen.getAllByText('Interview notes')).not.toHaveLength(0);
     expect(
-      within(screen.getByRole('list', { name: 'Objects in this workspace' }))
-        .getAllByRole('listitem')
+      within(screen.getByRole('tree', { name: 'Contents in this workspace' }))
+        .getAllByRole('treeitem')
         .map((item) => item.querySelector('strong')?.textContent),
     ).toEqual(['Interview notes', 'Project brief']);
     expect(

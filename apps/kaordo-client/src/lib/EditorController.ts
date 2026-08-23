@@ -142,18 +142,18 @@ export class EditorController {
   async deleteObject(workspaceId: string, objectId: string): Promise<boolean> {
     const deleted = await this.workspaceState.deleteObject(workspaceId, objectId);
     if (!deleted) {
-      this.canvasState.announce('Object could not be deleted.');
+      this.canvasState.announce('Panel could not be deleted.');
       return false;
     }
     try {
       await this.canvas.removeObjectReferences(workspaceId, objectId);
     } catch {
       this.canvasState.announce(
-        'Object deleted. Its old canvas placement could not be cleaned up.',
+        'Panel deleted. Its old canvas placement could not be cleaned up.',
       );
       return true;
     }
-    this.canvasState.announce('Object deleted.');
+    this.canvasState.announce('Panel deleted.');
     return true;
   }
 }

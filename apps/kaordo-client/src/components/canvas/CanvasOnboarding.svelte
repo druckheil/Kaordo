@@ -6,7 +6,7 @@
     </svg>
   </span>
   <strong>Build your knowledge canvas</strong>
-  <span>Use Text or Rectangle above, or drag an object here.</span>
+  <span>Use Text or Card above, or select a panel from Contents.</span>
 </div>
 
 <style>

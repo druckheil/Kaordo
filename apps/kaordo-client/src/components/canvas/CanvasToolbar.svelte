@@ -47,9 +47,9 @@
       class:tool-button--active={snapshot.activeTool === 'rectangle'}
       class="tool-button"
       type="button"
-      aria-label="Rectangle tool"
+      aria-label="Card tool"
       aria-pressed={snapshot.activeTool === 'rectangle'}
-      title="Draw rectangle"
+      title="Draw card"
       onclick={() => chooseTool('rectangle')}
     >
       <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -155,7 +155,7 @@
   {:else if snapshot.activeTool === 'text'}
     <span class="text-tool-hint">Click anywhere to add text</span>
   {:else}
-    <div class="style-group" aria-label="Rectangle fill">
+    <div class="style-group" aria-label="Card fill">
       <span>Fill</span>
       {#each fills as color}
         <button
@@ -170,7 +170,7 @@
       {/each}
     </div>
 
-    <div class="style-group" aria-label="Rectangle outline">
+    <div class="style-group" aria-label="Card outline">
       <span>Stroke</span>
       {#each strokes as color}
         <button
@@ -190,7 +190,7 @@
     {selectedElement?.type === 'text'
       ? snapshot.editingTextId ? 'Editing text' : 'Text selected'
       : snapshot.selectedGlobalElementId
-        ? 'Shape selected'
+        ? 'Card selected'
       : snapshot.selectedCardId
         ? 'Card selected'
         : `${placedCount} placed`}

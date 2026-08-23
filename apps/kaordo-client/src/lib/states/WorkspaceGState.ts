@@ -233,7 +233,7 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
         this.patch({
           createObjectError: readableError(
             error,
-            'The object could not be created.',
+            'The panel could not be created.',
           ),
         });
       }
@@ -288,7 +288,7 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
       return true;
     } catch (error) {
       this.patch({
-        createObjectError: readableError(error, 'The object could not be deleted.'),
+        createObjectError: readableError(error, 'The panel could not be deleted.'),
       });
       return false;
     }

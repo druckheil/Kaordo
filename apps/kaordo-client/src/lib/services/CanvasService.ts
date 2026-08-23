@@ -70,7 +70,7 @@ export class CanvasService {
       objectId: string,
       document: ObjectDocument,
     ) => Promise<ObjectSummary> = async () => {
-      throw new Error('Object editing is unavailable.');
+      throw new Error('Panel editing is unavailable.');
     },
     loadCanvasDocument: (
       workspaceId: string,
@@ -396,6 +396,10 @@ export class CanvasService {
   }
 
   async focusTextElement(workspaceId: string, elementId: string): Promise<void> {
+    await this.focusCanvasElement(workspaceId, elementId);
+  }
+
+  async focusCanvasElement(workspaceId: string, elementId: string): Promise<void> {
     this.state.selectGlobalElement(elementId);
     await this.#viewport.focusCanvasElement(workspaceId, elementId);
   }
@@ -461,7 +465,7 @@ export class CanvasService {
     void this.saveObjectDocument(workspace.id, resize.object.id, {
       ...resize.object.document,
       frame: size,
-    }).catch(() => this.state.announce('Object size could not be saved.'));
+    }).catch(() => this.state.announce('Panel size could not be saved.'));
   }
 
   cancelObjectResize(event: PointerEvent): void {
@@ -499,7 +503,7 @@ export class CanvasService {
     void this.saveObjectDocument(workspace.id, placement.id, {
       ...placement.document,
       frame: size,
-    }).catch(() => this.state.announce('Object size could not be saved.'));
+    }).catch(() => this.state.announce('Panel size could not be saved.'));
   }
 
   attachViewport(element: HTMLDivElement | null): void {
@@ -603,6 +607,10 @@ export class CanvasService {
 
   placeObjectFromKeyboard(object: ObjectSummary): void {
     this.#drag.placeObjectFromKeyboard(object);
+  }
+
+  placeObjectAtVisibleCenter(object: ObjectSummary): void {
+    this.#drag.placeObjectAtVisibleCenter(object);
   }
 
   handleCanvasCardKeydown(
@@ -892,7 +900,7 @@ export class CanvasService {
     void this.saveWorkspaceCanvasDocument(workspace.id, {
       ...document,
       placements,
-    }).catch(() => this.state.announce('Object position could not be saved.'));
+    }).catch(() => this.state.announce('Panel position could not be saved.'));
   }
 
   private prepareCanvasDocument(

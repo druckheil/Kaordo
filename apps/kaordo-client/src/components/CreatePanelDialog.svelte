@@ -10,7 +10,7 @@
     onCancel: () => void | Promise<void>;
   };
 
-  const MAX_OBJECT_TITLE_BYTES = 200;
+  const MAX_PANEL_TITLE_BYTES = 200;
 
   let { workspaceName, busy, error, onCreate, onCancel }: Props = $props();
   let inputElement = $state<HTMLInputElement>();
@@ -40,12 +40,12 @@
 
     const normalizedTitle = title.trim();
     if (!normalizedTitle) {
-      titleError = 'Enter an object title.';
+      titleError = 'Enter a panel title.';
       focusInput();
       return;
     }
-    if (new TextEncoder().encode(normalizedTitle).byteLength > MAX_OBJECT_TITLE_BYTES) {
-      titleError = `Object titles must be ${MAX_OBJECT_TITLE_BYTES} bytes or fewer.`;
+    if (new TextEncoder().encode(normalizedTitle).byteLength > MAX_PANEL_TITLE_BYTES) {
+      titleError = `Panel titles must be ${MAX_PANEL_TITLE_BYTES} bytes or fewer.`;
       focusInput();
       return;
     }
@@ -57,15 +57,15 @@
 
 <DialogShell
   {busy}
-  descriptionId="create-object-description"
+  descriptionId="create-panel-description"
   eyebrow="New content"
   {onCancel}
   onSubmit={handleSubmit}
-  submitLabel="Create object"
+  submitLabel="Create panel"
   submittingLabel="Creating…"
-  title="Create object"
-  titleId="create-object-title"
-  variant="object"
+  title="Create panel"
+  titleId="create-panel-title"
+  variant="panel"
 >
   {#snippet icon()}
     <svg viewBox="0 0 24 24" role="presentation">
@@ -73,65 +73,63 @@
     </svg>
   {/snippet}
 
-  <p id="create-object-description" class="dialog-description">
-    Add a knowledge object to {workspaceName}.vdw.
+  <p id="create-panel-description" class="dialog-description">
+    Add a knowledge panel to {workspaceName}.vdw.
   </p>
 
   <div class="dialog-field">
-    <label for="object-title">Object title</label>
-    <div class="object-title-control">
+    <label for="panel-title">Panel title</label>
+    <div class="panel-title-control">
       <input
-        id="object-title"
+        id="panel-title"
         bind:this={inputElement}
         value={title}
         type="text"
         maxlength="200"
         required
         autocomplete="off"
-        placeholder="Untitled object"
+        placeholder="Untitled panel"
         disabled={busy}
         aria-describedby={titleError
-          ? 'object-title-help object-title-error'
+          ? 'panel-title-help panel-title-error'
           : visibleCreateError
-            ? 'object-title-help object-create-error'
-            : 'object-title-help'}
+            ? 'panel-title-help panel-create-error'
+            : 'panel-title-help'}
         aria-invalid={titleError || visibleCreateError ? 'true' : undefined}
         oninput={handleInput}
       />
     </div>
-    <p id="object-title-help">Use a short, descriptive title.</p>
+    <p id="panel-title-help">Use a short, descriptive title.</p>
   </div>
 
   {#if titleError}
-    <p id="object-title-error" class="dialog-error" role="alert">
+    <p id="panel-title-error" class="dialog-error" role="alert">
       {titleError}
     </p>
   {:else if visibleCreateError}
-    <p id="object-create-error" class="dialog-error" role="alert">
+    <p id="panel-create-error" class="dialog-error" role="alert">
       {visibleCreateError}
     </p>
   {/if}
 </DialogShell>
 
 <style>
-  .object-title-control {
+  .panel-title-control {
     height: 42px;
     overflow: hidden;
     background: #fff;
     border: 1px solid #bdc4be;
     border-radius: 8px;
     box-shadow: inset 0 1px 2px rgb(27 42 35 / 4%);
-    transition:
-      border-color 120ms ease,
-      box-shadow 120ms ease;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
   }
 
-  .object-title-control:focus-within {
+  .panel-title-control:focus-within {
     border-color: #518b7c;
     box-shadow: 0 0 0 3px rgb(55 117 102 / 13%);
   }
 
-  .object-title-control input {
+  .panel-title-control input {
     width: 100%;
     height: 100%;
     padding: 0 12px;
@@ -142,13 +140,9 @@
     font-size: calc(13px * var(--text-scale));
   }
 
-  .object-title-control input::placeholder {
-    color: #9aa19c;
-  }
+  .panel-title-control input::placeholder { color: #9aa19c; }
 
   @media (prefers-reduced-motion: reduce) {
-    .object-title-control {
-      transition: none;
-    }
+    .panel-title-control { transition: none; }
   }
 </style>
