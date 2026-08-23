@@ -27,6 +27,8 @@
   import { PublicStorageController } from './lib/PublicStorageController';
   import { RondoController } from './lib/RondoController';
   import { LigoController } from './lib/LigoController';
+  import { ProfileController } from './lib/ProfileController';
+  import type { ProfileEditValues } from './components/dialog/ProfileEditDialog.svelte';
   import type { AppScale, AppTheme, TextScale } from './lib/domain/appearance';
   import type { AuthMode, AuthSession } from './lib/domain/auth';
   import type { NodoStorageItem, NodoStorageSpace } from './lib/domain/nodo';
@@ -48,6 +50,7 @@
   import type { FluoGateway } from './lib/gateways/FluoGateway';
   import type { RondoGateway } from './lib/gateways/RondoGateway';
   import type { LigoGateway } from './lib/gateways/LigoGateway';
+  import type { ProfileGateway } from './lib/gateways/ProfileGateway';
   import { NodeFluoGateway } from './lib/gateways/NodeFluoGateway';
   import { NodoRegistry } from './lib/services/NodoRegistry';
   import { closeContextMenu } from './lib/ui/contextMenu';
@@ -123,6 +126,11 @@
     updateStorage: async () => { throw new Error('Ligo storage is unavailable.'); },
   };
 
+  const EMPTY_PROFILE_GATEWAY: ProfileGateway = {
+    load: async () => null,
+    save: async () => { throw new Error('Profile storage is unavailable.'); },
+  };
+
   type AppProps = {
     autoloadWorkspaceLibrary?: boolean;
     adminGateway: AdminGateway;
@@ -134,6 +142,7 @@
     ligoGateway?: LigoGateway;
     mediaSettingsGateway?: MediaSettingsGateway;
     nodoGateway?: NodoGateway;
+    profileGateway?: ProfileGateway;
     rondoGateway?: RondoGateway;
     workspace?: WorkspaceDetail | null;
     workspaceGateway: WorkspaceGateway;
@@ -155,6 +164,7 @@
     ligoGateway = EMPTY_LIGO_GATEWAY,
     mediaSettingsGateway = new WebMediaSettingsGateway(),
     nodoGateway = EMPTY_NODO_GATEWAY,
+    profileGateway = EMPTY_PROFILE_GATEWAY,
     rondoGateway = EMPTY_RONDO_GATEWAY,
     workspace = null,
     workspaceGateway,
@@ -174,6 +184,7 @@
     (nodeId) => nodo.state.refreshNodeUsage(nodeId),
     () => auth.state.handleSessionRevoked(),
   ));
+  const profile = untrack(() => new ProfileController(profileGateway));
   const effectiveFluoGateway = untrack(() => fluoGateway ?? new NodeFluoGateway(nodoGateway));
   // App construction is intentionally one-shot. Runtime changes flow through
   // the state managers instead of rebuilding the composition root.
@@ -212,6 +223,7 @@
   let sessionsRequestId = 0;
   let terminatingSessionId = $state<string | null>(null);
   let ligoSnapshot = $state(ligo.state.snapshot);
+  let profileSnapshot = $state(profile.state.snapshot);
   let activeSection = $state<AppSection>('klaro');
   type StorageBrowserTarget =
     | { kind: 'public'; title: string; subtitle: string }
@@ -389,6 +401,7 @@
       editor.start();
       if (activeSection === 'fluo') editor.startFluo();
       if (activeSection === 'mi') {
+        profile.start();
         publicStorage.start();
         void loadRondoPublicStorage();
         void loadSessions();
@@ -408,6 +421,8 @@
       nodo.stop();
       nodo.state.reset();
       publicStorage.stop();
+      profile.stop();
+      profile.reset();
       publicStorage.reset();
       rondoPublicStorageRequestId += 1;
       rondoPublicStorage = null;
@@ -457,6 +472,9 @@
   const unsubscribeLigo = ligo.manager.subscribe((snapshot) => {
     if (snapshot) ligoSnapshot = snapshot;
   });
+  const unsubscribeProfile = profile.manager.subscribe((snapshot) => {
+    if (snapshot) profileSnapshot = snapshot;
+  });
 
   onMount(() => {
     appearance.start();
@@ -473,6 +491,7 @@
     unsubscribeRegado();
     unsubscribeRondo();
     unsubscribeLigo();
+    unsubscribeProfile();
     unsubscribeNodo();
     unsubscribeFluo();
     unsubscribeCanvas();
@@ -482,6 +501,7 @@
     nodo.shutdown();
     rondo.shutdown();
     ligo.shutdown();
+    profile.shutdown();
     appearance.shutdown();
     mediaSettings.shutdown();
     publicStorage.shutdown();
@@ -524,6 +544,18 @@
     } finally {
       accountAction = null;
     }
+  }
+
+  async function saveProfile(values: ProfileEditValues): Promise<boolean> {
+    const publicStorage = publicStorageSnapshot.storage ?? await nodoGateway.publicStorage().catch(() => null);
+    const selectedNodeId = publicStorage?.nodeCandidates.find(
+      (node) => node.nodeId === profileSnapshot.profile?.nodeId && node.availableBytes > 0,
+    )?.nodeId ?? publicStorage?.nodeCandidates.find((node) => node.availableBytes > 0)?.nodeId ?? null;
+    if (!selectedNodeId) {
+      profile.state.setError('An online Public Nodo with available space is required to save your profile.');
+      return false;
+    }
+    return profile.state.save(values, selectedNodeId);
   }
 
   async function retryWorkspaceLibrary() {
@@ -591,11 +623,15 @@
     if (section === 'nodo') nodo.start();
     else nodo.stop();
     if (section === 'mi') {
+      profile.start();
       publicStorage.start();
       void loadRondoPublicStorage();
       void loadSessions();
     }
-    else publicStorage.stop();
+    else {
+      publicStorage.stop();
+      profile.stop();
+    }
     if (section === 'fluo') editor.startFluo();
     else editor.stopFluo();
     if (section === 'rondo') rondo.start();
@@ -731,12 +767,17 @@
         error={authSnapshot.error}
         onChangePassword={changePassword}
         onChangeUsername={changeUsername}
+        onSaveProfile={saveProfile}
         onLogout={logout}
         onListPublic={openPublicStorageBrowser}
         {platform}
         publicStorage={publicStorageSnapshot.storage}
         publicStorageError={publicStorageSnapshot.error}
         publicStorageLoading={publicStorageSnapshot.phase === 'loading'}
+        profile={profileSnapshot.profile}
+        profileError={profileSnapshot.error}
+        profileLoading={profileSnapshot.phase === 'loading' || profileSnapshot.phase === 'idle'}
+        profileSaving={profileSnapshot.phase === 'saving'}
         rondoPublicStorage={rondoPublicStorage}
         rondoPublicStorageError={rondoPublicStorageError}
         rondoPublicStorageLoading={rondoPublicStorageLoading}

@@ -49,7 +49,7 @@
   function keepFocusInsideDialog(event: KeyboardEvent) {
     const focusableElements = Array.from(
       dialogElement?.querySelectorAll<HTMLElement>(
-        'button:not(:disabled), input:not(:disabled)',
+        'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)',
       ) ?? [],
     );
     const firstElement = focusableElements.at(0);

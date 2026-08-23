@@ -13,6 +13,7 @@ import { createWorkspaceGateway } from './lib/gateways/createWorkspaceGateway';
 import { createNodoGateway } from './lib/gateways/createNodoGateway';
 import { createRondoGateway } from './lib/gateways/createRondoGateway';
 import { createLigoGateway } from './lib/gateways/createLigoGateway';
+import { createProfileGateway } from './lib/gateways/createProfileGateway';
 
 const target = document.getElementById('app');
 
@@ -20,14 +21,17 @@ if (!target) {
   throw new Error('Application mount point was not found.');
 }
 
+const nodoGateway = createNodoGateway();
+
 const app = mount(App, {
   target,
   props: {
     adminGateway: createAdminGateway(),
     appearanceGateway: createAppearanceGateway(),
     authGateway: createAuthGateway(),
-    nodoGateway: createNodoGateway(),
+    nodoGateway,
     ligoGateway: createLigoGateway(),
+    profileGateway: createProfileGateway(nodoGateway),
     rondoGateway: createRondoGateway(),
     workspaceGateway: createWorkspaceGateway(),
   },

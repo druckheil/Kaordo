@@ -71,6 +71,12 @@ import {
   updateLigoStorage,
 } from './ligo/routes';
 import { createAuthLiveTicket, createLigoLiveTicket, openLigoLive } from './ligo/live';
+import {
+  cancelProfileStorage,
+  commitProfileStorage,
+  getProfile,
+  reserveProfileStorage,
+} from './profile/routes';
 
 const DESKTOP_AUTH_HOST = `${['veri', 'dimensio-api'].join('')}.pshenychnyi-ld.workers.dev`;
 
@@ -299,6 +305,21 @@ export function handleRequest(
   }
   if (request.method === 'GET' && pathname === '/api/auth/me') {
     return me(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/profile') {
+    return getProfile(request, env);
+  }
+  if (request.method === 'POST' && pathname === '/api/profile/reservations') {
+    return reserveProfileStorage(request, env);
+  }
+  const profileReservationMatch = pathname.match(
+    /^\/api\/profile\/reservations\/([0-9a-f-]+)$/u,
+  );
+  if (request.method === 'PATCH' && profileReservationMatch?.[1]) {
+    return commitProfileStorage(request, env, profileReservationMatch[1]);
+  }
+  if (request.method === 'DELETE' && profileReservationMatch?.[1]) {
+    return cancelProfileStorage(request, env, profileReservationMatch[1]);
   }
   if (request.method === 'POST' && pathname === '/api/auth/presence') {
     return presence(request, env);

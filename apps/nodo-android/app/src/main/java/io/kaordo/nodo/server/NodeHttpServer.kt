@@ -320,7 +320,10 @@ class NodeHttpServer(
         }
         if (uploadId != null) {
             val selected = storage(uploadPath.space).uploads
-            if (request.method != "HEAD") {
+            if (request.method == "DELETE") {
+                if (!policy().allowUploads) return transferDenied(output)
+                if (!canDelete(uploadPath.space, grant)) return writeForbidden(output)
+            } else if (request.method != "HEAD") {
                 if (!policy().allowUploads) return transferDenied(output)
                 if (!canWrite(uploadPath.space, grant)) return writeForbidden(output)
             } else if (!policy().allowDownloads) return transferDenied(output)
@@ -1191,6 +1194,11 @@ class NodeHttpServer(
     private fun canWrite(space: NodeSpace, grant: AccessGrant): Boolean = when (space) {
         NodeSpace.PRIVATE -> grant.isOwner
         NodeSpace.PUBLIC -> grant.publicReservation != null
+    }
+
+    private fun canDelete(space: NodeSpace, grant: AccessGrant): Boolean = when (space) {
+        NodeSpace.PRIVATE -> grant.isOwner
+        NodeSpace.PUBLIC -> grant.isOwner || grant.publicReservation != null
     }
 
     private fun storage(space: NodeSpace): SpaceStorage =

@@ -541,7 +541,9 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
               tickets.user_id = nodes.user_id AS is_owner,
               users.username,
               allocations.id AS reservation_id,
-              allocations.bytes AS reservation_bytes
+              allocations.bytes AS reservation_bytes,
+              profile_allocations.id AS profile_reservation_id,
+              profile_allocations.bytes AS profile_reservation_bytes
               ,members.role AS rondo_role,
               routes.storage_kind AS rondo_storage_kind,
               COALESCE((SELECT quota_bytes FROM rondo_space_nodes
@@ -558,6 +560,12 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
          AND allocations.user_id = tickets.user_id
          AND allocations.committed = 0
          AND allocations.expires_at > ?3
+        LEFT JOIN profile_public_allocations AS profile_allocations
+          ON profile_allocations.id = ?4
+         AND profile_allocations.node_id = tickets.node_id
+         AND profile_allocations.user_id = tickets.user_id
+         AND profile_allocations.committed = 0
+         AND profile_allocations.expires_at > ?3
         LEFT JOIN rondo_room_routes AS routes
           ON routes.space_id = ?5
          AND routes.room_id = ?6
@@ -572,6 +580,8 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
     ).first<{
       expires_at: number;
       is_owner: number;
+      profile_reservation_bytes: number | null;
+      profile_reservation_id: string | null;
       reservation_bytes: number | null;
       reservation_id: string | null;
       rondo_limit_bytes: number | null;
@@ -579,7 +589,7 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
       rondo_storage_kind: number | null;
       username: string;
     }>();
-    if (!row || (reservationId !== null && row.reservation_id === null) ||
+    if (!row || (reservationId !== null && row.reservation_id === null && row.profile_reservation_id === null) ||
         (rondoSpaceId !== null && row.rondo_role === null)) {
       return json({ authorized: false }, 401);
     }
@@ -587,9 +597,9 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
       authorized: true,
       expiresAt: row.expires_at,
       isOwner: Boolean(row.is_owner),
-      publicReservation: row.reservation_id === null ? null : {
-        bytes: row.reservation_bytes,
-        id: row.reservation_id,
+      publicReservation: row.reservation_id === null && row.profile_reservation_id === null ? null : {
+        bytes: row.reservation_bytes ?? row.profile_reservation_bytes,
+        id: row.reservation_id ?? row.profile_reservation_id,
       },
       rondo: row.rondo_role === null ? null : {
         limitBytes: row.rondo_limit_bytes,
@@ -1008,10 +1018,16 @@ async function applyPublicReconciliationAcks(
   }
   if (reservationIds.length) {
     const placeholders = reservationIds.map((_, index) => `?${index + 2}`).join(', ');
-    statements.push(env.DB.prepare(
-      `DELETE FROM fluo_public_allocations
-        WHERE node_id = ?1 AND committed = 0 AND id IN (${placeholders})`,
-    ).bind(nodeId, ...reservationIds));
+    statements.push(
+      env.DB.prepare(
+        `DELETE FROM fluo_public_allocations
+          WHERE node_id = ?1 AND committed = 0 AND id IN (${placeholders})`,
+      ).bind(nodeId, ...reservationIds),
+      env.DB.prepare(
+        `DELETE FROM profile_public_allocations
+          WHERE node_id = ?1 AND id IN (${placeholders})`,
+      ).bind(nodeId, ...reservationIds),
+    );
   }
   if (statements.length) await env.DB.batch(statements);
 }

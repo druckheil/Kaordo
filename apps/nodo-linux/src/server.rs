@@ -725,7 +725,7 @@ fn handle_connection(stream: TcpStream, runtime: &Arc<NodeRuntime>) -> io::Resul
             );
         }
         if valid_id(id) && request.method == "DELETE" {
-            if !policy.allow_uploads || !can_write(space, &grant) {
+            if !policy.allow_uploads || !can_delete(space, &grant) {
                 return forbidden(&mut output);
             }
             let mut storage = runtime.storage.write().map_err(lock_error)?;
@@ -877,6 +877,13 @@ fn can_write(space: Space, grant: &AccessGrant) -> bool {
     match space {
         Space::Private => grant.is_owner,
         Space::Public => grant.public_reservation.is_some(),
+    }
+}
+
+fn can_delete(space: Space, grant: &AccessGrant) -> bool {
+    match space {
+        Space::Private => grant.is_owner,
+        Space::Public => grant.is_owner || grant.public_reservation.is_some(),
     }
 }
 

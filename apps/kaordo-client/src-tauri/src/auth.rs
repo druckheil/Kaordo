@@ -257,6 +257,16 @@ struct PublicStorageRenewInput {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProfileCommitInput {
+    avatar_file_id: Option<String>,
+    avatar_mime_type: Option<String>,
+    avatar_size: u64,
+    profile_file_id: String,
+    profile_size: u64,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RondoCreateInput {
     description: String,
     name: String,
@@ -1304,6 +1314,68 @@ pub async fn fluo_public_release(
         &client,
         Method::DELETE,
         &format!("/api/fluo/public-storage/posts/{node_id}/{post_id}"),
+    )
+    .await?;
+    let _: Value = decode_response(response).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn profile_get(client: State<'_, AuthClient>) -> Result<Value, String> {
+    let response = authenticated_request(&client, Method::GET, "/api/profile").await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn profile_reserve(
+    client: State<'_, AuthClient>,
+    node_id: String,
+    bytes: u64,
+) -> Result<Value, String> {
+    let node_id = node_id_path(&node_id)?;
+    if bytes == 0 || bytes > 4_227_072 {
+        return Err("Profile storage reservation is invalid.".to_owned());
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::POST,
+        "/api/profile/reservations",
+        &serde_json::json!({ "bytes": bytes, "nodeId": node_id }),
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn profile_commit(
+    client: State<'_, AuthClient>,
+    reservation_id: String,
+    input: ProfileCommitInput,
+) -> Result<Value, String> {
+    let reservation_id = node_id_path(&reservation_id)?;
+    if input.profile_file_id.is_empty() || input.profile_size == 0 || input.avatar_size > 4 * 1024 * 1024 {
+        return Err("Profile payload is invalid.".to_owned());
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::PATCH,
+        &format!("/api/profile/reservations/{reservation_id}"),
+        &input,
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn profile_cancel(
+    client: State<'_, AuthClient>,
+    reservation_id: String,
+) -> Result<(), String> {
+    let reservation_id = node_id_path(&reservation_id)?;
+    let response = authenticated_request(
+        &client,
+        Method::DELETE,
+        &format!("/api/profile/reservations/{reservation_id}"),
     )
     .await?;
     let _: Value = decode_response(response).await?;

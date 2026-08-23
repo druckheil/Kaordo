@@ -3,8 +3,10 @@
     type AccountChangeMode,
     type AccountChangeValues,
   } from '../dialog/AccountChangeDialog.svelte';
+  import ProfileEditDialog, { type ProfileEditValues } from '../dialog/ProfileEditDialog.svelte';
   import type { AuthSession, AuthUser } from '../../lib/domain/auth';
   import type { PublicNodoStorage } from '../../lib/domain/nodo';
+  import type { UserProfile } from '../../lib/domain/profile';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
 
   type Props = {
@@ -13,12 +15,17 @@
     error: string | null;
     onChangePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
     onChangeUsername: (newUsername: string, currentPassword: string) => Promise<boolean>;
+    onSaveProfile: (values: ProfileEditValues) => Promise<boolean>;
     onLogout: () => void | Promise<void>;
     onListPublic: () => void | Promise<void>;
     platform: 'desktop' | 'web';
     publicStorage: PublicNodoStorage | null;
     publicStorageError: string | null;
     publicStorageLoading: boolean;
+    profile: UserProfile | null;
+    profileError: string | null;
+    profileLoading: boolean;
+    profileSaving: boolean;
     rondoPublicStorage: { allocated: boolean; limitBytes: number; usedBytes: number } | null;
     rondoPublicStorageError: string | null;
     rondoPublicStorageLoading: boolean;
@@ -36,12 +43,17 @@
     error,
     onChangePassword,
     onChangeUsername,
+    onSaveProfile,
     onLogout,
     onListPublic,
     platform,
     publicStorage,
     publicStorageError,
     publicStorageLoading,
+    profile,
+    profileError,
+    profileLoading,
+    profileSaving,
     rondoPublicStorage,
     rondoPublicStorageError,
     rondoPublicStorageLoading,
@@ -52,9 +64,11 @@
     onTerminateSession,
     user,
   }: Props = $props();
-  let initial = $derived(user.username.slice(0, 1).toUpperCase());
+  let initial = $derived((profile?.nickname || user.username).slice(0, 1).toUpperCase());
+  let displayName = $derived(profile?.nickname || user.username);
   let joined = $derived(formatJoined(user.createdAt));
   let accountModal = $state<AccountChangeMode | null>(null);
+  let profileModal = $state(false);
   let publicPercent = $derived(publicStorage
     ? Math.min(100, publicStorage.usedBytes / Math.max(1, publicStorage.limitBytes) * 100)
     : 0);
@@ -86,6 +100,10 @@
       : await onChangePassword(values.currentPassword, values.newPassword);
     if (changed) accountModal = null;
   }
+
+  async function submitProfileChange(values: ProfileEditValues): Promise<void> {
+    if (await onSaveProfile(values)) profileModal = false;
+  }
 </script>
 
 <main class="profile-shell" aria-labelledby="profile-title">
@@ -100,19 +118,34 @@
     </header>
 
     <section class="identity-card" aria-labelledby="identity-title">
-      <div class="avatar" aria-hidden="true">{initial}</div>
+      <div class="avatar" aria-hidden={!profile?.avatarUrl}>
+        {#if profile?.avatarUrl}
+          <img src={profile.avatarUrl} alt="" />
+        {:else}
+          {initial}
+        {/if}
+      </div>
       <div class="identity-copy">
         <span class="card-label">Kaordo identity</span>
-        <h2 id="identity-title">{user.username}</h2>
-        <p>Member since {joined}</p>
+        <h2 id="identity-title">{displayName}</h2>
+        <p class="identity-username">@{user.username} · Member since {joined}</p>
+        {#if profile?.description}
+          <p class="identity-description">{profile.description}</p>
+        {/if}
       </div>
-      <span class="identity-badge">
-        <svg viewBox="0 0 20 20" aria-hidden="true">
-          <path d="M10 2.7 16 5v4.3c0 3.5-2 6.1-6 7.9-4-1.8-6-4.4-6-7.9V5l6-2.3Z" />
-          <path d="m7.2 9.9 1.7 1.7 3.9-4" />
-        </svg>
-        Protected
-      </span>
+      <div class="identity-actions">
+        <button class="profile-edit-button" type="button" disabled={profileLoading || profileSaving} onclick={() => (profileModal = true)}>
+          {#if profileLoading || profileSaving}<LoadingSpinner compact />{/if}
+          {profileSaving ? 'Saving…' : 'Edit profile'}
+        </button>
+        <span class="identity-badge">
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M10 2.7 16 5v4.3c0 3.5-2 6.1-6 7.9-4-1.8-6-4.4-6-7.9V5l6-2.3Z" />
+            <path d="m7.2 9.9 1.7 1.7 3.9-4" />
+          </svg>
+          Protected
+        </span>
+      </div>
     </section>
 
     <div class="profile-grid">
@@ -133,6 +166,14 @@
           <div>
             <dt>Username</dt>
             <dd>{user.username}</dd>
+          </div>
+          <div>
+            <dt>Nickname</dt>
+            <dd>{profile?.nickname ?? (profileLoading ? 'Loading…' : 'Not set')}</dd>
+          </div>
+          <div>
+            <dt>Description</dt>
+            <dd title={profile?.description ?? ''}>{profile?.description || (profileLoading ? 'Loading…' : 'Not set')}</dd>
           </div>
           <div>
             <dt>Account ID</dt>
@@ -338,6 +379,18 @@
   />
 {/if}
 
+{#if profileModal}
+  <ProfileEditDialog
+    avatarUrl={profile?.avatarUrl ?? null}
+    busy={profileSaving}
+    description={profile?.description ?? ''}
+    error={profileError}
+    nickname={profile?.nickname ?? user.username}
+    onCancel={() => { if (!profileSaving) profileModal = false; }}
+    onSubmit={submitProfileChange}
+  />
+{/if}
+
 <style>
   .profile-shell {
     min-width: 0;
@@ -439,6 +492,8 @@
     place-items: center;
   }
 
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+
   .identity-copy h2 {
     margin-top: 6px;
     font-size: calc(21px * var(--text-scale));
@@ -451,6 +506,40 @@
     color: rgb(239 248 243 / 53%);
     font-size: calc(9px * var(--text-scale));
   }
+
+  .identity-copy .identity-username { margin-top: 5px; }
+  .identity-copy .identity-description {
+    max-width: 480px;
+    margin-top: 8px;
+    overflow: hidden;
+    color: rgb(239 248 243 / 76%);
+    font-size: calc(9px * var(--text-scale));
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .identity-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .profile-edit-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 92px;
+    height: 30px;
+    padding: 0 10px;
+    color: #d9eee5;
+    background: rgb(255 255 255 / 10%);
+    border: 1px solid rgb(177 222 204 / 30%);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: calc(9px * var(--text-scale));
+    font-weight: 650;
+    transition: 120ms ease;
+  }
+  .profile-edit-button:hover:not(:disabled) { background: rgb(255 255 255 / 17%); border-color: rgb(177 222 204 / 54%); }
+  .profile-edit-button:disabled { cursor: default; opacity: .65; }
+  .profile-edit-button :global(.library-loader) { width: 12px; height: 12px; border-color: rgb(217 238 229 / 35%); border-top-color: #d9eee5; }
 
   .identity-card .card-label { color: #8ec1af; }
 

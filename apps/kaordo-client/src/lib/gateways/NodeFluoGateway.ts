@@ -104,6 +104,45 @@ export class NodeFluoGateway implements FluoGateway {
     });
   }
 
+  /** Stores small non-feed payloads on the selected Nodo using the same
+   * authenticated TUS path as Fluo media. */
+  async uploadFile(
+    nodeId: string,
+    space: FluoSpace,
+    file: NodoUploadFile,
+    reservationId: string,
+  ): Promise<string> {
+    return this.withNode(nodeId, (connection) => uploadTus(
+      connection,
+      SPACE_PATHS[space].uploads,
+      file,
+      () => undefined,
+      reservationId,
+    ), false);
+  }
+
+  async downloadFile(
+    nodeId: string,
+    space: FluoSpace,
+    fileId: string,
+    mimeType: string,
+  ): Promise<Blob> {
+    return this.withNode(nodeId, (connection) => connection.blob(
+      `${SPACE_PATHS[space].content}/${encodeURIComponent(fileId)}`,
+      mimeType,
+      30_000,
+    ), false);
+  }
+
+  async deleteFile(nodeId: string, space: FluoSpace, fileId: string): Promise<void> {
+    await this.withNode(nodeId, async (connection) => {
+      await connection.fetch(`${SPACE_PATHS[space].uploads}/${encodeURIComponent(fileId)}`, {
+        headers: { 'tus-resumable': TUS_VERSION },
+        method: 'DELETE',
+      });
+    }, false);
+  }
+
   async publishPost(
     nodeId: string,
     body: string,

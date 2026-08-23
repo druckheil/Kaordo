@@ -23,20 +23,23 @@ export async function publicStorageForUser(env: Env, userId: ArrayBuffer, now: n
     env.DB.prepare(
       `SELECT nodes.id, nodes.device_name, nodes.app_version,
               MAX(0, nodes.public_quota_bytes - nodes.public_used_bytes -
-                COALESCE(SUM(CASE
-                  WHEN allocations.committed = 0 AND allocations.expires_at > ?1
-                  THEN allocations.bytes ELSE 0 END), 0)) AS available_bytes
+                COALESCE((SELECT SUM(bytes) FROM fluo_public_allocations
+                  WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?1), 0) -
+                COALESCE((SELECT SUM(bytes) FROM profile_public_allocations
+                  WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?1), 0)) AS available_bytes
          FROM nodes
-         LEFT JOIN fluo_public_allocations AS allocations ON allocations.node_id = nodes.id
         WHERE nodes.last_seen_at >= ?2
           AND nodes.allow_uploads = 1
           AND nodes.public_quota_bytes > 0
+          AND nodes.public_quota_bytes - nodes.public_used_bytes -
+            COALESCE((SELECT SUM(bytes) FROM fluo_public_allocations
+              WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?1), 0) -
+            COALESCE((SELECT SUM(bytes) FROM profile_public_allocations
+              WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?1), 0) > 0
           AND NOT EXISTS (
             SELECT 1 FROM fluo_public_tombstones AS tombstones
              WHERE tombstones.node_id = nodes.id
           )
-        GROUP BY nodes.id
-       HAVING available_bytes > 0
         ORDER BY available_bytes DESC, nodes.last_seen_at DESC, nodes.id ASC`,
     ).bind(now, now - ONLINE_SECONDS).all<{
       available_bytes: number;
@@ -219,27 +222,47 @@ async function publicUsageResponse(env: Env, userId: ArrayBuffer, now: number) {
 }
 
 async function publicUsage(env: Env, userId: ArrayBuffer, now: number): Promise<UsageRow> {
-  return (await env.DB.prepare(
-    `SELECT COALESCE(SUM(CASE
-              WHEN allocations.committed = 0 AND allocations.expires_at > ?2
-              THEN allocations.bytes ELSE 0 END), 0)
-              AS reserved_bytes,
-            COALESCE(SUM(CASE
-              WHEN allocations.committed = 1 AND nodes.last_seen_at > ?3
-              THEN allocations.bytes ELSE 0 END), 0) AS used_bytes
-       FROM fluo_public_allocations AS allocations
-       LEFT JOIN nodes ON nodes.id = allocations.node_id
-      WHERE allocations.user_id = ?1`,
-  ).bind(userId, now, now - PUBLIC_NODE_RETIRE_SECONDS).first<UsageRow>()) ?? {
-    reserved_bytes: 0,
-    used_bytes: 0,
+  const [fluo, profile] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COALESCE(SUM(CASE
+                WHEN allocations.committed = 0 AND allocations.expires_at > ?2
+                THEN allocations.bytes ELSE 0 END), 0)
+                AS reserved_bytes,
+              COALESCE(SUM(CASE
+                WHEN allocations.committed = 1 AND nodes.last_seen_at > ?3
+                THEN allocations.bytes ELSE 0 END), 0) AS used_bytes
+         FROM fluo_public_allocations AS allocations
+         LEFT JOIN nodes ON nodes.id = allocations.node_id
+        WHERE allocations.user_id = ?1`,
+    ).bind(userId, now, now - PUBLIC_NODE_RETIRE_SECONDS).first<UsageRow>(),
+    env.DB.prepare(
+      `SELECT COALESCE(SUM(CASE
+                WHEN allocations.committed = 0 AND allocations.expires_at > ?2
+                THEN allocations.bytes ELSE 0 END), 0)
+                AS reserved_bytes,
+              COALESCE(SUM(CASE
+                WHEN allocations.committed = 1 AND nodes.last_seen_at > ?3
+                THEN allocations.bytes ELSE 0 END), 0) AS used_bytes
+         FROM profile_public_allocations AS allocations
+         LEFT JOIN nodes ON nodes.id = allocations.node_id
+        WHERE allocations.user_id = ?1`,
+    ).bind(userId, now, now - PUBLIC_NODE_RETIRE_SECONDS).first<UsageRow>(),
+  ]);
+  return {
+    reserved_bytes: Number(fluo?.reserved_bytes ?? 0) + Number(profile?.reserved_bytes ?? 0),
+    used_bytes: Number(fluo?.used_bytes ?? 0) + Number(profile?.used_bytes ?? 0),
   };
 }
 
 export async function clearExpiredPublicReservations(env: Env, now: number): Promise<void> {
-  await env.DB.prepare(
-    'DELETE FROM fluo_public_allocations WHERE committed = 0 AND expires_at <= ?1',
-  ).bind(now).run();
+  await env.DB.batch([
+    env.DB.prepare(
+      'DELETE FROM fluo_public_allocations WHERE committed = 0 AND expires_at <= ?1',
+    ).bind(now),
+    env.DB.prepare(
+      'DELETE FROM profile_public_allocations WHERE committed = 0 AND expires_at <= ?1',
+    ).bind(now),
+  ]);
 }
 
 export async function retireOfflinePublicNodes(env: Env, now: number): Promise<void> {
@@ -260,6 +283,12 @@ export async function retireOfflinePublicNodes(env: Env, now: number): Promise<v
           SELECT id FROM nodes WHERE last_seen_at <= ?1
         )`,
     ).bind(cutoff),
+    env.DB.prepare(
+      `DELETE FROM profile_public_allocations
+        WHERE committed = 1 AND node_id IN (
+          SELECT id FROM nodes WHERE last_seen_at <= ?1
+        )`,
+    ).bind(cutoff),
   ]);
 }
 
@@ -276,6 +305,9 @@ export async function retireNodePublicPosts(
     ).bind(now, nodeId),
     env.DB.prepare(
       'DELETE FROM fluo_public_allocations WHERE node_id = ?1 AND committed = 1',
+    ).bind(nodeId),
+    env.DB.prepare(
+      'DELETE FROM profile_public_allocations WHERE node_id = ?1 AND committed = 1',
     ).bind(nodeId),
   ]);
 }
