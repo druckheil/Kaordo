@@ -1,12 +1,14 @@
 <script lang="ts">
   import type { AdminUser, CloudflareUsage } from '../../lib/domain/admin';
   import type { RegadoSnapshot } from '../../lib/states/RegadoGState';
+  import AdminUserActionDialog from './AdminUserActionDialog.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
 
   type Props = {
     onRefresh: () => void | Promise<void>;
     onRefreshCloudflare: () => void | Promise<void>;
     onRefreshDashboard: () => void | Promise<void>;
+    onModerateUser: (userId: string, action: 'ban' | 'unban' | 'erase') => void | Promise<void>;
     snapshot: Readonly<RegadoSnapshot>;
   };
 
@@ -19,7 +21,7 @@
     worker: { cpuTimeP50Ms: 0, cpuTimeP99Ms: 0, errorsToday: 0, requestsToday: 0, subrequestsToday: 0 },
   };
 
-  let { onRefresh, onRefreshCloudflare, onRefreshDashboard, snapshot }: Props = $props();
+  let { onRefresh, onRefreshCloudflare, onRefreshDashboard, onModerateUser, snapshot }: Props = $props();
   let dashboard = $derived(snapshot.dashboard);
   let cloudflare = $derived(snapshot.cloudflare ?? EMPTY_CLOUDFLARE_USAGE);
   let cloudflareLoading = $derived(snapshot.cloudflarePhase === 'loading');
@@ -29,6 +31,9 @@
     cloudflare.worker.requestsToday,
     dashboard?.capacity.worker.requestsDaily ?? 1,
   ));
+  let action = $state<{ kind: 'ban' | 'erase'; user: AdminUser } | null>(null);
+  let actionError = $state<string | null>(null);
+  let moderatingUserId = $state<string | null>(null);
 
   function compact(value: number): string {
     return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -72,6 +77,46 @@
   function resetTime(timestamp: number): string {
     return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
       .format(new Date(timestamp * 1_000));
+  }
+
+  function openAction(kind: 'ban' | 'erase', user: AdminUser): void {
+    actionError = null;
+    action = { kind, user };
+  }
+
+  async function confirmAction(): Promise<void> {
+    if (!action) return;
+    const current = action;
+    moderatingUserId = current.user.id;
+    actionError = null;
+    try {
+      await onModerateUser(current.user.id, current.kind);
+      action = null;
+    } catch (error) {
+      actionError = error instanceof Error && error.message.trim()
+        ? error.message
+        : 'The moderation action could not be completed.';
+    } finally {
+      moderatingUserId = null;
+    }
+  }
+
+  async function unban(user: AdminUser): Promise<void> {
+    moderatingUserId = user.id;
+    actionError = null;
+    try {
+      await onModerateUser(user.id, 'unban');
+    } catch (error) {
+      actionError = error instanceof Error && error.message.trim()
+        ? error.message
+        : 'The account could not be unbanned.';
+    } finally {
+      moderatingUserId = null;
+    }
+  }
+
+  function statusLabel(status: AdminUser['status']): string {
+    return status === 'suspended' ? 'Banned' : status === 'erasing' ? 'Erasing…' : status;
   }
 </script>
 
@@ -233,15 +278,29 @@
           <article><span>Administrators</span><strong>{admins}</strong><small>privileged</small></article>
         </div>
         <div class="users-table" role="table" aria-label="Registered users">
-          <div class="table-head" role="row"><span>User</span><span>Role</span><span>Status</span><span>Last seen</span><span>Joined</span><span>Sessions</span></div>
+          <div class="table-head" role="row"><span>User</span><span>Role</span><span>Status</span><span>Last seen</span><span>Joined</span><span>Sessions</span><span>Actions</span></div>
           {#each dashboard.users as user (user.id)}
             <div class="user-row" role="row">
               <span class="user-cell"><span class="avatar">{user.username.slice(0, 1).toUpperCase()}</span><span><strong>{user.username}</strong><small>{user.id.slice(0, 10)}…</small></span></span>
               <span><mark class:superadmin={user.role === 'superadmin'}>{roleLabel(user.role)}</mark></span>
-              <span class="presence" class:online={user.online}><i></i>{user.online ? 'Online' : user.status}</span>
+              <span class="presence" class:online={user.online} class:banned={user.status === 'suspended' || user.status === 'erasing'}><i></i>{user.online ? 'Online' : statusLabel(user.status)}</span>
               <span>{relative(user.lastSeenAt)}</span>
               <span>{joined(user.createdAt)}</span>
               <span class="sessions">{user.activeSessions}</span>
+              <span class="user-actions">
+                {#if user.role !== 'superadmin' && user.status !== 'erasing'}
+                  {#if user.status === 'suspended'}
+                    <button type="button" class="small-action" disabled={moderatingUserId !== null} onclick={() => void unban(user)}>Unban</button>
+                  {:else}
+                    <button type="button" class="small-action" disabled={moderatingUserId !== null} onclick={() => openAction('ban', user)}>Ban</button>
+                  {/if}
+                  <button type="button" class="small-action small-action--danger" disabled={moderatingUserId !== null} onclick={() => openAction('erase', user)}>Erase</button>
+                {:else if user.status === 'erasing'}
+                  <span class="erase-progress">Queued</span>
+                {:else}
+                  <span class="protected">Protected</span>
+                {/if}
+              </span>
             </div>
           {/each}
         </div>
@@ -249,6 +308,17 @@
     {/if}
   </div>
 </main>
+
+{#if action}
+  <AdminUserActionDialog
+    action={action.kind}
+    busy={moderatingUserId === action.user.id}
+    error={actionError}
+    onCancel={() => { if (!moderatingUserId) action = null; }}
+    onConfirm={confirmAction}
+    username={action.user.username}
+  />
+{/if}
 
 <style>
   .regado-shell { min-width: 0; min-height: 0; overflow: auto; color: #26332d; background: radial-gradient(circle at 74% 0%, rgb(72 143 119 / 10%), transparent 31%), #f3f6f2; }
@@ -341,7 +411,7 @@
   .stat-row span { color: #7c8981; font-size: calc(8px * var(--text-scale)); } .stat-row strong { margin-top: 5px; font-size: calc(18px * var(--text-scale)); } .stat-row strong.green { color: #3f966e; }
   .stat-row small { margin-top: 2px; color: #a0a7a2; font-size: calc(7px * var(--text-scale)); }
   .users-table { overflow: hidden; border: 1px solid #e0e6e2; border-radius: 11px; }
-  .table-head, .user-row { display: grid; grid-template-columns: minmax(160px, 1.6fr) .8fr .8fr .8fr 1fr .45fr; align-items: center; gap: 9px; padding: 0 13px; }
+  .table-head, .user-row { display: grid; grid-template-columns: minmax(160px, 1.6fr) .8fr .8fr .8fr 1fr .45fr 1.2fr; align-items: center; gap: 9px; padding: 0 13px; }
   .table-head { height: 31px; color: #8b958f; background: #f5f7f5; font-size: calc(7px * var(--text-scale)); font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
   .user-row { min-height: 53px; color: #6d7871; border-top: 1px solid #e8ece9; font-size: calc(8px * var(--text-scale)); }
   .user-cell { display: flex; align-items: center; gap: 9px; min-width: 0; }
@@ -349,9 +419,15 @@
   .user-cell strong, .user-cell small { display: block; } .user-cell strong { color: #2b3a33; font-size: calc(9px * var(--text-scale)); } .user-cell small { margin-top: 2px; color: #a0a8a3; font-family: ui-monospace, monospace; font-size: calc(6px * var(--text-scale)); }
   mark { padding: 4px 6px; color: #63716a; background: #eef1ef; border-radius: 5px; font-size: calc(7px * var(--text-scale)); font-weight: 680; }
   mark.superadmin { color: #785620; background: #f8edcf; }
-  .presence { display: flex; align-items: center; gap: 5px; text-transform: capitalize; } .presence i { width: 5px; height: 5px; background: #aeb7b1; border-radius: 50%; } .presence.online { color: #338a64; } .presence.online i { background: #47a979; box-shadow: 0 0 0 3px rgb(71 169 121 / 10%); }
+  .presence { display: flex; align-items: center; gap: 5px; text-transform: capitalize; } .presence i { width: 5px; height: 5px; background: #aeb7b1; border-radius: 50%; } .presence.online { color: #338a64; } .presence.online i { background: #47a979; box-shadow: 0 0 0 3px rgb(71 169 121 / 10%); } .presence.banned { color: #9a5b51; } .presence.banned i { background: #c37a6c; }
   .sessions { justify-self: center; color: #35483f; font-weight: 700; }
+  .user-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+  .small-action { min-height: 25px; padding: 0 7px; color: #527765; background: #f2f7f3; border: 1px solid #d3e2d8; border-radius: 6px; cursor: pointer; font-size: calc(7px * var(--text-scale)); font-weight: 700; }
+  .small-action:hover:not(:disabled) { background: #e6f1eb; border-color: #aacdb9; }
+  .small-action--danger { color: #9a554c; background: #fcf1ef; border-color: #efd4cf; }
+  .small-action:disabled { cursor: wait; opacity: .55; }
+  .erase-progress, .protected { color: #9b746c; font-size: calc(7px * var(--text-scale)); }
   .error-card { display: grid; min-height: 220px; padding: 30px; background: #fff; border: 1px solid #dce3de; border-radius: 16px; place-items: center; align-content: center; gap: 10px; color: #718078; font-size: calc(10px * var(--text-scale)); text-align: center; }
   .error-card strong { color: #314039; font-size: calc(14px * var(--text-scale)); } .error-card p { margin-bottom: 5px; } .inline-error { margin-bottom: 12px; padding: 9px 11px; color: #8d493f; background: #faeeeb; border-radius: 8px; font-size: calc(9px * var(--text-scale)); }
-  @media (max-width: 850px) { .initial-loading, .summary-grid, .quota-groups { grid-template-columns: 1fr; } .initial-field--wide { grid-column: auto; } .table-head, .user-row { grid-template-columns: minmax(140px, 1.5fr) .8fr .8fr .8fr; } .table-head span:nth-child(5), .table-head span:nth-child(6), .user-row > span:nth-child(5), .user-row > span:nth-child(6) { display: none; } }
+  @media (max-width: 850px) { .initial-loading, .summary-grid, .quota-groups { grid-template-columns: 1fr; } .initial-field--wide { grid-column: auto; } .table-head, .user-row { grid-template-columns: minmax(140px, 1.5fr) .8fr .8fr .8fr 1.2fr; } .table-head span:nth-child(5), .table-head span:nth-child(6), .user-row > span:nth-child(5), .user-row > span:nth-child(6) { display: none; } }
 </style>

@@ -34,13 +34,15 @@ export async function authenticate(
   request: Request,
   env: Env,
   now = unixNow(),
+  allowSuspended = false,
 ): Promise<AuthenticatedSession | null> {
   const extracted = extractToken(request);
   if (!extracted) return null;
   const tokenHash = await hashSessionToken(extracted.token);
   const row = await findSessionUser(env.DB, tokenHash);
   if (!row) return null;
-  if (row.expires_at <= now || row.status !== ACCOUNT_STATUS_ACTIVE) {
+  if (row.expires_at <= now ||
+      (row.status !== ACCOUNT_STATUS_ACTIVE && !(allowSuspended && row.status === 2))) {
     await deleteSession(env.DB, tokenHash);
     return null;
   }

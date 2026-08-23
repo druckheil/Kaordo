@@ -794,6 +794,7 @@
         onRefresh={() => regado.state.refresh()}
         onRefreshCloudflare={() => regado.state.refreshCloudflare()}
         onRefreshDashboard={() => regado.state.refreshDashboard()}
+        onModerateUser={(userId, action) => regado.state.moderateUser(userId, action).then(() => undefined)}
       />
     {:else if activeSection === 'agordoj'}
       <SettingsSection

@@ -200,6 +200,17 @@ class TusUploadStore(
         .sortedWith(compareByDescending<UploadRecord> { it.createdAt }.thenByDescending { it.id })
         .toList()
 
+    /** Deletes standalone and attached files owned by an erased account. */
+    @Synchronized
+    fun eraseOwner(owner: String) {
+        listRecords()
+            .filter { it.createdBy == owner }
+            .forEach { record ->
+                dataFile(record.id).delete()
+                recordFile(record.id).delete()
+            }
+    }
+
     @Synchronized
     fun storedBytes(id: String): Long = dataFile(id).takeIf { it.isFile }?.length() ?: 0L
 

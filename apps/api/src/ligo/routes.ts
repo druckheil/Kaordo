@@ -1,4 +1,5 @@
 import type { Env } from '../env';
+import { finalizeAdminEraseUser } from '../admin/moderation';
 import { base64Url } from '../auth/encoding';
 import { authenticate, unixNow } from '../auth/session';
 import { json } from '../http/json';
@@ -288,12 +289,19 @@ export async function acknowledgeLigoConversationDeletions(request: Request, env
     const peerUsernames = requiredUsernames(input.peerUsernames, MAX_RECEIPT_IDS);
     if (!peerUsernames.length) return json({ ok: true });
     const placeholders = peerUsernames.map((_, index) => `?${index + 2}`).join(', ');
+    const pendingTargets = await env.DB.prepare(
+      `SELECT peer_id FROM ligo_conversation_deletions
+        WHERE recipient_id = ?1 AND peer_id IN (
+          SELECT id FROM users WHERE username IN (${placeholders})
+        )`,
+    ).bind(session.userId, ...peerUsernames).all<{ peer_id: ArrayBuffer }>();
     await env.DB.prepare(
       `DELETE FROM ligo_conversation_deletions
         WHERE recipient_id = ?1 AND peer_id IN (
           SELECT id FROM users WHERE username IN (${placeholders})
         )`,
     ).bind(session.userId, ...peerUsernames).run();
+    await Promise.all(pendingTargets.results.map((row) => finalizeAdminEraseUser(env, row.peer_id)));
     return json({ ok: true });
   } catch (error) {
     return json({ error: error instanceof InputError ? error.message : 'Conversation deletion receipt is invalid.' }, 400);

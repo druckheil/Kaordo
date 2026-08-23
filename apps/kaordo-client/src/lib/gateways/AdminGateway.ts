@@ -1,6 +1,9 @@
-import type { AdminDashboard, CloudflareUsage } from '../domain/admin';
+import type { AdminDashboard, AdminModerationResult, CloudflareUsage } from '../domain/admin';
 
 export interface AdminGateway {
   cloudflare(forceRefresh?: boolean): Promise<CloudflareUsage | null>;
   dashboard(forceRefresh?: boolean): Promise<AdminDashboard>;
+  banUser(userId: string): Promise<AdminModerationResult>;
+  unbanUser(userId: string): Promise<AdminModerationResult>;
+  eraseUser(userId: string): Promise<AdminModerationResult>;
 }

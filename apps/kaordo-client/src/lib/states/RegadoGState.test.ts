@@ -13,6 +13,9 @@ describe('RegadoGState', () => {
     const gateway: AdminGateway = {
       cloudflare: () => telemetry,
       dashboard: () => Promise.resolve(dashboard),
+      banUser: async () => ({ ok: true, status: 'suspended' }),
+      unbanUser: async () => ({ ok: true, status: 'active' }),
+      eraseUser: async () => ({ ok: true, status: 'erasing', pendingJobs: 1 }),
     };
     const state = new RegadoGState(gateway);
 
@@ -40,7 +43,13 @@ describe('RegadoGState', () => {
   it('refreshes telemetry and dashboard independently with a force flag', async () => {
     const cloudflare = vi.fn(async () => ({ sampledAt: 2 } as CloudflareUsage));
     const dashboard = vi.fn(async () => ({ generatedAt: 2 } as AdminDashboard));
-    const state = new RegadoGState({ cloudflare, dashboard });
+    const state = new RegadoGState({
+      cloudflare,
+      dashboard,
+      banUser: async () => ({ ok: true, status: 'suspended' }),
+      unbanUser: async () => ({ ok: true, status: 'active' }),
+      eraseUser: async () => ({ ok: true, status: 'erasing', pendingJobs: 1 }),
+    });
 
     await state.refreshCloudflare();
     expect(cloudflare).toHaveBeenCalledWith(true);

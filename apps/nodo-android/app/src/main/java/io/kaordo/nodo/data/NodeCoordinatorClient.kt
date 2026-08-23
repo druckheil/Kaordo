@@ -43,6 +43,7 @@ class NodeCoordinatorClient {
         publicUsedBytes: Long,
         metrics: NodeMetrics,
         testCompletedAt: Long?,
+        completedEraseJobIds: List<String>,
         deletedLigoMessageIds: List<String>,
         deletedPublicPostIds: List<String>,
         releasedPublicReservationIds: List<String>,
@@ -76,6 +77,7 @@ class NodeCoordinatorClient {
                 .put("networkUpBps", metrics.networkUpBps)
                 .put("storageAvailableBytes", metrics.storageAvailableBytes))
             .put("testCompletedAt", testCompletedAt)
+            .put("completedEraseJobIds", JSONArray(completedEraseJobIds))
             .put("deletedLigoMessageIds", JSONArray(deletedLigoMessageIds))
             .put("deletedPublicPostIds", JSONArray(deletedPublicPostIds))
             .put("releasedPublicReservationIds", JSONArray(releasedPublicReservationIds))
@@ -109,6 +111,11 @@ class NodeCoordinatorClient {
                         LigoDeletion(it.getString("id"), it.getString("storage"))
                     } }
                 }.orEmpty(),
+                eraseUserJobs = value.optJSONArray("eraseUserJobs")?.let { items ->
+                    List(items.length()) { index -> items.getJSONObject(index).let {
+                        EraseJob(it.getString("id"), it.getString("username"))
+                    } }
+                }.orEmpty(),
                 publicDeletePostIds = value.optJSONArray("publicDeletePostIds")?.let { items ->
                     List(items.length()) { items.getString(it) }
                 }.orEmpty(),
@@ -139,11 +146,13 @@ class NodeCoordinatorClient {
         val privateQuotaBytes: Long,
         val publicQuotaBytes: Long,
         val ligoDeleteMessages: List<LigoDeletion>,
+        val eraseUserJobs: List<EraseJob>,
         val publicDeletePostIds: List<String>,
         val runQuickTest: Boolean,
     )
 
     data class LigoDeletion(val id: String, val storage: String)
+    data class EraseJob(val id: String, val username: String)
 
     class SessionExpiredException : IllegalStateException("The Nodo session has expired. Please sign in again.")
 

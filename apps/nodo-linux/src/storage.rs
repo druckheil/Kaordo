@@ -198,6 +198,14 @@ impl NodeStorage {
     ) -> io::Result<Vec<StorageItem>> {
         self.space(space).storage_items(actor, owner)
     }
+
+    /// Remove every payload authored by a username from both logical spaces.
+    /// This is used only for a coordinator-issued administrative erasure job;
+    /// ordinary HTTP callers still go through the actor/owner checks below.
+    pub fn erase_owner(&self, owner: &str) -> io::Result<()> {
+        self.private.erase_owner(owner)?;
+        self.public.erase_owner(owner)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -679,6 +687,51 @@ impl SpaceStorage {
         Ok(remove_if_exists(path).map_err(StorageError::Io)?)
     }
 
+    pub fn erase_owner(&self, owner: &str) -> io::Result<()> {
+        let post_ids = self.posts()?.into_iter()
+            .filter(|post| post.author == owner)
+            .map(|post| post.id)
+            .collect::<Vec<_>>();
+        for id in post_ids {
+            self.delete_post(&id, owner, true)
+                .map_err(storage_error_io)?;
+        }
+
+        let envelope_ids = read_json_files::<Envelope>(
+            &self.root.join("ligo-envelopes"),
+            ".envelope.json",
+        )?.into_iter()
+            .filter(|envelope| envelope.sender == owner || envelope.recipient == owner)
+            .map(|envelope| envelope.id)
+            .collect::<Vec<_>>();
+        for id in envelope_ids {
+            self.delete_envelope_for_cleanup(&id)
+                .map_err(storage_error_io)?;
+        }
+
+        let rondo = self.rondo_messages()?.into_iter()
+            .filter(|stored| stored.message.author == owner)
+            .map(|stored| (stored.space_id, stored.room_id, stored.message.id))
+            .collect::<Vec<_>>();
+        for (space_id, room_id, id) in rondo {
+            self.delete_rondo(&space_id, &room_id, &id, owner, true)
+                .map_err(storage_error_io)?;
+        }
+
+        // Files that were uploaded by the account but never attached to a
+        // post/message (including interrupted uploads and profile payloads)
+        // are still part of the account and must not survive the erase.
+        let record_ids = self.records()?.into_iter()
+            .filter(|record| record.created_by.as_deref() == Some(owner))
+            .map(|record| record.id)
+            .collect::<Vec<_>>();
+        for id in record_ids {
+            let _ = self.delete_upload(&id, owner, true)
+                .map_err(storage_error_io)?;
+        }
+        Ok(())
+    }
+
     pub fn page_rondo(
         &self,
         space_id: &str,
@@ -1044,6 +1097,10 @@ impl From<io::Error> for StorageError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
     }
+}
+
+fn storage_error_io(error: StorageError) -> io::Error {
+    io::Error::other(error.to_string())
 }
 
 impl std::fmt::Display for StorageError {

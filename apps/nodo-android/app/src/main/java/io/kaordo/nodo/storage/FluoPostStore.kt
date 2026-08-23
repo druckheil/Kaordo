@@ -172,6 +172,13 @@ class FluoPostStore(
     }
 
     @Synchronized
+    fun eraseOwner(owner: String) {
+        list().filter { it.author == owner }.forEach { post ->
+            delete(post.id, owner, true)
+        }
+    }
+
+    @Synchronized
     fun hasPublicReservation(id: String): Boolean = id in publicReservations
 
     @Synchronized

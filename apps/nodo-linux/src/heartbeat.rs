@@ -16,6 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reconciliation {
+    pub completed_erase_job_ids: Vec<String>,
     pub deleted_ligo_message_ids: Vec<String>,
     pub deleted_public_post_ids: Vec<String>,
     pub released_public_reservation_ids: Vec<String>,
@@ -47,6 +48,9 @@ impl Reconciliation {
     pub fn add_reservation(&mut self, id: &str) {
         push_unique(&mut self.released_public_reservation_ids, id);
     }
+    pub fn add_erase_job(&mut self, id: &str) {
+        push_unique(&mut self.completed_erase_job_ids, id);
+    }
 }
 
 fn push_unique(values: &mut Vec<String>, id: &str) {
@@ -70,6 +74,15 @@ struct HeartbeatResponse {
     public_delete_post_ids: Vec<String>,
     #[serde(default)]
     run_quick_test: bool,
+    #[serde(default)]
+    erase_user_jobs: Vec<EraseJob>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EraseJob {
+    id: String,
+    username: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -319,6 +332,7 @@ fn send_heartbeat(
         "spaces": { "privateUsedBytes": private_used, "publicUsedBytes": public_used },
         "metrics": metrics,
         "testCompletedAt": test_completed_at,
+        "completedEraseJobIds": reconciliation.completed_erase_job_ids,
         "deletedLigoMessageIds": reconciliation.deleted_ligo_message_ids,
         "deletedPublicPostIds": reconciliation.deleted_public_post_ids,
         "releasedPublicReservationIds": reconciliation.released_public_reservation_ids,
@@ -372,6 +386,14 @@ fn apply_deletions(
     mut reconciliation: Reconciliation,
 ) -> Reconciliation {
     if let Ok(mut storage) = runtime.storage.write() {
+        for job in response.erase_user_jobs {
+            match storage.erase_owner(&job.username) {
+                Ok(()) => reconciliation.add_erase_job(&job.id),
+                Err(error) => crate::ui::warning(&format!(
+                    "Could not erase account payloads on Nodo: {error}"
+                )),
+            }
+        }
         for deletion in response.ligo_delete_messages {
             let space = if deletion.storage == "public" {
                 Space::Public

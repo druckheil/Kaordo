@@ -118,6 +118,13 @@ class RondoMessageStore(private val root: File, private val uploads: TusUploadSt
         return bytes
     }
 
+    @Synchronized
+    fun eraseOwner(owner: String) {
+        listAll().filter { it.message.author == owner }.forEach { stored ->
+            delete(stored.spaceId, stored.roomId, stored.message.id, owner, true)
+        }
+    }
+
     private fun appendIndex(indexFile: File, message: Message) {
         val line = String.format(Locale.US, "%013d\t%s\n", message.createdAt, message.id)
             .toByteArray(Charsets.US_ASCII)

@@ -92,6 +92,13 @@ class LigoEnvelopeStore(root: File, private val uploads: TusUploadStore) {
         return bytes
     }
 
+    @Synchronized
+    fun eraseOwner(owner: String) {
+        list().filter { it.sender == owner || it.recipient == owner }.forEach { envelope ->
+            deleteForCleanup(envelope.id)
+        }
+    }
+
     private fun parseFile(target: File): Envelope? = target.takeIf {
         it.isFile && it.length() <= MAX_ENVELOPE_BYTES
     }?.let { runCatching { parse(JSONObject(it.readText())) }.getOrNull() }

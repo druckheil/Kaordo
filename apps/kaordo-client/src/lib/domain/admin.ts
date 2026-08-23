@@ -5,7 +5,7 @@ export type AdminUser = {
   lastSeenAt: number;
   online: boolean;
   role: 'admin' | 'superadmin' | 'user';
-  status: 'active' | 'disabled' | 'suspended';
+  status: 'active' | 'disabled' | 'suspended' | 'erasing';
   username: string;
 };
 
@@ -49,6 +49,12 @@ export type AdminDashboard = {
     totalUsers: number;
   };
   users: AdminUser[];
+};
+
+export type AdminModerationResult = {
+  ok: boolean;
+  pendingJobs?: number;
+  status: 'active' | 'suspended' | 'erasing' | 'erased';
 };
 
 export type CloudflareUsage = {

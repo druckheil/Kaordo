@@ -6,6 +6,10 @@ import {
   retireNodePublicPosts,
 } from '../fluo/public-storage';
 import { acknowledgeCloudCleanup } from '../ligo/routes';
+import {
+  acknowledgeAdminEraseJobs,
+  pendingAdminEraseJobs,
+} from '../admin/moderation';
 
 const MAX_REQUEST_BYTES = 16_384;
 const NODE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -66,7 +70,10 @@ const NODE_COLUMNS = `id, device_name, protocol, port, quota_bytes, used_bytes,
   device_key, slot_key`;
 
 export async function nodeHeartbeat(request: Request, env: Env): Promise<Response> {
-  const session = await authenticate(request, env);
+  // A suspended account may still heartbeat long enough for an
+  // administrative erasure job to remove its local Nodo payloads. This is
+  // the only endpoint that accepts that infrastructure call.
+  const session = await authenticate(request, env, unixNow(), true);
   if (!session) return json({ error: 'Authentication required.' }, 401);
   try {
     const input = await readHeartbeat(request);
@@ -169,6 +176,11 @@ export async function nodeHeartbeat(request: Request, env: Env): Promise<Respons
       Number(input.metrics !== null),
     ).run();
     if ((result.meta.changes ?? 0) === 0) return json({ error: 'Node not found.' }, 404);
+    // Keep a snapshot for the response: the final erase acknowledgement may
+    // delete this user's account (and its node row) before this heartbeat
+    // returns to the host.
+    const row = await ownedNode(env, nodeId, session.userId);
+    if (!row) return json({ error: 'Node not found.' }, 404);
     await applyPublicReconciliationAcks(
       env,
       nodeId,
@@ -176,8 +188,7 @@ export async function nodeHeartbeat(request: Request, env: Env): Promise<Respons
       input.releasedPublicReservationIds,
     );
     await acknowledgeCloudCleanup(env, input.deletedLigoMessageIds, nodeId);
-    const row = await ownedNode(env, nodeId, session.userId);
-    if (!row) return json({ error: 'Node not found.' }, 404);
+    await acknowledgeAdminEraseJobs(env, nodeId, input.completedEraseJobIds);
     const tombstones = await env.DB.prepare(
       `SELECT post_id FROM fluo_public_tombstones
         WHERE node_id = ?1 ORDER BY created_at ASC, post_id ASC LIMIT ?2`,
@@ -189,6 +200,7 @@ export async function nodeHeartbeat(request: Request, env: Env): Promise<Respons
       message_id: string;
       storage_kind: number;
     }>();
+    const eraseJobs = await pendingAdminEraseJobs(env, nodeId);
     return json({
       heartbeatAfterSeconds: 120,
       deviceName: row.device_name,
@@ -200,6 +212,7 @@ export async function nodeHeartbeat(request: Request, env: Env): Promise<Respons
         storage: item.storage_kind === 1 ? 'public' : 'private',
       })),
       publicDeletePostIds: tombstones.results.map(({ post_id }) => post_id),
+      eraseUserJobs: eraseJobs,
       spaces: spaces(row),
       runQuickTest: (row.test_requested_at ?? 0) > (row.test_completed_at ?? 0),
     });
@@ -951,6 +964,7 @@ async function readHeartbeat(request: Request) {
   const deletedPublicPostIds = reconciliationIds(value.deletedPublicPostIds);
   const deletedLigoMessageIds = reconciliationIds(value.deletedLigoMessageIds);
   const releasedPublicReservationIds = reconciliationIds(value.releasedPublicReservationIds);
+  const completedEraseJobIds = reconciliationIds(value.completedEraseJobIds);
   if (!Array.isArray(value.localAddresses) || value.localAddresses.length > 16 ||
       value.localAddresses.some((address) => typeof address !== 'string' || !validIpAddress(address))) {
     throw new NodeInputError('Node addresses are invalid.');
@@ -971,6 +985,7 @@ async function readHeartbeat(request: Request) {
   return {
     deletedLigoMessageIds,
     deletedPublicPostIds,
+    completedEraseJobIds,
     deviceName: value.deviceName.trim(),
     deviceKey,
     localAddresses: [...new Set(value.localAddresses as string[])],

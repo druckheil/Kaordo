@@ -82,6 +82,9 @@ const adminDashboard = {
 const adminGateway = {
   cloudflare: () => Promise.resolve(adminDashboard.usage.cloudflare),
   dashboard: () => Promise.resolve(adminDashboard),
+  banUser: () => Promise.resolve({ ok: true, status: 'suspended' as const }),
+  unbanUser: () => Promise.resolve({ ok: true, status: 'active' as const }),
+  eraseUser: () => Promise.resolve({ ok: true, status: 'erasing' as const, pendingJobs: 1 }),
 };
 const appearanceGateway = {
   load: () => ({ scale: 1 as const, textScale: 1, theme: 'light' as const }),
@@ -716,7 +719,13 @@ describe('workspace navigation and objects', () => {
     const cloudflare = vi.fn(() => Promise.resolve(adminDashboard.usage.cloudflare));
     const dashboard = vi.fn(() => Promise.resolve(adminDashboard));
     render(App, {
-      adminGateway: { cloudflare, dashboard },
+      adminGateway: {
+        cloudflare,
+        dashboard,
+        banUser: () => Promise.resolve({ ok: true, status: 'suspended' as const }),
+        unbanUser: () => Promise.resolve({ ok: true, status: 'active' as const }),
+        eraseUser: () => Promise.resolve({ ok: true, status: 'erasing' as const, pendingJobs: 1 }),
+      },
       appearanceGateway,
       autoloadWorkspaceLibrary: false,
       authGateway: authenticatedGateway(),

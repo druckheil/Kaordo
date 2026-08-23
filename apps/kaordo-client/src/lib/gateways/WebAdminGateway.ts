@@ -1,4 +1,4 @@
-import type { AdminDashboard, CloudflareUsage } from '../domain/admin';
+import type { AdminDashboard, AdminModerationResult, CloudflareUsage } from '../domain/admin';
 import type { AdminGateway } from './AdminGateway';
 import { requestJson } from './WebApiClient';
 
@@ -9,6 +9,25 @@ export class WebAdminGateway implements AdminGateway {
 
   dashboard(forceRefresh = false): Promise<AdminDashboard> {
     return requestJson(adminPath('/api/admin/dashboard', forceRefresh), requestInit(forceRefresh), ADMIN_UNAVAILABLE);
+  }
+
+  banUser(userId: string): Promise<AdminModerationResult> {
+    return this.moderate(userId, 'ban');
+  }
+
+  unbanUser(userId: string): Promise<AdminModerationResult> {
+    return this.moderate(userId, 'unban');
+  }
+
+  eraseUser(userId: string): Promise<AdminModerationResult> {
+    return this.moderate(userId, 'erase');
+  }
+
+  private moderate(userId: string, action: 'ban' | 'unban' | 'erase'): Promise<AdminModerationResult> {
+    return requestJson(`/api/admin/users/${encodeURIComponent(userId)}/${action}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    }, ADMIN_UNAVAILABLE);
   }
 }
 

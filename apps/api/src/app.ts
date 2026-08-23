@@ -18,6 +18,11 @@ import { fluoBootstrap } from './fluo/bootstrap';
 import { adminDashboard } from './admin/dashboard';
 import { adminCloudflareTelemetry } from './admin/telemetry';
 import {
+  adminBanUser,
+  adminEraseUser,
+  adminUnbanUser,
+} from './admin/moderation';
+import {
   cancelPublicStorage,
   commitPublicStorage,
   publicStorageStatus,
@@ -99,6 +104,16 @@ export function handleRequest(
   }
   if (request.method === 'GET' && pathname === '/api/admin/cloudflare') {
     return adminCloudflareTelemetry(request, env);
+  }
+  const adminUserAction = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]{1,64})\/(ban|unban|erase)$/u);
+  if (adminUserAction?.[1] && adminUserAction[2] === 'ban' && request.method === 'POST') {
+    return adminBanUser(request, env, adminUserAction[1], ctx);
+  }
+  if (adminUserAction?.[1] && adminUserAction[2] === 'unban' && request.method === 'POST') {
+    return adminUnbanUser(request, env, adminUserAction[1]);
+  }
+  if (adminUserAction?.[1] && adminUserAction[2] === 'erase' && request.method === 'POST') {
+    return adminEraseUser(request, env, adminUserAction[1], ctx);
   }
   if (request.method === 'POST' && pathname === '/api/nodes/heartbeat') {
     return nodeHeartbeat(request, env);

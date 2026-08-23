@@ -1,4 +1,4 @@
-import type { AdminDashboard, CloudflareUsage } from '../domain/admin';
+import type { AdminDashboard, AdminModerationResult, CloudflareUsage } from '../domain/admin';
 import type { AdminGateway } from '../gateways/AdminGateway';
 import { GState } from '../state/GState';
 
@@ -99,5 +99,18 @@ export class RegadoGState extends GState<RegadoSnapshot> {
         cloudflarePhase: 'error',
       });
     }
+  }
+
+  async moderateUser(
+    userId: string,
+    action: 'ban' | 'unban' | 'erase',
+  ): Promise<AdminModerationResult> {
+    const result = action === 'ban'
+      ? await this.#gateway.banUser(userId)
+      : action === 'unban'
+        ? await this.#gateway.unbanUser(userId)
+        : await this.#gateway.eraseUser(userId);
+    await this.refreshDashboard(true);
+    return result;
   }
 }

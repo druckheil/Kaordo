@@ -695,12 +695,62 @@ pub async fn admin_cloudflare(
     decode_response(response).await
 }
 
+#[tauri::command]
+pub async fn admin_ban_user(
+    client: State<'_, AuthClient>,
+    user_id: String,
+) -> Result<Value, String> {
+    admin_moderate_user(&client, &user_id, "ban").await
+}
+
+#[tauri::command]
+pub async fn admin_unban_user(
+    client: State<'_, AuthClient>,
+    user_id: String,
+) -> Result<Value, String> {
+    admin_moderate_user(&client, &user_id, "unban").await
+}
+
+#[tauri::command]
+pub async fn admin_erase_user(
+    client: State<'_, AuthClient>,
+    user_id: String,
+) -> Result<Value, String> {
+    admin_moderate_user(&client, &user_id, "erase").await
+}
+
+async fn admin_moderate_user(
+    client: &AuthClient,
+    user_id: &str,
+    action: &str,
+) -> Result<Value, String> {
+    let user_id = user_id_path(user_id)?;
+    let response = authenticated_request(
+        client,
+        Method::POST,
+        &format!("/api/admin/users/{user_id}/{action}"),
+    )
+    .await?;
+    decode_response(response).await
+}
+
 fn admin_path(path: &str, force_refresh: Option<bool>) -> String {
     if force_refresh.unwrap_or(false) {
         format!("{path}?fresh=1")
     } else {
         path.to_owned()
     }
+}
+
+fn user_id_path(value: &str) -> Result<String, String> {
+    if value.len() != 22
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    {
+        return Err("The user identifier is invalid.".to_owned());
+    }
+    Ok(value.to_owned())
 }
 
 #[tauri::command]

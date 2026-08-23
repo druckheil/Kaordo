@@ -13,6 +13,7 @@ type AdminUserRow = {
   online: number;
   role: number;
   status: number;
+  erase_pending: number;
   username: string;
 };
 
@@ -26,7 +27,14 @@ export async function adminDashboard(request: Request, env: Env): Promise<Respon
     .prepare(
       `SELECT u.id, u.username, u.display_username, u.created_at, u.status,
               u.role, u.last_seen_at, u.online,
-              COUNT(CASE WHEN s.expires_at > ?1 THEN 1 END) AS active_sessions
+              COUNT(CASE WHEN s.expires_at > ?1 THEN 1 END) AS active_sessions,
+              EXISTS(
+                SELECT 1 FROM admin_erase_jobs AS erase_jobs
+                WHERE erase_jobs.target_user_id = u.id
+              ) OR EXISTS(
+                SELECT 1 FROM ligo_conversation_deletions AS erase_conversations
+                WHERE erase_conversations.peer_id = u.id
+              ) AS erase_pending
          FROM users u
          LEFT JOIN sessions s ON s.user_id = u.id
         GROUP BY u.id
@@ -41,7 +49,9 @@ export async function adminDashboard(request: Request, env: Env): Promise<Respon
     lastSeenAt: user.last_seen_at,
     online: Boolean(user.online),
     role: accountRole(user.username, user.role),
-    status: user.status === 1 ? 'active' : user.status === 2 ? 'suspended' : 'disabled',
+    status: user.erase_pending
+      ? 'erasing'
+      : user.status === 1 ? 'active' : user.status === 2 ? 'suspended' : 'disabled',
     username: user.display_username,
   }));
   const meta = result.meta as D1Meta & { size_after?: number };

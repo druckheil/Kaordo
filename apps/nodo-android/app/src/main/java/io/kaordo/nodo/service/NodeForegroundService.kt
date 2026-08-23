@@ -237,6 +237,7 @@ class NodeForegroundService : Service() {
                             publicUsedBytes = publicStore.usedBytes(),
                             metrics = metrics,
                             testCompletedAt = benchmark.get()?.completedAt,
+                            completedEraseJobIds = pendingReconciliation.eraseJobIds,
                             deletedLigoMessageIds = pendingReconciliation.ligoMessageIds,
                             deletedPublicPostIds = pendingReconciliation.postIds,
                             releasedPublicReservationIds = pendingReconciliation.reservationIds,
@@ -255,6 +256,22 @@ class NodeForegroundService : Service() {
                         }
                         configuration.setSpaceQuotas(it.publicQuotaBytes, it.privateQuotaBytes)
                         activePolicy.set(it.policy)
+                        var reconciledEraseJobs = false
+                        it.eraseUserJobs.forEach { job ->
+                            runCatching {
+                                privatePosts.eraseOwner(job.username)
+                                privateEnvelopes.eraseOwner(job.username)
+                                privateMessages.eraseOwner(job.username)
+                                privateStore.eraseOwner(job.username)
+                                publicPosts.eraseOwner(job.username)
+                                publicEnvelopes.eraseOwner(job.username)
+                                publicMessages.eraseOwner(job.username)
+                                publicStore.eraseOwner(job.username)
+                            }.onSuccess {
+                                reconciliation.recordEraseJobCompletion(job.id)
+                                reconciledEraseJobs = true
+                            }
+                        }
                         var reconciledLigo = false
                         it.ligoDeleteMessages.forEach { message ->
                             val envelopes = when (message.storage) {
@@ -278,7 +295,7 @@ class NodeForegroundService : Service() {
                                 FluoPostStore.DeleteResult.FORBIDDEN -> Unit
                             }
                         }
-                        if (reconciledLigo || reconciledPosts) heartbeatSignal.trySend(Unit)
+                        if (reconciledEraseJobs || reconciledLigo || reconciledPosts) heartbeatSignal.trySend(Unit)
                         if (it.runQuickTest) {
                             benchmark.set(synchronized(diagnostics) { diagnostics.quickDiskTest() })
                             waitSeconds = 1

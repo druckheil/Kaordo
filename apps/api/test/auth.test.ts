@@ -1,6 +1,6 @@
 import { env, exports } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { arrayBuffer, base64Url, utf8 } from '../src/auth/encoding';
+import { arrayBuffer, base64Url, base64UrlBytes, utf8 } from '../src/auth/encoding';
 import { isRootSuperadmin } from '../src/auth/types';
 import { retireOfflinePublicNodes } from '../src/fluo/public-storage';
 
@@ -8,6 +8,7 @@ const PASSWORD = 'correct horse battery staple';
 
 beforeEach(async () => {
   await env.DB.batch([
+    env.DB.prepare('DELETE FROM admin_erase_jobs'),
     env.DB.prepare('DELETE FROM ligo_deliveries'),
     env.DB.prepare('DELETE FROM ligo_conversations'),
     env.DB.prepare('DELETE FROM rondo_invites'),
@@ -324,6 +325,117 @@ describe('authentication API', () => {
     await expect(dashboard.json()).resolves.toEqual({
       error: 'Administrator access required.',
     });
+  });
+
+  it('moderates accounts and waits for Nodo and peer cleanup before erasing', async () => {
+    const admin = await post('/api/auth/desktop/register', {
+      password: PASSWORD,
+      username: 'druckheil',
+    });
+    const adminToken = (await admin.json<{ sessionToken: string }>()).sessionToken;
+    const target = await post('/api/auth/desktop/register', {
+      password: PASSWORD,
+      username: 'erase_target',
+    });
+    const targetBody = await target.json<{ sessionToken: string; user: { id: string } }>();
+    const peer = await post('/api/auth/desktop/register', {
+      password: PASSWORD,
+      username: 'erase_peer',
+    });
+    const peerBody = await peer.json<{ sessionToken: string; user: { id: string } }>();
+    const targetId = arrayBuffer(base64UrlBytes(targetBody.user.id));
+    const peerId = arrayBuffer(base64UrlBytes(peerBody.user.id));
+    const targetBytes = new Uint8Array(targetId);
+    const peerBytes = new Uint8Array(peerId);
+    let targetIsLow = false;
+    for (let index = 0; index < targetBytes.length; index += 1) {
+      if (targetBytes[index] !== peerBytes[index]) {
+        targetIsLow = targetBytes[index]! < peerBytes[index]!;
+        break;
+      }
+    }
+    const low = targetIsLow ? targetId : peerId;
+    const high = targetIsLow ? peerId : targetId;
+    await env.DB.prepare(
+      `INSERT INTO ligo_conversations
+        (user_low_id, user_high_id, last_message_id, last_sender_id, last_preview, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(low, high, '123e4567-e89b-42d3-a456-426614174001', targetId, 'Erased later', 1).run();
+
+    const targetAuthorization = { authorization: `Bearer ${targetBody.sessionToken}` };
+    const heartbeat = await api('/api/nodes/heartbeat', {
+      body: JSON.stringify({
+        deviceKey: 'c'.repeat(64),
+        deviceName: 'Erase target node',
+        localAddresses: ['192.168.1.46'],
+        nodeId: null,
+        port: 49_321,
+        protocol: 'tus/1.0.0',
+        quotaBytes: 1_073_741_824,
+        slotKey: 'primary',
+        usedBytes: 0,
+      }),
+      headers: { ...targetAuthorization, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    const nodeId = (await heartbeat.json<{ nodeId: string }>()).nodeId;
+
+    const erased = await api(`/api/admin/users/${encodeURIComponent(targetBody.user.id)}/erase`, {
+      headers: { authorization: `Bearer ${adminToken}` },
+      method: 'POST',
+    });
+    await expect(erased.json()).resolves.toMatchObject({ ok: true, status: 'erasing' });
+
+    const firstCleanup = await api('/api/nodes/heartbeat', {
+      body: JSON.stringify({
+        deviceKey: 'c'.repeat(64),
+        deviceName: 'Erase target node',
+        localAddresses: ['192.168.1.46'],
+        nodeId,
+        port: 49_321,
+        protocol: 'tus/1.0.0',
+        quotaBytes: 1_073_741_824,
+        slotKey: 'primary',
+        usedBytes: 0,
+      }),
+      headers: { ...targetAuthorization, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    const cleanupBody = await firstCleanup.json<{ eraseUserJobs: Array<{ id: string }> }>();
+    expect(cleanupBody.eraseUserJobs).toHaveLength(1);
+
+    const acknowledged = await api('/api/nodes/heartbeat', {
+      body: JSON.stringify({
+        completedEraseJobIds: [cleanupBody.eraseUserJobs[0]!.id],
+        deviceKey: 'c'.repeat(64),
+        deviceName: 'Erase target node',
+        localAddresses: ['192.168.1.46'],
+        nodeId,
+        port: 49_321,
+        protocol: 'tus/1.0.0',
+        quotaBytes: 1_073_741_824,
+        slotKey: 'primary',
+        usedBytes: 0,
+      }),
+      headers: { ...targetAuthorization, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    expect(acknowledged.status).toBe(200);
+
+    const peerInbox = await api('/api/ligo/inbox', {
+      headers: { authorization: `Bearer ${peerBody.sessionToken}` },
+    });
+    await expect(peerInbox.json()).resolves.toMatchObject({
+      conversationDeletions: [{ peerUsername: 'erase_target' }],
+    });
+    const peerAck = await api('/api/ligo/conversation-deletions/ack', {
+      body: JSON.stringify({ peerUsernames: ['erase_target'] }),
+      headers: { authorization: `Bearer ${peerBody.sessionToken}`, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    expect(peerAck.status).toBe(200);
+    expect((await api('/api/auth/me', { headers: targetAuthorization })).status).toBe(401);
+    expect(await env.DB.prepare('SELECT 1 FROM users WHERE id = ?1').bind(targetId).first()).toBeNull();
   });
 
   it('always grants druckheil superadmin access and reports operational data', async () => {
@@ -1432,10 +1544,17 @@ describe('authentication API', () => {
   });
 });
 
+let testIpCounter = 0;
+
 function api(pathname: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has('cf-connecting-ip') && /^\/api\/auth\/(?:desktop\/)?(?:register|login)$/u.test(pathname)) {
+    testIpCounter = (testIpCounter % 250) + 1;
+    headers.set('cf-connecting-ip', `198.51.100.${testIpCounter}`);
+  }
   return exports.default.fetch(
     `https://${['veri', 'dimensio-api'].join('')}.pshenychnyi-ld.workers.dev${pathname}`,
-    init,
+    { ...init, headers },
   );
 }
 

@@ -10,6 +10,7 @@ class PublicReconciliationStore(root: File) {
     private val ligoMessageIds = linkedSetOf<String>()
     private val postIds = linkedSetOf<String>()
     private val reservationIds = linkedSetOf<String>()
+    private val eraseJobIds = linkedSetOf<String>()
 
     init {
         runCatching {
@@ -18,6 +19,7 @@ class PublicReconciliationStore(root: File) {
             readIds(value.optJSONArray("ligoMessageIds"), ligoMessageIds)
             readIds(value.optJSONArray("postIds"), postIds)
             readIds(value.optJSONArray("reservationIds"), reservationIds)
+            readIds(value.optJSONArray("eraseJobIds"), eraseJobIds)
         }
     }
 
@@ -37,18 +39,25 @@ class PublicReconciliationStore(root: File) {
     }
 
     @Synchronized
+    fun recordEraseJobCompletion(id: String) {
+        if (ID.matches(id)) persistChange { eraseJobIds.add(id) }
+    }
+
+    @Synchronized
     fun pending(limit: Int = MAX_BATCH): Pending = Pending(
         ligoMessageIds.take(limit),
         postIds.take(limit),
         reservationIds.take(limit),
+        eraseJobIds.take(limit),
     )
 
     @Synchronized
     fun acknowledge(pending: Pending) {
         persistChange {
-            ligoMessageIds.removeAll(pending.ligoMessageIds.toSet()) or
-                postIds.removeAll(pending.postIds.toSet()) or
-                reservationIds.removeAll(pending.reservationIds.toSet())
+            ligoMessageIds.removeAll(pending.ligoMessageIds.toSet()) ||
+                postIds.removeAll(pending.postIds.toSet()) ||
+                reservationIds.removeAll(pending.reservationIds.toSet()) ||
+                eraseJobIds.removeAll(pending.eraseJobIds.toSet())
         }
     }
 
@@ -56,6 +65,7 @@ class PublicReconciliationStore(root: File) {
         val previousLigoMessageIds = ligoMessageIds.toList()
         val previousPostIds = postIds.toList()
         val previousReservationIds = reservationIds.toList()
+        val previousEraseJobIds = eraseJobIds.toList()
         if (!change()) return
         try {
             persist()
@@ -66,6 +76,8 @@ class PublicReconciliationStore(root: File) {
             postIds.addAll(previousPostIds)
             reservationIds.clear()
             reservationIds.addAll(previousReservationIds)
+            eraseJobIds.clear()
+            eraseJobIds.addAll(previousEraseJobIds)
             throw error
         }
     }
@@ -77,6 +89,7 @@ class PublicReconciliationStore(root: File) {
             .put("ligoMessageIds", JSONArray(ligoMessageIds.toList()))
             .put("postIds", JSONArray(postIds.toList()))
             .put("reservationIds", JSONArray(reservationIds.toList()))
+            .put("eraseJobIds", JSONArray(eraseJobIds.toList()))
             .toString())
         moveTemporaryFile(temporary, file)
     }
@@ -92,6 +105,7 @@ class PublicReconciliationStore(root: File) {
         val ligoMessageIds: List<String>,
         val postIds: List<String>,
         val reservationIds: List<String>,
+        val eraseJobIds: List<String>,
     )
 
     private companion object {
