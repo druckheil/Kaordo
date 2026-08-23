@@ -15,10 +15,13 @@ export interface WorkspaceGateway {
   listWorkspaces(): Promise<WorkspaceLibrary>;
   openWorkspace(workspaceId: string): Promise<WorkspaceDetail>;
   loadCanvasDocument(workspaceId: string): Promise<WorkspaceCanvasDocument>;
+  loadCanvasMedia(workspaceId: string, mediaId: string): Promise<Blob | null>;
   saveCanvasDocument(
     workspaceId: string,
     document: WorkspaceCanvasDocument,
   ): Promise<void>;
+  saveCanvasMedia(workspaceId: string, mediaId: string, blob: Blob): Promise<void>;
+  deleteCanvasMedia(workspaceId: string, mediaId: string): Promise<void>;
   updateObjectDocument(
     workspaceId: string,
     objectId: string,

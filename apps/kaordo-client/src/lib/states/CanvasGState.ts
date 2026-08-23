@@ -295,7 +295,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
             .filter((element) => element.id !== elementId)
             .map((element) => {
               if (
-                element.type !== 'text' ||
+                (element.type !== 'text' && element.type !== 'media') ||
                 element.parentElementId !== elementId
               ) return element;
               const detached = { ...element };

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod auth;
+mod canvas_media;
 mod ligo_archive;
 
 use kaordo_workspace::{ObjectSummary, Workspace, WorkspaceDetail, WorkspaceLibrary};
@@ -222,7 +223,7 @@ async fn save_canvas_document(
     .map_err(|error| error.to_string())
 }
 
-fn parse_workspace_id(workspace_id: &str) -> Result<Uuid, String> {
+pub(crate) fn parse_workspace_id(workspace_id: &str) -> Result<Uuid, String> {
     Uuid::parse_str(workspace_id).map_err(|_| "The workspace identifier is invalid.".to_owned())
 }
 
@@ -261,7 +262,7 @@ fn object_info(object: &ObjectSummary) -> ObjectInfo {
     }
 }
 
-fn workspace_library(app: &tauri::AppHandle) -> Result<WorkspaceLibrary, String> {
+pub(crate) fn workspace_library(app: &tauri::AppHandle) -> Result<WorkspaceLibrary, String> {
     let documents_directory = app
         .path()
         .document_dir()
@@ -371,6 +372,10 @@ pub fn run() {
             auth::profile_commit,
             auth::profile_get,
             auth::profile_reserve,
+            canvas_media::canvas_delete_media,
+            canvas_media::canvas_media_size,
+            canvas_media::canvas_read_media_chunk,
+            canvas_media::canvas_write_media_chunk,
             auth::rondo_bootstrap,
             auth::rondo_add_node,
             auth::rondo_create_invite,

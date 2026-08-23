@@ -63,6 +63,10 @@ export class EditorController {
       (workspaceId, document) =>
         gateway.saveCanvasDocument(workspaceId, document),
       (workspaceId, objectId) => this.deleteObject(workspaceId, objectId),
+      (workspaceId, mediaId, blob) =>
+        gateway.saveCanvasMedia(workspaceId, mediaId, blob),
+      (workspaceId, mediaId) => gateway.loadCanvasMedia(workspaceId, mediaId),
+      (workspaceId, mediaId) => gateway.deleteCanvasMedia(workspaceId, mediaId),
     );
   }
 

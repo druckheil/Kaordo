@@ -1,6 +1,7 @@
 <script lang="ts">
   import type {
     ObjectSummary,
+    MediaElement,
     RectangleElement,
     TextElement,
     WorkspaceDetail,
@@ -51,7 +52,17 @@
     selected: boolean;
   };
 
-  type ElementNode = CardNode | TextNode;
+  type MediaNode = {
+    depth: number;
+    element: MediaElement;
+    id: string;
+    key: string;
+    kind: 'media';
+    label: string;
+    selected: boolean;
+  };
+
+  type ElementNode = CardNode | TextNode | MediaNode;
 
   type ContentNode = PanelNode | ElementNode;
 
@@ -124,6 +135,7 @@
 
     const element = node.element;
     const isCard = element.type === 'rectangle';
+    const isMedia = element.type === 'media';
     openContextMenu(event, node.label, [
       {
         action: () => focusNode(node),
@@ -138,6 +150,8 @@
             id: 'text-tool',
             label: 'Text Tool',
           }]
+        : isMedia
+        ? []
         : [{
             action: () => canvas.state.editText(element.id),
             icon: 'edit' as const,
@@ -146,13 +160,29 @@
           }]),
       {
         action: () => canvas.deleteCanvasElement(workspace.id, element.id),
-        confirmation: `Delete this ${isCard ? 'card' : 'text'}?`,
+          confirmation: `Delete this ${isCard ? 'card' : isMedia ? 'media' : 'text'}?`,
         danger: true,
         icon: 'delete',
         id: `delete-${node.kind}`,
-        label: `Delete ${isCard ? 'Card' : 'Text'}`,
+          label: `Delete ${isCard ? 'Card' : isMedia ? 'Media' : 'Text'}`,
       },
     ]);
+  }
+
+  function nodeSubtitle(node: ElementNode): string {
+    if (node.kind === 'card') {
+      return node.element.parentObjectId ? 'Card · Panel' : 'Card · Canvas';
+    }
+    if (node.kind === 'text') {
+      return node.element.parentElementId
+        ? 'Text · Card'
+        : node.element.parentObjectId ? 'Text · Panel' : 'Text · Canvas';
+    }
+    return node.element.parentElementId
+      ? `${node.element.kind} · Card`
+      : node.element.parentObjectId
+        ? `${node.element.kind} · Panel`
+        : `${node.element.kind} · Canvas`;
   }
 
   function buildContentTree(
@@ -188,6 +218,20 @@
       });
     };
 
+    const addMedia = (element: MediaElement, depth: number) => {
+      if (emitted.has(element.id)) return;
+      emitted.add(element.id);
+      nodes.push({
+        depth,
+        element,
+        id: element.id,
+        key: `media:${element.id}`,
+        kind: 'media',
+        label: element.name,
+        selected: snapshot.selectedGlobalElementId === element.id,
+      });
+    };
+
     const addCard = (element: RectangleElement, depth: number) => {
       if (emitted.has(element.id)) return;
       emitted.add(element.id);
@@ -204,6 +248,8 @@
       for (const child of elements) {
         if (child.type === 'text' && child.parentElementId === element.id) {
           addText(child, depth + 1);
+        } else if (child.type === 'media' && child.parentElementId === element.id) {
+          addMedia(child, depth + 1);
         }
       }
     };
@@ -230,6 +276,12 @@
           (!element.parentElementId || !cards.has(element.parentElementId))
         ) {
           addText(element, 1);
+        } else if (
+          element.type === 'media' &&
+          element.parentObjectId === object.id &&
+          (!element.parentElementId || !cards.has(element.parentElementId))
+        ) {
+          addMedia(element, 1);
         }
       }
     }
@@ -248,7 +300,8 @@
         cards.has(element.parentElementId)
       ) continue;
       if (!element.parentObjectId || !panelIds.has(element.parentObjectId)) {
-        addText(element, 0);
+        if (element.type === 'text') addText(element, 0);
+        else addMedia(element, 0);
       }
     }
     return nodes;
@@ -294,6 +347,7 @@
             class:content-node--panel={node.kind === 'panel'}
             class:content-node--card={node.kind === 'card'}
             class:content-node--text={node.kind === 'text'}
+            class:content-node--media={node.kind === 'media'}
             class:content-node--selected={node.kind !== 'panel' && node.selected}
             class:content-node--placed={node.kind === 'panel' && node.placed}
             style={`--depth: ${node.depth}`}
@@ -302,7 +356,9 @@
               ? `${node.placed ? 'Focus' : 'Place'} ${node.label} on canvas`
               : node.kind === 'card'
                 ? `Focus Card ${node.label.replace('Card ', '')} on canvas`
-                : `Focus text: ${node.label}`}
+                : node.kind === 'text'
+                  ? `Focus text: ${node.label}`
+                  : `Focus ${node.label} on canvas`}
             title={node.kind === 'panel'
               ? node.placed ? 'Focus panel on canvas' : 'Place panel on canvas'
               : 'Focus on canvas'}
@@ -316,21 +372,15 @@
                 <svg viewBox="0 0 20 20"><path d="M3 5.5h5l1.5 2H17v7H3z" /></svg>
               {:else if node.kind === 'card'}
                 <svg viewBox="0 0 20 20"><rect x="3.5" y="4.5" width="13" height="11" rx="2" /></svg>
-              {:else}
+              {:else if node.kind === 'text'}
                 <span>T</span>
+              {:else}
+                <svg viewBox="0 0 20 20"><path d="M5 4h10v12H5zM8 4v12M8 8h7M8 12h7" /></svg>
               {/if}
             </span>
             <span class="content-node-copy">
               <strong>{node.label}</strong>
-              <small>{node.kind === 'panel'
-                ? 'Panel'
-                : node.kind === 'card'
-                  ? node.element.parentObjectId ? 'Card · Panel' : 'Card · Canvas'
-                  : node.element.parentElementId
-                    ? 'Text · Card'
-                    : node.element.parentObjectId
-                      ? 'Text · Panel'
-                      : 'Text · Canvas'}</small>
+              <small>{node.kind === 'panel' ? 'Panel' : nodeSubtitle(node)}</small>
             </span>
             {#if node.kind === 'panel' && node.placed}
               <span class="content-node-status" aria-label="On canvas">✓</span>
@@ -412,6 +462,7 @@
   .content-node--panel .content-node-guide { background: var(--accent); }
   .content-node--card .content-node-guide { background: #b8874b; }
   .content-node--text .content-node-guide { background: #8c6da7; }
+  .content-node--media .content-node-guide { background: #4c8b79; }
 
   .content-node-icon {
     display: grid;
@@ -437,6 +488,12 @@
     font-family: Georgia, serif;
     font-size: calc(12px * var(--text-scale));
     font-weight: 700;
+  }
+
+  .content-node--media .content-node-icon {
+    color: #357866;
+    background: #e0f0e9;
+    border-color: #add2c2;
   }
 
   .content-node-icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }

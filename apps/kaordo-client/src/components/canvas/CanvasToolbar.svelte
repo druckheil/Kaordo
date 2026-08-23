@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { CanvasService } from '../../lib/services/CanvasService';
+  import { canvasMediaKind } from '../../lib/features/canvasMedia';
   import type { CanvasSnapshot, CanvasTool } from '../../lib/states/CanvasGState';
 
   type Props = {
@@ -10,6 +11,7 @@
   };
 
   let { canvas, placedCount, snapshot, workspaceId }: Props = $props();
+  let mediaInput = $state<HTMLInputElement>();
   let zoom = $derived(snapshot.zooms[workspaceId] ?? 1);
   let selectedElement = $derived.by(() => {
     snapshot.selectedGlobalElementId;
@@ -22,6 +24,55 @@
 
   function chooseTool(tool: CanvasTool) {
     canvas.state.setTool(tool);
+  }
+
+  async function chooseMedia(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = '';
+    if (!files.length) return;
+    const dimensions = await Promise.all(files.map(readMediaDimensions));
+    try {
+      await canvas.addCanvasMediaFiles(workspaceId, files, dimensions);
+    } catch {
+      canvas.state.announce('Media could not be added to the canvas.');
+    }
+  }
+
+  function readMediaDimensions(file: File): Promise<{ height: number; width: number } | undefined> {
+    const kind = canvasMediaKind(file);
+    if (!kind || kind === 'audio') return Promise.resolve(undefined);
+    const url = URL.createObjectURL(file);
+    return new Promise((resolve) => {
+      const cleanup = () => URL.revokeObjectURL(url);
+      const timeout = window.setTimeout(() => { cleanup(); resolve(undefined); }, 1200);
+      if (kind === 'video') {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => {
+          window.clearTimeout(timeout);
+          const result = video.videoWidth > 0 && video.videoHeight > 0
+            ? { height: video.videoHeight, width: video.videoWidth }
+            : undefined;
+          cleanup();
+          resolve(result);
+        };
+        video.onerror = () => { window.clearTimeout(timeout); cleanup(); resolve(undefined); };
+        video.src = url;
+        return;
+      }
+      const image = new Image();
+      image.onload = () => {
+        window.clearTimeout(timeout);
+        const result = image.naturalWidth > 0 && image.naturalHeight > 0
+          ? { height: image.naturalHeight, width: image.naturalWidth }
+          : undefined;
+        cleanup();
+        resolve(result);
+      };
+      image.onerror = () => { window.clearTimeout(timeout); cleanup(); resolve(undefined); };
+      image.src = url;
+    });
   }
 </script>
 
@@ -43,6 +94,29 @@
         <path d="m5 3 9 8-4 .7-2.2 3.7z" />
       </svg>
     </button>
+    <button
+      class="tool-button"
+      type="button"
+      aria-label="Add media"
+      title="Attach image, GIF, video, or audio"
+      disabled={!snapshot.isCanvasDocumentReady}
+      onclick={() => mediaInput?.click()}
+    >
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <rect x="3" y="4" width="14" height="12" rx="2" />
+        <circle cx="7" cy="8" r="1.2" />
+        <path d="m4.5 14 3.5-3.5 2.5 2 2-2 3 3.5" />
+      </svg>
+    </button>
+    <input
+      class="media-input"
+      bind:this={mediaInput}
+      type="file"
+      accept="image/*,video/*,audio/*"
+      multiple
+      onchange={chooseMedia}
+      aria-label="Choose canvas media"
+    />
     <button
       class:tool-button--active={snapshot.activeTool === 'rectangle'}
       class="tool-button"
@@ -189,6 +263,8 @@
   <span class="canvas-toolbar-status">
     {selectedElement?.type === 'text'
       ? snapshot.editingTextId ? 'Editing text' : 'Text selected'
+      : selectedElement?.type === 'media'
+        ? 'Media selected'
       : snapshot.selectedGlobalElementId
         ? 'Card selected'
       : snapshot.selectedCardId
@@ -250,6 +326,8 @@
   }
 
   .canvas-toolbar::-webkit-scrollbar { display: none; }
+  .media-input { display: none; }
+  .tool-button:disabled { cursor: not-allowed; opacity: 0.45; }
 
   .canvas-toolbar-title { color: #345d51; font-weight: 720; }
   .canvas-toolbar-separator { width: 1px; height: 19px; background: #d3dbd6; }

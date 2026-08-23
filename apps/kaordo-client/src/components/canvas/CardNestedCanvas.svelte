@@ -9,6 +9,7 @@
     CANVAS_CARD_HEADER_HEIGHT,
   } from '../../lib/features/canvas';
   import {
+    moveMediaWithRectangle,
     moveTextWithRectangle,
     settleCanvasElement,
   } from '../../lib/features/elementAttachment';
@@ -23,6 +24,7 @@
   import type { CanvasSnapshot } from '../../lib/states/CanvasGState';
   import { openContextMenu } from '../../lib/ui/contextMenu';
   import CanvasRectangle from './CanvasRectangle.svelte';
+  import CanvasMediaElement from './CanvasMediaElement.svelte';
   import CanvasTextBlock from './CanvasTextBlock.svelte';
 
   type Props = {
@@ -107,7 +109,10 @@
   }
 
   function startMove(event: PointerEvent, element: CanvasElement) {
-    if (event.button !== 0) return;
+    // Images/GIFs use a short drag threshold so a click can still open the
+    // viewer. Their promoted pointermove has button=-1 by browser design.
+    const deferredMediaDrag = element.type === 'media' && event.type === 'pointermove';
+    if (event.button !== 0 && !deferredMediaDrag) return;
     const now = performance.now();
     const isDoubleClick = element.type === 'rectangle' && (
       event.detail >= 2 ||
@@ -130,7 +135,7 @@
       event.preventDefault();
       if (element.type === 'text') {
         canvas.state.editText(element.id);
-      } else {
+      } else if (element.type === 'rectangle') {
         const point = boardPoint(event, true);
         const width = Math.min(260, Math.max(32, element.width));
         canvas.createTextElement(workspaceId, {
@@ -147,6 +152,14 @@
             element.y,
             element.y + element.height - 48,
           ),
+        });
+      } else {
+        const point = boardPoint(event, true);
+        canvas.createTextElement(workspaceId, {
+          parentObjectId: element.parentObjectId ?? placement.id,
+          width: Math.min(260, Math.max(32, element.width)),
+          x: point.x,
+          y: point.y,
         });
       }
       return;
@@ -227,9 +240,11 @@
       const previousRectangle = finished.element;
       const nextRectangle = element;
       updatedElements = updatedElements.map((candidate) =>
-        candidate.type === 'text' &&
+        (candidate.type === 'text' || candidate.type === 'media') &&
         candidate.parentElementId === previousRectangle.id
-          ? moveTextWithRectangle(candidate, previousRectangle, nextRectangle)
+          ? candidate.type === 'text'
+            ? moveTextWithRectangle(candidate, previousRectangle, nextRectangle)
+            : moveMediaWithRectangle(candidate, previousRectangle, nextRectangle)
           : candidate,
       );
     }
@@ -239,12 +254,12 @@
         placements: document.placements,
         version: 1,
       });
-      const location = element.type === 'text' && element.parentElementId
+      const location = (element.type === 'text' || element.type === 'media') && element.parentElementId
         ? 'attached to card'
         : element.parentObjectId
           ? `attached to ${panelTitle(element.parentObjectId)}`
           : 'detached from panel';
-      const name = element.type === 'text' ? 'Text' : 'Card';
+      const name = element.type === 'text' ? 'Text' : element.type === 'media' ? 'Media' : 'Card';
       canvas.state.announce(
         exists ? `${name} ${location}.` : `${name} added and ${location}.`,
       );
@@ -316,12 +331,14 @@
     if (
       gesture?.kind === 'move' &&
       gesture.element.type === 'rectangle' &&
-      element.type === 'text' &&
+      (element.type === 'text' || element.type === 'media') &&
       element.parentElementId === gesture.element.id
     ) {
       const moved = movedElement(gesture);
       if (moved.type === 'rectangle') {
-        return moveTextWithRectangle(element, gesture.element, moved);
+        return element.type === 'text'
+          ? moveTextWithRectangle(element, gesture.element, moved)
+          : moveMediaWithRectangle(element, gesture.element, moved);
       }
     }
     return element;
@@ -410,12 +427,42 @@
         selected={snapshot.selectedGlobalElementId === element.id}
         workspaceId={workspaceId}
       />
-    {:else}
+    {:else if displayed.type === 'text'}
       <CanvasTextBlock
         {canvas}
         editing={snapshot.editingTextId === element.id}
         element={displayed}
         maxWidth={Math.max(100, placement.width - displayed.x)}
+        onStartMove={startMove}
+        selected={snapshot.selectedGlobalElementId === element.id}
+        {workspaceId}
+      />
+    {:else}
+      <CanvasMediaElement
+        {canvas}
+        element={displayed}
+        maxHeight={Math.max(72, placement.height - CANVAS_CARD_HEADER_HEIGHT - displayed.y)}
+        maxWidth={Math.max(120, placement.width - displayed.x)}
+        moving={gesture?.kind === 'move' && (
+          gesture.element.id === element.id ||
+          (element.type === 'media' && element.parentElementId === gesture.element.id)
+        )}
+        onContextMenu={(event) => openContextMenu(event, displayed.name, [
+          {
+            action: () => canvas.state.selectGlobalElement(displayed.id),
+            icon: 'select',
+            id: 'select-media',
+            label: 'Select Media',
+          },
+          {
+            action: () => canvas.deleteCanvasElement(workspaceId, displayed.id),
+            confirmation: 'Delete this media?',
+            danger: true,
+            icon: 'delete',
+            id: 'delete-media',
+            label: 'Delete Media',
+          },
+        ])}
         onStartMove={startMove}
         selected={snapshot.selectedGlobalElementId === element.id}
         {workspaceId}

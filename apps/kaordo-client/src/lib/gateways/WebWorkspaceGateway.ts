@@ -12,6 +12,11 @@ import {
   type WorkspaceLibrary,
 } from '../domain/workspace';
 import type { WorkspaceGateway } from './WorkspaceGateway';
+import {
+  deleteCanvasMediaBlob,
+  loadCanvasMediaBlob,
+  saveCanvasMediaBlob,
+} from '../services/CanvasMediaStore';
 
 const DEFAULT_STORAGE_KEY = 'kaordo.workspace-library.v1';
 const LEGACY_STORAGE_KEY = ['veri', 'dimensio.workspace-library.v1'].join('');
@@ -96,7 +101,8 @@ export class WebWorkspaceGateway implements WorkspaceGateway {
 
   async deleteWorkspace(workspaceId: string): Promise<void> {
     const library = this.#readLibrary();
-    if (!library.workspaces.some((workspace) => workspace.id === workspaceId)) {
+    const workspace = library.workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace) {
       throw new Error('The workspace could not be found.');
     }
     this.#writeLibrary({
@@ -105,6 +111,10 @@ export class WebWorkspaceGateway implements WorkspaceGateway {
         (workspace) => workspace.id !== workspaceId,
       ),
     });
+    const mediaIds = workspace.canvasDocument.elements.flatMap((element) =>
+      element.type === 'media' ? [element.mediaId] : [],
+    );
+    await Promise.allSettled(mediaIds.map((mediaId) => deleteCanvasMediaBlob(workspaceId, mediaId)));
   }
 
   async openWorkspace(workspaceId: string): Promise<WorkspaceDetail> {
@@ -150,6 +160,11 @@ export class WebWorkspaceGateway implements WorkspaceGateway {
     if (!workspace.objects.some((object) => object.id === objectId)) {
       throw new Error('The object could not be found.');
     }
+    const mediaIds = workspace.canvasDocument.elements.flatMap((element) =>
+      element.type === 'media' && element.parentObjectId === objectId
+        ? [element.mediaId]
+        : [],
+    );
     const workspaces = [...library.workspaces];
     workspaces[workspaceIndex] = {
       ...workspace,
@@ -165,6 +180,7 @@ export class WebWorkspaceGateway implements WorkspaceGateway {
       objects: workspace.objects.filter((object) => object.id !== objectId),
     };
     this.#writeLibrary({ ...library, workspaces });
+    await Promise.allSettled(mediaIds.map((mediaId) => deleteCanvasMediaBlob(workspaceId, mediaId)));
   }
 
   async updateObjectDocument(
@@ -216,6 +232,18 @@ export class WebWorkspaceGateway implements WorkspaceGateway {
       canvasDocument: normalizeWorkspaceCanvasDocument(document),
     };
     this.#writeLibrary({ ...library, workspaces });
+  }
+
+  loadCanvasMedia(workspaceId: string, mediaId: string): Promise<Blob | null> {
+    return loadCanvasMediaBlob(workspaceId, mediaId);
+  }
+
+  saveCanvasMedia(workspaceId: string, mediaId: string, blob: Blob): Promise<void> {
+    return saveCanvasMediaBlob(workspaceId, mediaId, blob);
+  }
+
+  deleteCanvasMedia(workspaceId: string, mediaId: string): Promise<void> {
+    return deleteCanvasMediaBlob(workspaceId, mediaId);
   }
 
   #storage(): Storage {

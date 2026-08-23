@@ -4,7 +4,7 @@ use std::{
     error::Error,
     fmt,
     fs::{self, File, OpenOptions},
-    io::{self, Cursor, Read, Write},
+    io::{self, Cursor, Read, Seek, Write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -23,6 +23,8 @@ const MANIFEST_VERSION: u16 = 1;
 const WORKSPACE_EXTENSION: &str = "vdw";
 const CANVAS_DOCUMENT_FILE: &str = "canvas.json";
 const MAX_CANVAS_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
+const CANVAS_MEDIA_DIRECTORY: &str = "blobs";
+const CANVAS_MEDIA_MAX_CHUNK_BYTES: u64 = 8 * 1024 * 1024;
 const WORKSPACE_DIRECTORIES: [&str; 6] = [
     "objects",
     "schemas",
@@ -375,6 +377,188 @@ impl WorkspaceLibrary {
         Ok(())
     }
 
+    /// Returns the size of a durable canvas media blob, if it exists.
+    pub fn canvas_media_size(
+        &self,
+        workspace_id: Uuid,
+        media_id: Uuid,
+    ) -> Result<Option<u64>, WorkspaceError> {
+        let workspace = self.find_workspace(workspace_id)?;
+        let path = canvas_media_path(&workspace, media_id);
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => {
+                return Err(WorkspaceError::Io {
+                    action: "inspect the canvas media",
+                    path,
+                    source,
+                });
+            }
+        };
+        if !metadata.file_type().is_file() {
+            return Err(WorkspaceError::InvalidCanvasMedia(
+                "Canvas media must be a regular file.".to_owned(),
+            ));
+        }
+        Ok(Some(metadata.len()))
+    }
+
+    /// Reads one bounded range from a completed canvas media blob.
+    pub fn read_canvas_media_chunk(
+        &self,
+        workspace_id: Uuid,
+        media_id: Uuid,
+        offset: u64,
+        length: u64,
+    ) -> Result<Vec<u8>, WorkspaceError> {
+        if length == 0 || length > CANVAS_MEDIA_MAX_CHUNK_BYTES {
+            return Err(WorkspaceError::InvalidCanvasMedia(
+                "Canvas media reads must be between 1 byte and 8 MiB.".to_owned(),
+            ));
+        }
+        let workspace = self.find_workspace(workspace_id)?;
+        let path = canvas_media_path(&workspace, media_id);
+        let mut file = open_canvas_media_file(&path).map_err(|source| WorkspaceError::Io {
+            action: "open the canvas media",
+            path: path.clone(),
+            source,
+        })?;
+        let metadata = file.metadata().map_err(|source| WorkspaceError::Io {
+            action: "inspect the canvas media",
+            path: path.clone(),
+            source,
+        })?;
+        if !metadata.file_type().is_file() || offset > metadata.len() {
+            return Err(WorkspaceError::InvalidCanvasMedia(
+                "The canvas media range is outside the stored file.".to_owned(),
+            ));
+        }
+        let amount = length.min(metadata.len() - offset);
+        file.seek(io::SeekFrom::Start(offset))
+            .map_err(|source| WorkspaceError::Io {
+                action: "seek in the canvas media",
+                path: path.clone(),
+                source,
+            })?;
+        let mut bytes = vec![0; amount as usize];
+        file.read_exact(&mut bytes)
+            .map_err(|source| WorkspaceError::Io {
+                action: "read the canvas media",
+                path,
+                source,
+            })?;
+        Ok(bytes)
+    }
+
+    /// Writes one resumable chunk and atomically publishes the blob at the
+    /// final chunk. Incomplete files never appear as readable media.
+    pub fn write_canvas_media_chunk(
+        &self,
+        workspace_id: Uuid,
+        media_id: Uuid,
+        offset: u64,
+        total: u64,
+        bytes: &[u8],
+    ) -> Result<(), WorkspaceError> {
+        if total == 0 || bytes.is_empty() || bytes.len() as u64 > CANVAS_MEDIA_MAX_CHUNK_BYTES {
+            return Err(WorkspaceError::InvalidCanvasMedia(
+                "Canvas media chunks must be non-empty and no larger than 8 MiB.".to_owned(),
+            ));
+        }
+        let end = offset.checked_add(bytes.len() as u64).ok_or_else(|| {
+            WorkspaceError::InvalidCanvasMedia("Canvas media offset is too large.".to_owned())
+        })?;
+        if end > total {
+            return Err(WorkspaceError::InvalidCanvasMedia(
+                "Canvas media chunk exceeds the declared file size.".to_owned(),
+            ));
+        }
+        let workspace = self.find_workspace(workspace_id)?;
+        let directory = workspace.path().join(CANVAS_MEDIA_DIRECTORY);
+        ensure_regular_directory(&directory)?;
+        let destination = canvas_media_path(&workspace, media_id);
+        let temporary = directory.join(format!(".media-{media_id}.part"));
+        if let Ok(metadata) = fs::symlink_metadata(&temporary) {
+            if !metadata.file_type().is_file() {
+                return Err(WorkspaceError::InvalidCanvasMedia(
+                    "The canvas media temporary file is invalid.".to_owned(),
+                ));
+            }
+        }
+        let mut file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&temporary)
+            .map_err(|source| WorkspaceError::Io {
+                action: "open the temporary canvas media",
+                path: temporary.clone(),
+                source,
+            })?;
+        file.set_len(total).map_err(|source| WorkspaceError::Io {
+            action: "size the temporary canvas media",
+            path: temporary.clone(),
+            source,
+        })?;
+        file.seek(io::SeekFrom::Start(offset))
+            .map_err(|source| WorkspaceError::Io {
+                action: "seek in the temporary canvas media",
+                path: temporary.clone(),
+                source,
+            })?;
+        file.write_all(bytes)
+            .and_then(|()| {
+                if end == total {
+                    file.sync_all()
+                } else {
+                    Ok(())
+                }
+            })
+            .map_err(|source| WorkspaceError::Io {
+                action: "write the temporary canvas media",
+                path: temporary.clone(),
+                source,
+            })?;
+        drop(file);
+        if end == total {
+            fs::rename(&temporary, &destination).map_err(|source| WorkspaceError::Io {
+                action: "commit the canvas media",
+                path: destination,
+                source,
+            })?;
+            sync_directory(&directory)?;
+        }
+        Ok(())
+    }
+
+    /// Deletes completed and incomplete canvas media. Missing files are fine.
+    pub fn delete_canvas_media(
+        &self,
+        workspace_id: Uuid,
+        media_id: Uuid,
+    ) -> Result<(), WorkspaceError> {
+        let workspace = self.find_workspace(workspace_id)?;
+        let directory = workspace.path().join(CANVAS_MEDIA_DIRECTORY);
+        for path in [
+            canvas_media_path(&workspace, media_id),
+            directory.join(format!(".media-{media_id}.part")),
+        ] {
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(WorkspaceError::Io {
+                        action: "delete canvas media",
+                        path,
+                        source,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn ensure_root(&self) -> Result<(), WorkspaceError> {
         fs::create_dir_all(&self.root).map_err(|source| WorkspaceError::Io {
             action: "create the workspace library",
@@ -407,6 +591,46 @@ fn validate_canvas_document(document: &str) -> Result<(), WorkspaceError> {
         ));
     }
     Ok(())
+}
+
+fn canvas_media_path(workspace: &Workspace, media_id: Uuid) -> PathBuf {
+    workspace
+        .path()
+        .join(CANVAS_MEDIA_DIRECTORY)
+        .join(format!("media-{media_id}.blob"))
+}
+
+fn ensure_regular_directory(path: &Path) -> Result<(), WorkspaceError> {
+    let metadata = fs::symlink_metadata(path).map_err(|source| WorkspaceError::Io {
+        action: "inspect the canvas media directory",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if metadata.file_type().is_dir() {
+        Ok(())
+    } else {
+        Err(WorkspaceError::InvalidCanvasMedia(
+            "The canvas media directory is invalid.".to_owned(),
+        ))
+    }
+}
+
+fn open_canvas_media_file(path: &Path) -> io::Result<File> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use rustix::fs::{Mode, OFlags, open};
+        return open(
+            path,
+            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+            Mode::empty(),
+        )
+        .map(File::from)
+        .map_err(Into::into);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        File::open(path)
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -823,6 +1047,7 @@ pub enum WorkspaceError {
     InvalidObjectTitle(String),
     InvalidObjectDocument(String),
     InvalidCanvasDocument(String),
+    InvalidCanvasMedia(String),
     InvalidManifest {
         message: String,
         path: PathBuf,
@@ -851,7 +1076,8 @@ impl fmt::Display for WorkspaceError {
             Self::InvalidPath(message)
             | Self::InvalidObjectTitle(message)
             | Self::InvalidObjectDocument(message)
-            | Self::InvalidCanvasDocument(message) => formatter.write_str(message),
+            | Self::InvalidCanvasDocument(message)
+            | Self::InvalidCanvasMedia(message) => formatter.write_str(message),
             Self::InvalidManifest { message, path } => {
                 write!(
                     formatter,
@@ -914,6 +1140,7 @@ impl Error for WorkspaceError {
             | Self::InvalidObjectTitle(_)
             | Self::InvalidObjectDocument(_)
             | Self::InvalidCanvasDocument(_)
+            | Self::InvalidCanvasMedia(_)
             | Self::InvalidManifest { .. }
             | Self::InvalidObject { .. }
             | Self::AlreadyExists(_)

@@ -1,6 +1,7 @@
 import type { CanvasPlacement } from '../domain/canvas';
 import type {
   CanvasElement,
+  MediaElement,
   RectangleElement,
   TextElement,
 } from '../domain/workspace';
@@ -16,7 +17,7 @@ export function settleCanvasElement(
   const centerX = globalX + element.width / 2;
   const centerY = globalY + element.height / 2;
 
-  if (element.type === 'text') {
+  if (element.type === 'text' || element.type === 'media') {
     const rectangle = [...elements]
       .reverse()
       .filter((candidate): candidate is RectangleElement =>
@@ -27,13 +28,7 @@ export function settleCanvasElement(
         return frame !== null && pointInFrame(centerX, centerY, frame);
       });
     if (rectangle) {
-      return attachTextToRectangle(
-        element,
-        rectangle,
-        globalX,
-        globalY,
-        placements,
-      );
+      return attachElementToRectangle(element, rectangle, globalX, globalY, placements);
     }
   }
 
@@ -63,13 +58,29 @@ export function moveTextWithRectangle(
   return moved;
 }
 
-function attachTextToRectangle(
-  text: TextElement,
+export function moveMediaWithRectangle(
+  media: MediaElement,
+  previous: RectangleElement,
+  next: RectangleElement,
+): MediaElement {
+  const moved: MediaElement = {
+    ...media,
+    parentElementId: next.id,
+    x: next.x + media.x - previous.x,
+    y: next.y + media.y - previous.y,
+  };
+  if (next.parentObjectId) moved.parentObjectId = next.parentObjectId;
+  else delete moved.parentObjectId;
+  return moved;
+}
+
+function attachElementToRectangle(
+  element: TextElement | MediaElement,
   rectangle: RectangleElement,
   globalX: number,
   globalY: number,
   placements: CanvasPlacement[],
-): TextElement {
+): TextElement | MediaElement {
   const tray = rectangle.parentObjectId
     ? placements.find((placement) => placement.id === rectangle.parentObjectId)
     : undefined;
@@ -77,16 +88,16 @@ function attachTextToRectangle(
   const surfaceY = tray
     ? globalY - tray.y - CANVAS_CARD_HEADER_HEIGHT
     : globalY;
-  const width = Math.min(text.width, Math.max(32, rectangle.width));
-  const attached: TextElement = {
-    ...text,
+  const width = Math.min(element.width, Math.max(32, rectangle.width));
+  const attached = {
+    ...element,
     parentElementId: rectangle.id,
     width,
     x: clamp(surfaceX, rectangle.x, rectangle.x + rectangle.width - width),
     y: clamp(
       surfaceY,
       rectangle.y,
-      rectangle.y + rectangle.height - text.height,
+      rectangle.y + rectangle.height - element.height,
     ),
   };
   if (rectangle.parentObjectId) {
@@ -94,7 +105,7 @@ function attachTextToRectangle(
   } else {
     delete attached.parentObjectId;
   }
-  return attached;
+  return attached as TextElement | MediaElement;
 }
 
 function attachToObject(
@@ -117,7 +128,9 @@ function attachToObject(
       tray.height - CANVAS_CARD_HEADER_HEIGHT - element.height,
     ),
   };
-  if (attached.type === 'text') delete attached.parentElementId;
+  if (attached.type === 'text' || attached.type === 'media') {
+    delete attached.parentElementId;
+  }
   return attached;
 }
 
@@ -128,7 +141,9 @@ function detachFromParents(
 ): CanvasElement {
   const detached = { ...element };
   delete detached.parentObjectId;
-  if (detached.type === 'text') delete detached.parentElementId;
+  if (detached.type === 'text' || detached.type === 'media') {
+    delete detached.parentElementId;
+  }
   return {
     ...detached,
     x: clamp(globalX, 0, CANVAS_WIDTH - element.width),

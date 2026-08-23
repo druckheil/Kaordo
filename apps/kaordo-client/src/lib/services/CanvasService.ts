@@ -2,6 +2,8 @@ import { tick } from 'svelte';
 import type { CanvasPlacement } from '../domain/canvas';
 import type {
   CanvasElement,
+  CanvasMediaKind,
+  MediaElement,
   ObjectDocument,
   ObjectSummary,
   RectangleElement,
@@ -21,6 +23,11 @@ import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
 } from '../features/canvas';
+import {
+  canvasMediaFrame,
+  canvasMediaKind,
+  canvasMediaMimeType,
+} from '../features/canvasMedia';
 import { CanvasGState } from '../states/CanvasGState';
 import { CanvasDragService } from './CanvasDragService';
 import { CanvasViewportService } from './CanvasViewportService';
@@ -31,14 +38,27 @@ export class CanvasService {
     workspaceId: string,
     objectId: string,
   ) => Promise<boolean>;
+  readonly #deleteCanvasMedia: (
+    workspaceId: string,
+    mediaId: string,
+  ) => Promise<void>;
   readonly #drag: CanvasDragService;
   readonly #getWorkspace: () => WorkspaceDetail | null;
   readonly #loadCanvasDocument: (
     workspaceId: string,
   ) => Promise<WorkspaceCanvasDocument>;
+  readonly #loadCanvasMedia: (
+    workspaceId: string,
+    mediaId: string,
+  ) => Promise<Blob | null>;
   readonly #saveCanvasDocument: (
     workspaceId: string,
     document: WorkspaceCanvasDocument,
+  ) => Promise<void>;
+  readonly #saveCanvasMedia: (
+    workspaceId: string,
+    mediaId: string,
+    blob: Blob,
   ) => Promise<void>;
   readonly #updateObjectDocument: (
     workspaceId: string,
@@ -61,6 +81,7 @@ export class CanvasService {
   #replayingHistory = false;
   #resize: ObjectResizeGesture | null = null;
   readonly #textEditors = new Map<string, TextEditorController>();
+  readonly #mediaBlobs = new Map<string, Blob>();
 
   constructor(
     state: CanvasGState,
@@ -87,6 +108,19 @@ export class CanvasService {
       workspaceId: string,
       objectId: string,
     ) => Promise<boolean> = async () => false,
+    saveCanvasMedia: (
+      _workspaceId: string,
+      _mediaId: string,
+      _blob: Blob,
+    ) => Promise<void> = async () => undefined,
+    loadCanvasMedia: (
+      _workspaceId: string,
+      _mediaId: string,
+    ) => Promise<Blob | null> = async () => null,
+    deleteCanvasMedia: (
+      _workspaceId: string,
+      _mediaId: string,
+    ) => Promise<void> = async () => undefined,
   ) {
     this.state = state;
     this.#getWorkspace = getWorkspace;
@@ -94,6 +128,9 @@ export class CanvasService {
     this.#loadCanvasDocument = loadCanvasDocument;
     this.#saveCanvasDocument = saveCanvasDocument;
     this.#deleteObject = deleteObject;
+    this.#saveCanvasMedia = saveCanvasMedia;
+    this.#loadCanvasMedia = loadCanvasMedia;
+    this.#deleteCanvasMedia = deleteCanvasMedia;
     this.#viewport = new CanvasViewportService(state, getWorkspace);
     this.#drag = new CanvasDragService(
       state,
@@ -201,6 +238,9 @@ export class CanvasService {
     for (const key of this.#pendingPlacements.keys()) {
       if (key.startsWith(`${workspaceId}:`)) this.#pendingPlacements.delete(key);
     }
+    for (const key of this.#mediaBlobs.keys()) {
+      if (key.startsWith(`${workspaceId}:`)) this.#mediaBlobs.delete(key);
+    }
     this.state.forgetWorkspace(workspaceId);
   }
 
@@ -208,11 +248,20 @@ export class CanvasService {
     workspaceId: string,
     objectId: string,
   ): Promise<void> {
+    const mediaIds = this.state
+      .canvasDocumentFor(workspaceId)
+      .elements
+      .filter((element): element is MediaElement =>
+        element.type === 'media' && element.parentObjectId === objectId,
+      )
+      .map((element) => element.mediaId);
     this.state.removeObject(workspaceId, objectId);
     await this.saveWorkspaceCanvasDocument(
       workspaceId,
       this.state.canvasDocumentFor(workspaceId),
     );
+    await Promise.allSettled(mediaIds.map((mediaId) => this.#deleteCanvasMedia(workspaceId, mediaId)));
+    for (const mediaId of mediaIds) this.#mediaBlobs.delete(mediaKey(workspaceId, mediaId));
   }
 
   async deleteCanvasElement(
@@ -220,13 +269,18 @@ export class CanvasService {
     elementId: string,
   ): Promise<void> {
     const document = this.state.canvasDocumentFor(workspaceId);
-    if (!document.elements.some((element) => element.id === elementId)) return;
+    const target = document.elements.find((element) => element.id === elementId);
+    if (!target) return;
     this.recordHistoryBeforeChange(workspaceId);
     this.state.removeCanvasElement(workspaceId, elementId);
     await this.saveWorkspaceCanvasDocument(
       workspaceId,
       this.state.canvasDocumentFor(workspaceId),
     );
+    if (target.type === 'media') {
+      await this.#deleteCanvasMedia(workspaceId, target.mediaId).catch(() => undefined);
+      this.#mediaBlobs.delete(mediaKey(workspaceId, target.mediaId));
+    }
     this.state.announce('Element deleted.');
   }
 
@@ -244,6 +298,155 @@ export class CanvasService {
 
   currentWorkspaceId(): string {
     return this.#getWorkspace()?.id ?? '';
+  }
+
+  async addCanvasMediaFiles(
+    workspaceId: string,
+    files: readonly File[],
+    dimensions: readonly ({ height: number; width: number } | undefined)[] = [],
+  ): Promise<number> {
+    let added = 0;
+    for (const [index, file] of files.entries()) {
+      const kind = canvasMediaKind(file);
+      if (!kind) continue;
+      await this.createCanvasMedia(workspaceId, file, kind, dimensions[index]);
+      added += 1;
+    }
+    this.state.setTool('select');
+    if (!added && files.length) this.state.announce('The selected media format is not supported.');
+    return added;
+  }
+
+  async loadCanvasMedia(
+    workspaceId: string,
+    element: Pick<MediaElement, 'mediaId' | 'mimeType'>,
+  ): Promise<Blob | null> {
+    const key = mediaKey(workspaceId, element.mediaId);
+    const cached = this.#mediaBlobs.get(key);
+    if (cached) return cached;
+    const loaded = await this.#loadCanvasMedia(workspaceId, element.mediaId);
+    if (!loaded) return null;
+    const blob = loaded.type === element.mimeType
+      ? loaded
+      : loaded.slice(0, loaded.size, element.mimeType);
+    this.#mediaBlobs.set(key, blob);
+    return blob;
+  }
+
+  private async createCanvasMedia(
+    workspaceId: string,
+    file: File,
+    kind: CanvasMediaKind,
+    dimensions?: { height: number; width: number },
+  ): Promise<MediaElement> {
+    const mediaId = createMediaId();
+    const frame = canvasMediaFrame(kind, dimensions?.width, dimensions?.height);
+    const position = this.mediaPosition(workspaceId, frame);
+    const element: MediaElement = {
+      ...position,
+      height: frame.height,
+      id: mediaId,
+      kind,
+      mediaId,
+      mimeType: canvasMediaMimeType(file, kind),
+      name: file.name.slice(0, 240) || 'Untitled media',
+      size: file.size,
+      type: 'media',
+      width: frame.width,
+    };
+    await this.#saveCanvasMedia(workspaceId, mediaId, file);
+    this.#mediaBlobs.set(mediaKey(workspaceId, mediaId), file);
+    const document = this.state.canvasDocumentFor(workspaceId);
+    try {
+      await this.saveWorkspaceCanvasDocument(workspaceId, {
+        ...document,
+        elements: [...document.elements, element],
+      });
+    } catch (error) {
+      this.#mediaBlobs.delete(mediaKey(workspaceId, mediaId));
+      await this.#deleteCanvasMedia(workspaceId, mediaId).catch(() => undefined);
+      throw error;
+    }
+    this.state.selectGlobalElement(element.id);
+    this.state.announce(`${element.name} added to the canvas.`);
+    return element;
+  }
+
+  private mediaPosition(
+    workspaceId: string,
+    frame: { height: number; width: number },
+  ): {
+    parentElementId?: string;
+    parentObjectId?: string;
+    x: number;
+    y: number;
+  } {
+    const document = this.state.canvasDocumentFor(workspaceId);
+    const selected = this.selectedCanvasElement();
+    let parentElementId: string | undefined;
+    let parentObjectId: string | undefined;
+    let originX = 0;
+    let originY = 0;
+    let boundsWidth = CANVAS_WIDTH;
+    let boundsHeight = CANVAS_HEIGHT;
+    let minX = 0;
+    let minY = 0;
+    if (selected?.type === 'rectangle') {
+      parentElementId = selected.id;
+      parentObjectId = selected.parentObjectId;
+      originX = selected.x + 14;
+      originY = selected.y + 14;
+      boundsWidth = selected.width;
+      boundsHeight = selected.height;
+      minX = selected.x + 14;
+      minY = selected.y + 14;
+    } else if (selected?.type === 'text' || selected?.type === 'media') {
+      parentElementId = selected.parentElementId;
+      parentObjectId = selected.parentObjectId;
+      originX = selected.x + 18;
+      originY = selected.y + selected.height + 14;
+      const parent = parentElementId
+        ? document.elements.find((element) => element.id === parentElementId)
+        : undefined;
+      if (parent?.type === 'rectangle') {
+        originX = selected.x + 14;
+        originY = selected.y + selected.height + 14;
+        boundsWidth = parent.width;
+        boundsHeight = parent.height;
+        minX = parent.x + 14;
+        minY = parent.y + 14;
+      }
+    } else if (this.state.snapshot.selectedCardId) {
+      parentObjectId = this.state.snapshot.selectedCardId;
+      const placement = this.state.placementsFor(workspaceId)
+        .find((candidate) => candidate.id === parentObjectId);
+      if (placement) {
+        boundsWidth = placement.width;
+        boundsHeight = placement.height - 48;
+        originX = Math.max(14, boundsWidth / 2 - frame.width / 2);
+        originY = Math.max(14, boundsHeight / 2 - frame.height / 2);
+        minX = 14;
+        minY = 14;
+      }
+    } else {
+      const metrics = this.#viewport.metrics();
+      originX = metrics.scrollLeft + Math.max(0, metrics.width / 2 - frame.width / 2);
+      originY = metrics.scrollTop + Math.max(0, metrics.height / 2 - frame.height / 2);
+    }
+    const siblings = document.elements.filter((element) =>
+      element.type !== 'rectangle' &&
+      element.parentElementId === parentElementId &&
+      element.parentObjectId === parentObjectId,
+    );
+    const offset = siblings.length * 18;
+    const maxX = Math.max(minX, minX + boundsWidth - frame.width - 28);
+    const maxY = Math.max(minY, minY + boundsHeight - frame.height - 28);
+    return {
+      ...(parentElementId ? { parentElementId } : {}),
+      ...(parentObjectId ? { parentObjectId } : {}),
+      x: clamp(originX + offset, minX, maxX),
+      y: clamp(originY + offset, minY, maxY),
+    };
   }
 
   /** Handles the editor's platform-aware Undo/Redo shortcuts. */
@@ -380,7 +583,10 @@ export class CanvasService {
       ...document,
       elements: document.elements.map((element) => {
         if (element.id === resized.id) return resized;
-        if (element.type !== 'text' || element.parentElementId !== resized.id) {
+        if (
+          (element.type !== 'text' && element.type !== 'media') ||
+          element.parentElementId !== resized.id
+        ) {
           return element;
         }
         const width = Math.min(
@@ -1086,6 +1292,27 @@ function clamp(value: number, minimum: number, maximum: number): number {
 function createCanvasElementId(kind: string): string {
   return globalThis.crypto?.randomUUID?.() ??
     `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createMediaId(): string {
+  const randomUuid = globalThis.crypto?.randomUUID?.();
+  if (randomUuid) return randomUuid;
+  const bytes = new Uint8Array(16);
+  globalThis.crypto?.getRandomValues?.(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  if (!bytes.some(Boolean)) {
+    const seed = `${Date.now()}${Math.random()}`;
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = seed.charCodeAt(index % seed.length) & 0xff;
+    }
+  }
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function mediaKey(workspaceId: string, mediaId: string): string {
+  return `${workspaceId}:${mediaId}`;
 }
 
 function copyCanvasDocument(

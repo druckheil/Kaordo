@@ -41,7 +41,25 @@ export type TextElement = {
   y: number;
 };
 
-export type CanvasElement = RectangleElement | TextElement;
+export type CanvasMediaKind = 'audio' | 'gif' | 'image' | 'video';
+
+export type MediaElement = {
+  height: number;
+  id: string;
+  kind: CanvasMediaKind;
+  mediaId: string;
+  mimeType: string;
+  name: string;
+  parentElementId?: string;
+  parentObjectId?: string;
+  size: number;
+  type: 'media';
+  width: number;
+  x: number;
+  y: number;
+};
+
+export type CanvasElement = RectangleElement | TextElement | MediaElement;
 
 export type ObjectDocumentElement = RectangleElement | RichTextElement;
 
@@ -303,6 +321,8 @@ function normalizeRectangle(value: unknown): RectangleElement | null {
 function normalizeCanvasElement(value: unknown): CanvasElement | null {
   const rectangle = normalizeRectangle(value);
   if (rectangle) return rectangle;
+  const media = normalizeMedia(value);
+  if (media) return media;
   if (
     !isRecord(value) ||
     value.type !== 'text' ||
@@ -337,6 +357,48 @@ function normalizeCanvasElement(value: unknown): CanvasElement | null {
     text.parentElementId = value.parentElementId;
   }
   return text;
+}
+
+function normalizeMedia(value: unknown): MediaElement | null {
+  if (
+    !isRecord(value) ||
+    value.type !== 'media' ||
+    typeof value.id !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.mimeType !== 'string' ||
+    !matchesCanvasMediaKind(value.kind) ||
+    !isFiniteNumber(value.size) ||
+    !isFiniteNumber(value.width) ||
+    !isFiniteNumber(value.height) ||
+    !isFiniteNumber(value.x) ||
+    !isFiniteNumber(value.y)
+  ) {
+    return null;
+  }
+  const media: MediaElement = {
+    height: Math.max(1, value.height),
+    id: value.id,
+    kind: value.kind,
+    mediaId: typeof value.mediaId === 'string' ? value.mediaId : value.id,
+    mimeType: value.mimeType.slice(0, 160),
+    name: value.name.slice(0, 240),
+    size: Math.max(0, value.size),
+    type: 'media',
+    width: Math.max(1, value.width),
+    x: value.x,
+    y: value.y,
+  };
+  if (typeof value.parentObjectId === 'string') {
+    media.parentObjectId = value.parentObjectId;
+  }
+  if (typeof value.parentElementId === 'string') {
+    media.parentElementId = value.parentElementId;
+  }
+  return media;
+}
+
+function matchesCanvasMediaKind(value: unknown): value is CanvasMediaKind {
+  return value === 'audio' || value === 'gif' || value === 'image' || value === 'video';
 }
 
 function matchesTextAlign(value: unknown): value is TextElement['textAlign'] {

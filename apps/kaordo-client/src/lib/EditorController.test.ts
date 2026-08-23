@@ -26,8 +26,11 @@ function gateway(
       placements: [],
       version: 1,
     }),
+    loadCanvasMedia: vi.fn().mockResolvedValue(null),
     openWorkspace: vi.fn(),
     saveCanvasDocument: vi.fn(),
+    saveCanvasMedia: vi.fn(),
+    deleteCanvasMedia: vi.fn(),
     updateObjectDocument: vi.fn(),
     ...overrides,
   };
