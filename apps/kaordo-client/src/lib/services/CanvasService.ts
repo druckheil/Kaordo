@@ -363,6 +363,48 @@ export class CanvasService {
     });
   }
 
+  async resizeCanvasCard(
+    workspaceId: string,
+    rectangle: RectangleElement,
+    size: { height: number; width: number },
+  ): Promise<void> {
+    const document = this.state.canvasDocumentFor(workspaceId);
+    const current = document.elements.find(
+      (element): element is RectangleElement =>
+        element.id === rectangle.id && element.type === 'rectangle',
+    );
+    if (!current) return;
+
+    const resized = { ...current, ...size };
+    await this.saveWorkspaceCanvasDocument(workspaceId, {
+      ...document,
+      elements: document.elements.map((element) => {
+        if (element.id === resized.id) return resized;
+        if (element.type !== 'text' || element.parentElementId !== resized.id) {
+          return element;
+        }
+        const width = Math.min(
+          element.width,
+          Math.max(32, resized.width),
+        );
+        return {
+          ...element,
+          width,
+          x: clamp(
+            element.x,
+            resized.x,
+            resized.x + resized.width - width,
+          ),
+          y: clamp(
+            element.y,
+            resized.y,
+            resized.y + resized.height - element.height,
+          ),
+        };
+      }),
+    });
+  }
+
   attachTextEditor(
     elementId: string,
     editor: TextEditorController | null,

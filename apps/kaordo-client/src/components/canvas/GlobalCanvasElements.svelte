@@ -18,6 +18,7 @@
     type RectangleDrawGesture,
   } from '../../lib/features/rectangleDrawing';
   import { openContextMenu } from '../../lib/ui/contextMenu';
+  import CanvasRectangle from './CanvasRectangle.svelte';
   import CanvasTextBlock from './CanvasTextBlock.svelte';
 
   type Props = {
@@ -355,17 +356,12 @@
   {#each elements as element (element.id)}
     {@const displayed = displayedElement(element)}
     {#if displayed.type === 'rectangle'}
-      <button
-        class="global-rectangle"
-        class:global-rectangle--moving-source={gesture?.kind === 'move' && gesture.element.id === element.id}
-        class:global-rectangle--selected={snapshot.selectedGlobalElementId === element.id}
-        data-canvas-element-id={element.id}
-        type="button"
-        aria-label="Canvas card"
-        style={rectangleStyle(displayed)}
-        onpointerdown={(event) => startMove(event, element)}
-        ondblclick={(event) => beginRectangleEditing(event, displayed)}
-        oncontextmenu={(event) => openContextMenu(event, 'Card', [
+      <CanvasRectangle
+        canvas={canvas}
+        element={displayed}
+        elementClass="global-rectangle"
+        moving={gesture?.kind === 'move' && gesture.element.id === element.id}
+        onContextMenu={(event) => openContextMenu(event, 'Card', [
           {
             action: () => canvas.state.selectGlobalElement(element.id),
             icon: 'select',
@@ -387,7 +383,11 @@
             label: 'Delete Card',
           },
         ])}
-      ></button>
+        onDoubleClick={(event, rectangle) => beginRectangleEditing(event, rectangle)}
+        onStartMove={startMove}
+        selected={snapshot.selectedGlobalElementId === element.id}
+        workspaceId={workspaceId}
+      />
     {:else}
       <CanvasTextBlock
         {canvas}
@@ -492,10 +492,6 @@
 
   .global-rectangle--invalid {
     opacity: 0.28;
-  }
-
-  .global-rectangle--moving-source {
-    opacity: 0;
   }
 
   .global-element-drag-layer {

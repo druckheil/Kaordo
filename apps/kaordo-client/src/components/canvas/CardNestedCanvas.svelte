@@ -22,6 +22,7 @@
   import type { CanvasService } from '../../lib/services/CanvasService';
   import type { CanvasSnapshot } from '../../lib/states/CanvasGState';
   import { openContextMenu } from '../../lib/ui/contextMenu';
+  import CanvasRectangle from './CanvasRectangle.svelte';
   import CanvasTextBlock from './CanvasTextBlock.svelte';
 
   type Props = {
@@ -374,16 +375,15 @@
   {#each elements as element (element.id)}
     {@const displayed = displayedElement(element)}
     {#if displayed.type === 'rectangle'}
-      <button
-        class="nested-rectangle"
-        class:nested-rectangle--selected={snapshot.selectedGlobalElementId === element.id}
-        data-canvas-element-id={element.id}
-        type="button"
-        aria-label="Card"
-        style={rectangleStyle(displayed)}
-        onpointerdown={(event) => startMove(event, element)}
-        ondblclick={(event) => beginRectangleEditing(event, displayed)}
-        oncontextmenu={(event) => openContextMenu(event, 'Card', [
+      <CanvasRectangle
+        canvas={canvas}
+        element={displayed}
+        elementClass="nested-rectangle"
+        ariaLabel="Card"
+        maxHeight={Math.max(28, placement.height - CANVAS_CARD_HEADER_HEIGHT - displayed.y)}
+        maxWidth={Math.max(32, placement.width - displayed.x)}
+        moving={gesture?.kind === 'move' && gesture.element.id === element.id}
+        onContextMenu={(event) => openContextMenu(event, 'Card', [
           {
             action: () => canvas.state.selectGlobalElement(element.id),
             icon: 'select',
@@ -405,7 +405,11 @@
             label: 'Delete Card',
           },
         ])}
-      ></button>
+        onDoubleClick={(event, rectangle) => beginRectangleEditing(event, rectangle)}
+        onStartMove={startMove}
+        selected={snapshot.selectedGlobalElementId === element.id}
+        workspaceId={workspaceId}
+      />
     {:else}
       <CanvasTextBlock
         {canvas}

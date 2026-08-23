@@ -399,6 +399,69 @@ describe('CanvasService interaction boundaries', () => {
     });
   });
 
+  it('resizes a card and keeps attached text inside its new bounds', async () => {
+    const saveCanvasDocument = vi.fn().mockResolvedValue(undefined);
+    const rectangle = {
+      fill: '#dcece5',
+      height: 160,
+      id: 'rectangle-1',
+      radius: 10,
+      stroke: '#397565',
+      strokeWidth: 2,
+      type: 'rectangle' as const,
+      width: 220,
+      x: 100,
+      y: 120,
+    };
+    const state = new CanvasGState();
+    state.setCanvasDocument(workspace.id, {
+      elements: [
+        rectangle,
+        {
+          color: '#25332d',
+          fontSize: 16,
+          height: 100,
+          html: 'Attached',
+          id: 'text-1',
+          parentElementId: rectangle.id,
+          textAlign: 'left',
+          type: 'text',
+          width: 120,
+          x: 260,
+          y: 240,
+        },
+      ],
+      placements: [],
+      version: 1,
+    });
+    const service = new CanvasService(
+      state,
+      () => workspace,
+      undefined,
+      undefined,
+      saveCanvasDocument,
+    );
+
+    await service.resizeCanvasCard(workspace.id, rectangle, {
+      height: 60,
+      width: 80,
+    });
+
+    expect(state.canvasDocumentFor(workspace.id).elements).toEqual([
+      { ...rectangle, height: 60, width: 80 },
+      expect.objectContaining({
+        height: 100,
+        id: 'text-1',
+        width: 80,
+        x: 100,
+        y: 120,
+      }),
+    ]);
+    expect(saveCanvasDocument).toHaveBeenCalledWith(workspace.id, expect.objectContaining({
+      version: 1,
+    }));
+  });
+
   it('ends pan and captures the final camera when pointer capture is lost', () => {
     const state = new CanvasGState();
     const service = new CanvasViewportService(state, () => workspace);
