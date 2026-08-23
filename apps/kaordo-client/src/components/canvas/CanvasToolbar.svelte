@@ -21,6 +21,7 @@
   const strokes = ['#397565', '#436c9e', '#967033', '#9a5148', '#76528e'];
   const textColors = ['#25332d', '#376f60', '#3f6591', '#9a5148', '#76528e'];
   const highlights = ['#fff1a8', '#dcece5', '#dce8f6', '#f3deda', 'transparent'];
+  const leftBarOptions = [0, 1, 2] as const;
 
   function chooseTool(tool: CanvasTool) {
     canvas.state.setTool(tool);
@@ -193,6 +194,26 @@
           onclick={() => void canvas.setTextAlignment(alignment as 'left' | 'center' | 'right')}
         >
           <i class="align-icon align-icon--{alignment}" aria-hidden="true"><span></span><span></span><span></span></i>
+        </button>
+      {/each}
+    </div>
+
+    <div class="tool-group" aria-label="Left bars">
+      {#each leftBarOptions as option}
+        <button
+          class:format-button--active={(selectedElement.leftBars ?? 0) === option}
+          class="format-button bars-button"
+          type="button"
+          aria-label={option === 0 ? 'No left bars' : `${option} left bars`}
+          aria-pressed={(selectedElement.leftBars ?? 0) === option}
+          title={option === 0 ? 'No left bars' : `${option} left bars`}
+          onpointerdown={(event) => event.preventDefault()}
+          onclick={() => void canvas.setTextLeftBars(option === 0 ? null : option)}
+        >
+          <span class="left-bars-icon" aria-hidden="true">
+            {#if option > 0}<i></i>{/if}
+            {#if option > 1}<i></i>{/if}
+          </span>
         </button>
       {/each}
     </div>
@@ -400,6 +421,10 @@
   .align-icon span:nth-child(2) { width: 8px; }
   .align-icon--center span:nth-child(2) { justify-self: center; }
   .align-icon--right span:nth-child(2) { justify-self: end; }
+
+  .bars-button { min-width: 28px; }
+  .left-bars-icon { display: flex; gap: 3px; width: 12px; height: 14px; justify-content: center; }
+  .left-bars-icon i { width: 2px; height: 14px; background: currentColor; border-radius: 999px; }
 
   .style-group { gap: 4px; margin-left: 1px; }
   .style-group > span { margin-right: 1px; color: #7a867f; font-size: calc(9px * var(--text-scale)); }

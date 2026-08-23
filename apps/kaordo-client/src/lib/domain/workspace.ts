@@ -32,6 +32,7 @@ export type TextElement = {
   height: number;
   html: string;
   id: string;
+  leftBars?: 1 | 2;
   parentElementId?: string;
   parentObjectId?: string;
   textAlign: 'center' | 'left' | 'right';
@@ -356,6 +357,9 @@ function normalizeCanvasElement(value: unknown): CanvasElement | null {
   if (typeof value.parentElementId === 'string') {
     text.parentElementId = value.parentElementId;
   }
+  if (matchesTextLeftBars(value.leftBars)) {
+    text.leftBars = value.leftBars;
+  }
   return text;
 }
 
@@ -403,6 +407,10 @@ function matchesCanvasMediaKind(value: unknown): value is CanvasMediaKind {
 
 function matchesTextAlign(value: unknown): value is TextElement['textAlign'] {
   return value === 'left' || value === 'center' || value === 'right';
+}
+
+function matchesTextLeftBars(value: unknown): value is NonNullable<TextElement['leftBars']> {
+  return value === 1 || value === 2;
 }
 
 export function sanitizeTextHtml(html: string): string {

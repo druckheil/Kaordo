@@ -690,6 +690,16 @@ export class CanvasService {
     await this.updateCanvasElement(workspace.id, { ...selected, textAlign });
   }
 
+  async setTextLeftBars(leftBars: TextElement['leftBars'] | null): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    const workspace = this.#getWorkspace();
+    if (!workspace || selected?.type !== 'text') return;
+    const updated = { ...selected };
+    if (leftBars === null || leftBars === undefined) delete updated.leftBars;
+    else updated.leftBars = leftBars;
+    await this.updateCanvasElement(workspace.id, updated);
+  }
+
   async focusTextElement(workspaceId: string, elementId: string): Promise<void> {
     await this.focusCanvasElement(workspaceId, elementId);
   }

@@ -233,6 +233,8 @@
 <div
   class="canvas-text-block"
   class:canvas-text-block--editing={editing}
+  class:canvas-text-block--bars-one={element.leftBars === 1}
+  class:canvas-text-block--bars-two={element.leftBars === 2}
   class:canvas-text-block--moving={moving}
   class:canvas-text-block--selected={selected}
   data-canvas-element-id={element.id}
@@ -354,6 +356,27 @@
       0 0 0 3px rgb(55 117 102 / 12%);
     cursor: text;
   }
+
+  .canvas-text-block--bars-one::before,
+  .canvas-text-block--bars-two::before,
+  .canvas-text-block--bars-two::after {
+    position: absolute;
+    top: 7px;
+    bottom: 7px;
+    width: 2px;
+    background: currentColor;
+    border-radius: 999px;
+    content: "";
+    opacity: 0.68;
+    pointer-events: none;
+  }
+
+  .canvas-text-block--bars-one::before,
+  .canvas-text-block--bars-two::before { left: 3px; }
+  .canvas-text-block--bars-two::after { left: 7px; }
+
+  .canvas-text-block--bars-one,
+  .canvas-text-block--bars-two { padding-left: 15px; }
 
   .canvas-text-block--moving {
     opacity: 0;
