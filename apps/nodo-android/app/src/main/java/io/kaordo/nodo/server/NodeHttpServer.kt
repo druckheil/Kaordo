@@ -1333,7 +1333,7 @@ class NodeHttpServer(
         "Access-Control-Allow-Origin" to "*",
         "Access-Control-Allow-Methods" to "GET,HEAD,POST,PATCH,DELETE,OPTIONS",
         "Access-Control-Allow-Headers" to listOf(
-            "Authorization", "Content-Type", "Tus-Resumable", "Upload-Length", "Upload-Offset",
+            "Authorization", "Cache-Control", "Content-Type", "Tus-Resumable", "Upload-Length", "Upload-Offset",
             "Upload-Metadata", "X-Kaordo-Chunk-Length", "X-Kaordo-Public-Reservation",
             "X-Kaordo-Rondo-Space", "X-Kaordo-Rondo-Room", LEGACY_CHUNK_LENGTH_HEADER,
             LEGACY_PUBLIC_RESERVATION_HEADER, LEGACY_RONDO_SPACE_HEADER, LEGACY_RONDO_ROOM_HEADER,

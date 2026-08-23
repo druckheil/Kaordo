@@ -59,6 +59,15 @@ class NodeHttpServerTest {
         )
         server.start()
         try {
+            val preflight = URL("http://127.0.0.1:$port/v1/status?fresh=test").openConnection() as HttpURLConnection
+            preflight.requestMethod = "OPTIONS"
+            preflight.setRequestProperty("Origin", "tauri://localhost")
+            preflight.setRequestProperty("Access-Control-Request-Method", "GET")
+            preflight.setRequestProperty("Access-Control-Request-Headers", "authorization,cache-control")
+            assertEquals(204, preflight.responseCode)
+            assertTrue(preflight.getHeaderField("Access-Control-Allow-Headers")
+                .split(',').any { it.trim().equals("Cache-Control", ignoreCase = true) })
+
             val unauthorized = request(port, "GET", "/v1/fluo/posts", null, null)
             assertEquals(401, unauthorized.first)
 
