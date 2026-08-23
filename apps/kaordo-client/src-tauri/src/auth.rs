@@ -1403,7 +1403,10 @@ pub async fn profile_commit(
     input: ProfileCommitInput,
 ) -> Result<Value, String> {
     let reservation_id = node_id_path(&reservation_id)?;
-    if input.profile_file_id.is_empty() || input.profile_size == 0 || input.avatar_size > 4 * 1024 * 1024 {
+    if input.profile_file_id.is_empty()
+        || input.profile_size == 0
+        || input.avatar_size > 4 * 1024 * 1024
+    {
         return Err("Profile payload is invalid.".to_owned());
     }
     let response = authenticated_json_request(
