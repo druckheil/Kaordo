@@ -9,7 +9,12 @@ import type {
   WorkspaceCanvasDocument,
   WorkspaceDetail,
 } from '../domain/workspace';
-import { sanitizeTextHtml } from '../domain/workspace';
+import {
+  copyObjectDocument,
+  sanitizeTextHtml,
+  serializeObjectDocument,
+  serializeWorkspaceCanvasDocument,
+} from '../domain/workspace';
 import {
   CANVAS_CARD_MIN_HEIGHT,
   CANVAS_CARD_MIN_WIDTH,
@@ -49,7 +54,11 @@ export class CanvasService {
     string,
     WorkspaceCanvasDocument
   >();
+  readonly #history = new Map<string, CanvasHistoryState>();
+  readonly #historyCheckpointWorkspaces = new Set<string>();
+  readonly #historyOperations = new Map<string, Promise<boolean>>();
   #canvasLoadToken = 0;
+  #replayingHistory = false;
   #resize: ObjectResizeGesture | null = null;
   readonly #textEditors = new Map<string, TextEditorController>();
 
@@ -98,6 +107,14 @@ export class CanvasService {
     workspaceId: string,
     document: WorkspaceCanvasDocument,
   ): Promise<void> {
+    if (
+      !sameCanvasDocument(
+        this.state.canvasDocumentFor(workspaceId),
+        document,
+      )
+    ) {
+      this.recordHistoryBeforeChange(workspaceId);
+    }
     this.state.setCanvasDocument(workspaceId, document);
     const previous = this.#canvasSaves.get(workspaceId);
     const operation = (previous?.catch(() => undefined) ?? Promise.resolve())
@@ -135,6 +152,16 @@ export class CanvasService {
     objectId: string,
     document: ObjectDocument,
   ): Promise<void> {
+    const current = this.#getWorkspace();
+    const currentObject = current?.id === workspaceId
+      ? current.objects.find((object) => object.id === objectId)
+      : undefined;
+    if (
+      currentObject &&
+      !sameObjectDocument(currentObject.document, document)
+    ) {
+      this.recordHistoryBeforeChange(workspaceId);
+    }
     const key = `${workspaceId}:${objectId}`;
     const previous = this.#objectSaves.get(key);
     const operation = (previous?.catch(() => undefined) ?? Promise.resolve())
@@ -168,6 +195,9 @@ export class CanvasService {
 
   forgetWorkspace(workspaceId: string): void {
     this.#persistedCanvasDocuments.delete(workspaceId);
+    this.#history.delete(workspaceId);
+    this.#historyCheckpointWorkspaces.delete(workspaceId);
+    this.#historyOperations.delete(workspaceId);
     for (const key of this.#pendingPlacements.keys()) {
       if (key.startsWith(`${workspaceId}:`)) this.#pendingPlacements.delete(key);
     }
@@ -191,6 +221,7 @@ export class CanvasService {
   ): Promise<void> {
     const document = this.state.canvasDocumentFor(workspaceId);
     if (!document.elements.some((element) => element.id === elementId)) return;
+    this.recordHistoryBeforeChange(workspaceId);
     this.state.removeCanvasElement(workspaceId, elementId);
     await this.saveWorkspaceCanvasDocument(
       workspaceId,
@@ -213,6 +244,45 @@ export class CanvasService {
 
   currentWorkspaceId(): string {
     return this.#getWorkspace()?.id ?? '';
+  }
+
+  /** Handles the editor's platform-aware Undo/Redo shortcuts. */
+  handleHistoryKeydown(event: KeyboardEvent): boolean {
+    if (
+      event.defaultPrevented ||
+      event.isComposing ||
+      (!event.ctrlKey && !event.metaKey) ||
+      event.altKey ||
+      isEditableTarget(event.target)
+    ) {
+      return false;
+    }
+
+    const key = event.key.toLowerCase();
+    const isUndo = key === 'z' && !event.shiftKey;
+    const isRedo = (key === 'z' && event.shiftKey) || key === 'y';
+    if (!isUndo && !isRedo) return false;
+
+    const workspaceId = this.currentWorkspaceId();
+    if (!workspaceId) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    void (isUndo ? this.undo() : this.redo());
+    return true;
+  }
+
+  undo(): Promise<boolean> {
+    const workspaceId = this.currentWorkspaceId();
+    return workspaceId
+      ? this.queueHistoryOperation(workspaceId, () => this.applyUndo(workspaceId))
+      : Promise.resolve(false);
+  }
+
+  redo(): Promise<boolean> {
+    const workspaceId = this.currentWorkspaceId();
+    return workspaceId
+      ? this.queueHistoryOperation(workspaceId, () => this.applyRedo(workspaceId))
+      : Promise.resolve(false);
   }
 
   createTextElement(
@@ -442,6 +512,8 @@ export class CanvasService {
 
   enterWorkspace(workspace: WorkspaceDetail): void {
     this.#viewport.invalidateCameraRestore();
+    this.#history.delete(workspace.id);
+    this.#historyCheckpointWorkspaces.delete(workspace.id);
     this.state.prepareWorkspace(workspace);
     const token = ++this.#canvasLoadToken;
     void this.#loadCanvasDocument(workspace.id)
@@ -590,6 +662,135 @@ export class CanvasService {
     this.#drag.clear();
     this.#viewport.clearPan();
     this.state.resetInteractions();
+  }
+
+  private recordHistoryBeforeChange(workspaceId: string): void {
+    if (
+      this.#replayingHistory ||
+      this.#historyCheckpointWorkspaces.has(workspaceId)
+    ) {
+      return;
+    }
+    const history = this.historyFor(workspaceId);
+    history.past.push(this.captureHistorySnapshot(workspaceId));
+    if (history.past.length > MAX_HISTORY_ENTRIES) history.past.shift();
+    history.future = [];
+    this.#historyCheckpointWorkspaces.add(workspaceId);
+    Promise.resolve().then(() => {
+      this.#historyCheckpointWorkspaces.delete(workspaceId);
+    });
+  }
+
+  private captureHistorySnapshot(workspaceId: string): CanvasHistorySnapshot {
+    const workspace = this.#getWorkspace();
+    const objectDocuments: Record<string, ObjectDocument> = {};
+    if (workspace?.id === workspaceId) {
+      for (const object of workspace.objects) {
+        objectDocuments[object.id] = copyObjectDocument(object.document);
+      }
+    }
+    return {
+      canvasDocument: copyCanvasDocument(
+        this.state.canvasDocumentFor(workspaceId),
+      ),
+      objectDocuments,
+    };
+  }
+
+  private historyFor(workspaceId: string): CanvasHistoryState {
+    const existing = this.#history.get(workspaceId);
+    if (existing) return existing;
+    const created: CanvasHistoryState = { future: [], past: [] };
+    this.#history.set(workspaceId, created);
+    return created;
+  }
+
+  private queueHistoryOperation(
+    workspaceId: string,
+    operation: () => Promise<boolean>,
+  ): Promise<boolean> {
+    const previous = this.#historyOperations.get(workspaceId) ??
+      Promise.resolve(true);
+    const next = previous.catch(() => false).then(operation);
+    this.#historyOperations.set(workspaceId, next);
+    void next.finally(() => {
+      if (this.#historyOperations.get(workspaceId) === next) {
+        this.#historyOperations.delete(workspaceId);
+      }
+    }).catch(() => undefined);
+    return next;
+  }
+
+  private async applyUndo(workspaceId: string): Promise<boolean> {
+    await this.settleWorkspaceWrites(workspaceId);
+    const history = this.historyFor(workspaceId);
+    const target = history.past.pop();
+    if (!target) return false;
+    const current = this.captureHistorySnapshot(workspaceId);
+    history.future.push(current);
+    try {
+      await this.applyHistorySnapshot(workspaceId, target);
+      this.state.announce('Undid the last canvas change.');
+      return true;
+    } catch {
+      history.future.pop();
+      history.past.push(target);
+      this.state.announce('The last canvas change could not be undone.');
+      return false;
+    }
+  }
+
+  private async applyRedo(workspaceId: string): Promise<boolean> {
+    await this.settleWorkspaceWrites(workspaceId);
+    const history = this.historyFor(workspaceId);
+    const target = history.future.pop();
+    if (!target) return false;
+    const current = this.captureHistorySnapshot(workspaceId);
+    history.past.push(current);
+    try {
+      await this.applyHistorySnapshot(workspaceId, target);
+      this.state.announce('Redid the last canvas change.');
+      return true;
+    } catch {
+      history.past.pop();
+      history.future.push(target);
+      this.state.announce('The last canvas change could not be redone.');
+      return false;
+    }
+  }
+
+  private async applyHistorySnapshot(
+    workspaceId: string,
+    snapshot: CanvasHistorySnapshot,
+  ): Promise<void> {
+    const workspace = this.#getWorkspace();
+    if (!workspace || workspace.id !== workspaceId) {
+      throw new Error('The workspace is no longer open.');
+    }
+    this.#replayingHistory = true;
+    try {
+      const objectWrites = workspace.objects.flatMap((object) => {
+        const target = snapshot.objectDocuments[object.id];
+        return target && !sameObjectDocument(object.document, target)
+          ? [this.#updateObjectDocument(
+              workspaceId,
+              object.id,
+              copyObjectDocument(target),
+            )]
+          : [];
+      });
+      await Promise.all(objectWrites);
+      await this.#saveCanvasDocument(
+        workspaceId,
+        copyCanvasDocument(snapshot.canvasDocument),
+      );
+      const restored = copyCanvasDocument(snapshot.canvasDocument);
+      this.state.setCanvasDocument(workspaceId, restored);
+      this.state.restorePlacements(this.#getWorkspace() ?? workspace, restored);
+      this.#persistedCanvasDocuments.set(workspaceId, restored);
+    } finally {
+      this.#replayingHistory = false;
+    }
   }
 
   private applyResizeVisual(
@@ -781,6 +982,18 @@ type ObjectResizeGesture = {
   width: number;
 };
 
+type CanvasHistorySnapshot = {
+  canvasDocument: WorkspaceCanvasDocument;
+  objectDocuments: Record<string, ObjectDocument>;
+};
+
+type CanvasHistoryState = {
+  future: CanvasHistorySnapshot[];
+  past: CanvasHistorySnapshot[];
+};
+
+const MAX_HISTORY_ENTRIES = 100;
+
 export type TextFormatCommand =
   | 'bold'
   | 'foreColor'
@@ -823,4 +1036,37 @@ function clamp(value: number, minimum: number, maximum: number): number {
 function createCanvasElementId(kind: string): string {
   return globalThis.crypto?.randomUUID?.() ??
     `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function copyCanvasDocument(
+  document: WorkspaceCanvasDocument,
+): WorkspaceCanvasDocument {
+  return {
+    elements: document.elements.map((element) => ({ ...element })),
+    placements: document.placements.map((placement) => ({ ...placement })),
+    version: 1,
+  };
+}
+
+function sameCanvasDocument(
+  left: WorkspaceCanvasDocument,
+  right: WorkspaceCanvasDocument,
+): boolean {
+  return serializeWorkspaceCanvasDocument(left) ===
+    serializeWorkspaceCanvasDocument(right);
+}
+
+function sameObjectDocument(
+  left: ObjectDocument,
+  right: ObjectDocument,
+): boolean {
+  return serializeObjectDocument(left) === serializeObjectDocument(right);
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable ||
+    target.tagName === 'INPUT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.tagName === 'SELECT';
 }

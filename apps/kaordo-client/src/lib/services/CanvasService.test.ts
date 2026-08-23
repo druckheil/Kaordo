@@ -263,6 +263,83 @@ describe('CanvasService interaction boundaries', () => {
     });
   });
 
+  it('undoes and redoes canvas changes through the platform shortcut', async () => {
+    const initial = {
+      elements: [],
+      placements: [],
+      version: 1 as const,
+    };
+    const changed = {
+      elements: [{
+        fill: '#ffffff',
+        height: 90,
+        id: 'rectangle-1',
+        radius: 10,
+        stroke: '#000000',
+        strokeWidth: 2,
+        type: 'rectangle' as const,
+        width: 140,
+        x: 100,
+        y: 120,
+      }],
+      placements: [],
+      version: 1 as const,
+    };
+    const saveCanvasDocument = vi.fn().mockResolvedValue(undefined);
+    const state = new CanvasGState();
+    state.setCanvasDocument(workspace.id, initial);
+    const service = new CanvasService(
+      state,
+      () => workspace,
+      undefined,
+      undefined,
+      saveCanvasDocument,
+    );
+
+    await service.saveWorkspaceCanvasDocument(workspace.id, changed);
+    const undo = new KeyboardEvent('keydown', {
+      cancelable: true,
+      ctrlKey: true,
+      key: 'z',
+    });
+    expect(service.handleHistoryKeydown(undo)).toBe(true);
+    await vi.waitFor(() => {
+      expect(state.canvasDocumentFor(workspace.id)).toEqual(initial);
+    });
+
+    const redo = new KeyboardEvent('keydown', {
+      cancelable: true,
+      ctrlKey: true,
+      key: 'z',
+      shiftKey: true,
+    });
+    expect(service.handleHistoryKeydown(redo)).toBe(true);
+    await vi.waitFor(() => {
+      expect(state.canvasDocumentFor(workspace.id)).toEqual(changed);
+    });
+    expect(saveCanvasDocument).toHaveBeenCalledTimes(3);
+  });
+
+  it('leaves native text-field undo untouched', () => {
+    const state = new CanvasGState();
+    state.setCanvasDocument(workspace.id, {
+      elements: [],
+      placements: [],
+      version: 1,
+    });
+    const service = new CanvasService(state, () => workspace);
+    const input = document.createElement('input');
+    const event = new KeyboardEvent('keydown', {
+      cancelable: true,
+      ctrlKey: true,
+      key: 'z',
+    });
+    Object.defineProperty(event, 'target', { configurable: true, value: input });
+
+    expect(service.handleHistoryKeydown(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it('resizes an object from its minimum size to a very large frame', async () => {
     const state = new CanvasGState();
     const updateObject = vi.fn(

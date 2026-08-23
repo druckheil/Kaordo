@@ -663,6 +663,11 @@
     else rondo.stop();
   }
 
+  function handleGlobalKeydown(event: KeyboardEvent) {
+    if (activeSection !== 'klaro' || isModalOpen) return;
+    editor.canvas.handleHistoryKeydown(event);
+  }
+
   function setTheme(theme: AppTheme) {
     appearance.state.setTheme(theme);
   }
@@ -707,6 +712,7 @@
 
 <svelte:window
   onblur={() => editor.canvas.clearInteractions()}
+  onkeydown={handleGlobalKeydown}
   oncontextmenu={(event) => event.preventDefault()}
 />
 
