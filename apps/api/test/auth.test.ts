@@ -168,6 +168,59 @@ describe('authentication API', () => {
     })).status).toBe(200);
   });
 
+  it('changes account identity securely and keeps only the current session after a password change', async () => {
+    const registered = await post('/api/auth/desktop/register', {
+      deviceName: 'Account editor',
+      password: PASSWORD,
+      username: 'Account_User',
+    });
+    const { sessionToken: firstToken } = await registered.json<{ sessionToken: string }>();
+    const secondLogin = await post('/api/auth/desktop/login', {
+      deviceName: 'Second account editor',
+      password: PASSWORD,
+      username: 'Account_User',
+    });
+    const { sessionToken: secondToken } = await secondLogin.json<{ sessionToken: string }>();
+    const authorization = { authorization: `Bearer ${firstToken}` };
+
+    const renamed = await api('/api/auth/account/username', {
+      body: JSON.stringify({
+        newPasswordProof: await clientPasswordProof('Renamed_User', PASSWORD),
+        passwordProof: await clientPasswordProof('Account_User', PASSWORD),
+        username: 'Renamed_User',
+      }),
+      headers: { ...authorization, 'content-type': 'application/json' },
+      method: 'PATCH',
+    });
+    expect(renamed.status).toBe(200);
+    await expect(renamed.json()).resolves.toMatchObject({ user: { username: 'Renamed_User' } });
+    expect((await api('/api/auth/me', { headers: authorization })).status).toBe(200);
+    expect((await api('/api/auth/me', {
+      headers: { authorization: `Bearer ${secondToken}` },
+    })).status).toBe(200);
+
+    const changedPassword = await api('/api/auth/account/password', {
+      body: JSON.stringify({
+        currentPasswordProof: await clientPasswordProof('Renamed_User', PASSWORD),
+        newPasswordProof: await clientPasswordProof('Renamed_User', 'new safe password'),
+      }),
+      headers: { ...authorization, 'content-type': 'application/json' },
+      method: 'PATCH',
+    });
+    expect(changedPassword.status).toBe(200);
+    expect((await api('/api/auth/me', {
+      headers: { authorization: `Bearer ${secondToken}` },
+    })).status).toBe(401);
+    expect((await post('/api/auth/desktop/login', {
+      password: 'new safe password',
+      username: 'Renamed_User',
+    })).status).toBe(200);
+    expect((await post('/api/auth/desktop/login', {
+      password: PASSWORD,
+      username: 'Renamed_User',
+    })).status).toBe(401);
+  });
+
   it('does not expose desktop token routes on a future web app host', async () => {
     const response = await exports.default.fetch(
       'https://app.kaordo.example/api/auth/desktop/login',

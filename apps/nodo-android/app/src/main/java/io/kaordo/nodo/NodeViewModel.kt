@@ -45,6 +45,12 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        viewModelScope.launch {
+            NodeRuntime.sessionExpired.collect { expired ->
+                if (!expired) return@collect
+                expireSession()
+            }
+        }
         restoreSession()
     }
 
@@ -53,9 +59,10 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
         mutableState.update { it.copy(error = null, isBusy = true) }
         viewModelScope.launch {
             val result = runCatching {
-                withContext(Dispatchers.IO) { auth.login(username, password.toCharArray()) }
+            withContext(Dispatchers.IO) { auth.login(username, password.toCharArray()) }
             }
             result.onSuccess {
+                NodeRuntime.clearSessionExpired()
                 session.save(it.token, it.user)
                 mutableState.update { current -> current.copy(
                     error = null,
@@ -84,6 +91,18 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
             nodeName = configuration.nodeName(),
             notificationGranted = notificationGranted,
         ) }
+    }
+
+    fun refreshSession() {
+        val token = session.token() ?: return
+        if (mutableState.value.step == SetupStep.LOGIN ||
+            mutableState.value.step == SetupStep.CHECKING ||
+            mutableState.value.isBusy
+        ) return
+        viewModelScope.launch {
+            val result = runCatching { withContext(Dispatchers.IO) { auth.me(token) } }
+            if (result.isSuccess && result.getOrNull() == null) expireSession()
+        }
     }
 
     fun continueToStorage() {
@@ -169,9 +188,7 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val result = runCatching { withContext(Dispatchers.IO) { auth.me(token) } }
             if (result.isSuccess && result.getOrNull() == null) {
-                session.clear()
-                configuration.disable()
-                mutableState.value = NodeUiState(step = SetupStep.LOGIN)
+                expireSession()
                 return@launch
             }
             // A configured node must still recover after a reboot without Internet.
@@ -190,6 +207,14 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { NodeForegroundService.start(getApplication()) }
             }
         }
+    }
+
+    private fun expireSession() {
+        configuration.disable()
+        NodeForegroundService.stop(getApplication())
+        session.clear()
+        NodeRuntime.clearSessionExpired()
+        mutableState.value = NodeUiState(step = SetupStep.LOGIN)
     }
 
     companion object {

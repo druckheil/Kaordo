@@ -68,8 +68,16 @@ impl NodeService {
             self.store.clone(),
             Arc::clone(&runtime),
         );
+        let _session_watch = crate::session_watch::spawn(
+            runtime.config.clone(),
+            self.store.clone(),
+            Arc::clone(&runtime),
+        );
         let _cleanup = heartbeat::spawn_cleanup(runtime.config.clone(), Arc::clone(&runtime));
         runtime.server(listeners)?;
+        if runtime.shutdown_requested() {
+            crate::ui::warning("Nodo stopped because its Kaordo session was revoked.");
+        }
         Ok(())
     }
 }

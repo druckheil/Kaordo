@@ -318,6 +318,8 @@ pub fn run() {
     tauri::Builder::default()
         .manage(auth_client)
         .invoke_handler(tauri::generate_handler![
+            auth::auth_change_password,
+            auth::auth_change_username,
             auth::auth_login,
             auth::auth_logout,
             auth::auth_me,

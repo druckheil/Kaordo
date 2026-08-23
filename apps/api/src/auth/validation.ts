@@ -13,24 +13,21 @@ export type Credentials = {
   passwordProof: string;
 };
 
-export async function readCredentials(request: Request): Promise<Credentials> {
-  const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim();
-  if (contentType !== 'application/json') {
-    throw new InputError('Content-Type must be application/json.');
-  }
-  const declaredLength = Number(request.headers.get('content-length') ?? 0);
-  if (declaredLength > MAX_REQUEST_BYTES) throw new InputError('Request is too large.');
-  const bytes = await request.arrayBuffer();
-  if (bytes.byteLength > MAX_REQUEST_BYTES) throw new InputError('Request is too large.');
+export type UsernameChange = {
+  displayUsername: string;
+  normalizedUsername: string;
+  passwordProof: string;
+  newPasswordProof: string;
+};
 
-  let value: unknown;
-  try {
-    value = JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    throw new InputError('Request body must contain valid JSON.');
-  }
+export type PasswordChange = {
+  currentPasswordProof: string;
+  newPasswordProof: string;
+};
+
+export async function readCredentials(request: Request): Promise<Credentials> {
+  const value = await readJsonRecord(request);
   if (
-    !isRecord(value) ||
     typeof value.username !== 'string' ||
     typeof value.passwordProof !== 'string'
   ) {
@@ -64,6 +61,72 @@ export async function readCredentials(request: Request): Promise<Credentials> {
     normalizedUsername,
     passwordProof: value.passwordProof,
   };
+}
+
+export async function readUsernameChange(request: Request): Promise<UsernameChange> {
+  const value = await readJsonRecord(request);
+  if (
+    typeof value.username !== 'string' ||
+    typeof value.passwordProof !== 'string' ||
+    typeof value.newPasswordProof !== 'string'
+  ) {
+    throw new InputError('Username and current password are required.');
+  }
+  return {
+    ...readUsername(value.username),
+    passwordProof: readPasswordProof(value.passwordProof),
+    newPasswordProof: readPasswordProof(value.newPasswordProof),
+  };
+}
+
+export async function readPasswordChange(request: Request): Promise<PasswordChange> {
+  const value = await readJsonRecord(request);
+  if (
+    typeof value.currentPasswordProof !== 'string' ||
+    typeof value.newPasswordProof !== 'string'
+  ) {
+    throw new InputError('Current and new passwords are required.');
+  }
+  return {
+    currentPasswordProof: readPasswordProof(value.currentPasswordProof),
+    newPasswordProof: readPasswordProof(value.newPasswordProof),
+  };
+}
+
+function readUsername(value: string): Pick<UsernameChange, 'displayUsername' | 'normalizedUsername'> {
+  const displayUsername = value.trim();
+  const normalizedUsername = displayUsername.toLowerCase();
+  if (!USERNAME_PATTERN.test(normalizedUsername)) {
+    throw new InputError(
+      'Username must be 3–32 characters using letters, numbers, or inner underscores.',
+    );
+  }
+  return { displayUsername, normalizedUsername };
+}
+
+function readPasswordProof(value: string): string {
+  if (!PASSWORD_PROOF_PATTERN.test(value)) throw new InputError('Password proof is invalid.');
+  return value;
+}
+
+async function readJsonRecord(request: Request): Promise<Record<string, unknown>> {
+  const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim();
+  if (contentType !== 'application/json') {
+    throw new InputError('Content-Type must be application/json.');
+  }
+  const declaredLength = Number(request.headers.get('content-length') ?? 0);
+  if (declaredLength > MAX_REQUEST_BYTES) throw new InputError('Request is too large.');
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > MAX_REQUEST_BYTES) throw new InputError('Request is too large.');
+
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new InputError('Request body must contain valid JSON.');
+  }
+  if (!isRecord(value)) throw new InputError('Request body must contain a JSON object.');
+  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

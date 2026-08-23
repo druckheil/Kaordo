@@ -148,6 +148,7 @@ export class LigoGState extends GState<LigoSnapshot> {
     private readonly openLiveSocket: (url: string) => LigoLiveSocket = (url) => new WebSocket(url),
     private readonly fileArchive: LigoFileArchive = UNAVAILABLE_LIGO_FILE_ARCHIVE,
     private readonly onStorageChanged: ((nodeId: string, space: 'private' | 'public') => void | Promise<void>) | null = null,
+    private readonly onSessionRevoked: (() => void) | null = null,
   ) { super(emptySnapshot()); }
 
   configure(ownerId: string | null): void {
@@ -1175,6 +1176,7 @@ export class LigoGState extends GState<LigoSnapshot> {
         if (!signal) return;
         if (signal.type === 'inbox') this.requestInboxSync();
         else if (signal.type === 'presence') this.applyPresence(signal.userId, signal.online);
+        else if (signal.type === 'session-revoked') this.onSessionRevoked?.();
         else if (signal.type === 'conversation-deletions') void this.applyConversationDeletions(signal.deletions);
         else if (signal.type === 'deletions') void this.applyDeletions(signal.deletions);
         else void this.applyReceipts(signal.messageIds, signal.status);
@@ -1348,7 +1350,8 @@ type LigoLiveSignal =
   | { deletions: LigoDeletion[]; type: 'deletions' }
   | { messageId: string; type: 'inbox' }
   | { online: boolean; type: 'presence'; userId: string }
-  | { messageIds: string[]; status: LigoReceiptStatus; type: 'receipts' };
+  | { messageIds: string[]; status: LigoReceiptStatus; type: 'receipts' }
+  | { type: 'session-revoked' };
 function liveSignal(data: unknown): LigoLiveSignal | null {
   if (typeof data !== 'string') return null;
   try {
@@ -1361,6 +1364,7 @@ function liveSignal(data: unknown): LigoLiveSignal | null {
         'online' in value && typeof value.online === 'boolean') {
       return { online: value.online, type: 'presence', userId: value.userId };
     }
+    if (value.type === 'session-revoked') return { type: 'session-revoked' };
     if (value.type === 'deletions' && 'deletions' in value && Array.isArray(value.deletions) &&
         value.deletions.every((item) => typeof item === 'object' && item !== null &&
           'messageId' in item && typeof item.messageId === 'string' &&

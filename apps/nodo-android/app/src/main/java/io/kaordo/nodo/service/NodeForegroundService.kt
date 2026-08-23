@@ -21,6 +21,7 @@ import io.kaordo.nodo.data.NodeConfiguration
 import io.kaordo.nodo.data.NodeCoordinatorClient
 import io.kaordo.nodo.data.NodeAccessClient
 import io.kaordo.nodo.data.NodeIdentity
+import io.kaordo.nodo.data.NodeSessionWatcher
 import io.kaordo.nodo.diagnostics.NodeDiagnostics
 import io.kaordo.nodo.model.DiskBenchmark
 import io.kaordo.nodo.model.NodeMetrics
@@ -57,6 +58,7 @@ class NodeForegroundService : Service() {
     private var server: NodeHttpServer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var sessionWatcher: NodeSessionWatcher? = null
     private val activePolicy = AtomicReference(NodePolicy())
     private val latestMetrics = AtomicReference<NodeMetrics?>(null)
 
@@ -176,6 +178,12 @@ class NodeForegroundService : Service() {
                 onPublicStorageChanged = { heartbeatSignal.trySend(Unit) },
             ).also { it.start() }
             server = httpServer
+            runCatching { NodeCoordinatorClient().authSessionWatchUrl(token) }
+                .onSuccess { url ->
+                    sessionWatcher = NodeSessionWatcher(url) {
+                        expireSession(session, configuration)
+                    }.also(NodeSessionWatcher::start)
+                }
             NodeRuntime.installStorageCleaner {
                 val result = httpServer.clearStorage()
                 publishOnline(privateStore, publicStore, quota)
@@ -208,6 +216,7 @@ class NodeForegroundService : Service() {
             heartbeatJob = scope.launch {
                 val coordinator = NodeCoordinatorClient()
                 var waitSeconds = 10L
+                var sessionExpired = false
                 while (isActive) {
                     val addresses = NetworkAddresses.localIpv4()
                     val metrics = diagnostics.snapshot(benchmark.get(), coordinatorLatencyMs.get())
@@ -276,9 +285,15 @@ class NodeForegroundService : Service() {
                         } else {
                             waitSeconds = it.heartbeatAfterSeconds
                         }
-                    }.onFailure {
-                        waitSeconds = (waitSeconds * 2).coerceAtMost(300)
+                    }.onFailure { error ->
+                        if (error is NodeCoordinatorClient.SessionExpiredException) {
+                            expireSession(session, configuration)
+                            sessionExpired = true
+                        } else {
+                            waitSeconds = (waitSeconds * 2).coerceAtMost(300)
+                        }
                     }
+                    if (sessionExpired) return@launch
                     publishOnline(privateStore, publicStore, quota)
                     withTimeoutOrNull(waitSeconds * 1_000) { heartbeatSignal.receive() }
                 }
@@ -289,12 +304,23 @@ class NodeForegroundService : Service() {
         }
     }
 
+    private fun expireSession(session: SecureSessionStore, configuration: NodeConfiguration) {
+        configuration.disable()
+        session.clear()
+        stopNodeResources()
+        NodeRuntime.markSessionExpired()
+        updateNotification("Stopped · Kaordo session expired")
+        stopSelf()
+    }
+
     @Synchronized
     private fun stopNodeResources() {
         cleanupJob?.cancel()
         cleanupJob = null
         heartbeatJob?.cancel()
         heartbeatJob = null
+        sessionWatcher?.close()
+        sessionWatcher = null
         server?.stop()
         server = null
         unregisterNetworkCallback()

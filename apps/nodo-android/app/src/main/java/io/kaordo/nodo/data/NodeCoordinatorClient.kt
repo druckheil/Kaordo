@@ -86,6 +86,7 @@ class NodeCoordinatorClient {
             .post(body.toRequestBody(JSON))
             .build()
         return http.newCall(request).execute().use { response ->
+            if (response.code == 401) throw SessionExpiredException()
             if (!response.isSuccessful) throw IllegalStateException("Coordinator rejected the heartbeat.")
             val value = JSONObject(response.body.string())
             val policy = value.getJSONObject("policy")
@@ -116,6 +117,19 @@ class NodeCoordinatorClient {
         }
     }
 
+    fun authSessionWatchUrl(token: String): String {
+        val request = Request.Builder()
+            .url("${BuildConfig.API_ORIGIN}/api/auth/live-ticket")
+            .header("Authorization", "Bearer $token")
+            .post("{}".toRequestBody(JSON))
+            .build()
+        return NodeHttpClients.withTimeout(10).newCall(request).execute().use { response ->
+            if (response.code == 401) throw SessionExpiredException()
+            if (!response.isSuccessful) throw IllegalStateException("Coordinator rejected the session watch.")
+            JSONObject(response.body.string()).getString("url")
+        }
+    }
+
     data class HeartbeatResult(
         val heartbeatAfterSeconds: Long,
         val deviceName: String?,
@@ -130,6 +144,8 @@ class NodeCoordinatorClient {
     )
 
     data class LigoDeletion(val id: String, val storage: String)
+
+    class SessionExpiredException : IllegalStateException("The Nodo session has expired. Please sign in again.")
 
     private companion object {
         val JSON = "application/json; charset=utf-8".toMediaType()

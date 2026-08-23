@@ -9,10 +9,20 @@ import java.util.concurrent.atomic.AtomicReference
 object NodeRuntime {
     private val mutableStatus = MutableStateFlow<NodeServiceStatus>(NodeServiceStatus.Stopped)
     val status = mutableStatus.asStateFlow()
+    private val mutableSessionExpired = MutableStateFlow(false)
+    val sessionExpired = mutableSessionExpired.asStateFlow()
     private val storageCleaner = AtomicReference<(() -> NodeHttpServer.StorageClearResult)?>(null)
 
     fun update(status: NodeServiceStatus) {
         mutableStatus.value = status
+    }
+
+    fun markSessionExpired() {
+        mutableSessionExpired.value = true
+    }
+
+    fun clearSessionExpired() {
+        mutableSessionExpired.value = false
     }
 
     fun installStorageCleaner(cleaner: (() -> NodeHttpServer.StorageClearResult)?) {

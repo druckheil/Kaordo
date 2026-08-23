@@ -18,6 +18,7 @@ export class LigoController {
     gateway: LigoGateway,
     nodes: NodoGateway,
     onStorageChanged?: (nodeId: string, space: 'private' | 'public') => void | Promise<void>,
+    onSessionRevoked?: () => void,
   ) {
     this.manager = this.director.register(LIGO_STATE);
     // The Ligo bootstrap needs the same node and public-pool data as Fluo.
@@ -37,6 +38,7 @@ export class LigoController {
       undefined,
       createLigoFileArchive(),
       onStorageChanged ?? null,
+      onSessionRevoked ?? null,
     );
   }
   start(): void { this.manager.change(this.state); }

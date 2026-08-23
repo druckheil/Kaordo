@@ -126,6 +126,8 @@ const fluoNode = {
 
 function authenticatedGateway(): AuthGateway {
   return {
+    changePassword: () => Promise.resolve(),
+    changeUsername: () => Promise.resolve(signedInUser),
     currentUser: () => Promise.resolve(signedInUser),
     login: () => Promise.resolve(signedInUser),
     listSessions: () => Promise.resolve([]),
@@ -401,6 +403,53 @@ describe('workspace navigation and objects', () => {
     expect(logout).toHaveBeenCalledOnce();
     expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Files' })).not.toBeInTheDocument();
+  });
+
+  it('opens account change dialogs and updates the authenticated identity', async () => {
+    const changeUsername = vi.fn(() => Promise.resolve({ ...signedInUser, username: 'Renamed_User' }));
+    const changePassword = vi.fn(() => Promise.resolve());
+    const authGateway: AuthGateway = {
+      ...authenticatedGateway(),
+      changePassword,
+      changeUsername,
+    };
+    render(App, {
+      adminGateway,
+      appearanceGateway,
+      autoloadWorkspaceLibrary: false,
+      authGateway,
+      initialAuthUser: signedInUser,
+      workspaceGateway: new TauriWorkspaceGateway(),
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Mi' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Change username' }));
+    expect(screen.getByRole('dialog', { name: 'Change username' })).toBeInTheDocument();
+    await fireEvent.input(screen.getByLabelText('New username'), {
+      target: { value: 'Renamed_User' },
+    });
+    await fireEvent.input(screen.getByLabelText('Current password'), {
+      target: { value: 'current password' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save username' }));
+    expect(changeUsername).toHaveBeenCalledWith('Nova_User', 'Renamed_User', 'current password');
+    expect(await screen.findByRole('heading', { name: 'Renamed_User' })).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+    const passwordDialog = screen.getByRole('dialog', { name: 'Change password' });
+    expect(passwordDialog).toBeInTheDocument();
+    await fireEvent.input(screen.getByLabelText('Current password'), {
+      target: { value: 'current password' },
+    });
+    await fireEvent.input(screen.getByLabelText('New password'), {
+      target: { value: 'new password' },
+    });
+    await fireEvent.input(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'new password' },
+    });
+    await fireEvent.click(within(passwordDialog).getByRole('button', { name: 'Change password' }));
+    expect(changePassword).toHaveBeenCalledWith('Renamed_User', 'current password', 'new password');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change password' })).not.toBeInTheDocument());
   });
 
   it('loads account sessions in Mi and terminates a remote session', async () => {
@@ -1911,6 +1960,8 @@ describe('authentication gate', () => {
   it('keeps the workspace unmounted until a valid login succeeds', async () => {
     const login = vi.fn(() => Promise.resolve(signedInUser));
     const authGateway: AuthGateway = {
+      changePassword: () => Promise.resolve(),
+      changeUsername: () => Promise.resolve(signedInUser),
       currentUser: () => Promise.resolve(null),
       login,
       listSessions: () => Promise.resolve([]),
@@ -1946,6 +1997,8 @@ describe('authentication gate', () => {
   it('validates registration before sending credentials', async () => {
     const register = vi.fn(() => Promise.resolve(signedInUser));
     const authGateway: AuthGateway = {
+      changePassword: () => Promise.resolve(),
+      changeUsername: () => Promise.resolve(signedInUser),
       currentUser: () => Promise.resolve(null),
       login: () => Promise.resolve(signedInUser),
       listSessions: () => Promise.resolve([]),

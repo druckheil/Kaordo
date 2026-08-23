@@ -20,6 +20,43 @@ export class WebAuthGateway implements AuthGateway {
     return this.authenticate('register', username, password);
   }
 
+  async changeUsername(
+    currentUsername: string,
+    newUsername: string,
+    currentPassword: string,
+  ): Promise<AuthUser> {
+    validateUsername(newUsername);
+    validatePassword(currentPassword, false);
+    const [passwordProof, newPasswordProof] = await Promise.all([
+      derivePasswordProof(currentUsername, currentPassword),
+      derivePasswordProof(newUsername, currentPassword),
+    ]);
+    const result = await requestJson<UserResponse>('/api/auth/account/username', {
+      body: JSON.stringify({ newPasswordProof, passwordProof, username: newUsername }),
+      headers: { 'content-type': 'application/json' },
+      method: 'PATCH',
+    }, AUTH_UNAVAILABLE);
+    return result.user;
+  }
+
+  async changePassword(
+    username: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    validatePassword(currentPassword, false);
+    validatePassword(newPassword, true);
+    const [currentPasswordProof, newPasswordProof] = await Promise.all([
+      derivePasswordProof(username, currentPassword),
+      derivePasswordProof(username, newPassword),
+    ]);
+    await requestJson<{ ok: boolean }>('/api/auth/account/password', {
+      body: JSON.stringify({ currentPasswordProof, newPasswordProof }),
+      headers: { 'content-type': 'application/json' },
+      method: 'PATCH',
+    }, AUTH_UNAVAILABLE);
+  }
+
   async logout(): Promise<void> {
     await requestJson<{ ok: boolean }>(
       '/api/auth/logout',
@@ -105,7 +142,14 @@ function base64Url(bytes: Uint8Array): string {
     .replace(/=+$/u, '');
 }
 
-function validatePassword(password: string, registration: boolean) {
+export function validateUsername(username: string) {
+  const normalized = username.trim().toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9_]{1,30}[a-z0-9])?$/u.test(normalized)) {
+    throw new Error('Username must be 3–32 characters using letters, numbers, or inner underscores.');
+  }
+}
+
+export function validatePassword(password: string, registration: boolean) {
   const length = [...password].length;
   const maximum = registration ? 32 : 128;
   if (length < 6 || length > maximum || new TextEncoder().encode(password).length > 256) {

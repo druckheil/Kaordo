@@ -1,11 +1,18 @@
 <script lang="ts">
+  import AccountChangeDialog, {
+    type AccountChangeMode,
+    type AccountChangeValues,
+  } from '../dialog/AccountChangeDialog.svelte';
   import type { AuthSession, AuthUser } from '../../lib/domain/auth';
   import type { PublicNodoStorage } from '../../lib/domain/nodo';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
 
   type Props = {
     busy: boolean;
+    accountBusy: boolean;
     error: string | null;
+    onChangePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
+    onChangeUsername: (newUsername: string, currentPassword: string) => Promise<boolean>;
     onLogout: () => void | Promise<void>;
     onListPublic: () => void | Promise<void>;
     platform: 'desktop' | 'web';
@@ -25,7 +32,10 @@
 
   let {
     busy,
+    accountBusy,
     error,
+    onChangePassword,
+    onChangeUsername,
     onLogout,
     onListPublic,
     platform,
@@ -44,6 +54,7 @@
   }: Props = $props();
   let initial = $derived(user.username.slice(0, 1).toUpperCase());
   let joined = $derived(formatJoined(user.createdAt));
+  let accountModal = $state<AccountChangeMode | null>(null);
   let publicPercent = $derived(publicStorage
     ? Math.min(100, publicStorage.usedBytes / Math.max(1, publicStorage.limitBytes) * 100)
     : 0);
@@ -67,6 +78,13 @@
       dateStyle: 'medium',
       timeStyle: 'short',
     }).format(new Date(timestamp * 1_000));
+  }
+
+  async function submitAccountChange(values: AccountChangeValues): Promise<void> {
+    const changed = values.kind === 'username'
+      ? await onChangeUsername(values.newUsername, values.currentPassword)
+      : await onChangePassword(values.currentPassword, values.newPassword);
+    if (changed) accountModal = null;
   }
 </script>
 
@@ -125,6 +143,16 @@
             <dd class="status-value"><i aria-hidden="true"></i> Active</dd>
           </div>
         </dl>
+        <div class="account-actions">
+          <button type="button" disabled={accountBusy} onclick={() => (accountModal = 'username')}>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 15.5V17h1.5l9.7-9.7-1.5-1.5L4 15.5Z" /><path d="m12.8 5.8 1.5 1.5M4 10h4" /></svg>
+            Change username
+          </button>
+          <button type="button" disabled={accountBusy} onclick={() => (accountModal = 'password')}>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="8.5" width="12" height="8" rx="2" /><path d="M6.8 8.5V6.7a3.2 3.2 0 0 1 6.4 0v1.8M10 11.5v2" /></svg>
+            Change password
+          </button>
+        </div>
       </section>
 
       <section class="detail-card" aria-labelledby="security-title">
@@ -298,6 +326,17 @@
     {/if}
   </div>
 </main>
+
+{#if accountModal}
+  <AccountChangeDialog
+    mode={accountModal}
+    busy={accountBusy}
+    error={error}
+    onCancel={() => { accountModal = null; }}
+    onSubmit={submitAccountChange}
+    username={user.username}
+  />
+{/if}
 
 <style>
   .profile-shell {
@@ -547,6 +586,40 @@
   .account-id { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: calc(8px * var(--text-scale)); }
   .status-value { display: flex; align-items: center; gap: 7px; color: #397963; }
   .status-value i { width: 5px; height: 5px; }
+
+  .account-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 13px;
+    padding-top: 12px;
+    border-top: 1px solid #e8ece8;
+  }
+
+  .account-actions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 29px;
+    padding: 0 9px;
+    color: #4a806f;
+    background: #f5faf7;
+    border: 1px solid #cfe0d8;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: calc(8px * var(--text-scale));
+    font-weight: 650;
+    transition: 120ms ease;
+  }
+
+  .account-actions button:hover:not(:disabled) {
+    color: #2d6652;
+    background: #edf6f1;
+    border-color: #a9cbb8;
+  }
+
+  .account-actions button:disabled { cursor: default; opacity: 0.55; }
+  .account-actions svg { width: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
 
   .session-row {
     display: grid;

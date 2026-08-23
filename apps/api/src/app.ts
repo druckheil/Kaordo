@@ -2,6 +2,8 @@ import type { Env } from './env';
 import {
   CLIENT_DESKTOP,
   CLIENT_WEB,
+  changePassword,
+  changeUsername,
   login,
   logout,
   me,
@@ -68,7 +70,7 @@ import {
   searchLigoUsers,
   updateLigoStorage,
 } from './ligo/routes';
-import { createLigoLiveTicket, openLigoLive } from './ligo/live';
+import { createAuthLiveTicket, createLigoLiveTicket, openLigoLive } from './ligo/live';
 
 const DESKTOP_AUTH_HOST = `${['veri', 'dimensio-api'].join('')}.pshenychnyi-ld.workers.dev`;
 
@@ -140,6 +142,9 @@ export function handleRequest(
   }
   if (request.method === 'POST' && pathname === '/api/ligo/live-ticket') {
     return createLigoLiveTicket(request, env);
+  }
+  if (request.method === 'POST' && pathname === '/api/auth/live-ticket') {
+    return createAuthLiveTicket(request, env);
   }
   if (request.method === 'GET' && pathname === '/api/ligo/live') {
     return openLigoLive(request, env);
@@ -290,13 +295,19 @@ export function handleRequest(
   }
   const authSessionMatch = pathname.match(/^\/api\/auth\/sessions\/([A-Za-z0-9_-]{43})$/u);
   if (request.method === 'DELETE' && authSessionMatch?.[1]) {
-    return terminateSession(request, env, authSessionMatch[1]);
+    return terminateSession(request, env, authSessionMatch[1], ctx);
   }
   if (request.method === 'GET' && pathname === '/api/auth/me') {
     return me(request, env);
   }
   if (request.method === 'POST' && pathname === '/api/auth/presence') {
     return presence(request, env);
+  }
+  if (request.method === 'PATCH' && pathname === '/api/auth/account/username') {
+    return changeUsername(request, env);
+  }
+  if (request.method === 'PATCH' && pathname === '/api/auth/account/password') {
+    return changePassword(request, env, ctx);
   }
 
   return json({ error: 'Not found.' }, 404);

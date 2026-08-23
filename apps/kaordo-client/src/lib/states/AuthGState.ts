@@ -10,7 +10,6 @@ export type AuthSnapshot = {
 
 export class AuthGState extends GState<AuthSnapshot> {
   readonly #gateway: AuthGateway;
-  #lastPresenceAt = 0;
   #requestId = 0;
 
   constructor(gateway: AuthGateway, initialUser: AuthUser | null = null) {
@@ -23,7 +22,9 @@ export class AuthGState extends GState<AuthSnapshot> {
   }
 
   override enter(): void {
-    if (this.snapshot.phase === 'authenticated') return;
+    if (this.snapshot.phase === 'authenticated') {
+      return;
+    }
     void this.restore();
   }
 
@@ -67,15 +68,46 @@ export class AuthGState extends GState<AuthSnapshot> {
     }
   }
 
-  markPresent(): void {
-    const now = Date.now();
-    if (this.snapshot.phase !== 'authenticated' || now - this.#lastPresenceAt < 10 * 60_000) {
-      return;
+  async changeUsername(newUsername: string, currentPassword: string): Promise<boolean> {
+    const currentUser = this.snapshot.user;
+    if (this.snapshot.phase !== 'authenticated' || !currentUser) return false;
+    const requestId = ++this.#requestId;
+    this.publish({ ...this.snapshot, error: null });
+    try {
+      const user = await this.#gateway.changeUsername(
+        currentUser.username,
+        newUsername,
+        currentPassword,
+      );
+      if (requestId !== this.#requestId) return false;
+      this.publish({ error: null, phase: 'authenticated', user });
+      return true;
+    } catch (error) {
+      if (requestId !== this.#requestId) return false;
+      this.publish({ ...this.snapshot, error: readableError(error) });
+      return false;
     }
-    this.#lastPresenceAt = now;
-    void this.#gateway.presence().catch(() => {
-      // Presence is best-effort and must never interrupt the user's work.
-    });
+  }
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<boolean> {
+    const currentUser = this.snapshot.user;
+    if (this.snapshot.phase !== 'authenticated' || !currentUser) return false;
+    const requestId = ++this.#requestId;
+    this.publish({ ...this.snapshot, error: null });
+    try {
+      await this.#gateway.changePassword(currentUser.username, currentPassword, newPassword);
+      if (requestId !== this.#requestId) return false;
+      this.publish({ ...this.snapshot, error: null });
+      return true;
+    } catch (error) {
+      if (requestId !== this.#requestId) return false;
+      this.publish({ ...this.snapshot, error: readableError(error) });
+      return false;
+    }
+  }
+
+  handleSessionRevoked(): void {
+    if (this.snapshot.phase === 'authenticated') this.expireSession();
   }
 
   private async restore(): Promise<void> {
@@ -93,6 +125,11 @@ export class AuthGState extends GState<AuthSnapshot> {
       if (requestId !== this.#requestId) return;
       this.publish({ error: readableError(error), phase: 'anonymous', user: null });
     }
+  }
+
+  private expireSession(): void {
+    this.#requestId += 1;
+    this.publish({ error: null, phase: 'anonymous', user: null });
   }
 }
 

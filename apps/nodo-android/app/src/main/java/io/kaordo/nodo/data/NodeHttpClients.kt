@@ -19,4 +19,8 @@ internal object NodeHttpClients {
         .readTimeout(seconds, TimeUnit.SECONDS)
         .callTimeout(seconds, TimeUnit.SECONDS)
         .build()
+
+    fun webSocket(): OkHttpClient = base.newBuilder()
+        .pingInterval(25, TimeUnit.SECONDS)
+        .build()
 }

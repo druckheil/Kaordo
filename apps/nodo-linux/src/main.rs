@@ -5,6 +5,7 @@ mod config;
 mod heartbeat;
 mod server;
 mod service;
+mod session_watch;
 mod storage;
 mod ui;
 mod update;
@@ -14,7 +15,7 @@ use service::{NodeService, ServiceOptions};
 use std::env;
 use std::path::PathBuf;
 
-pub const VERSION: &str = "0.1.4-12a";
+pub const VERSION: &str = "0.1.5-1a";
 
 fn main() {
     if let Err(error) = dispatch(env::args().skip(1).collect()) {

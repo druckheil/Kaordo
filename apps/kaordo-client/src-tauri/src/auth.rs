@@ -189,6 +189,21 @@ struct Credentials<'a> {
     username: &'a str,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsernameChangeRequest<'a> {
+    new_password_proof: &'a str,
+    password_proof: &'a str,
+    username: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PasswordChangeRequest<'a> {
+    current_password_proof: &'a str,
+    new_password_proof: &'a str,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DesktopAuthResponse {
@@ -517,6 +532,71 @@ pub async fn auth_login(
     let user = persist_auth_result(result).await?;
     client.set_authenticated(true);
     Ok(user)
+}
+
+#[tauri::command]
+pub async fn auth_change_username(
+    client: State<'_, AuthClient>,
+    current_username: String,
+    new_username: String,
+    current_password: String,
+) -> Result<AuthUser, String> {
+    let mut password_proof =
+        derive_password_proof(current_username.clone(), current_password.clone(), false).await?;
+    let mut new_password_proof =
+        derive_password_proof(new_username.clone(), current_password, false).await?;
+    let body = UsernameChangeRequest {
+        new_password_proof: &new_password_proof,
+        password_proof: &password_proof,
+        username: &new_username,
+    };
+    let result = match authenticated_json_request(
+        &client,
+        Method::PATCH,
+        "/api/auth/account/username",
+        &body,
+    )
+    .await
+    {
+        Ok(response) => decode_response::<UserResponse>(response).await,
+        Err(error) => Err(error),
+    };
+    password_proof.zeroize();
+    new_password_proof.zeroize();
+    Ok(result?.user)
+}
+
+#[tauri::command]
+pub async fn auth_change_password(
+    client: State<'_, AuthClient>,
+    username: String,
+    current_password: String,
+    new_password: String,
+) -> Result<(), String> {
+    let mut current_password_proof =
+        derive_password_proof(username.clone(), current_password, false).await?;
+    let mut new_password_proof = derive_password_proof(username, new_password, true).await?;
+    let body = PasswordChangeRequest {
+        current_password_proof: &current_password_proof,
+        new_password_proof: &new_password_proof,
+    };
+    let result = match authenticated_json_request(
+        &client,
+        Method::PATCH,
+        "/api/auth/account/password",
+        &body,
+    )
+    .await
+    {
+        Ok(response) => decode_response::<OkResponse>(response).await,
+        Err(error) => Err(error),
+    };
+    current_password_proof.zeroize();
+    new_password_proof.zeroize();
+    if !result?.ok {
+        return Err("The password change was rejected.".to_owned());
+    }
+    Ok(())
 }
 
 #[tauri::command]

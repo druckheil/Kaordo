@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -32,6 +32,7 @@ pub struct NodeRuntime {
     pub config: Arc<RwLock<Config>>,
     pub coordinator_latency_ms: Arc<RwLock<Option<u64>>>,
     pub storage: Arc<RwLock<NodeStorage>>,
+    shutdown_requested: Arc<AtomicBool>,
     connections: Arc<AtomicUsize>,
     verifier: TicketVerifier,
     voice: Arc<Mutex<VoiceHub>>,
@@ -45,6 +46,7 @@ impl NodeRuntime {
             config: Arc::new(RwLock::new(config)),
             coordinator_latency_ms: Arc::new(RwLock::new(None)),
             storage: Arc::new(RwLock::new(storage)),
+            shutdown_requested: Arc::new(AtomicBool::new(false)),
             connections: Arc::new(AtomicUsize::new(0)),
             verifier: TicketVerifier::new(api_origin),
             voice: Arc::new(Mutex::new(VoiceHub::default())),
@@ -77,13 +79,22 @@ impl NodeRuntime {
         }
         Ok(())
     }
+
+    pub fn request_shutdown(&self) {
+        self.shutdown_requested.store(true, Ordering::Release);
+    }
+
+    pub fn shutdown_requested(&self) -> bool {
+        self.shutdown_requested.load(Ordering::Acquire)
+    }
 }
 
 fn accept_connections(listener: TcpListener, runtime: Arc<NodeRuntime>) -> io::Result<()> {
-    listener.set_nonblocking(false)?;
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
+    listener.set_nonblocking(true)?;
+    while !runtime.shutdown_requested() {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                stream.set_nonblocking(false)?;
                 if runtime
                     .connections
                     .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
@@ -109,6 +120,9 @@ fn accept_connections(listener: TcpListener, runtime: Arc<NodeRuntime>) -> io::R
                         }
                     })
                     .map_err(|error| io::Error::other(error.to_string()))?;
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(50));
             }
             Err(error) => return Err(error),
         }

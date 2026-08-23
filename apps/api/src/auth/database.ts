@@ -31,6 +31,84 @@ export async function findUserByUsername(
     .first<UserRow>();
 }
 
+export async function findUserById(
+  db: D1Database,
+  userId: ArrayBuffer,
+): Promise<UserRow | null> {
+  return db
+    .prepare(
+      `SELECT id, username, display_username, password_hash, password_salt,
+              password_algorithm, password_iterations, created_at, status,
+              role, last_seen_at
+         FROM users
+        WHERE id = ?1
+        LIMIT 1`,
+    )
+    .bind(userId)
+    .first<UserRow>();
+}
+
+export async function updateUsername(
+  db: D1Database,
+  userId: ArrayBuffer,
+  username: string,
+  displayUsername: string,
+  password: PasswordRecord,
+): Promise<UserRow | null> {
+  const result = await db
+    .prepare(
+      `UPDATE users
+          SET username = ?1,
+              display_username = ?2,
+              password_hash = ?3,
+              password_salt = ?4,
+              password_algorithm = ?5,
+              password_iterations = ?6
+        WHERE id = ?7`,
+    )
+    .bind(
+      username,
+      displayUsername,
+      password.hash,
+      password.salt,
+      password.algorithm,
+      password.iterations,
+      userId,
+    )
+    .run();
+  if ((result.meta.changes ?? 0) === 0) return null;
+  return findUserById(db, userId);
+}
+
+export async function updatePassword(
+  db: D1Database,
+  userId: ArrayBuffer,
+  currentTokenHash: Uint8Array,
+  password: PasswordRecord,
+): Promise<void> {
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE users
+            SET password_hash = ?1,
+                password_salt = ?2,
+                password_algorithm = ?3,
+                password_iterations = ?4
+          WHERE id = ?5`,
+      )
+      .bind(
+        password.hash,
+        password.salt,
+        password.algorithm,
+        password.iterations,
+        userId,
+      ),
+    db
+      .prepare('DELETE FROM sessions WHERE user_id = ?1 AND token_hash != ?2')
+      .bind(userId, currentTokenHash),
+  ]);
+}
+
 export async function createUserAndSession(
   db: D1Database,
   input: {

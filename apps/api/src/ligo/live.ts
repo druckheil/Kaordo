@@ -7,9 +7,20 @@ import { json } from '../http/json';
 const USER_KEY = /^[A-Za-z0-9_-]{22}$/u;
 const SECRET = /^[A-Za-z0-9_-]{43}$/u;
 const TICKET_LIFETIME_SECONDS = 45;
-const MAX_CONNECTIONS_PER_USER = 16;
+// A session may have one Ligo stream and one auth-revocation stream. Keep the
+// cap aligned with the database's 16-session limit without allowing an
+// unbounded number of sockets per user.
+const MAX_CONNECTIONS_PER_USER = 32;
 const PRESENCE_NOTIFY_BATCH = 32;
 const INTERNAL_TICKET_HEADER = 'x-kaordo-ligo-live-ticket';
+const LIVE_CHANNELS = ['ligo', 'auth'] as const;
+type LiveChannel = typeof LIVE_CHANNELS[number];
+
+type LiveSocketAttachment = {
+  channel: LiveChannel;
+  sessionKey: string | null;
+  userKey: string;
+};
 
 export class LigoLiveSession extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -25,8 +36,15 @@ export class LigoLiveSession extends DurableObject<Env> {
     `);
   }
 
-  async issueTicket(userKey: string, now = unixNow()): Promise<string> {
+  async issueTicket(
+    userKey: string,
+    sessionKey: string,
+    channel: LiveChannel = 'ligo',
+    now = unixNow(),
+  ): Promise<string> {
     if (!USER_KEY.test(userKey)) throw new Error('Invalid Ligo live user key.');
+    if (!SECRET.test(sessionKey)) throw new Error('Invalid live session key.');
+    if (!LIVE_CHANNELS.includes(channel)) throw new Error('Invalid live channel.');
     const secret = base64Url(randomBytes(32));
     const hash = await ticketHash(secret);
     this.ctx.storage.sql.exec('DELETE FROM live_tickets WHERE expires_at <= ?', now);
@@ -35,7 +53,7 @@ export class LigoLiveSession extends DurableObject<Env> {
       hash,
       now + TICKET_LIFETIME_SECONDS,
     );
-    return `${userKey}.${secret}`;
+    return `${userKey}.${sessionKey}.${channel}.${secret}`;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -62,9 +80,13 @@ export class LigoLiveSession extends DurableObject<Env> {
 
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [parsed.userKey]);
-    pair[1].serializeAttachment({ userKey: parsed.userKey });
+    pair[1].serializeAttachment({
+      channel: parsed.channel,
+      sessionKey: parsed.sessionKey,
+      userKey: parsed.userKey,
+    });
     try {
-      await this.updatePresence(parsed.userKey, true);
+      if (parsed.channel === 'ligo') await this.updatePresence(parsed.userKey, true);
     } catch (error) {
       pair[1].close(1011, 'Presence is unavailable.');
       console.error(JSON.stringify({
@@ -92,6 +114,23 @@ export class LigoLiveSession extends DurableObject<Env> {
     this.broadcast({ deletions, type: 'conversation-deletions' });
   }
 
+  notifySessionRevoked(keepSessionKey: string): void {
+    if (!SECRET.test(keepSessionKey)) return;
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as LiveSocketAttachment | null;
+      if (!attachment?.sessionKey || attachment.sessionKey === keepSessionKey) continue;
+      closeRevokedSocket(socket);
+    }
+  }
+
+  notifySpecificSessionRevoked(sessionKey: string): void {
+    if (!SECRET.test(sessionKey)) return;
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as LiveSocketAttachment | null;
+      if (attachment?.sessionKey === sessionKey) closeRevokedSocket(socket);
+    }
+  }
+
   notifyPresence(userId: string, online: boolean): void {
     this.broadcast({ online, type: 'presence', userId });
   }
@@ -99,6 +138,8 @@ export class LigoLiveSession extends DurableObject<Env> {
   private broadcast(event: Record<string, unknown>): void {
     const payload = JSON.stringify(event);
     for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as LiveSocketAttachment | null;
+      if (attachment?.channel && attachment.channel !== 'ligo') continue;
       try {
         socket.send(payload);
       } catch {
@@ -122,12 +163,18 @@ export class LigoLiveSession extends DurableObject<Env> {
   }
 
   private async refreshPresence(socket: WebSocket): Promise<void> {
-    const attachment = socket.deserializeAttachment() as { userKey?: unknown } | null;
+    const attachment = socket.deserializeAttachment() as LiveSocketAttachment | null;
+    if (attachment?.channel && attachment.channel !== 'ligo') return;
     const userKey = typeof attachment?.userKey === 'string' && USER_KEY.test(attachment.userKey)
       ? attachment.userKey
       : null;
     if (!userKey) return;
-    const online = this.ctx.getWebSockets(userKey).some(({ readyState }) => readyState === 1);
+    const online = this.ctx.getWebSockets().some((candidate) => {
+      if (candidate.readyState !== 1) return false;
+      const candidateAttachment = candidate.deserializeAttachment() as LiveSocketAttachment | null;
+      return candidateAttachment?.userKey === userKey
+        && (!candidateAttachment.channel || candidateAttachment.channel === 'ligo');
+    });
     await this.updatePresence(userKey, online);
   }
 
@@ -169,7 +216,20 @@ export async function createLigoLiveTicket(request: Request, env: Env): Promise<
   const session = await authenticate(request, env);
   if (!session) return json({ error: 'Authentication required.' }, 401);
   const userKey = base64Url(session.userId);
-  const ticket = await env.LIGO_LIVE.getByName(userKey).issueTicket(userKey);
+  const sessionKey = base64Url(session.tokenHash);
+  const ticket = await env.LIGO_LIVE.getByName(userKey).issueTicket(userKey, sessionKey, 'ligo');
+  const url = new URL('/api/ligo/live', request.url);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.searchParams.set('ticket', ticket);
+  return json({ url: url.toString() }, 201, { 'cache-control': 'no-store' });
+}
+
+export async function createAuthLiveTicket(request: Request, env: Env): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  const userKey = base64Url(session.userId);
+  const sessionKey = base64Url(session.tokenHash);
+  const ticket = await env.LIGO_LIVE.getByName(userKey).issueTicket(userKey, sessionKey, 'auth');
   const url = new URL('/api/ligo/live', request.url);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.searchParams.set('ticket', ticket);
@@ -190,15 +250,34 @@ export async function openLigoLive(request: Request, env: Env): Promise<Response
   return env.LIGO_LIVE.getByName(parsed.userKey).fetch(new Request(request.url, { headers }));
 }
 
-function parseTicket(ticket: string | null): { secret: string; userKey: string } | null {
+function parseTicket(ticket: string | null): (LiveSocketAttachment & { secret: string }) | null {
   if (!ticket) return null;
-  const separator = ticket.indexOf('.');
-  if (separator < 0 || ticket.indexOf('.', separator + 1) >= 0) return null;
-  const userKey = ticket.slice(0, separator);
-  const secret = ticket.slice(separator + 1);
-  return USER_KEY.test(userKey) && SECRET.test(secret) ? { secret, userKey } : null;
+  const parts = ticket.split('.');
+  if (parts.length === 2) {
+    const [userKey, secret] = parts;
+    return USER_KEY.test(userKey) && SECRET.test(secret)
+      ? { channel: 'ligo', secret, sessionKey: null, userKey }
+      : null;
+  }
+  if (parts.length !== 4) return null;
+  const [userKey, sessionKey, channel, secret] = parts;
+  return USER_KEY.test(userKey)
+    && SECRET.test(sessionKey)
+    && LIVE_CHANNELS.includes(channel as LiveChannel)
+    && SECRET.test(secret)
+    ? { channel: channel as LiveChannel, secret, sessionKey, userKey }
+    : null;
 }
 
 async function ticketHash(secret: string): Promise<string> {
   return base64Url(await crypto.subtle.digest('SHA-256', utf8(secret)));
+}
+
+function closeRevokedSocket(socket: WebSocket): void {
+  try {
+    socket.send('{"type":"session-revoked"}');
+    socket.close(4001, 'Session revoked.');
+  } catch {
+    socket.close(4001, 'Session revoked.');
+  }
 }

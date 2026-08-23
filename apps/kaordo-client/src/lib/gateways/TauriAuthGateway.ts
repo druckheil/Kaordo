@@ -22,6 +22,30 @@ export class TauriAuthGateway implements AuthGateway {
     return this.#invoke<AuthUser>('auth_register', { password, username });
   }
 
+  changeUsername(
+    currentUsername: string,
+    newUsername: string,
+    currentPassword: string,
+  ): Promise<AuthUser> {
+    return this.#invoke<AuthUser>('auth_change_username', {
+      currentPassword,
+      currentUsername,
+      newUsername,
+    });
+  }
+
+  changePassword(
+    username: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    return this.#invoke('auth_change_password', {
+      currentPassword,
+      newPassword,
+      username,
+    });
+  }
+
   logout(): Promise<void> {
     return this.#invoke('auth_logout');
   }

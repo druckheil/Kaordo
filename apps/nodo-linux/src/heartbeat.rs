@@ -4,6 +4,7 @@ use crate::server::{DiskBenchmark, NodeRuntime};
 use crate::storage::{NodeStorage, Space};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::fmt;
 use std::fs;
 use std::io;
 use std::net::{IpAddr, UdpSocket};
@@ -99,6 +100,23 @@ struct Quota {
     #[serde(rename = "usedBytes")]
     _used_bytes: u64,
 }
+
+#[derive(Debug)]
+enum HeartbeatError {
+    Unauthorized,
+    Request(String),
+}
+
+impl fmt::Display for HeartbeatError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unauthorized => formatter.write_str("The Nodo session has expired."),
+            Self::Request(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for HeartbeatError {}
 
 pub fn spawn(
     config: Arc<RwLock<Config>>,
@@ -213,6 +231,10 @@ pub fn spawn(
                             wait_seconds = if had_latency { heartbeat_after } else { 1 };
                         }
                     }
+                    Err(HeartbeatError::Unauthorized) => {
+                        expire_session(&config, &store, &runtime);
+                        break;
+                    }
                     Err(error) => {
                         crate::ui::warning(&format!("Coordinator heartbeat failed: {error}"));
                         wait_seconds = (wait_seconds.saturating_mul(2)).min(300);
@@ -275,9 +297,15 @@ fn send_heartbeat(
     metrics: &Metrics,
     test_completed_at: Option<i64>,
     reconciliation: &Reconciliation,
-) -> Result<HeartbeatResponse, Box<dyn std::error::Error>> {
-    let private_used = storage.space(Space::Private).used_bytes()?;
-    let public_used = storage.space(Space::Public).used_bytes()?;
+) -> Result<HeartbeatResponse, HeartbeatError> {
+    let private_used = storage
+        .space(Space::Private)
+        .used_bytes()
+        .map_err(|error| HeartbeatError::Request(error.to_string()))?;
+    let public_used = storage
+        .space(Space::Public)
+        .used_bytes()
+        .map_err(|error| HeartbeatError::Request(error.to_string()))?;
     let body = json!({
         "nodeId": config.node_id,
         "deviceKey": config.device_key,
@@ -295,18 +323,47 @@ fn send_heartbeat(
         "deletedPublicPostIds": reconciliation.deleted_public_post_ids,
         "releasedPublicReservationIds": reconciliation.released_public_reservation_ids,
     });
-    let response = auth::client(30)?
+    let response = auth::client(30)
+        .map_err(|error| HeartbeatError::Request(error.to_string()))?
         .post(format!(
             "{}/api/nodes/heartbeat",
             config.api_origin.trim_end_matches('/')
         ))
         .bearer_auth(token)
         .json(&body)
-        .send()?;
-    if !response.status().is_success() {
-        return Err(format!("Coordinator returned {}.", response.status()).into());
+        .send()
+        .map_err(|error| HeartbeatError::Request(error.to_string()))?;
+    if response.status().as_u16() == 401 {
+        return Err(HeartbeatError::Unauthorized);
     }
-    Ok(response.json()?)
+    if !response.status().is_success() {
+        return Err(HeartbeatError::Request(format!(
+            "Coordinator returned {}.",
+            response.status()
+        )));
+    }
+    response
+        .json()
+        .map_err(|error| HeartbeatError::Request(error.to_string()))
+}
+
+pub(crate) fn expire_session(
+    config: &Arc<RwLock<Config>>,
+    store: &ConfigStore,
+    runtime: &Arc<NodeRuntime>,
+) {
+    if let Ok(mut current) = config.write() {
+        current.token = None;
+        current.user = None;
+        current.node_id = None;
+        if let Err(error) = store.save(&current) {
+            crate::ui::warning(&format!("Could not persist the signed-out state: {error}"));
+        }
+    }
+    runtime.request_shutdown();
+    crate::ui::warning(
+        "The Kaordo session was revoked. Nodo stopped; run 'kaordo-nodo login' to sign in again.",
+    );
 }
 
 fn apply_deletions(

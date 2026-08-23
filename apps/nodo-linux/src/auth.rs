@@ -21,6 +21,11 @@ struct LoginResponse {
     user: crate::config::User,
 }
 
+#[derive(Debug, Deserialize)]
+struct LiveTicketResponse {
+    url: String,
+}
+
 pub fn login(
     api_origin: &str,
     username: &str,
@@ -73,6 +78,30 @@ pub fn password_proof(username: &str, password: &[u8]) -> String {
     let mut output = [0_u8; 32];
     pbkdf2_hmac::<Sha256>(password, salt.as_bytes(), 600_000, &mut output);
     URL_SAFE_NO_PAD.encode(output)
+}
+
+pub fn session_watch_url(
+    api_origin: &str,
+    token: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let response = client(30)?
+        .post(format!(
+            "{}/api/auth/live-ticket",
+            api_origin.trim_end_matches('/')
+        ))
+        .bearer_auth(token)
+        .json(&serde_json::json!({}))
+        .send()?;
+    let status = response.status();
+    let value: serde_json::Value = response.json()?;
+    if !status.is_success() {
+        let message = value
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Session watch could not be started.");
+        return Err(message.to_owned().into());
+    }
+    Ok(serde_json::from_value::<LiveTicketResponse>(value)?.url)
 }
 
 pub fn client(timeout_seconds: u64) -> Result<Client, reqwest::Error> {

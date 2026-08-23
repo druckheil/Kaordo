@@ -172,6 +172,7 @@
     ligoGateway,
     nodoGateway,
     (nodeId) => nodo.state.refreshNodeUsage(nodeId),
+    () => auth.state.handleSessionRevoked(),
   ));
   const effectiveFluoGateway = untrack(() => fluoGateway ?? new NodeFluoGateway(nodoGateway));
   // App construction is intentionally one-shot. Runtime changes flow through
@@ -223,6 +224,7 @@
   let isCreateWorkspaceOpen = $state(false);
   let isCreateObjectOpen = $state(false);
   let isLoggingOut = $state(false);
+  let accountAction = $state<'username' | 'password' | null>(null);
   let header = $state<FocusableHeader>();
   let filesPanel = $state<FocusableFiles>();
   let editorPanel = $state<FocusableEditor>();
@@ -416,6 +418,7 @@
       sessionsError = null;
       sessionsLoading = false;
       terminatingSessionId = null;
+      accountAction = null;
       rondo.stop();
       rondo.state.reset();
       ligo.stop();
@@ -501,6 +504,28 @@
     }
   }
 
+  async function changeUsername(newUsername: string, currentPassword: string): Promise<boolean> {
+    if (accountAction) return false;
+    accountAction = 'username';
+    try {
+      return await auth.state.changeUsername(newUsername, currentPassword);
+    } finally {
+      accountAction = null;
+    }
+  }
+
+  async function changePassword(currentPassword: string, newPassword: string): Promise<boolean> {
+    if (accountAction) return false;
+    accountAction = 'password';
+    try {
+      const changed = await auth.state.changePassword(currentPassword, newPassword);
+      if (changed && activeSection === 'mi') void loadSessions();
+      return changed;
+    } finally {
+      accountAction = null;
+    }
+  }
+
   async function retryWorkspaceLibrary() {
     const loaded = await editor.workspaceState.loadLibrary();
     await tick();
@@ -577,10 +602,6 @@
     else rondo.stop();
   }
 
-  function markPresent() {
-    auth.state.markPresent();
-  }
-
   function setTheme(theme: AppTheme) {
     appearance.state.setTheme(theme);
   }
@@ -626,9 +647,6 @@
 <svelte:window
   onblur={() => editor.canvas.clearInteractions()}
   oncontextmenu={(event) => event.preventDefault()}
-  onfocus={markPresent}
-  onkeydown={markPresent}
-  onpointerdown={markPresent}
 />
 
 {#if authSnapshot.phase === 'authenticated'}
@@ -709,7 +727,10 @@
     {#if activeSection === 'mi' && authSnapshot.user}
       <ProfileSection
         busy={isLoggingOut}
+        accountBusy={accountAction !== null}
         error={authSnapshot.error}
+        onChangePassword={changePassword}
+        onChangeUsername={changeUsername}
         onLogout={logout}
         onListPublic={openPublicStorageBrowser}
         {platform}
