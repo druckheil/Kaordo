@@ -4,6 +4,7 @@ import type {
   CanvasElement,
   ObjectDocument,
   ObjectSummary,
+  RectangleElement,
   TextElement,
   WorkspaceCanvasDocument,
   WorkspaceDetail,
@@ -250,6 +251,33 @@ export class CanvasService {
     this.state.editText(element.id);
     this.state.announce('Text added. Start typing.');
     return element;
+  }
+
+  editRectangleText(
+    workspaceId: string,
+    rectangle: RectangleElement,
+  ): TextElement {
+    const document = this.state.canvasDocumentFor(workspaceId);
+    const existing = document.elements.find(
+      (element): element is TextElement =>
+        element.type === 'text' && element.parentElementId === rectangle.id,
+    );
+    if (existing) {
+      this.state.editText(existing.id);
+      this.state.announce('Text editor opened.');
+      return existing;
+    }
+
+    const padding = 12;
+    const width = Math.max(32, Math.min(260, rectangle.width - padding * 2));
+    const height = 48;
+    return this.createTextElement(workspaceId, {
+      parentElementId: rectangle.id,
+      parentObjectId: rectangle.parentObjectId,
+      width,
+      x: clamp(rectangle.x + padding, rectangle.x, rectangle.x + rectangle.width - width),
+      y: clamp(rectangle.y + padding, rectangle.y, rectangle.y + rectangle.height - height),
+    });
   }
 
   async updateCanvasElement(

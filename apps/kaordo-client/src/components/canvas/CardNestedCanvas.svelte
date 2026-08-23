@@ -46,6 +46,7 @@
   let board = $state<HTMLDivElement>();
   let gesture = $state<RectangleDrawGesture | MoveGesture | null>(null);
   let optimisticElement = $state<CanvasElement | null>(null);
+  let lastRectanglePointerDown: { at: number; id: string } | null = null;
   let elements = $derived(
     document.elements.filter(
       (element) => element.parentObjectId === placement.id,
@@ -105,6 +106,23 @@
   }
 
   function startMove(event: PointerEvent, element: CanvasElement) {
+    if (event.button !== 0) return;
+    const now = performance.now();
+    const isDoubleClick = element.type === 'rectangle' && (
+      event.detail >= 2 ||
+      (lastRectanglePointerDown?.id === element.id &&
+        now - lastRectanglePointerDown.at <= 450)
+    );
+    lastRectanglePointerDown = element.type === 'rectangle'
+      ? { at: now, id: element.id }
+      : null;
+    if (isDoubleClick && element.type === 'rectangle') {
+      event.preventDefault();
+      event.stopPropagation();
+      lastRectanglePointerDown = null;
+      canvas.editRectangleText(workspaceId, element);
+      return;
+    }
     canvas.state.selectGlobalElement(element.id);
     event.stopPropagation();
     if (event.button === 0 && snapshot.activeTool === 'text') {
@@ -132,7 +150,7 @@
       }
       return;
     }
-    if (event.button !== 0 || snapshot.activeTool !== 'select') return;
+    if (snapshot.activeTool !== 'select') return;
     event.preventDefault();
     const point = boardPoint(event);
     gesture = {
@@ -145,6 +163,12 @@
       startY: point.y,
     };
     board?.setPointerCapture?.(event.pointerId);
+  }
+
+  function beginRectangleEditing(event: MouseEvent, rectangle: RectangleElement) {
+    event.preventDefault();
+    event.stopPropagation();
+    canvas.editRectangleText(workspaceId, rectangle);
   }
 
   function continueGesture(event: PointerEvent) {
@@ -181,6 +205,7 @@
       canvas.state.announce('Rectangle is too small and was not created.');
       return;
     }
+    canvas.state.setTool('select');
 
     const element = finished.kind === 'draw'
       ? drawnRectangle(finished)
@@ -357,6 +382,7 @@
         aria-label="Rectangle"
         style={rectangleStyle(displayed)}
         onpointerdown={(event) => startMove(event, element)}
+        ondblclick={(event) => beginRectangleEditing(event, displayed)}
         oncontextmenu={(event) => openContextMenu(event, 'Rectangle', [
           {
             action: () => canvas.state.selectGlobalElement(element.id),

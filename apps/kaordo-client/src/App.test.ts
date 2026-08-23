@@ -1419,6 +1419,11 @@ describe('workspace navigation and objects', () => {
       pointerId: 18,
     });
 
+    expect(screen.getByRole('button', { name: 'Fill #ffffff' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select tool' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(await screen.findByRole('button', { name: 'Canvas rectangle' }))
       .toBeInTheDocument();
     await waitFor(() => expect(savedDocument).not.toBeNull());
@@ -1433,6 +1438,101 @@ describe('workspace navigation and objects', () => {
         },
       ],
       version: 1,
+    });
+  });
+
+  it('opens a text editor inside a rectangle on double-click', async () => {
+    const savedDocuments: Array<{ elements: Array<Record<string, unknown>> }> = [];
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: vi.fn(() => true),
+    });
+    mockCommands({
+      load_canvas_document: () => JSON.stringify({
+        elements: [
+          {
+            fill: '#dcece5',
+            height: 120,
+            id: 'rectangle-1',
+            radius: 10,
+            stroke: '#397565',
+            strokeWidth: 2,
+            type: 'rectangle',
+            width: 220,
+            x: 100,
+            y: 100,
+          },
+        ],
+        placements: [],
+        version: 1,
+      }),
+      open_workspace: () => openedResearch,
+      save_canvas_document: (args) => {
+        savedDocuments.push(JSON.parse(String(args?.documentJson)));
+      },
+    });
+    renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
+    await openResearchFile();
+
+    const drawingSurface = screen.getByRole('application', {
+      name: 'Workspace canvas drawing surface',
+    });
+    vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
+      bottom: 3200,
+      height: 3200,
+      left: 0,
+      right: 4800,
+      top: 0,
+      width: 4800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    const rectangle = await screen.findByRole('button', { name: 'Canvas rectangle' });
+    await fireEvent.pointerDown(rectangle, {
+      button: 0,
+      clientX: 110,
+      clientY: 110,
+      pointerId: 50,
+    });
+    await fireEvent.pointerUp(rectangle, {
+      button: 0,
+      clientX: 110,
+      clientY: 110,
+      pointerId: 50,
+    });
+    await fireEvent.pointerDown(rectangle, {
+      button: 0,
+      clientX: 110,
+      clientY: 110,
+      pointerId: 51,
+    });
+    await fireEvent.pointerUp(rectangle, {
+      button: 0,
+      clientX: 110,
+      clientY: 110,
+      pointerId: 51,
+    });
+
+    expect(await screen.findByRole('textbox', { name: 'Text editor' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(savedDocuments.at(-1)?.elements).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          parentElementId: 'rectangle-1',
+          type: 'text',
+          width: 196,
+          x: 112,
+          y: 112,
+        }),
+      ]));
+    });
+    expect(screen.getByRole('button', { name: 'Select tool' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: undefined,
     });
   });
 

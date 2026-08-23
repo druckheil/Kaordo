@@ -15,7 +15,7 @@
     snapshot.selectedGlobalElementId;
     return canvas.selectedCanvasElement();
   });
-  const fills = ['#dcece5', '#dce8f6', '#f8e7bf', '#f3deda', '#ede2f5'];
+  const fills = ['#ffffff', '#dcece5', '#dce8f6', '#f8e7bf', '#f3deda', '#ede2f5'];
   const strokes = ['#397565', '#436c9e', '#967033', '#9a5148', '#76528e'];
   const textColors = ['#25332d', '#376f60', '#3f6591', '#9a5148', '#76528e'];
   const highlights = ['#fff1a8', '#dcece5', '#dce8f6', '#f3deda', 'transparent'];
