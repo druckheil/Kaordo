@@ -2,7 +2,6 @@ import { tick } from 'svelte';
 import type { CanvasPlacement } from '../domain/canvas';
 import type {
   CanvasElement,
-  CanvasMediaKind,
   MediaElement,
   ObjectDocument,
   ObjectSummary,
@@ -82,6 +81,7 @@ export class CanvasService {
   #resize: ObjectResizeGesture | null = null;
   readonly #textEditors = new Map<string, TextEditorController>();
   readonly #mediaBlobs = new Map<string, Blob>();
+  readonly #mediaLoads = new Map<string, Promise<Blob | null>>();
 
   constructor(
     state: CanvasGState,
@@ -241,6 +241,9 @@ export class CanvasService {
     for (const key of this.#mediaBlobs.keys()) {
       if (key.startsWith(`${workspaceId}:`)) this.#mediaBlobs.delete(key);
     }
+    for (const key of this.#mediaLoads.keys()) {
+      if (key.startsWith(`${workspaceId}:`)) this.#mediaLoads.delete(key);
+    }
     this.state.forgetWorkspace(workspaceId);
   }
 
@@ -261,7 +264,11 @@ export class CanvasService {
       this.state.canvasDocumentFor(workspaceId),
     );
     await Promise.allSettled(mediaIds.map((mediaId) => this.#deleteCanvasMedia(workspaceId, mediaId)));
-    for (const mediaId of mediaIds) this.#mediaBlobs.delete(mediaKey(workspaceId, mediaId));
+    for (const mediaId of mediaIds) {
+      const key = mediaKey(workspaceId, mediaId);
+      this.#mediaBlobs.delete(key);
+      this.#mediaLoads.delete(key);
+    }
   }
 
   async deleteCanvasElement(
@@ -280,6 +287,7 @@ export class CanvasService {
     if (target.type === 'media') {
       await this.#deleteCanvasMedia(workspaceId, target.mediaId).catch(() => undefined);
       this.#mediaBlobs.delete(mediaKey(workspaceId, target.mediaId));
+      this.#mediaLoads.delete(mediaKey(workspaceId, target.mediaId));
     }
     this.state.announce('Element deleted.');
   }
@@ -305,15 +313,80 @@ export class CanvasService {
     files: readonly File[],
     dimensions: readonly ({ height: number; width: number } | undefined)[] = [],
   ): Promise<number> {
-    let added = 0;
+    const document = this.state.canvasDocumentFor(workspaceId);
+    const pending: PendingCanvasMedia[] = [];
+    let nextDocument = document;
+
+    // Build the complete document first. Persisting one canvas snapshot avoids
+    // a full Svelte tree update for every selected file (and keeps object
+    // placement deterministic when several files are added together).
     for (const [index, file] of files.entries()) {
       const kind = canvasMediaKind(file);
       if (!kind) continue;
-      await this.createCanvasMedia(workspaceId, file, kind, dimensions[index]);
-      added += 1;
+      const mediaId = createMediaId();
+      const frame = canvasMediaFrame(kind, dimensions[index]?.width, dimensions[index]?.height);
+      const position = this.mediaPosition(workspaceId, frame, nextDocument);
+      const element: MediaElement = {
+        ...position,
+        height: frame.height,
+        id: mediaId,
+        kind,
+        mediaId,
+        mimeType: canvasMediaMimeType(file, kind),
+        name: file.name.slice(0, 240) || 'Untitled media',
+        size: file.size,
+        type: 'media',
+        width: frame.width,
+      };
+      pending.push({ element, file });
+      nextDocument = {
+        ...nextDocument,
+        elements: [...nextDocument.elements, element],
+      };
     }
+
+    const added = pending.length;
     this.state.setTool('select');
     if (!added && files.length) this.state.announce('The selected media format is not supported.');
+    if (!added) return 0;
+
+    try {
+      // File writes are independent (each media item has its own id), so let
+      // the platform perform them concurrently instead of blocking the UI on
+      // one file at a time.
+      await Promise.all(pending.map(async ({ element, file }) => {
+        await this.#saveCanvasMedia(workspaceId, element.mediaId, file);
+        this.#mediaBlobs.set(mediaKey(workspaceId, element.mediaId), file);
+      }));
+      // Another interaction may have committed while the platform was
+      // writing a large file. Merge into the latest snapshot instead of
+      // replacing a concurrently created text/card element.
+      const currentDocument = this.state.canvasDocumentFor(workspaceId);
+      const existingIds = new Set(currentDocument.elements.map((element) => element.id));
+      await this.saveWorkspaceCanvasDocument(workspaceId, {
+        ...currentDocument,
+        elements: [
+          ...currentDocument.elements,
+          ...nextDocument.elements.filter((element) => !existingIds.has(element.id)),
+        ],
+      });
+    } catch (error) {
+      await Promise.allSettled(
+        pending.map(({ element }) => this.#deleteCanvasMedia(workspaceId, element.mediaId)),
+      );
+      for (const { element } of pending) {
+        this.#mediaBlobs.delete(mediaKey(workspaceId, element.mediaId));
+      }
+      throw error;
+    }
+
+    const last = pending.at(-1)?.element;
+    if (last) this.state.selectGlobalElement(last.id);
+    this.state.announce(
+      added === 1
+        ? `${last?.name ?? 'Media'} added to the canvas.`
+        : `${added} media items added to the canvas.`,
+    );
     return added;
   }
 
@@ -324,64 +397,38 @@ export class CanvasService {
     const key = mediaKey(workspaceId, element.mediaId);
     const cached = this.#mediaBlobs.get(key);
     if (cached) return cached;
-    const loaded = await this.#loadCanvasMedia(workspaceId, element.mediaId);
-    if (!loaded) return null;
-    const blob = loaded.type === element.mimeType
-      ? loaded
-      : loaded.slice(0, loaded.size, element.mimeType);
-    this.#mediaBlobs.set(key, blob);
-    return blob;
-  }
+    const activeLoad = this.#mediaLoads.get(key);
+    if (activeLoad) return activeLoad;
 
-  private async createCanvasMedia(
-    workspaceId: string,
-    file: File,
-    kind: CanvasMediaKind,
-    dimensions?: { height: number; width: number },
-  ): Promise<MediaElement> {
-    const mediaId = createMediaId();
-    const frame = canvasMediaFrame(kind, dimensions?.width, dimensions?.height);
-    const position = this.mediaPosition(workspaceId, frame);
-    const element: MediaElement = {
-      ...position,
-      height: frame.height,
-      id: mediaId,
-      kind,
-      mediaId,
-      mimeType: canvasMediaMimeType(file, kind),
-      name: file.name.slice(0, 240) || 'Untitled media',
-      size: file.size,
-      type: 'media',
-      width: frame.width,
-    };
-    await this.#saveCanvasMedia(workspaceId, mediaId, file);
-    this.#mediaBlobs.set(mediaKey(workspaceId, mediaId), file);
-    const document = this.state.canvasDocumentFor(workspaceId);
+    const load = this.#loadCanvasMedia(workspaceId, element.mediaId).then((loaded) => {
+      if (!loaded) return null;
+      return loaded.type === element.mimeType
+        ? loaded
+        : loaded.slice(0, loaded.size, element.mimeType);
+    });
+    this.#mediaLoads.set(key, load);
     try {
-      await this.saveWorkspaceCanvasDocument(workspaceId, {
-        ...document,
-        elements: [...document.elements, element],
-      });
-    } catch (error) {
-      this.#mediaBlobs.delete(mediaKey(workspaceId, mediaId));
-      await this.#deleteCanvasMedia(workspaceId, mediaId).catch(() => undefined);
-      throw error;
+      const blob = await load;
+      // A deletion/workspace reset can remove the in-flight entry while the
+      // platform read is still pending. Do not repopulate a cache that was
+      // explicitly invalidated in that case.
+      if (this.#mediaLoads.get(key) === load && blob) this.#mediaBlobs.set(key, blob);
+      return blob;
+    } finally {
+      if (this.#mediaLoads.get(key) === load) this.#mediaLoads.delete(key);
     }
-    this.state.selectGlobalElement(element.id);
-    this.state.announce(`${element.name} added to the canvas.`);
-    return element;
   }
 
   private mediaPosition(
     workspaceId: string,
     frame: { height: number; width: number },
+    sourceDocument = this.state.canvasDocumentFor(workspaceId),
   ): {
     parentElementId?: string;
     parentObjectId?: string;
     x: number;
     y: number;
   } {
-    const document = this.state.canvasDocumentFor(workspaceId);
     const selected = this.selectedCanvasElement();
     let parentElementId: string | undefined;
     let parentObjectId: string | undefined;
@@ -406,7 +453,7 @@ export class CanvasService {
       originX = selected.x + 18;
       originY = selected.y + selected.height + 14;
       const parent = parentElementId
-        ? document.elements.find((element) => element.id === parentElementId)
+        ? sourceDocument.elements.find((element) => element.id === parentElementId)
         : undefined;
       if (parent?.type === 'rectangle') {
         originX = selected.x + 14;
@@ -433,7 +480,7 @@ export class CanvasService {
       originX = metrics.scrollLeft + Math.max(0, metrics.width / 2 - frame.width / 2);
       originY = metrics.scrollTop + Math.max(0, metrics.height / 2 - frame.height / 2);
     }
-    const siblings = document.elements.filter((element) =>
+    const siblings = sourceDocument.elements.filter((element) =>
       element.type !== 'rectangle' &&
       element.parentElementId === parentElementId &&
       element.parentObjectId === parentObjectId,
@@ -1236,6 +1283,11 @@ type ObjectResizeGesture = {
   startClientX: number;
   startClientY: number;
   width: number;
+};
+
+type PendingCanvasMedia = {
+  element: MediaElement;
+  file: File;
 };
 
 type CanvasHistorySnapshot = {

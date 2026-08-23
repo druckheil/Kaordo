@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, tick } from 'svelte';
   import type {
     CanvasElement,
     RectangleElement,
@@ -38,20 +39,24 @@
     pointerId: number;
     startX: number;
     startY: number;
+    visualNodes: HTMLElement[];
   };
 
   let { canvas, document, snapshot, workspaceId }: Props = $props();
   let layer = $state<HTMLDivElement>();
-  let gesture = $state<RectangleDrawGesture | MoveGesture | null>(null);
-  let optimisticElement = $state<CanvasElement | null>(null);
+  let draftElement: HTMLSpanElement | undefined;
+  let gesture: RectangleDrawGesture | MoveGesture | null = null;
+  let visualFrame: number | null = null;
+  let pendingPoint: { x: number; y: number } | null = null;
   let lastRectanglePointerDown: { at: number; id: string } | null = null;
   let elements = $derived(
     document.elements.filter((element) => !element.parentObjectId),
   );
-  let preview = $derived(previewRectangle());
-  let previewInvalid = $derived(
-    gesture?.kind === 'draw' && !isRectangleDrawValid(gesture),
-  );
+
+  onDestroy(() => {
+    cancelVisualFrame();
+    clearGestureVisual(gesture);
+  });
 
   function canvasPoint(event: PointerEvent) {
     const bounds = layer?.getBoundingClientRect();
@@ -97,6 +102,7 @@
     canvas.state.selectGlobalElement(null);
     const point = canvasPoint(event);
     gesture = startRectangleDraw(point, event.pointerId);
+    updateDraft(gesture);
     layer?.setPointerCapture?.(event.pointerId);
   }
 
@@ -162,7 +168,9 @@
       pointerId: event.pointerId,
       startX: point.x,
       startY: point.y,
+      visualNodes: findVisualNodes(element),
     };
+    applyMoveVisual(gesture);
     layer?.setPointerCapture?.(event.pointerId);
   }
 
@@ -175,20 +183,23 @@
   function continueGesture(event: PointerEvent) {
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     event.preventDefault();
-    const point = canvasPoint(latestPointerEvent(event));
-    gesture = gesture.kind === 'draw'
-      ? continueRectangleDraw(gesture, point)
-      : { ...gesture, currentX: point.x, currentY: point.y };
+    pendingPoint = canvasPoint(latestPointerEvent(event));
+    if (visualFrame !== null) return;
+    if (typeof window.requestAnimationFrame !== 'function') {
+      flushGestureVisual();
+      return;
+    }
+    visualFrame = window.requestAnimationFrame(flushGestureVisual);
   }
 
   async function finishGesture(event: PointerEvent) {
     const active = gesture;
-    const point = active ? canvasPoint(latestPointerEvent(event)) : null;
-    const finished = active && point
-      ? active.kind === 'draw'
-        ? continueRectangleDraw(active, point)
-        : { ...active, currentX: point.x, currentY: point.y }
-      : active;
+    cancelVisualFrame();
+    if (active) {
+      pendingPoint = canvasPoint(latestPointerEvent(event));
+      flushGestureVisual();
+    }
+    const finished = active;
     if (!finished || finished.pointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
@@ -196,7 +207,9 @@
     if (layer?.hasPointerCapture?.(event.pointerId)) {
       layer.releasePointerCapture(event.pointerId);
     }
+    gesture = null;
     if (finished.kind === 'draw' && !isRectangleDrawValid(finished)) {
+      clearGestureVisual(finished);
       canvas.state.announce('Card is too small and was not created.');
       return;
     }
@@ -204,14 +217,14 @@
     const element = finished.kind === 'draw'
       ? drawnRectangle(finished)
       : settleMovedElement(finished);
-    optimisticElement = element;
     canvas.state.selectGlobalElement(element.id);
-    const exists = document.elements.some((candidate) => candidate.id === element.id);
+    const currentDocument = canvas.state.canvasDocumentFor(workspaceId);
+    const exists = currentDocument.elements.some((candidate) => candidate.id === element.id);
     let updatedElements = exists
-      ? document.elements.map((candidate) =>
+      ? currentDocument.elements.map((candidate) =>
           candidate.id === element.id ? element : candidate,
         )
-      : [...document.elements, element];
+      : [...currentDocument.elements, element];
     if (
       finished.kind === 'move' &&
       finished.element.type === 'rectangle' &&
@@ -228,12 +241,18 @@
           : candidate,
       );
     }
-    try {
-      await canvas.saveWorkspaceCanvasDocument(workspaceId, {
+    const savePromise = canvas.saveWorkspaceCanvasDocument(workspaceId, {
         elements: updatedElements,
-        placements: document.placements,
+        placements: currentDocument.placements,
         version: 1,
       });
+    // The state changes synchronously before the gateway write. Release the
+    // imperative transform on the next render tick so a slow disk never makes
+    // the pointer appear stuck.
+    await tick();
+    clearGestureVisual(finished);
+    try {
+      await savePromise;
       const location = (element.type === 'text' || element.type === 'media') && element.parentElementId
         ? 'attached to card'
         : element.parentObjectId
@@ -245,13 +264,15 @@
       );
     } catch {
       canvas.state.announce('Card could not be saved.');
-    } finally {
-      optimisticElement = null;
     }
   }
 
   function cancelGesture(event: PointerEvent) {
-    if (gesture?.pointerId === event.pointerId) gesture = null;
+    if (gesture?.pointerId !== event.pointerId) return;
+    cancelVisualFrame();
+    clearGestureVisual(gesture);
+    gesture = null;
+    pendingPoint = null;
   }
 
   function drawnRectangle(draw: RectangleDrawGesture): RectangleElement {
@@ -301,34 +322,80 @@
       moved,
       moved.x,
       moved.y,
-      document.elements,
+      canvas.state.canvasDocumentFor(workspaceId).elements,
       snapshot.placements[workspaceId] ?? [],
     );
   }
 
-  function previewRectangle(): RectangleElement | null {
-    return gesture?.kind === 'draw' ? drawnRectangle(gesture) : null;
-  }
-
-  function displayedElement(element: CanvasElement): CanvasElement {
-    if (optimisticElement?.id === element.id) return optimisticElement;
-    if (gesture?.kind === 'move' && gesture.element.id === element.id) {
-      return movedElement(gesture);
-    }
-    if (
-      gesture?.kind === 'move' &&
-      gesture.element.type === 'rectangle' &&
-      (element.type === 'text' || element.type === 'media') &&
-      element.parentElementId === gesture.element.id
-    ) {
-      const moved = movedElement(gesture);
-      if (moved.type === 'rectangle') {
-        return element.type === 'text'
-          ? moveTextWithRectangle(element, gesture.element, moved)
-          : moveMediaWithRectangle(element, gesture.element, moved);
+  function findVisualNodes(element: CanvasElement): HTMLElement[] {
+    const root = layer;
+    if (!root) return [];
+    const ids = new Set<string>([element.id]);
+    if (element.type === 'rectangle') {
+      for (const child of document.elements) {
+        if ('parentElementId' in child && child.parentElementId === element.id) {
+          ids.add(child.id);
+        }
       }
     }
-    return element;
+    return [...ids].flatMap((id) => {
+      const node = [...root.querySelectorAll<HTMLElement>('[data-canvas-element-id]')]
+        .find((candidate) => candidate.dataset.canvasElementId === id);
+      if (!node) return [];
+      return [node.closest<HTMLElement>('.canvas-rectangle-shell') ?? node];
+    });
+  }
+
+  function flushGestureVisual() {
+    visualFrame = null;
+    const active = gesture;
+    const point = pendingPoint;
+    pendingPoint = null;
+    if (!active || !point) return;
+    active.currentX = point.x;
+    active.currentY = point.y;
+    if (active.kind === 'draw') {
+      Object.assign(active, continueRectangleDraw(active, point));
+      updateDraft(active);
+    } else applyMoveVisual(active);
+  }
+
+  function applyMoveVisual(move: MoveGesture) {
+    const x = move.currentX - move.startX;
+    const y = move.currentY - move.startY;
+    const transform = `translate3d(${x}px, ${y}px, 0)`;
+    for (const node of move.visualNodes) {
+      node.style.transform = transform;
+      node.style.willChange = 'transform';
+      node.style.zIndex = '8';
+    }
+  }
+
+  function clearGestureVisual(active: RectangleDrawGesture | MoveGesture | null) {
+    if (active?.kind === 'move') {
+      for (const node of active.visualNodes) {
+        node.style.removeProperty('transform');
+        node.style.removeProperty('will-change');
+        node.style.removeProperty('z-index');
+      }
+    }
+    if (draftElement) {
+      draftElement.style.display = 'none';
+      draftElement.classList.remove('global-rectangle--invalid');
+    }
+  }
+
+  function updateDraft(draw: RectangleDrawGesture) {
+    if (!draftElement) return;
+    const preview = drawnRectangle(draw);
+    draftElement.style.cssText = rectangleStyle(preview);
+    draftElement.style.display = 'block';
+    draftElement.classList.toggle('global-rectangle--invalid', !isRectangleDrawValid(draw));
+  }
+
+  function cancelVisualFrame() {
+    if (visualFrame !== null) window.cancelAnimationFrame?.(visualFrame);
+    visualFrame = null;
   }
 
   function rectangleStyle(element: RectangleElement): string {
@@ -371,13 +438,12 @@
   onpointercancel={cancelGesture}
 >
   {#each elements as element (element.id)}
-    {@const displayed = displayedElement(element)}
-    {#if displayed.type === 'rectangle'}
+    {#if element.type === 'rectangle'}
       <CanvasRectangle
         canvas={canvas}
-        element={displayed}
+        element={element}
         elementClass="global-rectangle"
-        moving={gesture?.kind === 'move' && gesture.element.id === element.id}
+        moving={false}
         onContextMenu={(event) => openContextMenu(event, 'Card', [
           {
             action: () => canvas.state.selectGlobalElement(element.id),
@@ -405,16 +471,12 @@
         selected={snapshot.selectedGlobalElementId === element.id}
         workspaceId={workspaceId}
       />
-    {:else if displayed.type === 'text'}
+    {:else if element.type === 'text'}
       <CanvasTextBlock
         {canvas}
         editing={snapshot.editingTextId === element.id}
-        element={displayed}
-        moving={gesture?.kind === 'move' && (
-          gesture.element.id === element.id ||
-          (element.type === 'text' &&
-            element.parentElementId === gesture.element.id)
-        )}
+        element={element}
+        moving={false}
         onStartMove={startMove}
         selected={snapshot.selectedGlobalElementId === element.id}
         {workspaceId}
@@ -422,12 +484,9 @@
     {:else}
       <CanvasMediaElement
         {canvas}
-        element={displayed}
-        moving={gesture?.kind === 'move' && (
-          gesture.element.id === element.id ||
-          (element.type === 'media' && element.parentElementId === gesture.element.id)
-        )}
-        onContextMenu={(event) => openContextMenu(event, displayed.name, [
+        element={element}
+        moving={false}
+        onContextMenu={(event) => openContextMenu(event, element.name, [
           {
             action: () => canvas.state.selectGlobalElement(element.id),
             icon: 'select',
@@ -450,72 +509,13 @@
     {/if}
   {/each}
 
-  {#if optimisticElement?.type === 'rectangle' && !optimisticElement.parentObjectId && !elements.some((element) => element.id === optimisticElement?.id)}
-    <span class="global-rectangle global-rectangle--selected" style={rectangleStyle(optimisticElement)} aria-hidden="true"></span>
-  {/if}
-
-  {#if preview}
-    <span
-      class="global-rectangle global-rectangle--draft"
-      class:global-rectangle--invalid={previewInvalid}
-      style={rectangleStyle(preview)}
-      aria-hidden="true"
-    ></span>
-  {/if}
+  <span
+    bind:this={draftElement}
+    class="global-rectangle global-rectangle--draft"
+    style="display:none"
+    aria-hidden="true"
+  ></span>
 </div>
-
-{#if gesture?.kind === 'move'}
-  {@const dragged = movedElement(gesture)}
-  <div class="global-element-drag-layer" aria-hidden="true">
-    {#if dragged.type === 'rectangle'}
-      <span
-        class="global-rectangle global-rectangle--drag-preview global-rectangle--selected"
-        style={rectangleStyle(dragged)}
-      ></span>
-      {#each document.elements.filter((element) =>
-        (element.type === 'text' || element.type === 'media') && element.parentElementId === dragged.id
-      ) as child (child.id)}
-        {#if child.type === 'text' && gesture.element.type === 'rectangle'}
-          <CanvasTextBlock
-            {canvas}
-            editing={false}
-            element={moveTextWithRectangle(child, gesture.element, dragged)}
-            onStartMove={() => undefined}
-            selected={false}
-            {workspaceId}
-          />
-        {:else if child.type === 'media' && gesture.element.type === 'rectangle'}
-          <CanvasMediaElement
-            {canvas}
-            element={moveMediaWithRectangle(child, gesture.element, dragged)}
-            moving={false}
-            onStartMove={() => undefined}
-            selected={false}
-            {workspaceId}
-          />
-        {/if}
-      {/each}
-    {:else if dragged.type === 'text'}
-      <CanvasTextBlock
-        {canvas}
-        editing={false}
-        element={dragged}
-        onStartMove={() => undefined}
-        selected={true}
-        {workspaceId}
-      />
-    {:else}
-      <CanvasMediaElement
-        {canvas}
-        element={dragged}
-        moving={false}
-        onStartMove={() => undefined}
-        selected={true}
-        {workspaceId}
-      />
-    {/if}
-  </div>
-{/if}
 
 <style>
   .global-canvas-elements {
@@ -543,33 +543,13 @@
     touch-action: none;
   }
 
-  .global-rectangle--selected {
-    outline: 2px solid rgb(47 117 96 / 46%);
-    outline-offset: 3px;
-  }
-
   .global-rectangle--draft {
     opacity: 0.72;
     pointer-events: none;
   }
 
-  .global-rectangle--invalid {
+  :global(.global-rectangle--invalid) {
     opacity: 0.28;
   }
 
-  .global-element-drag-layer {
-    position: absolute;
-    inset: 0;
-    z-index: 7;
-    overflow: visible;
-    pointer-events: none;
-  }
-
-  .global-rectangle--drag-preview {
-    opacity: 0.94;
-    box-shadow:
-      0 16px 34px rgb(35 67 54 / 18%),
-      0 3px 10px rgb(35 67 54 / 10%);
-    pointer-events: none;
-  }
 </style>

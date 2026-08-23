@@ -38,10 +38,13 @@ export class CanvasViewportService {
   readonly #state: CanvasGState;
   #cameraRestoreAttempt = 0;
   #cameraFrame: ScheduledFrame | null = null;
+  #cameraCommitTimer: number | null = null;
   #isRestoringCamera = false;
   #pan: PanStart | null = null;
+  #pendingCamera: { camera: ReturnType<typeof cameraFromScroll>; workspaceId: string } | null = null;
   #pendingZoom: PendingZoom | null = null;
   #pendingCameraWorkspaceId: string | null = null;
+  #hasPublishedScheduledCamera = false;
   #viewport: HTMLDivElement | null = null;
   #wheelGesture: 'mouse' | 'trackpad' | null = null;
   #wheelGestureAt = 0;
@@ -248,7 +251,17 @@ export class CanvasViewportService {
       this.#cameraFrame = null;
       const pendingWorkspaceId = this.#pendingCameraWorkspaceId;
       this.#pendingCameraWorkspaceId = null;
-      this.captureCameraNow(pendingWorkspaceId ?? undefined);
+      const pending = this.readCamera(pendingWorkspaceId ?? undefined);
+      if (!pending) return;
+
+      // Camera coordinates are persistence data, not render state. Publish at
+      // the start and after scrolling settles, rather than invalidating every
+      // canvas child on every native scroll event.
+      this.#pendingCamera = pending;
+      if (!this.#hasPublishedScheduledCamera) {
+        this.publishPendingCamera();
+      }
+      this.scheduleIdleCameraCommit();
     };
     if (typeof window.requestAnimationFrame === 'function') {
       this.#cameraFrame = {
@@ -435,15 +448,10 @@ export class CanvasViewportService {
   }
 
   private captureCameraNow(workspaceId = this.#getWorkspace()?.id): void {
-    if (!workspaceId || !this.#viewport || this.#isRestoringCamera) return;
-    const viewport = this.metrics();
-    this.#state.rememberCamera(
-      workspaceId,
-      cameraFromScroll(
-        { x: viewport.scrollLeft, y: viewport.scrollTop },
-        viewport,
-      ),
-    );
+    const pending = this.readCamera(workspaceId);
+    if (!pending) return;
+    this.#pendingCamera = null;
+    this.#state.rememberCamera(pending.workspaceId, pending.camera);
   }
 
   private cancelScheduledCameraCapture(): void {
@@ -453,7 +461,48 @@ export class CanvasViewportService {
     } else if (frame) {
       window.clearTimeout(frame.id);
     }
+    if (this.#cameraCommitTimer !== null) {
+      window.clearTimeout(this.#cameraCommitTimer);
+    }
     this.#cameraFrame = null;
+    this.#cameraCommitTimer = null;
+    this.#pendingCamera = null;
     this.#pendingCameraWorkspaceId = null;
+    this.#hasPublishedScheduledCamera = false;
+  }
+
+  private readCamera(
+    workspaceId = this.#getWorkspace()?.id,
+  ): { camera: ReturnType<typeof cameraFromScroll>; workspaceId: string } | null {
+    if (!workspaceId || !this.#viewport || this.#isRestoringCamera) return null;
+    const viewport = this.metrics();
+    return {
+      camera: cameraFromScroll(
+        { x: viewport.scrollLeft, y: viewport.scrollTop },
+        viewport,
+      ),
+      workspaceId,
+    };
+  }
+
+  private publishPendingCamera(): void {
+    const pending = this.#pendingCamera;
+    if (!pending) return;
+    this.#pendingCamera = null;
+    this.#hasPublishedScheduledCamera = true;
+    this.#state.rememberCamera(pending.workspaceId, pending.camera);
+  }
+
+  private scheduleIdleCameraCommit(): void {
+    if (this.#cameraCommitTimer !== null) {
+      window.clearTimeout(this.#cameraCommitTimer);
+    }
+    this.#cameraCommitTimer = window.setTimeout(() => {
+      this.#cameraCommitTimer = null;
+      this.publishPendingCamera();
+      this.#hasPublishedScheduledCamera = false;
+    }, CAMERA_IDLE_CAPTURE_MS);
   }
 }
+
+const CAMERA_IDLE_CAPTURE_MS = 140;

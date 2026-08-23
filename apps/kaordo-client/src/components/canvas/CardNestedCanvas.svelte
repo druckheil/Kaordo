@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, tick } from 'svelte';
   import type { CanvasPlacement } from '../../lib/domain/canvas';
   import type {
     CanvasElement,
@@ -43,22 +44,26 @@
     pointerId: number;
     startX: number;
     startY: number;
+    visualNodes: HTMLElement[];
   };
 
   let { canvas, document, placement, snapshot, workspaceId }: Props = $props();
   let board = $state<HTMLDivElement>();
-  let gesture = $state<RectangleDrawGesture | MoveGesture | null>(null);
-  let optimisticElement = $state<CanvasElement | null>(null);
+  let draftElement: HTMLSpanElement | undefined;
+  let gesture: RectangleDrawGesture | MoveGesture | null = null;
+  let visualFrame: number | null = null;
+  let pendingPoint: { x: number; y: number } | null = null;
   let lastRectanglePointerDown: { at: number; id: string } | null = null;
   let elements = $derived(
     document.elements.filter(
       (element) => element.parentObjectId === placement.id,
     ),
   );
-  let preview = $derived(previewRectangle());
-  let previewInvalid = $derived(
-    gesture?.kind === 'draw' && !isRectangleDrawValid(gesture),
-  );
+
+  onDestroy(() => {
+    cancelVisualFrame();
+    clearGestureVisual(gesture);
+  });
 
   function boardPoint(event: PointerEvent, constrained = false) {
     const bounds = board?.getBoundingClientRect();
@@ -105,6 +110,7 @@
     event.stopPropagation();
     const point = boardPoint(event, true);
     gesture = startRectangleDraw(point, event.pointerId);
+    updateDraft(gesture);
     board?.setPointerCapture?.(event.pointerId);
   }
 
@@ -175,7 +181,9 @@
       pointerId: event.pointerId,
       startX: point.x,
       startY: point.y,
+      visualNodes: findVisualNodes(element),
     };
+    applyMoveVisual(gesture);
     board?.setPointerCapture?.(event.pointerId);
   }
 
@@ -188,34 +196,33 @@
   function continueGesture(event: PointerEvent) {
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     event.preventDefault();
-    const point = boardPoint(
-      latestPointerEvent(event),
-      gesture.kind === 'draw',
-    );
-    gesture = gesture.kind === 'draw'
-      ? continueRectangleDraw(gesture, point)
-      : { ...gesture, currentX: point.x, currentY: point.y };
+    pendingPoint = boardPoint(latestPointerEvent(event), gesture.kind === 'draw');
+    if (visualFrame !== null) return;
+    if (typeof window.requestAnimationFrame !== 'function') {
+      flushGestureVisual();
+      return;
+    }
+    visualFrame = window.requestAnimationFrame(flushGestureVisual);
   }
 
   async function finishGesture(event: PointerEvent) {
     const active = gesture;
-    const point = active
-      ? boardPoint(latestPointerEvent(event), active.kind === 'draw')
-      : null;
-    const finished = active && point
-      ? active.kind === 'draw'
-        ? continueRectangleDraw(active, point)
-        : { ...active, currentX: point.x, currentY: point.y }
-      : active;
+    cancelVisualFrame();
+    if (active) {
+      pendingPoint = boardPoint(latestPointerEvent(event), active.kind === 'draw');
+      flushGestureVisual();
+    }
+    const finished = active;
     if (!finished || finished.pointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
-    gesture = null;
     if (board?.hasPointerCapture?.(event.pointerId)) {
       board.releasePointerCapture(event.pointerId);
     }
 
     if (finished.kind === 'draw' && !isRectangleDrawValid(finished)) {
+      clearGestureVisual(finished);
+      gesture = null;
       canvas.state.announce('Card is too small and was not created.');
       return;
     }
@@ -224,14 +231,14 @@
     const element = finished.kind === 'draw'
       ? drawnRectangle(finished)
       : settleMovedElement(finished);
-    optimisticElement = element;
     canvas.state.selectGlobalElement(element.id);
-    const exists = document.elements.some((candidate) => candidate.id === element.id);
+    const currentDocument = canvas.state.canvasDocumentFor(workspaceId);
+    const exists = currentDocument.elements.some((candidate) => candidate.id === element.id);
     let updatedElements = exists
-      ? document.elements.map((candidate) =>
+      ? currentDocument.elements.map((candidate) =>
           candidate.id === element.id ? element : candidate,
         )
-      : [...document.elements, element];
+      : [...currentDocument.elements, element];
     if (
       finished.kind === 'move' &&
       finished.element.type === 'rectangle' &&
@@ -248,12 +255,16 @@
           : candidate,
       );
     }
-    try {
-      await canvas.saveWorkspaceCanvasDocument(workspaceId, {
+    const savePromise = canvas.saveWorkspaceCanvasDocument(workspaceId, {
         elements: updatedElements,
-        placements: document.placements,
+        placements: currentDocument.placements,
         version: 1,
       });
+    gesture = null;
+    await tick();
+    clearGestureVisual(finished);
+    try {
+      await savePromise;
       const location = (element.type === 'text' || element.type === 'media') && element.parentElementId
         ? 'attached to card'
         : element.parentObjectId
@@ -265,13 +276,15 @@
       );
     } catch {
       canvas.state.announce('Card could not be saved.');
-    } finally {
-      optimisticElement = null;
     }
   }
 
   function cancelGesture(event: PointerEvent) {
-    if (gesture?.pointerId === event.pointerId) gesture = null;
+    if (gesture?.pointerId !== event.pointerId) return;
+    cancelVisualFrame();
+    clearGestureVisual(gesture);
+    gesture = null;
+    pendingPoint = null;
   }
 
   function drawnRectangle(draw: RectangleDrawGesture): RectangleElement {
@@ -319,29 +332,73 @@
     );
   }
 
-  function previewRectangle(): RectangleElement | null {
-    return gesture?.kind === 'draw' ? drawnRectangle(gesture) : null;
-  }
-
-  function displayedElement(element: CanvasElement): CanvasElement {
-    if (optimisticElement?.id === element.id) return optimisticElement;
-    if (gesture?.kind === 'move' && gesture.element.id === element.id) {
-      return movedElement(gesture);
-    }
-    if (
-      gesture?.kind === 'move' &&
-      gesture.element.type === 'rectangle' &&
-      (element.type === 'text' || element.type === 'media') &&
-      element.parentElementId === gesture.element.id
-    ) {
-      const moved = movedElement(gesture);
-      if (moved.type === 'rectangle') {
-        return element.type === 'text'
-          ? moveTextWithRectangle(element, gesture.element, moved)
-          : moveMediaWithRectangle(element, gesture.element, moved);
+  function findVisualNodes(element: CanvasElement): HTMLElement[] {
+    const root = board;
+    if (!root) return [];
+    const ids = new Set<string>([element.id]);
+    if (element.type === 'rectangle') {
+      for (const child of document.elements) {
+        if ('parentElementId' in child && child.parentElementId === element.id) {
+          ids.add(child.id);
+        }
       }
     }
-    return element;
+    return [...ids].flatMap((id) => {
+      const node = [...root.querySelectorAll<HTMLElement>('[data-canvas-element-id]')]
+        .find((candidate) => candidate.dataset.canvasElementId === id);
+      if (!node) return [];
+      return [node.closest<HTMLElement>('.canvas-rectangle-shell') ?? node];
+    });
+  }
+
+  function flushGestureVisual() {
+    visualFrame = null;
+    const active = gesture;
+    const point = pendingPoint;
+    pendingPoint = null;
+    if (!active || !point) return;
+    active.currentX = point.x;
+    active.currentY = point.y;
+    if (active.kind === 'draw') {
+      Object.assign(active, continueRectangleDraw(active, point));
+      updateDraft(active);
+    } else applyMoveVisual(active);
+  }
+
+  function applyMoveVisual(move: MoveGesture) {
+    const transform = `translate3d(${move.currentX - move.startX}px, ${move.currentY - move.startY}px, 0)`;
+    for (const node of move.visualNodes) {
+      node.style.transform = transform;
+      node.style.willChange = 'transform';
+      node.style.zIndex = '8';
+    }
+  }
+
+  function clearGestureVisual(active: RectangleDrawGesture | MoveGesture | null) {
+    if (active?.kind === 'move') {
+      for (const node of active.visualNodes) {
+        node.style.removeProperty('transform');
+        node.style.removeProperty('will-change');
+        node.style.removeProperty('z-index');
+      }
+    }
+    if (draftElement) {
+      draftElement.style.display = 'none';
+      draftElement.classList.remove('nested-rectangle--invalid');
+    }
+  }
+
+  function updateDraft(draw: RectangleDrawGesture) {
+    if (!draftElement) return;
+    const preview = drawnRectangle(draw);
+    draftElement.style.cssText = rectangleStyle(preview);
+    draftElement.style.display = 'block';
+    draftElement.classList.toggle('nested-rectangle--invalid', !isRectangleDrawValid(draw));
+  }
+
+  function cancelVisualFrame() {
+    if (visualFrame !== null) window.cancelAnimationFrame?.(visualFrame);
+    visualFrame = null;
   }
 
   function rectangleStyle(element: RectangleElement): string {
@@ -380,7 +437,6 @@
   class="card-nested-canvas"
   class:card-nested-canvas--drawing={snapshot.activeTool === 'rectangle' || snapshot.activeTool === 'text'}
   class:card-nested-canvas--text={snapshot.activeTool === 'text'}
-  class:card-nested-canvas--moving={gesture?.kind === 'move'}
   bind:this={board}
   role="application"
   aria-label={`${placement.title} panel`}
@@ -390,16 +446,15 @@
   onpointercancel={cancelGesture}
 >
   {#each elements as element (element.id)}
-    {@const displayed = displayedElement(element)}
-    {#if displayed.type === 'rectangle'}
+    {#if element.type === 'rectangle'}
       <CanvasRectangle
         canvas={canvas}
-        element={displayed}
+        element={element}
         elementClass="nested-rectangle"
         ariaLabel="Card"
-        maxHeight={Math.max(28, placement.height - CANVAS_CARD_HEADER_HEIGHT - displayed.y)}
-        maxWidth={Math.max(32, placement.width - displayed.x)}
-        moving={gesture?.kind === 'move' && gesture.element.id === element.id}
+        maxHeight={Math.max(28, placement.height - CANVAS_CARD_HEADER_HEIGHT - element.y)}
+        maxWidth={Math.max(32, placement.width - element.x)}
+        moving={false}
         onContextMenu={(event) => openContextMenu(event, 'Card', [
           {
             action: () => canvas.state.selectGlobalElement(element.id),
@@ -427,12 +482,13 @@
         selected={snapshot.selectedGlobalElementId === element.id}
         workspaceId={workspaceId}
       />
-    {:else if displayed.type === 'text'}
+    {:else if element.type === 'text'}
       <CanvasTextBlock
         {canvas}
         editing={snapshot.editingTextId === element.id}
-        element={displayed}
-        maxWidth={Math.max(100, placement.width - displayed.x)}
+        element={element}
+        maxWidth={Math.max(100, placement.width - element.x)}
+        moving={false}
         onStartMove={startMove}
         selected={snapshot.selectedGlobalElementId === element.id}
         {workspaceId}
@@ -440,22 +496,19 @@
     {:else}
       <CanvasMediaElement
         {canvas}
-        element={displayed}
-        maxHeight={Math.max(72, placement.height - CANVAS_CARD_HEADER_HEIGHT - displayed.y)}
-        maxWidth={Math.max(120, placement.width - displayed.x)}
-        moving={gesture?.kind === 'move' && (
-          gesture.element.id === element.id ||
-          (element.type === 'media' && element.parentElementId === gesture.element.id)
-        )}
-        onContextMenu={(event) => openContextMenu(event, displayed.name, [
+        element={element}
+        maxHeight={Math.max(72, placement.height - CANVAS_CARD_HEADER_HEIGHT - element.y)}
+        maxWidth={Math.max(120, placement.width - element.x)}
+        moving={false}
+        onContextMenu={(event) => openContextMenu(event, element.name, [
           {
-            action: () => canvas.state.selectGlobalElement(displayed.id),
+            action: () => canvas.state.selectGlobalElement(element.id),
             icon: 'select',
             id: 'select-media',
             label: 'Select Media',
           },
           {
-            action: () => canvas.deleteCanvasElement(workspaceId, displayed.id),
+            action: () => canvas.deleteCanvasElement(workspaceId, element.id),
             confirmation: 'Delete this media?',
             danger: true,
             icon: 'delete',
@@ -470,20 +523,14 @@
     {/if}
   {/each}
 
-  {#if optimisticElement?.type === 'rectangle' && optimisticElement.parentObjectId === placement.id && !elements.some((element) => element.id === optimisticElement?.id)}
-    <span class="nested-rectangle nested-rectangle--selected" style={rectangleStyle(optimisticElement)} aria-hidden="true"></span>
-  {/if}
+  <span
+    bind:this={draftElement}
+    class="nested-rectangle nested-rectangle--draft"
+    style="display:none"
+    aria-hidden="true"
+  ></span>
 
-  {#if preview}
-    <span
-      class="nested-rectangle nested-rectangle--draft"
-      class:nested-rectangle--invalid={previewInvalid}
-      style={rectangleStyle(preview)}
-      aria-hidden="true"
-    ></span>
-  {/if}
-
-  {#if elements.length === 0 && !preview && !optimisticElement}
+  {#if elements.length === 0}
     <span class="nested-canvas-empty" aria-hidden="true">
       {snapshot.activeTool === 'rectangle' ? 'Draw a card here' : 'Add cards here to attach them'}
     </span>
@@ -504,8 +551,6 @@
 
   .card-nested-canvas--drawing { cursor: crosshair; }
   .card-nested-canvas--text { cursor: text; }
-  .card-nested-canvas--moving { overflow: visible; }
-
   .nested-rectangle {
     position: absolute;
     display: block;
@@ -516,17 +561,12 @@
     touch-action: none;
   }
 
-  .nested-rectangle--selected {
-    outline: 2px solid rgb(47 117 96 / 42%);
-    outline-offset: 3px;
-  }
-
   .nested-rectangle--draft {
     opacity: 0.72;
     pointer-events: none;
   }
 
-  .nested-rectangle--invalid { opacity: 0.28; }
+  :global(.nested-rectangle--invalid) { opacity: 0.28; }
 
   .nested-canvas-empty {
     position: absolute;

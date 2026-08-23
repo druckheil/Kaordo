@@ -45,16 +45,27 @@
   let pendingMove = $state<PendingMove | null>(null);
   let pendingMoveCaptureTarget: HTMLElement | null = null;
   let suppressImageClick = false;
+  let mediaLoadVersion = 0;
+  let loadedMediaKey: string | null = null;
   let resize = $state<ResizeGesture | null>(null);
   let resizedSize = $state<{ height: number; width: number } | null>(null);
 
   $effect(() => {
+    const currentWorkspaceId = workspaceId;
     const mediaId = element.mediaId;
+    const mimeType = element.mimeType;
+    const nextKey = `${currentWorkspaceId}:${mediaId}:${mimeType}`;
+    // Position, size, selection and parent changes replace the element object,
+    // but must not restart an already loaded media resource. Only identity or
+    // MIME changes require another storage read and object URL.
+    if (loadedMediaKey === nextKey) return;
+    loadedMediaKey = nextKey;
+    const version = ++mediaLoadVersion;
     loadState = 'loading';
+    if (mediaUrl) URL.revokeObjectURL(mediaUrl);
     mediaUrl = null;
-    let cancelled = false;
-    void canvas.loadCanvasMedia(workspaceId, element).then((blob) => {
-      if (cancelled) return;
+    void canvas.loadCanvasMedia(currentWorkspaceId, { mediaId, mimeType }).then((blob) => {
+      if (version !== mediaLoadVersion) return;
       if (!blob) {
         loadState = 'error';
         return;
@@ -62,16 +73,14 @@
       mediaUrl = URL.createObjectURL(blob);
       loadState = 'ready';
     }).catch(() => {
-      if (!cancelled) loadState = 'error';
+      if (version === mediaLoadVersion) loadState = 'error';
     });
-    return () => {
-      cancelled = true;
-      if (mediaUrl) URL.revokeObjectURL(mediaUrl);
-      mediaUrl = null;
-    };
   });
 
   onDestroy(() => {
+    mediaLoadVersion += 1;
+    if (mediaUrl) URL.revokeObjectURL(mediaUrl);
+    mediaUrl = null;
     clearPendingMove();
     audio?.pause();
   });
@@ -344,7 +353,7 @@
       aria-label={`Open ${element.name}`}
       onclick={handleImageClick}
     >
-      <img src={mediaUrl} alt={element.name} draggable="false" />
+      <img src={mediaUrl} alt={element.name} decoding="async" draggable="false" />
     </button>
   {:else if element.kind === 'video'}
     <div class="canvas-media-video" role="group">
