@@ -493,7 +493,7 @@ pub async fn auth_register(
     username: String,
     password: String,
 ) -> Result<AuthUser, String> {
-    let mut password_proof = derive_password_proof(username.clone(), password).await?;
+    let mut password_proof = derive_password_proof(username.clone(), password, true).await?;
     let result = client
         .authenticate("/api/auth/desktop/register", &username, &password_proof)
         .await;
@@ -509,7 +509,7 @@ pub async fn auth_login(
     username: String,
     password: String,
 ) -> Result<AuthUser, String> {
-    let mut password_proof = derive_password_proof(username.clone(), password).await?;
+    let mut password_proof = derive_password_proof(username.clone(), password, false).await?;
     let result = client
         .authenticate("/api/auth/desktop/login", &username, &password_proof)
         .await;
@@ -1515,10 +1515,15 @@ fn keyring_error(_error: KeyringError) -> String {
     "The operating system's secure session storage is unavailable.".to_owned()
 }
 
-async fn derive_password_proof(username: String, mut password: String) -> Result<String, String> {
-    if !(12..=128).contains(&password.chars().count()) || password.len() > 256 {
+async fn derive_password_proof(
+    username: String,
+    mut password: String,
+    registration: bool,
+) -> Result<String, String> {
+    let maximum = if registration { 32 } else { 128 };
+    if !(6..=maximum).contains(&password.chars().count()) || password.len() > 256 {
         password.zeroize();
-        return Err("Password must be 12–128 characters.".to_owned());
+        return Err(format!("Password must be 6–{maximum} characters."));
     }
     tauri::async_runtime::spawn_blocking(move || {
         let encoded = password_proof(&username, &password);

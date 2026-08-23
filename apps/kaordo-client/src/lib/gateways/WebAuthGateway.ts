@@ -58,7 +58,7 @@ export class WebAuthGateway implements AuthGateway {
     username: string,
     password: string,
   ): Promise<AuthUser> {
-    validatePassword(password);
+    validatePassword(password, path === 'register');
     const passwordProof = await derivePasswordProof(username, password);
     const result = await requestJson<UserResponse>(`/api/auth/${path}`, {
       body: JSON.stringify({ passwordProof, username }),
@@ -105,10 +105,11 @@ function base64Url(bytes: Uint8Array): string {
     .replace(/=+$/u, '');
 }
 
-function validatePassword(password: string) {
+function validatePassword(password: string, registration: boolean) {
   const length = [...password].length;
-  if (length < 12 || length > 128 || new TextEncoder().encode(password).length > 256) {
-    throw new Error('Password must be 12–128 characters.');
+  const maximum = registration ? 32 : 128;
+  if (length < 6 || length > maximum || new TextEncoder().encode(password).length > 256) {
+    throw new Error(`Password must be 6–${maximum} characters.`);
   }
 }
 

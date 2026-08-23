@@ -98,7 +98,7 @@ class KaordoAuthClient {
 
 internal object PasswordProof {
     fun create(username: String, password: CharArray): String {
-        require(password.size in 12..128) { "Password must be 12–128 characters." }
+        require(password.size in 6..128) { "Password must be 6–128 characters." }
         val namespace = "veri" + "dimensio:password:v1:"
         val salt = "$namespace${username.trim().lowercase()}".toByteArray()
         val spec = PBEKeySpec(password, salt, 600_000, 256)

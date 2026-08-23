@@ -31,8 +31,8 @@ pub fn login(
         return Err("Username is required.".into());
     }
     let password = Zeroizing::new(password.to_owned());
-    if !(12..=128).contains(&password.len()) {
-        return Err("Password must be 12–128 characters.".into());
+    if !(6..=128).contains(&password.chars().count()) {
+        return Err("Password must be 6–128 characters.".into());
     }
     let proof = password_proof(username, password.as_bytes());
     let body = serde_json::json!({

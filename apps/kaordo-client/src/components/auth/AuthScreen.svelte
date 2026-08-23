@@ -63,8 +63,9 @@
       return;
     }
     const passwordLength = [...password].length;
-    if (passwordLength < 12 || passwordLength > 128) {
-      fieldError = 'Password must be 12–128 characters.';
+    const passwordMaximum = mode === 'register' ? 32 : 128;
+    if (passwordLength < 6 || passwordLength > passwordMaximum) {
+      fieldError = `Password must be 6–${passwordMaximum} characters.`;
       return;
     }
     if (mode === 'register' && password !== confirmation) {
@@ -197,8 +198,8 @@
                 bind:value={password}
                 type={passwordVisible ? 'text' : 'password'}
                 autocomplete={mode === 'login' ? 'current-password' : 'new-password'}
-                maxlength="128"
-                placeholder={mode === 'login' ? 'Your password' : 'At least 12 characters'}
+                maxlength={mode === 'register' ? 32 : 128}
+                placeholder={mode === 'login' ? 'Your password' : '6–32 characters'}
                 disabled={busy}
                 oninput={clearErrors}
               />
@@ -229,7 +230,7 @@
                   bind:value={confirmation}
                   type={passwordVisible ? 'text' : 'password'}
                   autocomplete="new-password"
-                  maxlength="128"
+                  maxlength="32"
                   placeholder="Repeat your password"
                   disabled={busy}
                   oninput={clearErrors}
@@ -248,7 +249,7 @@
                 {fieldError ?? snapshot.error}
               </p>
             {:else if mode === 'register'}
-              <p class="form-help">Use 12 or more characters. Your password never leaves this device.</p>
+              <p class="form-help">Use 6–32 characters. Your password never leaves this device.</p>
             {/if}
           </div>
 

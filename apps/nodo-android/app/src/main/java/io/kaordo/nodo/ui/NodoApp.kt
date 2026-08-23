@@ -158,7 +158,7 @@ private fun Login(state: NodeUiState, onLogin: (String, String) -> Unit) {
         ErrorText(state.error)
         PrimaryButton(
             text = if (state.isBusy) "Signing in…" else "Continue",
-            enabled = !state.isBusy && username.isNotBlank() && password.length >= 12,
+            enabled = !state.isBusy && username.isNotBlank() && password.length >= 6,
             onClick = { onLogin(username, password) },
         )
     }
