@@ -16,6 +16,8 @@ export class RegadoGState extends GState<RegadoSnapshot> {
   readonly #gateway: AdminGateway;
   #cloudflareRequestId = 0;
   #dashboardRequestId = 0;
+  #cloudflareInFlight: Promise<void> | null = null;
+  #dashboardInFlight: Promise<void> | null = null;
 
   constructor(gateway: AdminGateway) {
     super({
@@ -37,6 +39,8 @@ export class RegadoGState extends GState<RegadoSnapshot> {
   override exit(): void {
     this.#cloudflareRequestId += 1;
     this.#dashboardRequestId += 1;
+    this.#cloudflareInFlight = null;
+    this.#dashboardInFlight = null;
   }
 
   async refresh(forceRefresh = true): Promise<void> {
@@ -44,7 +48,8 @@ export class RegadoGState extends GState<RegadoSnapshot> {
     await this.refreshDashboard(forceRefresh);
   }
 
-  async refreshDashboard(forceRefresh = true): Promise<void> {
+  refreshDashboard(forceRefresh = true): Promise<void> {
+    if (this.#dashboardInFlight) return this.#dashboardInFlight;
     const requestId = ++this.#dashboardRequestId;
     this.publish({
       ...this.snapshot,
@@ -52,53 +57,68 @@ export class RegadoGState extends GState<RegadoSnapshot> {
       error: null,
       phase: this.snapshot.dashboard ? 'ready' : 'loading',
     });
-    try {
-      const dashboard = await this.#gateway.dashboard(forceRefresh);
-      if (requestId !== this.#dashboardRequestId) return;
-      this.publish({
-        ...this.snapshot,
-        dashboard,
-        dashboardLoading: false,
-        error: null,
-        phase: 'ready',
-      });
-    } catch (error) {
-      if (requestId !== this.#dashboardRequestId) return;
-      const message = error instanceof Error && error.message.trim()
-        ? error.message
-        : 'The administration service is unavailable.';
-      this.publish({
-        ...this.snapshot,
-        dashboardLoading: false,
-        error: message,
-        phase: 'ready',
-      });
-    }
+    let request: Promise<void>;
+    request = (async () => {
+      try {
+        const dashboard = await this.#gateway.dashboard(forceRefresh);
+        if (requestId !== this.#dashboardRequestId) return;
+        this.publish({
+          ...this.snapshot,
+          dashboard,
+          dashboardLoading: false,
+          error: null,
+          phase: 'ready',
+        });
+      } catch (error) {
+        if (requestId !== this.#dashboardRequestId) return;
+        const message = error instanceof Error && error.message.trim()
+          ? error.message
+          : 'The administration service is unavailable.';
+        this.publish({
+          ...this.snapshot,
+          dashboardLoading: false,
+          error: message,
+          phase: 'ready',
+        });
+      }
+    })().finally(() => {
+      if (this.#dashboardInFlight === request) this.#dashboardInFlight = null;
+    });
+    this.#dashboardInFlight = request;
+    return request;
   }
 
-  async refreshCloudflare(forceRefresh = true): Promise<void> {
+  refreshCloudflare(forceRefresh = true): Promise<void> {
+    if (this.#cloudflareInFlight) return this.#cloudflareInFlight;
     const requestId = ++this.#cloudflareRequestId;
     this.publish({ ...this.snapshot, cloudflareError: null, cloudflarePhase: 'loading' });
-    try {
-      const cloudflare = await this.#gateway.cloudflare(forceRefresh);
-      if (requestId !== this.#cloudflareRequestId) return;
-      this.publish({
-        ...this.snapshot,
-        cloudflare,
-        cloudflareError: cloudflare ? null : 'Cloudflare telemetry is unavailable.',
-        cloudflarePhase: cloudflare ? 'ready' : 'error',
-      });
-    } catch (error) {
-      if (requestId !== this.#cloudflareRequestId) return;
-      const message = error instanceof Error && error.message.trim()
-        ? error.message
-        : 'Cloudflare telemetry is unavailable.';
-      this.publish({
-        ...this.snapshot,
-        cloudflareError: message,
-        cloudflarePhase: 'error',
-      });
-    }
+    let request: Promise<void>;
+    request = (async () => {
+      try {
+        const cloudflare = await this.#gateway.cloudflare(forceRefresh);
+        if (requestId !== this.#cloudflareRequestId) return;
+        this.publish({
+          ...this.snapshot,
+          cloudflare,
+          cloudflareError: cloudflare ? null : 'Cloudflare telemetry is unavailable.',
+          cloudflarePhase: cloudflare ? 'ready' : 'error',
+        });
+      } catch (error) {
+        if (requestId !== this.#cloudflareRequestId) return;
+        const message = error instanceof Error && error.message.trim()
+          ? error.message
+          : 'Cloudflare telemetry is unavailable.';
+        this.publish({
+          ...this.snapshot,
+          cloudflareError: message,
+          cloudflarePhase: 'error',
+        });
+      }
+    })().finally(() => {
+      if (this.#cloudflareInFlight === request) this.#cloudflareInFlight = null;
+    });
+    this.#cloudflareInFlight = request;
+    return request;
   }
 
   async moderateUser(

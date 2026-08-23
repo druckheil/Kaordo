@@ -21,21 +21,26 @@ export async function publicStorageForUser(env: Env, userId: ArrayBuffer, now: n
   const [usage, nodes] = await Promise.all([
     publicUsage(env, userId, now),
     env.DB.prepare(
-      `SELECT nodes.id, nodes.device_name, nodes.app_version,
-              MAX(0, nodes.public_quota_bytes - nodes.public_used_bytes -
-                COALESCE((SELECT SUM(bytes) FROM fluo_public_allocations
-                  WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?1), 0) -
-                COALESCE((SELECT SUM(bytes) FROM profile_public_allocations
-                  WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?1), 0)) AS available_bytes
+      `WITH pending AS (
+        SELECT node_id, SUM(bytes) AS bytes
+          FROM (
+            SELECT node_id, bytes FROM fluo_public_allocations
+             WHERE committed = 0 AND expires_at > ?1
+            UNION ALL
+            SELECT node_id, bytes FROM profile_public_allocations
+             WHERE committed = 0 AND expires_at > ?1
+          ) AS reservations
+         GROUP BY node_id
+      )
+      SELECT nodes.id, nodes.device_name, nodes.app_version,
+             MAX(0, nodes.public_quota_bytes - nodes.public_used_bytes -
+               COALESCE(pending.bytes, 0)) AS available_bytes
          FROM nodes
+         LEFT JOIN pending ON pending.node_id = nodes.id
         WHERE nodes.last_seen_at >= ?2
           AND nodes.allow_uploads = 1
           AND nodes.public_quota_bytes > 0
-          AND nodes.public_quota_bytes - nodes.public_used_bytes -
-            COALESCE((SELECT SUM(bytes) FROM fluo_public_allocations
-              WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?1), 0) -
-            COALESCE((SELECT SUM(bytes) FROM profile_public_allocations
-              WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?1), 0) > 0
+          AND nodes.public_quota_bytes - nodes.public_used_bytes - COALESCE(pending.bytes, 0) > 0
           AND NOT EXISTS (
             SELECT 1 FROM fluo_public_tombstones AS tombstones
              WHERE tombstones.node_id = nodes.id
@@ -102,9 +107,22 @@ export async function reservePublicStorage(request: Request, env: Env): Promise<
                     AND usage_node.last_seen_at > ?9
                ))
              )
+          ), 0) + COALESCE((
+            SELECT SUM(bytes) FROM profile_public_allocations
+             WHERE user_id = ?2 AND (
+               (committed = 0 AND expires_at > ?4) OR
+               (committed = 1 AND EXISTS (
+                 SELECT 1 FROM nodes AS usage_node
+                  WHERE usage_node.id = profile_public_allocations.node_id
+                    AND usage_node.last_seen_at > ?9
+               ))
+             )
           ), 0) <= ?8
           AND ?3 + COALESCE((
             SELECT SUM(bytes) FROM fluo_public_allocations
+             WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?4
+          ), 0) + COALESCE((
+            SELECT SUM(bytes) FROM profile_public_allocations
              WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?4
           ), 0) <= nodes.public_quota_bytes - nodes.public_used_bytes`,
     ).bind(
@@ -222,35 +240,26 @@ async function publicUsageResponse(env: Env, userId: ArrayBuffer, now: number) {
 }
 
 async function publicUsage(env: Env, userId: ArrayBuffer, now: number): Promise<UsageRow> {
-  const [fluo, profile] = await Promise.all([
-    env.DB.prepare(
-      `SELECT COALESCE(SUM(CASE
-                WHEN allocations.committed = 0 AND allocations.expires_at > ?2
-                THEN allocations.bytes ELSE 0 END), 0)
-                AS reserved_bytes,
-              COALESCE(SUM(CASE
-                WHEN allocations.committed = 1 AND nodes.last_seen_at > ?3
-                THEN allocations.bytes ELSE 0 END), 0) AS used_bytes
-         FROM fluo_public_allocations AS allocations
-         LEFT JOIN nodes ON nodes.id = allocations.node_id
-        WHERE allocations.user_id = ?1`,
-    ).bind(userId, now, now - PUBLIC_NODE_RETIRE_SECONDS).first<UsageRow>(),
-    env.DB.prepare(
-      `SELECT COALESCE(SUM(CASE
-                WHEN allocations.committed = 0 AND allocations.expires_at > ?2
-                THEN allocations.bytes ELSE 0 END), 0)
-                AS reserved_bytes,
-              COALESCE(SUM(CASE
-                WHEN allocations.committed = 1 AND nodes.last_seen_at > ?3
-                THEN allocations.bytes ELSE 0 END), 0) AS used_bytes
-         FROM profile_public_allocations AS allocations
-         LEFT JOIN nodes ON nodes.id = allocations.node_id
-        WHERE allocations.user_id = ?1`,
-    ).bind(userId, now, now - PUBLIC_NODE_RETIRE_SECONDS).first<UsageRow>(),
-  ]);
+  const row = await env.DB.prepare(
+    `SELECT COALESCE(SUM(CASE
+              WHEN allocations.committed = 0 AND allocations.expires_at > ?2
+              THEN allocations.bytes ELSE 0 END), 0) AS reserved_bytes,
+            COALESCE(SUM(CASE
+              WHEN allocations.committed = 1 AND nodes.last_seen_at > ?3
+              THEN allocations.bytes ELSE 0 END), 0) AS used_bytes
+       FROM (
+         SELECT user_id, node_id, bytes, committed, expires_at
+           FROM fluo_public_allocations
+         UNION ALL
+         SELECT user_id, node_id, bytes, committed, expires_at
+           FROM profile_public_allocations
+       ) AS allocations
+       LEFT JOIN nodes ON nodes.id = allocations.node_id
+      WHERE allocations.user_id = ?1`,
+  ).bind(userId, now, now - PUBLIC_NODE_RETIRE_SECONDS).first<UsageRow>();
   return {
-    reserved_bytes: Number(fluo?.reserved_bytes ?? 0) + Number(profile?.reserved_bytes ?? 0),
-    used_bytes: Number(fluo?.used_bytes ?? 0) + Number(profile?.used_bytes ?? 0),
+    reserved_bytes: Number(row?.reserved_bytes ?? 0),
+    used_bytes: Number(row?.used_bytes ?? 0),
   };
 }
 

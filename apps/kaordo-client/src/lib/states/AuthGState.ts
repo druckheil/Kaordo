@@ -107,7 +107,12 @@ export class AuthGState extends GState<AuthSnapshot> {
   }
 
   handleSessionRevoked(): void {
-    if (this.snapshot.phase === 'authenticated') this.expireSession();
+    if (this.snapshot.phase !== 'authenticated') return;
+    // Clear the platform credential as well as the in-memory projection. The
+    // revocation event is authoritative, so this best-effort logout does not
+    // block the UI transition and is only one request for an exceptional path.
+    void this.#gateway.logout().catch(() => undefined);
+    this.expireSession();
   }
 
   private async restore(): Promise<void> {

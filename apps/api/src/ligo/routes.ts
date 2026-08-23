@@ -1,5 +1,5 @@
 import type { Env } from '../env';
-import { finalizeAdminEraseUser } from '../admin/moderation';
+import { finalizeAdminEraseUsers } from '../admin/moderation';
 import { base64Url } from '../auth/encoding';
 import { authenticate, unixNow } from '../auth/session';
 import { json } from '../http/json';
@@ -301,7 +301,7 @@ export async function acknowledgeLigoConversationDeletions(request: Request, env
           SELECT id FROM users WHERE username IN (${placeholders})
         )`,
     ).bind(session.userId, ...peerUsernames).run();
-    await Promise.all(pendingTargets.results.map((row) => finalizeAdminEraseUser(env, row.peer_id)));
+    await finalizeAdminEraseUsers(env, pendingTargets.results.map((row) => row.peer_id));
     return json({ ok: true });
   } catch (error) {
     return json({ error: error instanceof InputError ? error.message : 'Conversation deletion receipt is invalid.' }, 400);
@@ -568,10 +568,14 @@ export async function createLigoDelivery(
         messageId: id,
       }));
     }));
-    return json({
-      evicted,
-      storage: await storageForUser(env, session.userId),
-    }, 201);
+    // Settings were already read before the write. Re-read only the compact
+    // usage scalar after pruning so concurrent sends cannot publish a stale
+    // stack counter, without repeating the settings query.
+    const storage = {
+      ...selectedStorage,
+      stackUsedBytes: await storageUsageForUser(env, session.userId),
+    };
+    return json({ evicted, storage }, 201);
   } catch (error) {
     if (isUnique(error)) return json({ error: 'This message was already queued.' }, 409);
     return json({ error: error instanceof InputError ? error.message : 'Message delivery is invalid.' }, 400);
@@ -722,26 +726,39 @@ function requiredIds(value: unknown, maximum = PRUNE_BATCH): string[] {
 }
 
 async function storageForUser(env: Env, userId: ArrayBuffer) {
-  const [settings, usage] = await Promise.all([
-    env.DB.prepare(
-      `SELECT storage_kind, node_id, stack_limit_bytes
-         FROM ligo_storage_settings WHERE user_id = ?1 LIMIT 1`,
-    ).bind(userId).first<{
-      node_id: string | null;
-      stack_limit_bytes: number;
-      storage_kind: number;
-    }>(),
-    env.DB.prepare(
-      'SELECT COALESCE(SUM(size_bytes), 0) AS bytes FROM ligo_cloud_messages WHERE owner_id = ?1',
-    ).bind(userId).first<{ bytes: number }>(),
-  ]);
+  const row = await env.DB.prepare(
+    `SELECT settings.storage_kind, settings.node_id, settings.stack_limit_bytes,
+            COALESCE(usage.bytes, 0) AS bytes
+       FROM (SELECT ?1 AS user_id) AS viewer
+       LEFT JOIN ligo_storage_settings AS settings
+         ON settings.user_id = viewer.user_id
+       LEFT JOIN (
+         SELECT owner_id, SUM(size_bytes) AS bytes
+           FROM ligo_cloud_messages
+          WHERE owner_id = ?1
+          GROUP BY owner_id
+       ) AS usage ON usage.owner_id = viewer.user_id
+      LIMIT 1`,
+  ).bind(userId).first<{
+    bytes: number;
+    node_id: string | null;
+    stack_limit_bytes: number | null;
+    storage_kind: number | null;
+  }>();
   return {
-    selectedNodeId: settings?.storage_kind === 0 && settings.node_id
-      ? settings.node_id
+    selectedNodeId: row?.storage_kind === 0 && row.node_id
+      ? row.node_id
       : PUBLIC_DESTINATION,
-    stackLimitBytes: settings?.stack_limit_bytes ?? DEFAULT_STACK_BYTES,
-    stackUsedBytes: usage?.bytes ?? 0,
+    stackLimitBytes: Number(row?.stack_limit_bytes ?? DEFAULT_STACK_BYTES),
+    stackUsedBytes: Number(row?.bytes ?? 0),
   };
+}
+
+async function storageUsageForUser(env: Env, userId: ArrayBuffer): Promise<number> {
+  const row = await env.DB.prepare(
+    'SELECT COALESCE(SUM(size_bytes), 0) AS bytes FROM ligo_cloud_messages WHERE owner_id = ?1',
+  ).bind(userId).first<{ bytes: number }>();
+  return Number(row?.bytes ?? 0);
 }
 
 type EvictedCloudMessage = { id: string; nodeId: string; storage: 'private' | 'public' };

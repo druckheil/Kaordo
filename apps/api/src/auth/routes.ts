@@ -218,7 +218,9 @@ export async function changePassword(
       return json({ error: 'Current password is incorrect.' }, 401);
     }
     const password = await hashPassword(change.newPasswordProof);
-    await updatePassword(env.DB, session.userId, session.tokenHash, password);
+    if (!await updatePassword(env.DB, session.userId, session.tokenHash, password)) {
+      return json({ error: 'Authentication required.' }, 401);
+    }
     ctx.waitUntil(env.LIGO_LIVE.getByName(base64Url(session.userId))
       .notifySessionRevoked(base64Url(session.tokenHash))
       .catch((error: unknown) => {

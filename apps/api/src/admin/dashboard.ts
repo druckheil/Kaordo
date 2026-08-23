@@ -25,18 +25,18 @@ export async function adminDashboard(request: Request, env: Env): Promise<Respon
   const now = unixNow();
   const result = await env.DB
     .prepare(
-      `SELECT u.id, u.username, u.display_username, u.created_at, u.status,
+      `WITH erase_targets AS (
+        SELECT target_user_id AS user_id FROM admin_erase_jobs
+        UNION
+        SELECT peer_id AS user_id FROM ligo_conversation_deletions
+      )
+      SELECT u.id, u.username, u.display_username, u.created_at, u.status,
               u.role, u.last_seen_at, u.online,
               COUNT(CASE WHEN s.expires_at > ?1 THEN 1 END) AS active_sessions,
-              EXISTS(
-                SELECT 1 FROM admin_erase_jobs AS erase_jobs
-                WHERE erase_jobs.target_user_id = u.id
-              ) OR EXISTS(
-                SELECT 1 FROM ligo_conversation_deletions AS erase_conversations
-                WHERE erase_conversations.peer_id = u.id
-              ) AS erase_pending
+              erase_targets.user_id IS NOT NULL AS erase_pending
          FROM users u
          LEFT JOIN sessions s ON s.user_id = u.id
+         LEFT JOIN erase_targets ON erase_targets.user_id = u.id
         GROUP BY u.id
         ORDER BY u.role DESC, u.created_at ASC`,
     )

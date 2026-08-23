@@ -1,11 +1,12 @@
 import type { Env } from '../env';
 import { authenticate, unixNow } from '../auth/session';
 import { json } from '../http/json';
-import { publicStorageForUser } from '../fluo/public-storage';
 
 const NODE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const PROFILE_ID = NODE_ID;
 const RESERVATION_SECONDS = 10 * 60;
+const PUBLIC_LIMIT_BYTES = 1_073_741_824;
+const PUBLIC_NODE_RETIRE_SECONDS = 24 * 60 * 60;
 const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
 const MAX_PROFILE_BYTES = 32 * 1024;
 const MAX_TOTAL_BYTES = MAX_AVATAR_BYTES + MAX_PROFILE_BYTES;
@@ -56,18 +57,13 @@ export async function reserveProfileStorage(request: Request, env: Env): Promise
       return json({ error: 'Profile storage reservation is invalid.' }, 400);
     }
     const now = unixNow();
-    const storage = await publicStorageForUser(env, session.userId, now);
-    const candidate = storage.nodeCandidates.find((node) => node.nodeId === input.nodeId);
-    if (!candidate || candidate.availableBytes < (input.bytes as number)) {
+    const candidate = await profileNodeCandidate(env, session.userId, input.nodeId, now);
+    if (!candidate || !supportsPublicReservations(candidate.app_version)) {
+      return json({ error: 'Choose an online Public Nodo owned by this account.' }, 409);
+    }
+    if (candidate.available_bytes < (input.bytes as number)) {
       return json({ error: 'Your Public Nodo does not have enough available space.' }, 409);
     }
-    const owned = await env.DB.prepare(
-      `SELECT id FROM nodes
-        WHERE id = ?1 AND user_id = ?2 AND public_quota_bytes > 0
-          AND allow_uploads = 1 AND last_seen_at >= ?3
-        LIMIT 1`,
-    ).bind(input.nodeId, session.userId, now - 300).first<{ id: string }>();
-    if (!owned) return json({ error: 'Choose an online Public Nodo owned by this account.' }, 409);
     const reservationId = crypto.randomUUID();
     const profileId = crypto.randomUUID();
     const result = await env.DB.prepare(
@@ -78,6 +74,33 @@ export async function reserveProfileStorage(request: Request, env: Env): Promise
         WHERE nodes.id = ?7 AND nodes.user_id = ?2
           AND nodes.last_seen_at >= ?8 AND nodes.allow_uploads = 1
           AND nodes.public_quota_bytes > 0
+          AND NOT EXISTS (
+            SELECT 1 FROM fluo_public_tombstones AS tombstones
+             WHERE tombstones.node_id = nodes.id
+          )
+          AND ?4 + COALESCE((
+            SELECT SUM(bytes) FROM fluo_public_allocations
+             WHERE user_id = ?2 AND (
+               (committed = 0 AND expires_at > ?5) OR
+               (committed = 1 AND EXISTS (
+                 SELECT 1 FROM nodes AS usage_node
+                  WHERE usage_node.id = fluo_public_allocations.node_id
+                    AND usage_node.last_seen_at > ?9
+               ))
+             )
+          ), 0) + COALESCE((
+            SELECT SUM(bytes) FROM profile_public_allocations
+             WHERE user_id = ?2
+               AND id != COALESCE((SELECT allocation_id FROM user_profiles WHERE user_id = ?2), '')
+               AND (
+               (committed = 0 AND expires_at > ?5) OR
+               (committed = 1 AND EXISTS (
+                 SELECT 1 FROM nodes AS usage_node
+                  WHERE usage_node.id = profile_public_allocations.node_id
+                    AND usage_node.last_seen_at > ?9
+               ))
+             )
+          ), 0) <= ${PUBLIC_LIMIT_BYTES}
           AND ?4 + COALESCE((
             SELECT SUM(bytes) FROM profile_public_allocations
              WHERE node_id = nodes.id AND committed = 0 AND expires_at > ?5
@@ -94,6 +117,7 @@ export async function reserveProfileStorage(request: Request, env: Env): Promise
       now + RESERVATION_SECONDS,
       input.nodeId,
       now - 300,
+      now - PUBLIC_NODE_RETIRE_SECONDS,
     ).run();
     if ((result.meta.changes ?? 0) === 0) {
       return json({ error: 'This Public Nodo no longer has enough available space.' }, 409);
@@ -220,6 +244,43 @@ async function profileRow(env: Env, userId: ArrayBuffer): Promise<ProfileRow | n
   ).bind(userId).first<ProfileRow>();
 }
 
+async function profileNodeCandidate(
+  env: Env,
+  userId: ArrayBuffer,
+  nodeId: string,
+  now: number,
+): Promise<{ app_version: string | null; available_bytes: number } | null> {
+  return env.DB.prepare(
+    `WITH pending AS (
+      SELECT node_id, SUM(bytes) AS bytes
+        FROM (
+          SELECT node_id, bytes FROM fluo_public_allocations
+           WHERE committed = 0 AND expires_at > ?1
+          UNION ALL
+          SELECT node_id, bytes FROM profile_public_allocations
+           WHERE committed = 0 AND expires_at > ?1
+        ) AS reservations
+       GROUP BY node_id
+    )
+    SELECT nodes.app_version,
+           MAX(0, nodes.public_quota_bytes - nodes.public_used_bytes -
+             COALESCE(pending.bytes, 0)) AS available_bytes
+      FROM nodes
+      LEFT JOIN pending ON pending.node_id = nodes.id
+     WHERE nodes.id = ?2
+       AND nodes.user_id = ?3
+       AND nodes.last_seen_at >= ?4
+       AND nodes.allow_uploads = 1
+       AND nodes.public_quota_bytes > 0
+       AND nodes.public_quota_bytes - nodes.public_used_bytes - COALESCE(pending.bytes, 0) > 0
+       AND NOT EXISTS (
+         SELECT 1 FROM fluo_public_tombstones AS tombstones
+          WHERE tombstones.node_id = nodes.id
+       )
+     LIMIT 1`,
+  ).bind(now, nodeId, userId, now - 300).first<{ app_version: string | null; available_bytes: number }>();
+}
+
 function profilePointer(row: ProfileRow | ProfilePointerInput) {
   const value = 'allocation_id' in row
     ? {
@@ -244,6 +305,12 @@ function previousPointer(row: ProfileRow): PreviousProfile {
 
 function isFileId(value: unknown): value is string {
   return typeof value === 'string' && PROFILE_ID.test(value);
+}
+
+function supportsPublicReservations(version: string | null): boolean {
+  const match = version?.match(/^(\d+)\.(\d+)(?:\.(\d+))?(?:\.|$)/u);
+  if (!match) return false;
+  return Number(match[1]) > 0 || Number(match[2]) >= 1;
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown>> {

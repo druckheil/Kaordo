@@ -129,9 +129,18 @@ export class NodeProfileGateway implements ProfileGateway {
         },
       };
     } catch (error) {
-      if (uploadedAvatar) await this.#files.deleteFile(input.nodeId, PROFILE_SPACE, uploadedAvatar).catch(() => undefined);
-      if (profileFileId) await this.#files.deleteFile(input.nodeId, PROFILE_SPACE, profileFileId).catch(() => undefined);
-      await this.api.cancel(reservation.reservationId).catch(() => undefined);
+      // Cleanup is best-effort, but it should not serialize three independent
+      // network operations. Cancelling the reservation in parallel also
+      // releases the D1 quota promptly when a direct Nodo write fails.
+      await Promise.allSettled([
+        uploadedAvatar
+          ? this.#files.deleteFile(input.nodeId, PROFILE_SPACE, uploadedAvatar)
+          : Promise.resolve(),
+        profileFileId
+          ? this.#files.deleteFile(input.nodeId, PROFILE_SPACE, profileFileId)
+          : Promise.resolve(),
+        this.api.cancel(reservation.reservationId),
+      ]);
       throw error;
     }
   }

@@ -14,6 +14,8 @@ type EraseJobRow = {
   target_username: string;
 };
 
+type ModerationTarget = Pick<UserRow, 'display_username' | 'id' | 'role' | 'status' | 'username'>;
+
 /** Ban a user and revoke every existing application session immediately. */
 export async function adminBanUser(
   request: Request,
@@ -180,7 +182,7 @@ export async function acknowledgeAdminEraseJobs(
 
   const targets = new Map<string, ArrayBuffer>();
   rows.results.forEach((row) => targets.set(base64Url(row.target_user_id), row.target_user_id));
-  for (const userId of targets.values()) await finalizeAdminEraseUser(env, userId);
+  await finalizeAdminEraseUsers(env, [...targets.values()]);
 }
 
 export async function pendingAdminEraseJobs(
@@ -209,7 +211,7 @@ async function targetUser(
   env: Env,
   encodedUserId: string,
   session: AuthenticatedSession,
-): Promise<UserRow | Response> {
+): Promise<ModerationTarget | Response> {
   if (!USER_ID.test(encodedUserId)) return json({ error: 'User identifier is invalid.' }, 400);
   let bytes: Uint8Array<ArrayBuffer>;
   try {
@@ -219,11 +221,9 @@ async function targetUser(
   }
   if (bytes.byteLength !== 16) return json({ error: 'User identifier is invalid.' }, 400);
   const target = await env.DB.prepare(
-    `SELECT id, username, display_username, password_hash, password_salt,
-            password_algorithm, password_iterations, created_at, status,
-            role, last_seen_at
+    `SELECT id, username, display_username, status, role
        FROM users WHERE id = ?1 LIMIT 1`,
-  ).bind(arrayBuffer(bytes)).first<UserRow>();
+  ).bind(arrayBuffer(bytes)).first<ModerationTarget>();
   if (!target) return json({ error: 'User was not found.' }, 404);
   if (base64Url(target.id) === base64Url(session.userId)) {
     return json({ error: 'You cannot moderate your own account.' }, 403);
@@ -239,10 +239,37 @@ async function hasPendingErase(env: Env, userId: ArrayBuffer): Promise<boolean> 
 }
 
 export async function finalizeAdminEraseUser(env: Env, userId: ArrayBuffer): Promise<void> {
-  if ((await erasePendingCount(env, userId)) > 0) return;
-  // Keep the account suspended until every Nodo and every Ligo peer confirms
+  await finalizeAdminEraseUsers(env, [userId]);
+}
+
+/**
+ * Finalize several erasures in one D1 statement. Heartbeats and Ligo inbox
+ * acknowledgements can contain multiple jobs; doing one pending-count query
+ * per account needlessly multiplied D1 reads and made completion slow.
+ */
+export async function finalizeAdminEraseUsers(
+  env: Env,
+  userIds: readonly ArrayBuffer[],
+): Promise<void> {
+  const unique = new Map<string, ArrayBuffer>();
+  for (const userId of userIds) unique.set(base64Url(userId), userId);
+  if (!unique.size) return;
+  const values = [...unique.values()];
+  const placeholders = values.map((_, index) => `?${index + 1}`).join(', ');
+  // Keep accounts suspended until every Nodo and every Ligo peer confirms
   // local cleanup. The conditional makes repeated acknowledgements safe.
-  await env.DB.prepare('DELETE FROM users WHERE id = ?1 AND status = 2').bind(userId).run();
+  await env.DB.prepare(
+    `DELETE FROM users
+      WHERE status = 2 AND id IN (${placeholders})
+        AND NOT EXISTS (
+          SELECT 1 FROM admin_erase_jobs
+           WHERE admin_erase_jobs.target_user_id = users.id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM ligo_conversation_deletions
+           WHERE ligo_conversation_deletions.peer_id = users.id
+        )`,
+  ).bind(...values).run();
 }
 
 export async function erasePendingCount(env: Env, userId: ArrayBuffer): Promise<number> {

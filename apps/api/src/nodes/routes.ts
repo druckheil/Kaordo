@@ -556,8 +556,8 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
               allocations.id AS reservation_id,
               allocations.bytes AS reservation_bytes,
               profile_allocations.id AS profile_reservation_id,
-              profile_allocations.bytes AS profile_reservation_bytes
-              ,members.role AS rondo_role,
+              profile_allocations.bytes AS profile_reservation_bytes,
+              members.role AS rondo_role,
               routes.storage_kind AS rondo_storage_kind,
               COALESCE((SELECT quota_bytes FROM rondo_space_nodes
                 WHERE space_id = routes.space_id
@@ -1040,7 +1040,7 @@ async function applyPublicReconciliationAcks(
       ).bind(nodeId, ...reservationIds),
       env.DB.prepare(
         `DELETE FROM profile_public_allocations
-          WHERE node_id = ?1 AND id IN (${placeholders})`,
+          WHERE node_id = ?1 AND committed = 0 AND id IN (${placeholders})`,
       ).bind(nodeId, ...reservationIds),
     );
   }

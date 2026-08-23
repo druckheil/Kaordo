@@ -36,7 +36,10 @@ export class ProfileGState extends GState<ProfileSnapshot> {
     this.publish({ ...this.snapshot, error: null, phase: 'loading' });
     try {
       const loaded = await this.#gateway.load();
-      if (requestId !== this.#requestId) return;
+      if (requestId !== this.#requestId) {
+        this.#revokeAvatar(loaded?.profile.avatarUrl ?? null);
+        return;
+      }
       this.#replaceAvatar(loaded?.profile.avatarUrl ?? null);
       this.#pointer = loaded?.pointer ?? null;
       this.publish({ error: null, phase: 'ready', profile: loaded?.profile ?? null });
@@ -60,7 +63,10 @@ export class ProfileGState extends GState<ProfileSnapshot> {
         nodeId,
         previous: this.#pointer,
       });
-      if (requestId !== this.#requestId) return false;
+      if (requestId !== this.#requestId) {
+        this.#revokeAvatar(result.profile.avatarUrl ?? null);
+        return false;
+      }
       const avatarUrl = result.profile.avatarUrl ?? (input.avatar === undefined ? currentAvatar : null);
       if (avatarUrl !== currentAvatar) this.#revokeAvatar(currentAvatar);
       this.#pointer = result.commit.pointer;

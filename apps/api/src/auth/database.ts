@@ -64,7 +64,7 @@ export async function updateUsername(
               password_salt = ?4,
               password_algorithm = ?5,
               password_iterations = ?6
-        WHERE id = ?7`,
+        WHERE id = ?7 AND status = 1`,
     )
     .bind(
       username,
@@ -85,8 +85,8 @@ export async function updatePassword(
   userId: ArrayBuffer,
   currentTokenHash: Uint8Array,
   password: PasswordRecord,
-): Promise<void> {
-  await db.batch([
+): Promise<boolean> {
+  const [updated] = await db.batch([
     db
       .prepare(
         `UPDATE users
@@ -94,7 +94,7 @@ export async function updatePassword(
                 password_salt = ?2,
                 password_algorithm = ?3,
                 password_iterations = ?4
-          WHERE id = ?5`,
+          WHERE id = ?5 AND status = 1`,
       )
       .bind(
         password.hash,
@@ -107,6 +107,7 @@ export async function updatePassword(
       .prepare('DELETE FROM sessions WHERE user_id = ?1 AND token_hash != ?2')
       .bind(userId, currentTokenHash),
   ]);
+  return (updated?.meta.changes ?? 0) > 0;
 }
 
 export async function createUserAndSession(

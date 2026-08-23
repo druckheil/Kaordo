@@ -237,6 +237,7 @@
   let isCreateObjectOpen = $state(false);
   let isLoggingOut = $state(false);
   let accountAction = $state<'username' | 'password' | null>(null);
+  let authenticatedUserId: string | null = null;
   let header = $state<FocusableHeader>();
   let filesPanel = $state<FocusableFiles>();
   let editorPanel = $state<FocusableEditor>();
@@ -398,13 +399,21 @@
     if (!snapshot) return;
     authSnapshot = snapshot;
     if (snapshot.phase === 'authenticated') {
+      const userId = snapshot.user?.id ?? null;
+      const accountJustAuthenticated = authenticatedUserId !== userId;
+      authenticatedUserId = userId;
       editor.start();
       if (activeSection === 'fluo') editor.startFluo();
       if (activeSection === 'mi') {
         profile.start();
         publicStorage.start();
-        void loadRondoPublicStorage();
-        void loadSessions();
+        // Username/password edits update the authenticated snapshot without
+        // changing the account. Avoid repeating the storage and session
+        // requests for that local projection update.
+        if (accountJustAuthenticated) {
+          void loadRondoPublicStorage();
+          void loadSessions();
+        }
       }
       if (activeSection === 'rondo') rondo.start();
       ligo.state.configure(snapshot.user?.id ?? null);
@@ -416,6 +425,7 @@
         regado.stop();
       }
     } else {
+      authenticatedUserId = null;
       editor.stop();
       regado.stop();
       nodo.stop();
@@ -548,9 +558,24 @@
 
   async function saveProfile(values: ProfileEditValues): Promise<boolean> {
     const publicStorage = publicStorageSnapshot.storage ?? await nodoGateway.publicStorage().catch(() => null);
-    const selectedNodeId = publicStorage?.nodeCandidates.find(
-      (node) => node.nodeId === profileSnapshot.profile?.nodeId && node.availableBytes > 0,
-    )?.nodeId ?? publicStorage?.nodeCandidates.find((node) => node.availableBytes > 0)?.nodeId ?? null;
+    // Public storage is a global pool. Profile data, however, must be written
+    // to a Public Nodo owned by this account so the owner can always replace
+    // or remove it. Resolve ownership from the node registry instead of
+    // trusting the globally visible candidate list.
+    const ownedNodes = nodoSnapshot.nodes.length
+      ? nodoSnapshot.nodes
+      : await nodoGateway.listNodes().catch(() => []);
+    const ownedNodeIds = new Set(
+      ownedNodes
+        .filter((node) => node.online && node.policy.allowUploads && node.spaces.public.quotaBytes > 0)
+        .map((node) => node.id),
+    );
+    const candidates = publicStorage?.nodeCandidates.filter(
+      (node) => ownedNodeIds.has(node.nodeId) && node.availableBytes > 0,
+    ) ?? [];
+    const selectedNodeId = candidates.find((node) => node.nodeId === profileSnapshot.profile?.nodeId)?.nodeId
+      ?? candidates[0]?.nodeId
+      ?? null;
     if (!selectedNodeId) {
       profile.state.setError('An online Public Nodo with available space is required to save your profile.');
       return false;

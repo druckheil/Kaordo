@@ -17,6 +17,7 @@ import io.kaordo.nodo.security.SecureSessionStore
 import io.kaordo.nodo.service.NodeForegroundService
 import io.kaordo.nodo.service.NodeRuntime
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -28,6 +29,8 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
     private val configuration = NodeConfiguration(application)
     private val session = SecureSessionStore(application)
     private val mutableState = MutableStateFlow(NodeUiState())
+    private var sessionRefreshJob: Job? = null
+    private var lastSessionCheckAt = 0L
     val state = mutableState.asStateFlow()
 
     init {
@@ -59,11 +62,12 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
         mutableState.update { it.copy(error = null, isBusy = true) }
         viewModelScope.launch {
             val result = runCatching {
-            withContext(Dispatchers.IO) { auth.login(username, password.toCharArray()) }
+                withContext(Dispatchers.IO) { auth.login(username, password.toCharArray()) }
             }
             result.onSuccess {
                 NodeRuntime.clearSessionExpired()
                 session.save(it.token, it.user)
+                lastSessionCheckAt = 0L
                 mutableState.update { current -> current.copy(
                     error = null,
                     isBusy = false,
@@ -99,9 +103,16 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
             mutableState.value.step == SetupStep.CHECKING ||
             mutableState.value.isBusy
         ) return
-        viewModelScope.launch {
-            val result = runCatching { withContext(Dispatchers.IO) { auth.me(token) } }
-            if (result.isSuccess && result.getOrNull() == null) expireSession()
+        val now = System.currentTimeMillis()
+        if (sessionRefreshJob?.isActive == true || now - lastSessionCheckAt < SESSION_CHECK_INTERVAL_MS) return
+        lastSessionCheckAt = now
+        sessionRefreshJob = viewModelScope.launch {
+            try {
+                val result = runCatching { withContext(Dispatchers.IO) { auth.me(token) } }
+                if (result.isSuccess && result.getOrNull() == null) expireSession()
+            } finally {
+                sessionRefreshJob = null
+            }
         }
     }
 
@@ -210,6 +221,9 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun expireSession() {
+        sessionRefreshJob?.cancel()
+        sessionRefreshJob = null
+        lastSessionCheckAt = 0L
         configuration.disable()
         NodeForegroundService.stop(getApplication())
         session.clear()
@@ -219,6 +233,7 @@ class NodeViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         const val GIB = 1_073_741_824L
+        private const val SESSION_CHECK_INTERVAL_MS = 30_000L
     }
 
     private fun formatBytes(bytes: Long): String = if (bytes < 1_048_576) {
