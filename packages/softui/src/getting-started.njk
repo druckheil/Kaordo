@@ -1,0 +1,240 @@
+---
+layout: base.njk
+title: Getting Started
+description: Install SoftUI via npm or CDN. Setup guides for React, Vue, Svelte, Astro, and Next.js. Dark mode, theming, RTL, and browser support.
+permalink: /getting-started/
+---
+<div class="docs-pg-layout">
+<div class="docs-getstarted-page" style="flex:1;min-width:0;">
+
+  <h1 class="docs-getstarted-title">Getting Started</h1>
+  <p class="docs-getstarted-desc">Add SoftUI to your project in seconds. No build tools required.</p>
+
+  <!-- Install -->
+  <section class="docs-getstarted-section" id="install">
+    <h2>Install</h2>
+    <div class="docs-getstarted-code">
+<pre><code>npm install softui-css
+# or
+yarn add softui-css
+# or
+pnpm add softui-css
+# or
+bun add softui-css</code></pre>
+    </div>
+  </section>
+
+  <!-- CDN -->
+  <section class="docs-getstarted-section" id="cdn">
+    <h2>CDN</h2>
+    <p>Drop these two lines into your <code>&lt;head&gt;</code> and you're ready to go:</p>
+    <div class="docs-getstarted-code">
+<pre><code>&lt;link rel="stylesheet" href="https://unpkg.com/softui-css/dist/softui.min.css"&gt;
+&lt;script src="https://unpkg.com/softui-css/dist/softui.min.js"&gt;&lt;/script&gt;</code></pre>
+    </div>
+  </section>
+
+  <!-- JavaScript -->
+  <section class="docs-getstarted-section" id="javascript">
+    <h2>JavaScript</h2>
+    <p>Most components are pure CSS. Some interactive components require <code>softui.js</code> — a lightweight, dependency-free script (~4KB min).</p>
+    <p>Include it at the end of your <code>&lt;body&gt;</code>:</p>
+    <div class="docs-getstarted-code">
+<pre><code>&lt;script src="https://unpkg.com/softui-css/dist/softui.min.js"&gt;&lt;/script&gt;</code></pre>
+    </div>
+    <p style="margin-top:12px;font-size:14px;color:var(--sui-text-muted);">Components that need JS: Accordion, Calendar, Carousel, Chart, Collapsible, Color Picker, Combobox, Command, Context Menu, Data Table, Dock, Drag &amp; Drop, Dropdown, File Upload, Input OTP, Menubar, Modal, Popover, Rating, Resizable, Sheet, Sidebar, Slider, Swap, Tabs, Toggle Group, and form enhancements (Password Toggle, Number Input, Tags Input).</p>
+  </section>
+
+  <!-- Frameworks -->
+  <section class="docs-getstarted-section" id="frameworks">
+    <h2>Using with Frameworks</h2>
+    <p>SoftUI is plain CSS — it works with any framework. Just import the styles and use the classes.</p>
+    <div class="docs-getstarted-code">
+<pre><code>/* React — import in your entry file (App.jsx or index.jsx) */
+import 'softui-css/dist/softui.min.css';
+import 'softui-css/dist/softui.min.js';
+
+function App() {
+  return (
+    &lt;button className="sui-btn sui-btn-primary"&gt;Click me&lt;/button&gt;
+  );
+}
+
+
+/* Vue — import in main.js */
+import 'softui-css/dist/softui.min.css';
+import 'softui-css/dist/softui.min.js';
+
+&lt;template&gt;
+  &lt;button class="sui-btn sui-btn-primary"&gt;Click me&lt;/button&gt;
+&lt;/template&gt;
+
+
+/* Svelte — import in +layout.svelte or app.html */
+import 'softui-css/dist/softui.min.css';
+import 'softui-css/dist/softui.min.js';
+
+&lt;button class="sui-btn sui-btn-primary"&gt;Click me&lt;/button&gt;
+
+
+/* Astro — import in your layout */
+---
+import 'softui-css/dist/softui.min.css';
+---
+&lt;script src="/node_modules/softui-css/dist/softui.min.js"&gt;&lt;/script&gt;
+
+
+/* Next.js — import in _app.js or layout.tsx */
+import 'softui-css/dist/softui.min.css';
+/* Add softui.min.js via Script component or next/script */</code></pre>
+    </div>
+    <p style="margin-top:12px;font-size:14px;color:var(--sui-text-muted);">Tip: For JS-dependent components (modals, dropdowns, etc.), make sure <code>softui.js</code> loads after the DOM is ready. In React/Vue/Svelte, the import handles this automatically.</p>
+  </section>
+
+  <!-- Quick Start -->
+  <section class="docs-getstarted-section" id="quickstart">
+    <h2>Quick Start</h2>
+    <p>Here's a minimal HTML page with a neumorphic button and card:</p>
+    <div class="docs-getstarted-code">
+<pre><code>&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+  &lt;meta charset="UTF-8"&gt;
+  &lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
+  &lt;link rel="stylesheet" href="https://unpkg.com/softui-css/dist/softui.min.css"&gt;
+&lt;/head&gt;
+&lt;body class="sui-d-flex sui-justify-center sui-align-center sui-min-vh-100"&gt;
+
+  &lt;div class="sui-card sui-raised sui-p-5 sui-text-center"&gt;
+    &lt;h3&gt;Hello SoftUI&lt;/h3&gt;
+    &lt;p class="sui-text-muted sui-mt-2 sui-mb-3"&gt;
+      A neumorphic card with a soft raised shadow.
+    &lt;/p&gt;
+    &lt;button class="sui-btn sui-btn-primary"&gt;Get Started&lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;script src="https://unpkg.com/softui-css/dist/softui.min.js"&gt;&lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+    </div>
+  </section>
+
+  <!-- Dark Mode -->
+  <section class="docs-getstarted-section" id="darkmode">
+    <h2>Dark Mode</h2>
+    <p>Add <code>data-theme="dark"</code> to your <code>&lt;html&gt;</code> element. Every component adapts automatically.</p>
+    <div class="docs-getstarted-code">
+<pre><code>&lt;html data-theme="dark"&gt;</code></pre>
+    </div>
+    <p style="margin-top:16px;">To prevent a flash of light mode when the page loads, add this blocking script in your <code>&lt;head&gt;</code> before any stylesheets:</p>
+    <div class="docs-getstarted-code">
+<pre><code>&lt;head&gt;
+  &lt;style&gt;body{opacity:0}&lt;/style&gt;
+  &lt;script&gt;
+    var t = localStorage.getItem('sui-theme');
+    if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches))
+      document.documentElement.setAttribute('data-theme', 'dark');
+  &lt;/script&gt;
+  &lt;link rel="stylesheet" href="softui.min.css"&gt;
+&lt;/head&gt;</code></pre>
+    </div>
+    <p style="margin-top:12px;font-size:14px;color:var(--sui-text-muted);">The inline <code>opacity:0</code> hides the page until SoftUI's CSS loads (which sets <code>opacity:1</code>), eliminating any flash. The script reads the saved theme preference before the first paint.</p>
+  </section>
+
+  <!-- Customization -->
+  <section class="docs-getstarted-section" id="customize">
+    <h2>Customization</h2>
+    <p>SoftUI is built on CSS custom properties. Override them anywhere to match your brand:</p>
+    <div class="docs-getstarted-code">
+<pre><code>:root {
+  --sui-primary: #7C5CFC;
+  --sui-radius: 12px;
+  --sui-shadow-raised: 6px 6px 12px rgba(0,0,0,0.15),
+                       -6px -6px 12px rgba(255,255,255,0.05);
+}</code></pre>
+    </div>
+    <p style="margin-top:12px;">See the <a href="/theming/" style="color:var(--sui-primary);font-weight:600;">Theming Guide</a> for the full list of variables — colors, shadows, radius, fonts, transitions, and dark mode.</p>
+  </section>
+
+  <!-- Browser Support -->
+  <section class="docs-getstarted-section" id="browsers">
+    <h2>Browser Support</h2>
+    <p>SoftUI works in all modern browsers. No polyfills needed.</p>
+    <div class="docs-getstarted-code">
+<pre><code>Fully Supported:
+  Chrome 90+          ✓
+  Edge 90+            ✓
+  Firefox 100+        ✓
+  Safari 15+          ✓
+  Opera 76+           ✓
+
+Partial Support:
+  Firefox &lt; 121       :has() selector not available (minor styling only)
+  Safari &lt; 15.4       backdrop-filter may need -webkit- prefix (already included)
+  iOS Safari 15+      ✓ (momentum scrolling included)
+  Android Chrome 90+  ✓
+
+Not Supported:
+  Internet Explorer   ✗ (uses CSS custom properties, flexbox gap, etc.)</code></pre>
+    </div>
+    <p style="margin-top:12px;font-size:14px;color:var(--sui-text-muted);">SoftUI uses modern CSS features: custom properties, flexbox gap, <code>:focus-visible</code>, <code>conic-gradient</code>, and <code>prefers-reduced-motion</code>. All vendor prefixes are included where needed.</p>
+  </section>
+
+  <!-- RTL Support -->
+  <section class="docs-getstarted-section" id="rtl">
+    <h2>RTL (Right-to-Left)</h2>
+    <p>SoftUI supports right-to-left languages like Arabic, Hebrew, and Farsi. Just add <code>dir="rtl"</code> to your <code>&lt;html&gt;</code> element.</p>
+    <div class="docs-getstarted-code">
+<pre><code>&lt;html lang="ar" dir="rtl"&gt;</code></pre>
+    </div>
+    <p style="margin-top:16px;font-size:14px;color:var(--sui-text-muted);">Utility classes (<code>sui-ml-*</code>, <code>sui-mr-*</code>, <code>sui-text-left/right</code>, <code>sui-offset-*</code>) use CSS logical properties and adapt automatically. Components like sheets, carousels, sidebars, breadcrumbs, dropdowns, and tooltips include <code>[dir="rtl"]</code> overrides to flip their positioning.</p>
+    <p style="margin-top:12px;"><a href="/rtl-demo/" style="color:var(--sui-primary);font-weight:600;">See the full RTL demo &rarr;</a></p>
+    <div dir="rtl" lang="ar" style="margin-top:20px;">
+      <div class="sui-card sui-raised" style="padding:20px;max-width:400px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+          <div class="sui-avatar sui-avatar-sm" style="background:var(--sui-primary);color:#fff;font-weight:600;">م</div>
+          <div>
+            <div style="font-weight:700;">مرحبا بالعالم</div>
+            <div style="font-size:13px;color:var(--sui-text-muted);">هذا مثال على دعم RTL</div>
+          </div>
+        </div>
+        <div class="sui-form-group" style="margin-bottom:12px;">
+          <label class="sui-label">البريد الإلكتروني</label>
+          <input class="sui-input" type="email" placeholder="example@email.com">
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="sui-btn sui-btn-primary">إرسال</button>
+          <button class="sui-btn sui-btn-outline">إلغاء</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Print Styles -->
+  <section class="docs-getstarted-section" id="print">
+    <h2>Print Styles</h2>
+    <p>SoftUI includes built-in <code>@media print</code> styles. When users print your page or save as PDF, navbars, sidebars, modals, toasts, and other overlays are automatically hidden. Box-shadows are removed, cards and tables get clean borders, and page breaks are prevented inside components. No extra setup needed.</p>
+  </section>
+
+  <div style="text-align:center;margin-top:48px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+    <a href="/components/buttons/" class="sui-btn sui-btn-primary sui-btn-lg">Explore Components</a>
+    <a href="/changelog/" class="sui-btn sui-btn-outline sui-btn-lg">View Changelog</a>
+  </div>
+
+</div>
+
+<aside class="docs-pg-controls">
+  <div class="pg-toc-title">On This Page</div>
+  <a class="pg-toc-link" href="#install">Install</a>
+  <a class="pg-toc-link" href="#cdn">CDN</a>
+  <a class="pg-toc-link" href="#javascript">JavaScript</a>
+  <a class="pg-toc-link" href="#frameworks">Frameworks</a>
+  <a class="pg-toc-link" href="#quickstart">Quick Start</a>
+  <a class="pg-toc-link" href="#darkmode">Dark Mode</a>
+  <a class="pg-toc-link" href="#customize">Customization</a>
+  <a class="pg-toc-link" href="#browsers">Browser Support</a>
+  <a class="pg-toc-link" href="#rtl">RTL</a>
+  <a class="pg-toc-link" href="#print">Print Styles</a>
+</aside>
+
+</div>

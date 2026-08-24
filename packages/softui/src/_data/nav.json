@@ -1,0 +1,110 @@
+{
+  "forms": [
+    { "id": "forms", "name": "Inputs", "url": "/components/forms/" },
+    { "id": "toggles", "name": "Toggles & Checks", "url": "/components/toggles/" },
+    { "id": "slider", "name": "Slider", "url": "/components/slider/" },
+    { "id": "colorpicker", "name": "Color Picker", "url": "/components/colorpicker/" },
+    { "id": "rating", "name": "Rating", "url": "/components/rating/" },
+    { "id": "fileupload", "name": "File Upload", "url": "/components/fileupload/" },
+    { "id": "inputotp", "name": "Input OTP", "url": "/components/inputotp/" },
+    { "id": "combobox", "name": "Combobox", "url": "/components/combobox/" },
+    { "id": "calendar", "name": "Calendar", "url": "/components/calendar/" },
+    { "id": "segmented", "name": "Segmented Control", "url": "/components/segmented/" },
+    { "id": "editable", "name": "Editable Text", "url": "/components/editable/" }
+  ],
+  "general": [
+    { "id": "buttons", "name": "Buttons", "url": "/components/buttons/" },
+    { "id": "buttongroup", "name": "Button Group", "url": "/components/buttongroup/" },
+    { "id": "cards", "name": "Cards", "url": "/components/cards/" },
+    { "id": "avatars", "name": "Avatars", "url": "/components/avatars/" },
+    { "id": "badges", "name": "Badges", "url": "/components/badges/" },
+    { "id": "chip", "name": "Chip", "url": "/components/chip/" },
+    { "id": "copybutton", "name": "Copy Button", "url": "/components/copybutton/" },
+    { "id": "kbd", "name": "Kbd", "url": "/components/kbd/" },
+    { "id": "divider", "name": "Divider", "url": "/components/divider/" },
+    { "id": "pricing", "name": "Pricing", "url": "/components/pricing/" },
+    { "id": "hero", "name": "Hero", "url": "/components/hero/" },
+    { "id": "listgroup", "name": "List Group", "url": "/components/listgroup/" }
+  ],
+  "dataDisplay": [
+    { "id": "statcard", "name": "Stat Card", "url": "/components/statcard/" },
+    { "id": "tables", "name": "Tables", "url": "/components/tables/" },
+    { "id": "datatable", "name": "Data Table", "url": "/components/datatable/" },
+    { "id": "chart", "name": "Chart", "url": "/components/chart/" },
+    { "id": "radialprogress", "name": "Radial Progress", "url": "/components/radialprogress/" },
+    { "id": "timeline", "name": "Timeline", "url": "/components/timeline/" },
+    { "id": "treeview", "name": "Tree View", "url": "/components/treeview/" },
+    { "id": "skeleton", "name": "Skeleton", "url": "/components/skeleton/" },
+    { "id": "descriptions", "name": "Descriptions", "url": "/components/descriptions/" },
+    { "id": "countdown", "name": "Countdown", "url": "/components/countdown/" }
+  ],
+  "feedback": [
+    { "id": "alerts", "name": "Alerts", "url": "/components/alerts/" },
+    { "id": "toast", "name": "Toast", "url": "/components/toast/" },
+    { "id": "progress", "name": "Progress", "url": "/components/progress/" },
+    { "id": "spinner", "name": "Spinner", "url": "/components/spinner/" },
+    { "id": "loadingoverlay", "name": "Loading Overlay", "url": "/components/loadingoverlay/" },
+    { "id": "result", "name": "Result", "url": "/components/result/" }
+  ],
+  "navigation": [
+    { "id": "navbar", "name": "Navbar", "url": "/components/navbar/" },
+    { "id": "sidebar", "name": "Sidebar", "url": "/components/sidebar/" },
+    { "id": "breadcrumbs", "name": "Breadcrumbs", "url": "/components/breadcrumbs/" },
+    { "id": "tabs", "name": "Tabs", "url": "/components/tabs/" },
+    { "id": "pagination", "name": "Pagination", "url": "/components/pagination/" },
+    { "id": "stepper", "name": "Stepper", "url": "/components/stepper/" },
+    { "id": "dock", "name": "Dock", "url": "/components/dock/" },
+    { "id": "speeddial", "name": "Speed Dial", "url": "/components/speeddial/" },
+    { "id": "navmenu", "name": "Navigation Menu", "url": "/components/navmenu/" },
+    { "id": "scrollspy", "name": "Scrollspy", "url": "/components/scrollspy/" }
+  ],
+  "overlays": [
+    { "id": "modal", "name": "Modal", "url": "/components/modal/" },
+    { "id": "sheet", "name": "Sheet", "url": "/components/sheet/" },
+    { "id": "dropdown", "name": "Dropdown", "url": "/components/dropdown/" },
+    { "id": "popover", "name": "Popover", "url": "/components/popover/" },
+    { "id": "hovercard", "name": "Hover Card", "url": "/components/hovercard/" },
+    { "id": "tooltips", "name": "Tooltips", "url": "/components/tooltips/" },
+    { "id": "contextmenu", "name": "Context Menu", "url": "/components/contextmenu/" },
+    { "id": "command", "name": "Command", "url": "/components/command/" },
+    { "id": "menubar", "name": "Menubar", "url": "/components/menubar/" }
+  ],
+  "layout": [
+    { "id": "layout", "name": "Layout", "url": "/components/layout/" },
+    { "id": "scrollarea", "name": "Scroll Area", "url": "/components/scrollarea/" },
+    { "id": "accordion", "name": "Accordion", "url": "/components/accordion/" },
+    { "id": "collapsible", "name": "Collapsible", "url": "/components/collapsible/" },
+    { "id": "resizable", "name": "Resizable", "url": "/components/resizable/" },
+    { "id": "dragdrop", "name": "Drag & Drop", "url": "/components/dragdrop/" }
+  ],
+  "media": [
+    { "id": "carousel", "name": "Carousel", "url": "/components/carousel/" },
+    { "id": "lightbox", "name": "Image Lightbox", "url": "/components/lightbox/" },
+    { "id": "diff", "name": "Diff", "url": "/components/diff/" },
+    { "id": "chatbubble", "name": "Chat Bubble", "url": "/components/chatbubble/" },
+    { "id": "browsermockup", "name": "Browser Mockup", "url": "/components/browsermockup/" },
+    { "id": "marquee", "name": "Marquee", "url": "/components/marquee/" },
+    { "id": "phonemockup", "name": "Phone Mockup", "url": "/components/phonemockup/" },
+    { "id": "stack", "name": "Stack", "url": "/components/stack/" },
+    { "id": "swap", "name": "Swap", "url": "/components/swap/" },
+    { "id": "textrotate", "name": "Text Rotate", "url": "/components/textrotate/" },
+    { "id": "tour", "name": "Tour", "url": "/components/tour/" },
+    { "id": "typewriter", "name": "Typewriter", "url": "/components/typewriter/" },
+    { "id": "togglegroup", "name": "Toggle Group", "url": "/components/togglegroup/" }
+  ],
+  "utilities": [
+    { "id": "shadows", "name": "Shadows", "url": "/utilities/shadows/" },
+    { "id": "radius", "name": "Border Radius", "url": "/utilities/radius/" },
+    { "id": "spacing", "name": "Spacing", "url": "/utilities/spacing/" },
+    { "id": "text", "name": "Text & Colors", "url": "/utilities/text/" },
+    { "id": "flex", "name": "Flex", "url": "/utilities/flex/" },
+    { "id": "aspectratio", "name": "Aspect Ratio", "url": "/utilities/aspectratio/" },
+    { "id": "typography", "name": "Typography", "url": "/utilities/typography/" },
+    { "id": "display", "name": "Display", "url": "/utilities/display/" },
+    { "id": "position", "name": "Position", "url": "/utilities/position/" },
+    { "id": "sizing", "name": "Sizing", "url": "/utilities/sizing/" },
+    { "id": "opacity", "name": "Opacity", "url": "/utilities/opacity/" },
+    { "id": "cursor", "name": "Cursor", "url": "/utilities/cursor/" },
+    { "id": "mask", "name": "Mask", "url": "/utilities/mask/" }
+  ]
+}

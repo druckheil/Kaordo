@@ -16,6 +16,9 @@ secrets/
 target/
 node_modules/
 dist/
+!packages/softui/
+!packages/softui/dist/
+!packages/softui/dist/**
 coverage/
 .wrangler/
 release/

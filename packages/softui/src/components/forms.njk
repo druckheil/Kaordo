@@ -1,0 +1,418 @@
+---
+layout: component.njk
+title: "Forms & Inputs"
+description: Inputs that feel carved into the surface with inset shadows.
+componentId: forms
+hasControls: false
+requiresJs: true
+partialJs: true
+toc:
+  - Create Account
+  - Text Inputs
+  - Input States
+  - Input Group
+  - Password Input
+  - Number Input
+  - Tags Input
+  - "Select & Textarea"
+---
+
+<!-- Create Account -->
+<div class="pg-section" id="section-1">
+  <h3 class="pg-section-title">Create Account</h3>
+  <div class="pg-section-row">
+    <div class="sui-card" style="max-width:560px;">
+      <h4 style="margin-bottom:20px;">Create Account</h4>
+      <div class="form-row">
+        <div class="sui-form-group"><label class="sui-label">First Name</label><input type="text" class="sui-input" placeholder="John"></div>
+        <div class="sui-form-group"><label class="sui-label">Last Name</label><input type="text" class="sui-input" placeholder="Doe"></div>
+      </div>
+      <div class="sui-form-group"><label class="sui-label">Email</label><input type="email" class="sui-input" placeholder="john@example.com"></div>
+      <div class="sui-form-group"><label class="sui-label">Password</label><input type="password" class="sui-input" placeholder="Enter password"></div>
+      <div class="sui-form-group"><label class="sui-label">Country</label><div class="sui-styled-select" data-placeholder="Select a country"><button type="button" class="sui-styled-select-trigger"><span class="sui-styled-select-value sui-styled-select-placeholder">Select a country</span></button><div class="sui-styled-select-menu"><div class="sui-styled-select-option" data-value="us">United States</div><div class="sui-styled-select-option" data-value="uk">United Kingdom</div><div class="sui-styled-select-option" data-value="ca">Canada</div><div class="sui-styled-select-option" data-value="au">Australia</div></div></div></div>
+      <div class="sui-form-group"><label class="sui-label">Bio</label><textarea class="sui-input sui-textarea" rows="3" placeholder="Tell us about yourself..."></textarea></div>
+      <div class="sui-form-group"><label class="sui-label">Experience</label><input type="range" class="sui-range" min="0" max="100" value="60"></div>
+      <button class="sui-btn sui-btn-primary sui-btn-block">Create Account</button>
+    </div>
+  </div>
+  <div class="pg-code-wrap">
+    <button class="pg-code-toggle" onclick="toggleGalleryCode(this)"><span class="chevron">&#9654;</span> Show Code</button>
+    <div class="pg-code-block"><button class="pg-code-copy" onclick="copyPgCode(this)">Copy</button><pre>&lt;div class="sui-card"&gt;
+  &lt;h4&gt;Create Account&lt;/h4&gt;
+  &lt;div class="form-row"&gt;
+    &lt;div class="sui-form-group"&gt;
+      &lt;label class="sui-label"&gt;First Name&lt;/label&gt;
+      &lt;input type="text" class="sui-input" placeholder="John"&gt;
+    &lt;/div&gt;
+    &lt;div class="sui-form-group"&gt;
+      &lt;label class="sui-label"&gt;Last Name&lt;/label&gt;
+      &lt;input type="text" class="sui-input" placeholder="Doe"&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class="sui-form-group"&gt;
+    &lt;label class="sui-label"&gt;Email&lt;/label&gt;
+    &lt;input type="email" class="sui-input" placeholder="john@example.com"&gt;
+  &lt;/div&gt;
+  &lt;div class="sui-form-group"&gt;
+    &lt;label class="sui-label"&gt;Password&lt;/label&gt;
+    &lt;input type="password" class="sui-input" placeholder="Enter password"&gt;
+  &lt;/div&gt;
+  &lt;div class="sui-form-group"&gt;
+    &lt;label class="sui-label"&gt;Country&lt;/label&gt;
+    &lt;div class="sui-styled-select" data-placeholder="Select a country"&gt;
+      &lt;button class="sui-styled-select-trigger"&gt;
+        &lt;span class="sui-styled-select-value sui-styled-select-placeholder"&gt;Select a country&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;div class="sui-styled-select-menu"&gt;
+        &lt;div class="sui-styled-select-option" data-value="us"&gt;United States&lt;/div&gt;
+        &lt;div class="sui-styled-select-option" data-value="uk"&gt;United Kingdom&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class="sui-form-group"&gt;
+    &lt;label class="sui-label"&gt;Bio&lt;/label&gt;
+    &lt;textarea class="sui-input sui-textarea" rows="3" placeholder="Tell us about yourself..."&gt;&lt;/textarea&gt;
+  &lt;/div&gt;
+  &lt;div class="sui-form-group"&gt;
+    &lt;label class="sui-label"&gt;Experience&lt;/label&gt;
+    &lt;input type="range" class="sui-range" min="0" max="100" value="60"&gt;
+  &lt;/div&gt;
+  &lt;button class="sui-btn sui-btn-primary sui-btn-block"&gt;Create Account&lt;/button&gt;
+&lt;/div&gt;</pre></div>
+  </div>
+</div>
+
+<!-- Text Inputs -->
+<div class="pg-section" id="section-2">
+  <h3 class="pg-section-title">Text Inputs</h3>
+  <div class="pg-section-row">
+    <div style="max-width:400px;width:100%;">
+      <div class="sui-form-group"><label class="sui-label">Default</label><input type="text" class="sui-input" placeholder="Default input"></div>
+      <div class="sui-form-group"><label class="sui-label">Small</label><input type="text" class="sui-input sui-input-sm" placeholder="Small input"></div>
+      <div class="sui-form-group"><label class="sui-label">Large</label><input type="text" class="sui-input sui-input-lg" placeholder="Large input"></div>
+      <div class="sui-form-group"><label class="sui-label">Pill</label><input type="text" class="sui-input sui-input-pill" placeholder="Pill input"></div>
+    </div>
+  </div>
+  <div class="pg-code-wrap">
+    <button class="pg-code-toggle" onclick="toggleGalleryCode(this)"><span class="chevron">&#9654;</span> Show Code</button>
+    <div class="pg-code-block"><button class="pg-code-copy" onclick="copyPgCode(this)">Copy</button><pre>&lt;input type="text" class="sui-input" placeholder="Default input"&gt;
+&lt;input type="text" class="sui-input sui-input-sm" placeholder="Small input"&gt;
+&lt;input type="text" class="sui-input sui-input-lg" placeholder="Large input"&gt;
+&lt;input type="text" class="sui-input sui-input-pill" placeholder="Pill input"&gt;</pre></div>
+  </div>
+</div>
+
+<!-- Input States -->
+<div class="pg-section" id="section-3">
+  <h3 class="pg-section-title">Input States</h3>
+  <div class="pg-section-row">
+    <div style="max-width:400px;width:100%;">
+      <div class="sui-form-group"><label class="sui-label">Focused</label><input type="text" class="sui-input sui-input-focus" placeholder="Focused input"></div>
+      <div class="sui-form-group"><label class="sui-label">Error</label><input type="text" class="sui-input sui-input-error" placeholder="Error input"><span class="sui-hint sui-hint-error">This field is required.</span></div>
+      <div class="sui-form-group"><label class="sui-label">Success</label><input type="text" class="sui-input sui-input-success" placeholder="Success input"><span class="sui-hint sui-hint-success">Looks good!</span></div>
+      <div class="sui-form-group"><label class="sui-label">Disabled</label><input type="text" class="sui-input" placeholder="Disabled input" disabled></div>
+    </div>
+  </div>
+  <div class="pg-code-wrap">
+    <button class="pg-code-toggle" onclick="toggleGalleryCode(this)"><span class="chevron">&#9654;</span> Show Code</button>
+    <div class="pg-code-block"><button class="pg-code-copy" onclick="copyPgCode(this)">Copy</button><pre>&lt;input type="text" class="sui-input sui-input-focus" placeholder="Focused input"&gt;
+
+&lt;input type="text" class="sui-input sui-input-error" placeholder="Error input"&gt;
+&lt;span class="sui-hint sui-hint-error"&gt;This field is required.&lt;/span&gt;
+
+&lt;input type="text" class="sui-input sui-input-success" placeholder="Success input"&gt;
+&lt;span class="sui-hint sui-hint-success"&gt;Looks good!&lt;/span&gt;
+
+&lt;input type="text" class="sui-input" placeholder="Disabled input" disabled&gt;</pre></div>
+  </div>
+</div>
+
+<!-- Input Group -->
+<div class="pg-section" id="section-4">
+  <h3 class="pg-section-title">Input Group</h3>
+  <div class="pg-section-row">
+    <div style="max-width:400px;width:100%;">
+      <div class="sui-form-group"><label class="sui-label">Text Addon</label><div class="sui-input-group"><span class="sui-input-addon">@</span><input type="text" class="sui-input" placeholder="Username"></div></div>
+      <div class="sui-form-group"><label class="sui-label">Button Addon</label><div class="sui-input-group"><input type="text" class="sui-input" placeholder="Search..."><button class="sui-btn sui-btn-primary">Go</button></div></div>
+      <div class="sui-form-group"><label class="sui-label">Dual Addon</label><div class="sui-input-group"><span class="sui-input-addon">$</span><input type="text" class="sui-input" placeholder="0.00"><span class="sui-input-addon">.00</span></div></div>
+    </div>
+  </div>
+  <div class="pg-code-wrap">
+    <button class="pg-code-toggle" onclick="toggleGalleryCode(this)"><span class="chevron">&#9654;</span> Show Code</button>
+    <div class="pg-code-block"><button class="pg-code-copy" onclick="copyPgCode(this)">Copy</button><pre>&lt;div class="sui-input-group"&gt;
+  &lt;span class="sui-input-addon"&gt;@&lt;/span&gt;
+  &lt;input type="text" class="sui-input" placeholder="Username"&gt;
+&lt;/div&gt;
+
+&lt;div class="sui-input-group"&gt;
+  &lt;input type="text" class="sui-input" placeholder="Search..."&gt;
+  &lt;button class="sui-btn sui-btn-primary"&gt;Go&lt;/button&gt;
+&lt;/div&gt;</pre></div>
+  </div>
+</div>
+
+<!-- Password Input -->
+<div class="pg-section" id="section-5">
+  <h3 class="pg-section-title">Password Input</h3>
+  <div class="pg-section-row">
+    <div style="max-width:400px;width:100%;">
+      <div class="sui-form-group">
+        <label class="sui-label">Password</label>
+        <div class="sui-password-input">
+          <input type="password" class="sui-input" id="demo-pw" placeholder="Enter password" autocomplete="new-password" oninput="demoValidatePw()">
+          <button type="button" class="sui-password-toggle sui-swap sui-swap-fade" aria-label="Toggle password visibility">
+            <span class="sui-swap-on"><svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></span>
+            <span class="sui-swap-off"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+          </button>
+        </div>
+        <div class="sui-password-rules" id="demo-pw-rules" style="margin-top:6px;">
+          <div class="sui-password-rule" id="demo-rule-len"><svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;"><circle cx="12" cy="12" r="10"/></svg> 8–20 characters</div>
+          <div class="sui-password-rule" id="demo-rule-upper"><svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;"><circle cx="12" cy="12" r="10"/></svg> One uppercase letter</div>
+          <div class="sui-password-rule" id="demo-rule-num"><svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;"><circle cx="12" cy="12" r="10"/></svg> One number</div>
+          <div class="sui-password-rule" id="demo-rule-special"><svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;"><circle cx="12" cy="12" r="10"/></svg> One special character</div>
+        </div>
+      </div>
+      <div class="sui-form-group">
+        <label class="sui-label">Confirm Password</label>
+        <div class="sui-password-input">
+          <input type="password" class="sui-input" id="demo-pw-confirm" placeholder="Confirm password" autocomplete="new-password" oninput="demoValidatePw()">
+          <button type="button" class="sui-password-toggle sui-swap sui-swap-fade" aria-label="Toggle password visibility">
+            <span class="sui-swap-on"><svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></span>
+            <span class="sui-swap-off"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+          </button>
+        </div>
+        <span class="sui-hint sui-hint-error" id="demo-pw-match" style="display:none;">Passwords do not match.</span>
+        <span class="sui-hint sui-hint-success" id="demo-pw-ok" style="display:none;">Passwords match!</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    function demoValidatePw() {
+      var pw = document.getElementById('demo-pw');
+      var confirm = document.getElementById('demo-pw-confirm');
+      var val = pw.value;
+      // Rules
+      var rules = [
+        { id: 'demo-rule-len', test: val.length >= 8 && val.length <= 20 },
+        { id: 'demo-rule-upper', test: /[A-Z]/.test(val) },
+        { id: 'demo-rule-num', test: /[0-9]/.test(val) },
+        { id: 'demo-rule-special', test: /[^A-Za-z0-9]/.test(val) }
+      ];
+      var checkSvg = '<svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+      var circleSvg = '<svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;"><circle cx="12" cy="12" r="10"/></svg>';
+      rules.forEach(function(r) {
+        var el = document.getElementById(r.id);
+        var text = el.textContent.trim();
+        if (r.test) {
+          el.classList.add('valid');
+          el.innerHTML = checkSvg + ' ' + text;
+        } else {
+          el.classList.remove('valid');
+          el.innerHTML = circleSvg + ' ' + text;
+        }
+      });
+      // Confirm match
+      var matchErr = document.getElementById('demo-pw-match');
+      var matchOk = document.getElementById('demo-pw-ok');
+      if (confirm.value.length > 0) {
+        if (confirm.value === val) {
+          matchErr.style.display = 'none';
+          matchOk.style.display = '';
+          confirm.classList.remove('sui-input-error');
+          confirm.classList.add('sui-input-success');
+        } else {
+          matchErr.style.display = '';
+          matchOk.style.display = 'none';
+          confirm.classList.add('sui-input-error');
+          confirm.classList.remove('sui-input-success');
+        }
+      } else {
+        matchErr.style.display = 'none';
+        matchOk.style.display = 'none';
+        confirm.classList.remove('sui-input-error', 'sui-input-success');
+      }
+    }
+  </script>
+  <div class="pg-code-wrap">
+    <button class="pg-code-toggle" onclick="toggleGalleryCode(this)"><span class="chevron">&#9654;</span> Show Code</button>
+    <div class="pg-code-block"><button class="pg-code-copy" onclick="copyPgCode(this)">Copy</button><pre>&lt;div class="sui-form-group"&gt;
+  &lt;label class="sui-label"&gt;Password&lt;/label&gt;
+  &lt;div class="sui-password-input"&gt;
+    &lt;input type="password" class="sui-input" placeholder="Enter password"&gt;
+    &lt;button type="button" class="sui-password-toggle sui-swap sui-swap-fade" aria-label="Toggle password visibility"&gt;
+      &lt;span class="sui-swap-on"&gt;
+        &lt;svg viewBox="0 0 24 24"&gt;&lt;path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/&gt;&lt;line x1="1" y1="1" x2="23" y2="23"/&gt;&lt;/svg&gt;
+      &lt;/span&gt;
+      &lt;span class="sui-swap-off"&gt;
+        &lt;svg viewBox="0 0 24 24"&gt;&lt;path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/&gt;&lt;circle cx="12" cy="12" r="3"/&gt;&lt;/svg&gt;
+      &lt;/span&gt;
+    &lt;/button&gt;
+  &lt;/div&gt;
+  &lt;div class="sui-password-rules"&gt;
+    &lt;div class="sui-password-rule"&gt;8–20 characters&lt;/div&gt;
+    &lt;div class="sui-password-rule"&gt;One uppercase letter&lt;/div&gt;
+    &lt;div class="sui-password-rule"&gt;One number&lt;/div&gt;
+    &lt;div class="sui-password-rule"&gt;One special character&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class="sui-form-group"&gt;
+  &lt;label class="sui-label"&gt;Confirm Password&lt;/label&gt;
+  &lt;div class="sui-password-input"&gt;
+    &lt;input type="password" class="sui-input" placeholder="Confirm password"&gt;
+    &lt;button type="button" class="sui-password-toggle sui-swap sui-swap-fade" aria-label="Toggle password visibility"&gt;
+      &lt;span class="sui-swap-on"&gt;
+        &lt;svg viewBox="0 0 24 24"&gt;&lt;path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/&gt;&lt;line x1="1" y1="1" x2="23" y2="23"/&gt;&lt;/svg&gt;
+      &lt;/span&gt;
+      &lt;span class="sui-swap-off"&gt;
+        &lt;svg viewBox="0 0 24 24"&gt;&lt;path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/&gt;&lt;circle cx="12" cy="12" r="3"/&gt;&lt;/svg&gt;
+      &lt;/span&gt;
+    &lt;/button&gt;
+  &lt;/div&gt;
+  &lt;span class="sui-hint sui-hint-error"&gt;Passwords do not match.&lt;/span&gt;
+  &lt;!-- or --&gt;
+  &lt;span class="sui-hint sui-hint-success"&gt;Passwords match!&lt;/span&gt;
+&lt;/div&gt;
+</pre></div>
+  </div>
+</div>
+
+<!-- Number Input -->
+<div class="pg-section" id="section-6">
+  <h3 class="pg-section-title">Number Input</h3>
+  <div class="pg-section-row">
+    <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end;">
+      <div>
+        <div style="font-size:12px;color:var(--sui-text-muted);margin-bottom:6px;">Default</div>
+        <div class="sui-number-input">
+          <button type="button" class="sui-number-input-btn" data-action="decrement">&minus;</button>
+          <input type="number" class="sui-input" value="5" min="0" max="100">
+          <button type="button" class="sui-number-input-btn" data-action="increment">+</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--sui-text-muted);margin-bottom:6px;">Small</div>
+        <div class="sui-number-input sui-number-input-sm">
+          <button type="button" class="sui-number-input-btn" data-action="decrement">&minus;</button>
+          <input type="number" class="sui-input" value="3" min="0" max="99">
+          <button type="button" class="sui-number-input-btn" data-action="increment">+</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--sui-text-muted);margin-bottom:6px;">Large</div>
+        <div class="sui-number-input sui-number-input-lg">
+          <button type="button" class="sui-number-input-btn" data-action="decrement">&minus;</button>
+          <input type="number" class="sui-input" value="12" min="0" max="999">
+          <button type="button" class="sui-number-input-btn" data-action="increment">+</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--sui-text-muted);margin-bottom:6px;">With Step (0.5)</div>
+        <div class="sui-number-input">
+          <button type="button" class="sui-number-input-btn" data-action="decrement">&minus;</button>
+          <input type="number" class="sui-input" value="2.5" min="0" max="10" step="0.5">
+          <button type="button" class="sui-number-input-btn" data-action="increment">+</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pg-code-wrap">
+    <button class="pg-code-toggle" onclick="toggleGalleryCode(this)"><span class="chevron">&#9654;</span> Show Code</button>
+    <div class="pg-code-block"><button class="pg-code-copy" onclick="copyPgCode(this)">Copy</button><pre>&lt;div class="sui-number-input"&gt;
+  &lt;button type="button" class="sui-number-input-btn" data-action="decrement"&gt;&amp;minus;&lt;/button&gt;
+  &lt;input type="number" class="sui-input" value="5" min="0" max="100"&gt;
+  &lt;button type="button" class="sui-number-input-btn" data-action="increment"&gt;+&lt;/button&gt;
+&lt;/div&gt;
+
+&lt;!-- Small --&gt;
+&lt;div class="sui-number-input sui-number-input-sm"&gt;
+  &lt;button type="button" class="sui-number-input-btn" data-action="decrement"&gt;&amp;minus;&lt;/button&gt;
+  &lt;input type="number" class="sui-input" value="3" min="0" max="99"&gt;
+  &lt;button type="button" class="sui-number-input-btn" data-action="increment"&gt;+&lt;/button&gt;
+&lt;/div&gt;
+
+&lt;!-- Large --&gt;
+&lt;div class="sui-number-input sui-number-input-lg"&gt;
+  &lt;button type="button" class="sui-number-input-btn" data-action="decrement"&gt;&amp;minus;&lt;/button&gt;
+  &lt;input type="number" class="sui-input" value="12" min="0" max="999"&gt;
+  &lt;button type="button" class="sui-number-input-btn" data-action="increment"&gt;+&lt;/button&gt;
+&lt;/div&gt;
+
+&lt;!-- With Step --&gt;
+&lt;div class="sui-number-input"&gt;
+  &lt;button type="button" class="sui-number-input-btn" data-action="decrement"&gt;&amp;minus;&lt;/button&gt;
+  &lt;input type="number" class="sui-input" value="2.5" min="0" max="10" step="0.5"&gt;
+  &lt;button type="button" class="sui-number-input-btn" data-action="increment"&gt;+&lt;/button&gt;
+&lt;/div&gt;
+</pre></div>
+  </div>
+</div>
+
+<!-- Tags Input -->
+<div class="pg-section" id="section-7">
+  <h3 class="pg-section-title">Tags Input</h3>
+  <div class="pg-section-row">
+    <div style="max-width:400px;width:100%;">
+      <div class="sui-form-group">
+        <label class="sui-label">Tags</label>
+        <div class="sui-tags-input">
+          <span class="sui-chip">Design<button class="sui-chip-close" aria-label="Remove"></button></span>
+          <span class="sui-chip">Frontend<button class="sui-chip-close" aria-label="Remove"></button></span>
+          <input type="text" class="sui-tags-input-field" placeholder="Add tag...">
+        </div>
+      </div>
+      <div class="sui-form-group">
+        <label class="sui-label">Skills</label>
+        <div class="sui-tags-input">
+          <input type="text" class="sui-tags-input-field" placeholder="Add skills...">
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pg-code-wrap">
+    <button class="pg-code-toggle" onclick="toggleGalleryCode(this)"><span class="chevron">&#9654;</span> Show Code</button>
+    <div class="pg-code-block"><button class="pg-code-copy" onclick="copyPgCode(this)">Copy</button><pre>&lt;div class="sui-form-group"&gt;
+  &lt;label class="sui-label"&gt;Tags&lt;/label&gt;
+  &lt;div class="sui-tags-input"&gt;
+    &lt;span class="sui-chip"&gt;Design&lt;button class="sui-chip-close" aria-label="Remove"&gt;&lt;/button&gt;&lt;/span&gt;
+    &lt;span class="sui-chip"&gt;Frontend&lt;button class="sui-chip-close" aria-label="Remove"&gt;&lt;/button&gt;&lt;/span&gt;
+    &lt;input type="text" class="sui-tags-input-field" placeholder="Add tag..."&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;!-- Empty tags input --&gt;
+&lt;div class="sui-tags-input"&gt;
+  &lt;input type="text" class="sui-tags-input-field" placeholder="Add skills..."&gt;
+&lt;/div&gt;
+</pre></div>
+  </div>
+</div>
+
+<!-- Select & Textarea -->
+<div class="pg-section" id="section-8">
+  <h3 class="pg-section-title">Select &amp; Textarea</h3>
+  <div class="pg-section-row">
+    <div style="max-width:400px;width:100%;">
+      <div class="sui-form-group"><label class="sui-label">Select</label><div class="sui-styled-select" data-placeholder="Select an option"><button type="button" class="sui-styled-select-trigger"><span class="sui-styled-select-value sui-styled-select-placeholder">Select an option</span></button><div class="sui-styled-select-menu"><div class="sui-styled-select-option" data-value="1">Option One</div><div class="sui-styled-select-option" data-value="2">Option Two</div><div class="sui-styled-select-option" data-value="3">Option Three</div></div></div></div>
+      <div class="sui-form-group"><label class="sui-label">Textarea</label><textarea class="sui-input sui-textarea" rows="3" placeholder="Write something..."></textarea></div>
+      <div class="sui-form-group"><label class="sui-label">Range Slider</label><input type="range" class="sui-range" min="0" max="100" value="50"></div>
+    </div>
+  </div>
+  <div class="pg-code-wrap">
+    <button class="pg-code-toggle" onclick="toggleGalleryCode(this)"><span class="chevron">&#9654;</span> Show Code</button>
+    <div class="pg-code-block"><button class="pg-code-copy" onclick="copyPgCode(this)">Copy</button><pre>&lt;div class="sui-styled-select" data-placeholder="Select an option"&gt;
+  &lt;button class="sui-styled-select-trigger"&gt;
+    &lt;span class="sui-styled-select-value sui-styled-select-placeholder"&gt;Select an option&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;div class="sui-styled-select-menu"&gt;
+    &lt;div class="sui-styled-select-option" data-value="1"&gt;Option One&lt;/div&gt;
+    &lt;div class="sui-styled-select-option" data-value="2"&gt;Option Two&lt;/div&gt;
+    &lt;div class="sui-styled-select-option" data-value="3"&gt;Option Three&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;textarea class="sui-input sui-textarea" rows="3" placeholder="Write something..."&gt;&lt;/textarea&gt;
+
+&lt;input type="range" class="sui-range" min="0" max="100" value="50"&gt;</pre></div>
+  </div>
+</div>

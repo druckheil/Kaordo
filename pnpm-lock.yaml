@@ -28,6 +28,9 @@ importers:
 
   apps/kaordo-client:
     dependencies:
+      '@kaordo/softui':
+        specifier: workspace:*
+        version: link:../../packages/softui
       '@tanstack/svelte-virtual':
         specifier: ^3.13.36
         version: 3.13.36(svelte@5.56.8)
@@ -76,6 +79,8 @@ importers:
         version: 4.1.10(@types/node@24.13.3)(jsdom@30.0.1)(vite@8.2.0(@types/node@24.13.3)(esbuild@0.28.1))
 
   packages/sdk-wasm: {}
+
+  packages/softui: {}
 
 packages:
 
