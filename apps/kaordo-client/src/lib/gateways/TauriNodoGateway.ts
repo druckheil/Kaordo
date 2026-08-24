@@ -11,6 +11,7 @@ import type {
   NodoStorageItemKind,
   NodoStorageSpace,
   NodoTelemetryProgress,
+  NodoUpdateResult,
   PublicNodoReservation,
   PublicNodoStorage,
 } from '../domain/nodo';
@@ -26,6 +27,7 @@ import {
 } from './NodeStorageGateway';
 import { InFlightRequests } from './InFlightRequests';
 import { NodoAccessCache } from './NodoAccessCache';
+import { updateNode } from './NodeUpdateGateway';
 
 export class TauriNodoGateway implements NodoGateway {
   readonly #inFlight = new InFlightRequests();
@@ -118,6 +120,13 @@ export class TauriNodoGateway implements NodoGateway {
   async requestQuickTest(nodeId: string, onUpdate?: NodoTelemetryProgress): Promise<NodoQuickTest> {
     const result = await runNodeQuickTest(await this.accessNode(nodeId), onUpdate);
     return this.invoke<NodoQuickTest>('nodo_complete_quick_test', { nodeId, result });
+  }
+
+  async updateNode(nodeId: string): Promise<NodoUpdateResult> {
+    // Updating is a privileged, one-shot operation. Refresh the capability
+    // ticket first so a ticket issued before a session revocation or node
+    // restart cannot turn into a misleading authentication failure.
+    return updateNode(await this.accessNode(nodeId, { forceRefresh: true }));
   }
 
   updatePolicy(nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy> {

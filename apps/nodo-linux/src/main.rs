@@ -15,7 +15,7 @@ use service::{NodeService, ServiceOptions};
 use std::env;
 use std::path::PathBuf;
 
-pub const VERSION: &str = "0.1.6-2a";
+pub const VERSION: &str = "0.1.7-1a";
 
 fn main() {
     if let Err(error) = dispatch(env::args().skip(1).collect()) {
@@ -172,7 +172,9 @@ fn update_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let store = ConfigStore::new()?;
     let config = store.load()?.ok_or("Nodo is not configured yet.")?;
     let apply = args.iter().any(|arg| arg == "--apply");
-    update::run(&config, apply)
+    let restart = args.iter().any(|arg| arg == "--restart");
+    let job_id = option_value(args, "--job-id");
+    update::run(&config, apply, restart, job_id.as_deref())
 }
 
 fn option_value(args: &[String], name: &str) -> Option<String> {

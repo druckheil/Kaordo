@@ -358,6 +358,88 @@ fn handle_connection(stream: TcpStream, runtime: &Arc<NodeRuntime>) -> io::Resul
         );
     }
     let policy = runtime.config.read().map_err(lock_error)?.clone();
+    if request.path == "/v1/update" && request.method == "GET" {
+        if !grant.is_owner {
+            return forbidden(&mut output);
+        }
+        return match crate::update::check(&policy) {
+            Ok(check) => response_json(
+                &mut output,
+                200,
+                json!({
+                    "status": if check.available { "available" } else { "up-to-date" },
+                    "currentVersion": check.current_version,
+                    "targetVersion": check.target_version,
+                    "notes": check.notes,
+                }),
+            ),
+            Err(error) => response_json_with_status(
+                &mut output,
+                502,
+                json!({ "error": format!("Update manifest could not be checked. {error}") }),
+            ),
+        };
+    }
+    if request.path == "/v1/update" && request.method == "POST" {
+        if !grant.is_owner {
+            return forbidden(&mut output);
+        }
+        return match crate::update::check(&policy) {
+            Ok(check) if !check.available => response_json(
+                &mut output,
+                200,
+                json!({
+                    "status": "up-to-date",
+                    "currentVersion": check.current_version,
+                    "targetVersion": check.target_version,
+                    "notes": check.notes,
+                }),
+            ),
+            Ok(check) => match crate::update::start_background(&policy, &check) {
+                Ok(status) => response_json_with_status(
+                    &mut output,
+                    202,
+                    json!({
+                        "status": status.status,
+                        "currentVersion": status.current_version,
+                        "targetVersion": status.target_version,
+                        "jobId": status.job_id,
+                        "message": status.message,
+                    }),
+                ),
+                Err(error) => response_json_with_status(
+                    &mut output,
+                    500,
+                    json!({ "error": format!("Nodo update could not be started. {error}") }),
+                ),
+            },
+            Err(error) => response_json_with_status(
+                &mut output,
+                502,
+                json!({ "error": format!("Update manifest could not be checked. {error}") }),
+            ),
+        };
+    }
+    if request.path == "/v1/update/status" && request.method == "GET" {
+        if !grant.is_owner {
+            return forbidden(&mut output);
+        }
+        let job_id = request.query.get("jobId").map(String::as_str);
+        return match crate::update::read_status(&policy, job_id) {
+            Ok(Some(status)) => response_json(
+                &mut output,
+                200,
+                serde_json::to_value(status)
+                    .unwrap_or_else(|_| json!({ "error": "Update status is invalid." })),
+            ),
+            Ok(None) => not_found(&mut output, "Update status not found."),
+            Err(error) => response_json_with_status(
+                &mut output,
+                500,
+                json!({ "error": format!("Update status could not be read. {error}") }),
+            ),
+        };
+    }
     if request.method == "POST" && request.path == "/v1/diagnostics/quick-test" {
         if !grant.is_owner {
             return forbidden(&mut output);

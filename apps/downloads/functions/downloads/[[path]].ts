@@ -24,7 +24,9 @@ const asObjectKey = (path: string | string[] | undefined): string => {
                 ? 'v0.1.5'
                 : pathname.includes('0.1.6')
                   ? 'v0.1.6'
-                  : 'v0.1.3';
+                  : pathname.includes('0.1.7')
+                    ? 'v0.1.7'
+                    : 'v0.1.3';
   return `${release}/${pathname}`;
 };
 

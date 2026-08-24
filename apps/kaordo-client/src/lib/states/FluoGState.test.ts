@@ -535,6 +535,7 @@ class MemoryNodoGateway implements NodoGateway {
     reservationId: '123e4567-e89b-42d3-a456-426614174099',
   }); }
   requestQuickTest() { return Promise.resolve({ batteryPercent: null, charging: null, completedAt: 0, coordinatorLatencyMs: 0, diskReadBps: 1, diskWriteBps: 1, memoryAvailableBytes: 0, memoryTotalBytes: 0, networkDownBps: null, networkMetered: null, networkType: 'offline' as const, networkUpBps: null, storageAvailableBytes: 0 }); }
+  updateNode() { return Promise.resolve({ currentVersion: 'test', status: 'up-to-date' as const }); }
   refreshUsage() { return Promise.resolve({ spaces: NODE.spaces, usedBytes: NODE.usedBytes }); }
   updatePolicy(_nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy> {
     return Promise.resolve({ ...policy, ownerOnly: true });

@@ -10,6 +10,7 @@ import type {
   NodoStorageItemKind,
   NodoStorageSpace,
   NodoTelemetryProgress,
+  NodoUpdateResult,
   PublicNodoReservation,
   PublicNodoStorage,
 } from '../domain/nodo';
@@ -25,6 +26,7 @@ import {
 import { requestJson } from './WebApiClient';
 import { InFlightRequests } from './InFlightRequests';
 import { NodoAccessCache } from './NodoAccessCache';
+import { updateNode } from './NodeUpdateGateway';
 
 export class WebNodoGateway implements NodoGateway {
   /** Share concurrent reads without introducing stale time-based caching. */
@@ -154,6 +156,13 @@ export class WebNodoGateway implements NodoGateway {
       },
       NODO_UNAVAILABLE,
     );
+  }
+
+  async updateNode(nodeId: string): Promise<NodoUpdateResult> {
+    // Updating is a privileged, one-shot operation. Refresh the capability
+    // ticket first so a ticket issued before a session revocation or node
+    // restart cannot turn into a misleading authentication failure.
+    return updateNode(await this.accessNode(nodeId, { forceRefresh: true }));
   }
 
   async updatePolicy(

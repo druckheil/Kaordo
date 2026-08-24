@@ -1,14 +1,18 @@
 use crate::auth;
 use crate::config::Config;
 use crate::ui;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 const DEFAULT_UPDATE_MANIFEST_URL: &str =
-    "https://kaordo.pages.dev/downloads/nodo-linux-0.1.6.json";
+    "https://kaordo.pages.dev/downloads/nodo-linux-0.1.7.json";
+const STATUS_FILENAME: &str = ".update-status.json";
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -21,7 +25,27 @@ struct Manifest {
     notes: Option<String>,
 }
 
-pub fn run(config: &Config, apply: bool) -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheck {
+    pub available: bool,
+    pub current_version: String,
+    pub notes: Option<String>,
+    pub target_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateStatus {
+    pub current_version: String,
+    pub job_id: String,
+    pub message: Option<String>,
+    pub status: String,
+    pub target_version: Option<String>,
+    pub updated_at: i64,
+}
+
+pub fn check(config: &Config) -> Result<UpdateCheck, Box<dyn std::error::Error>> {
     let url = config
         .update_manifest_url
         .as_deref()
@@ -37,23 +61,176 @@ pub fn run(config: &Config, apply: bool) -> Result<(), Box<dyn std::error::Error
         .json()?;
     let current = version_key(crate::VERSION);
     let available = version_key(&manifest.version);
-    if available <= current {
+    Ok(UpdateCheck {
+        available: available > current,
+        current_version: crate::VERSION.to_owned(),
+        notes: manifest.notes,
+        target_version: (available > current).then_some(manifest.version),
+    })
+}
+
+pub fn run(
+    config: &Config,
+    apply: bool,
+    restart: bool,
+    job_id: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let check = check(config);
+    let check = match check {
+        Ok(check) => check,
+        Err(error) => {
+            if let Some(job_id) = job_id {
+                write_status_at_path(
+                    config,
+                    &status_for(
+                        job_id,
+                        "failed",
+                        crate::VERSION,
+                        None,
+                        Some(error.to_string()),
+                    ),
+                )?;
+            }
+            return Err(error);
+        }
+    };
+    if !check.available {
+        if let Some(job_id) = job_id {
+            write_status_at_path(
+                config,
+                &status_for(
+                    job_id,
+                    "up-to-date",
+                    crate::VERSION,
+                    None,
+                    Some(format!("Nodo is already up to date ({}).", crate::VERSION)),
+                ),
+            )?;
+        }
         ui::success(&format!("Nodo is up to date ({})", crate::VERSION));
         return Ok(());
     }
-    println!(
-        "Update available: {} → {}",
-        crate::VERSION,
-        manifest.version
-    );
-    if let Some(ref notes) = manifest.notes {
+    let target_version = check.target_version.clone().unwrap_or_default();
+    println!("Update available: {} → {}", crate::VERSION, target_version);
+    if let Some(ref notes) = check.notes {
         println!("  {notes}");
     }
     if !apply {
         println!("Run 'kaordo-nodo update --apply' to install it.");
         return Ok(());
     }
-    apply_update(&manifest)
+    if let Some(job_id) = job_id {
+        write_status_at_path(
+            config,
+            &status_for(
+                job_id,
+                "installing",
+                crate::VERSION,
+                Some(target_version.clone()),
+                Some("Downloading and verifying the update.".to_owned()),
+            ),
+        )?;
+    }
+    let result = apply_update(config, &target_version);
+    if let Err(error) = result {
+        if let Some(job_id) = job_id {
+            write_status_at_path(
+                config,
+                &status_for(
+                    job_id,
+                    "failed",
+                    crate::VERSION,
+                    Some(target_version.clone()),
+                    Some(error.to_string()),
+                ),
+            )?;
+        }
+        return Err(error);
+    }
+    if let Some(job_id) = job_id {
+        write_status_at_path(
+            config,
+            &status_for(
+                job_id,
+                "installed",
+                target_version.as_str(),
+                Some(target_version.clone()),
+                Some("Update installed. Restarting the Nodo service.".to_owned()),
+            ),
+        )?;
+    }
+    if restart {
+        if let Err(error) = crate::service::restart_background() {
+            if let Some(job_id) = job_id {
+                write_status_at_path(
+                    config,
+                    &status_for(
+                        job_id,
+                        "failed",
+                        target_version.as_str(),
+                        Some(target_version.clone()),
+                        Some(format!(
+                            "Update installed, but the Nodo could not restart: {error}"
+                        )),
+                    ),
+                )?;
+            }
+            return Err(error);
+        }
+    } else {
+        ui::success("Update installed. Restart the background service to activate it.");
+    }
+    Ok(())
+}
+
+pub fn start_background(
+    config: &Config,
+    check: &UpdateCheck,
+) -> Result<UpdateStatus, Box<dyn std::error::Error>> {
+    let target_version = check
+        .target_version
+        .clone()
+        .ok_or("Nodo is already up to date.")?;
+    let job_id = Uuid::new_v4().to_string();
+    let status = status_for(
+        &job_id,
+        "started",
+        &check.current_version,
+        Some(target_version),
+        Some("Update accepted. The Linux Nodo will reconnect with the new version.".to_owned()),
+    );
+    write_status_at_path(config, &status)?;
+    let executable = std::env::current_exe()?;
+    let result = Command::new(executable)
+        .args(["update", "--apply", "--restart", "--job-id", &job_id])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+    if let Err(error) = result {
+        let failed = status_for(
+            &job_id,
+            "failed",
+            &check.current_version,
+            check.target_version.clone(),
+            Some(format!("Could not start the update process: {error}")),
+        );
+        write_status_at_path(config, &failed)?;
+        return Err(error.into());
+    }
+    Ok(status)
+}
+
+pub fn read_status(config: &Config, job_id: Option<&str>) -> io::Result<Option<UpdateStatus>> {
+    let path = status_path(config);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let status: UpdateStatus = serde_json::from_slice(&fs::read(path)?)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    Ok(job_id
+        .is_none_or(|value| value == status.job_id)
+        .then_some(status))
 }
 
 /// Older Linux builds persisted their release-specific manifest URL. Treat
@@ -66,7 +243,20 @@ fn is_legacy_default_manifest(url: &str) -> bool {
             .is_some_and(|suffix| suffix.eq_ignore_ascii_case(".json"))
 }
 
-fn apply_update(manifest: &Manifest) -> Result<(), Box<dyn std::error::Error>> {
+fn apply_update(config: &Config, target_version: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let url = config
+        .update_manifest_url
+        .as_deref()
+        .filter(|url| !is_legacy_default_manifest(url))
+        .unwrap_or(DEFAULT_UPDATE_MANIFEST_URL);
+    let manifest: Manifest = auth::client(20)?
+        .get(url)
+        .send()?
+        .error_for_status()?
+        .json()?;
+    if manifest.version != target_version {
+        return Err("The update manifest changed while the update was starting.".into());
+    }
     if !manifest.linux_url.starts_with("https://") {
         return Err("Update artifact must use HTTPS.".into());
     }
@@ -107,8 +297,49 @@ fn apply_update(manifest: &Manifest) -> Result<(), Box<dyn std::error::Error>> {
     let permissions = fs::metadata(&backup)?.permissions();
     fs::set_permissions(&target, permissions)?;
     let _ = fs::remove_file(backup);
-    ui::success("Update installed. Restart the background service to activate it.");
     Ok(())
+}
+
+fn status_for(
+    job_id: &str,
+    status: &str,
+    current_version: &str,
+    target_version: Option<String>,
+    message: Option<String>,
+) -> UpdateStatus {
+    UpdateStatus {
+        current_version: current_version.to_owned(),
+        job_id: job_id.to_owned(),
+        message,
+        status: status.to_owned(),
+        target_version,
+        updated_at: unix_seconds(),
+    }
+}
+
+fn status_path(config: &Config) -> PathBuf {
+    config.data_dir.join(STATUS_FILENAME)
+}
+
+pub fn write_status_at_path(config: &Config, status: &UpdateStatus) -> io::Result<()> {
+    write_status_at(&status_path(config), status)
+}
+
+fn write_status_at(path: &std::path::Path, status: &UpdateStatus) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension("json.tmp");
+    let bytes = serde_json::to_vec(status)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    fs::write(&temporary, bytes)?;
+    fs::rename(temporary, path)
+}
+
+fn unix_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs() as i64)
 }
 
 fn temporary_path() -> io::Result<PathBuf> {
