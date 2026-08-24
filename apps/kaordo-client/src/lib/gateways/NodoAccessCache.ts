@@ -19,7 +19,12 @@ export class NodoAccessCache {
     request: () => Promise<NodoAccess>,
     forceRefresh = false,
   ): Promise<NodoAccess> {
-    return this.#inFlight.get(`access:${nodeId}`, async () => {
+    // A forced operation (update, rename, policy) must never accidentally
+    // join a normal read that started just before it. Keep the rare forced
+    // request separate while still coalescing concurrent callers of the same
+    // kind.
+    const requestKey = `access:${nodeId}:${forceRefresh ? 'force' : 'normal'}`;
+    return this.#inFlight.get(requestKey, async () => {
       const current = this.#entries.get(nodeId);
       if (!forceRefresh && current && current.expiresAt > Date.now()) {
         return current.access;

@@ -19,6 +19,9 @@ export type NodoTelemetryTest = {
   nodeId: string;
 };
 
+const NODE_LIST_CACHE_MS = 15_000;
+const NODE_USAGE_CACHE_MS = 15_000;
+
 export type NodoSnapshot = {
   error: string | null;
   nodes: NodoNode[];
@@ -33,9 +36,10 @@ export class NodoGState extends GState<NodoSnapshot> {
   readonly #registry: NodoRegistry;
   #refreshTimer: ReturnType<typeof setInterval> | null = null;
   #refreshInFlight: Promise<void> | null = null;
-  #entered = false;
   #lifecycleId = 0;
   #requestId = 0;
+  #lastRefreshAt = 0;
+  #lastUsageRefreshAt = new Map<string, number>();
   #unsubscribeRegistry: (() => void) | null = null;
   readonly #visibilityChanged = () => {
     if (document.visibilityState === 'visible') void this.refresh(true);
@@ -48,11 +52,12 @@ export class NodoGState extends GState<NodoSnapshot> {
   }
 
   override enter(): void {
-    this.#entered = true;
     this.#unsubscribeRegistry = this.#registry.subscribe((nodes) => {
       this.publish({ ...this.snapshot, nodes: [...nodes] });
     });
-    void this.refresh();
+    // Section switches reuse a very recent fleet snapshot. The explicit
+    // Refresh button still passes the default force=true below.
+    void this.refresh(false, false);
     this.#refreshTimer = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         void this.refresh(true);
@@ -64,7 +69,6 @@ export class NodoGState extends GState<NodoSnapshot> {
   }
 
   override exit(): void {
-    this.#entered = false;
     this.#requestId += 1;
     if (this.#refreshTimer) clearInterval(this.#refreshTimer);
     this.#refreshTimer = null;
@@ -79,14 +83,20 @@ export class NodoGState extends GState<NodoSnapshot> {
   reset(): void {
     this.#requestId += 1;
     this.#lifecycleId += 1;
+    this.#lastRefreshAt = 0;
+    this.#lastUsageRefreshAt.clear();
     this.#registry.reset();
     this.publish({ error: null, nodes: [], operation: null, phase: 'idle', telemetryTest: null, updateResult: null });
   }
 
-  refresh(background = false): Promise<void> {
+  refresh(background = false, force = true): Promise<void> {
     if (this.#refreshInFlight) return this.#refreshInFlight;
+    if (
+      !background && !force && this.snapshot.phase === 'ready' &&
+      Date.now() - this.#lastRefreshAt < NODE_LIST_CACHE_MS
+    ) return Promise.resolve();
     const requestId = ++this.#requestId;
-    const refresh = this.refreshInternal(requestId, background);
+    const refresh = this.refreshInternal(requestId, background, force);
     const shared = refresh.finally(() => {
       if (this.#refreshInFlight === shared) this.#refreshInFlight = null;
     });
@@ -94,23 +104,27 @@ export class NodoGState extends GState<NodoSnapshot> {
     return shared;
   }
 
-  private async refreshInternal(requestId: number, background: boolean): Promise<void> {
+  private async refreshInternal(requestId: number, background: boolean, force: boolean): Promise<void> {
     if (!background) this.publish({ ...this.snapshot, error: null, phase: 'loading' });
     try {
       const nodes = await this.#gateway.listNodes();
       if (requestId !== this.#requestId) return;
+      this.#lastRefreshAt = Date.now();
       // D1 heartbeats are intentionally sparse. A foreground refresh also
       // asks each reachable host for its live usage so uploads made moments
       // ago are reflected immediately without adding polling traffic.
       const refreshed = background
         ? nodes
         : await Promise.all(nodes.map(async (node) => {
-            try {
-              const usage = await this.#gateway.refreshUsage(node.id);
-              return { ...node, spaces: usage.spaces, usedBytes: usage.usedBytes };
-            } catch {
-              return node;
-            }
+          const refreshedAt = this.#lastUsageRefreshAt.get(node.id) ?? 0;
+          if (!force && Date.now() - refreshedAt < NODE_USAGE_CACHE_MS) return node;
+          try {
+            const usage = await this.#gateway.refreshUsage(node.id);
+            this.#lastUsageRefreshAt.set(node.id, Date.now());
+            return { ...node, spaces: usage.spaces, usedBytes: usage.usedBytes };
+          } catch {
+            return node;
+          }
           }));
       if (requestId !== this.#requestId) return;
       this.#registry.replace(refreshed);
@@ -127,6 +141,7 @@ export class NodoGState extends GState<NodoSnapshot> {
     try {
       const usage = await this.#gateway.refreshUsage(nodeId);
       if (lifecycleId !== this.#lifecycleId) return;
+      this.#lastUsageRefreshAt.set(nodeId, Date.now());
       this.#registry.update(nodeId, (node) => ({ ...node, spaces: usage.spaces, usedBytes: usage.usedBytes }));
     } catch {
       // The next foreground refresh will reconcile an offline or unreachable host.

@@ -123,6 +123,7 @@ export type TaglibroSnapshot = {
   error: string | null;
   events: TaglibroEvent[];
   eventsLoaded: boolean;
+  eventsLoading: boolean;
   eventsIncludePast: boolean;
   phase: 'idle' | 'loading' | 'ready';
   refreshing: boolean;
@@ -170,6 +171,7 @@ export const EMPTY_TAGLIBRO_SNAPSHOT: TaglibroSnapshot = {
   error: null,
   events: [],
   eventsLoaded: false,
+  eventsLoading: false,
   eventsIncludePast: false,
   phase: 'idle',
   refreshing: false,

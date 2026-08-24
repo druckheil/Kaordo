@@ -25,6 +25,17 @@ describe('NodoAccessCache', () => {
     await cache.get('node', request);
     expect(request).toHaveBeenCalledTimes(2);
   });
+
+  it('does not let a forced request join a stale normal request', async () => {
+    const releases: Array<(value: NodoAccess) => void> = [];
+    const request = vi.fn(() => new Promise<NodoAccess>((resolve) => { releases.push(resolve); }));
+    const cache = new NodoAccessCache(15_000);
+    const normal = cache.get('node', request);
+    const forced = cache.get('node', request, true);
+    expect(request).toHaveBeenCalledTimes(2);
+    releases.forEach((resolve) => resolve(access(1_800_000_300)));
+    await Promise.all([normal, forced]);
+  });
 });
 
 function access(expiresAt: number): NodoAccess {

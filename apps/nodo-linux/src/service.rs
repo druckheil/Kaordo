@@ -167,23 +167,7 @@ pub fn start_background() -> Result<(), Box<dyn std::error::Error>> {
                 .into());
         }
     } else {
-        if read_status(&config).online {
-            return Err("Nodo is already running.".into());
-        }
-        let pid_path = pid_path()?;
-        let log_path = runtime_log_path()?;
-        if let Some(parent) = log_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let stdout = File::create(log_path)?;
-        let stderr = stdout.try_clone()?;
-        let child = Command::new(std::env::current_exe()?)
-            .arg("run")
-            .stdin(Stdio::null())
-            .stdout(stdout)
-            .stderr(stderr)
-            .spawn()?;
-        fs::write(pid_path, child.id().to_string())?;
+        start_pid_fallback()?;
     }
     crate::ui::success("Nodo started in the background.");
     Ok(())
@@ -212,7 +196,7 @@ pub fn restart_background() -> Result<(), Box<dyn std::error::Error>> {
     }
     stop_pid()?;
     wait_until_stopped()?;
-    start_background()?;
+    start_pid_fallback()?;
     crate::ui::success("Nodo restarted.");
     Ok(())
 }
@@ -256,12 +240,45 @@ pub fn read_status(config: &Config) -> NodeStatus {
 }
 
 fn systemctl_available() -> bool {
+    // A root SSH session on a VPS commonly has no user D-Bus. In that
+    // environment systemctl can still be installed but cannot manage a user
+    // unit, so use the pid/log fallback instead of surfacing a misleading
+    // "failed to connect to bus" error.
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none()
+        || std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none()
+    {
+        return false;
+    }
     Command::new("systemctl")
         .args(["--user", "show-environment"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
+}
+
+fn start_pid_fallback() -> Result<(), Box<dyn std::error::Error>> {
+    let store = ConfigStore::new()?;
+    let config = store.load()?.ok_or("Nodo is not configured yet.")?;
+    config.validate_ready()?;
+    if read_status(&config).online {
+        return Err("Nodo is already running.".into());
+    }
+    let pid_path = pid_path()?;
+    let log_path = runtime_log_path()?;
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let stdout = File::create(log_path)?;
+    let stderr = stdout.try_clone()?;
+    let child = Command::new(std::env::current_exe()?)
+        .arg("run")
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()?;
+    fs::write(pid_path, child.id().to_string())?;
+    Ok(())
 }
 fn systemctl(args: &[&str]) -> io::Result<std::process::Output> {
     Command::new("systemctl").args(args).output()

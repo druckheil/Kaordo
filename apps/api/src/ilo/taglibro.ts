@@ -11,14 +11,12 @@ const VALID_STATUSES = new Set(['pending', 'done', 'skipped']);
 
 type PlanRow = {
   accent: number;
-  created_at: number;
   day: string;
   plan_id: string;
-  position: number;
   text: string;
 };
 
-type DiaryRow = { day: string; mood: string; plan_state: string; text: string };
+type DiaryRow = { mood: string; plan_state: string; text: string };
 
 type EventRow = {
   created_at: number;
@@ -32,10 +30,12 @@ type EventRow = {
   updated_at: number;
 };
 
-type PlanInput = { accent: boolean; createdDate?: string; id: string; text: string };
+type PlanInput = { accent: boolean; createdDate: string; id: string; text: string };
+type PlanPayload = { accent: boolean; createdDate: string; id: string; text: string };
+type DiaryPayload = { mood: string; planState: Record<string, { checked: boolean; status: 'pending' | 'done' | 'skipped' }>; text: string };
 type DiaryInput = {
   mood: string;
-  planState: Record<string, { checked: boolean; status: string }>;
+  planState: Record<string, { checked: boolean; status: 'pending' | 'done' | 'skipped' }>;
   text: string;
 };
 export async function taglibroBootstrap(request: Request, env: Env): Promise<Response> {
@@ -75,16 +75,12 @@ export async function taglibroSavePlans(request: Request, env: Env): Promise<Res
     const date = validDate(input.date);
     const plans = planInputs(input.plans, date);
     const now = unixNow();
-    const statements = [env.DB.prepare('DELETE FROM ilo_tag_plans WHERE user_id = ?1 AND day = ?2').bind(session.userId, date)];
-    for (const [position, plan] of plans.entries()) {
-      statements.push(env.DB.prepare(
-        `INSERT INTO ilo_tag_plans
-          (user_id, day, plan_id, position, text, accent, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`,
-      ).bind(session.userId, date, plan.id, position, plan.text, plan.accent ? 1 : 0, now));
-    }
-    await env.DB.batch(statements);
-    return json(await dayFor(env, session.userId, date));
+    const results = await env.DB.batch([
+      ...planWriteStatements(env, session.userId, date, plans, now),
+      diaryStatement(env, session.userId, date),
+    ]);
+    const diary = firstRow<DiaryRow>(results[results.length - 1]!);
+    return json({ date, diary: diaryPayload(diary), plans: planPayloads(plans) });
   } catch (error) {
     return failure('save plans', error);
   }
@@ -100,8 +96,13 @@ export async function taglibroSaveDiary(request: Request, env: Env): Promise<Res
       ? input.diary as Record<string, unknown>
       : input;
     const diary = diaryInput(diaryValue);
-    await upsertDiary(env, session.userId, date, diary, unixNow());
-    return json(await dayFor(env, session.userId, date));
+    const now = unixNow();
+    const [, plansResult] = await env.DB.batch([
+      diaryUpsertStatement(env, session.userId, date, diary, now),
+      plansStatement(env, session.userId, date),
+    ]);
+    const plans = rows<PlanRow>(plansResult);
+    return json({ date, diary: diaryInputPayload(diary), plans: plans.map(planRowPayload) });
   } catch (error) {
     return failure('save diary', error);
   }
@@ -118,17 +119,11 @@ export async function taglibroSaveDay(request: Request, env: Env): Promise<Respo
       ? input.diary as Record<string, unknown>
       : {});
     const now = unixNow();
-    const statements = [env.DB.prepare('DELETE FROM ilo_tag_plans WHERE user_id = ?1 AND day = ?2').bind(session.userId, date)];
-    for (const [position, plan] of plans.entries()) {
-      statements.push(env.DB.prepare(
-        `INSERT INTO ilo_tag_plans
-          (user_id, day, plan_id, position, text, accent, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`,
-      ).bind(session.userId, date, plan.id, position, plan.text, plan.accent ? 1 : 0, now));
-    }
-    statements.push(diaryUpsertStatement(env, session.userId, date, diary, now));
-    await env.DB.batch(statements);
-    return json(await dayFor(env, session.userId, date));
+    await env.DB.batch([
+      ...planWriteStatements(env, session.userId, date, plans, now),
+      diaryUpsertStatement(env, session.userId, date, diary, now),
+    ]);
+    return json(dayPayloadFromInputs(date, plans, diary));
   } catch (error) {
     return failure('save day', error);
   }
@@ -139,8 +134,9 @@ export async function taglibroEvents(request: Request, env: Env): Promise<Respon
   if (!session) return json({ error: 'Authentication required.' }, 401);
   try {
     const includePast = new URL(request.url).searchParams.get('includePast') === '1';
+    const now = unixNow();
     const result = await eventsStatement(env, session.userId, includePast).all<EventRow>();
-    return json({ events: rows<EventRow>(result).map((row) => eventPayload(row, unixNow())) });
+    return json({ events: rows<EventRow>(result).map((row) => eventPayload(row, now)) });
   } catch (error) {
     return failure('list events', error);
   }
@@ -153,21 +149,18 @@ export async function taglibroCreateEvent(request: Request, env: Env): Promise<R
     const input = eventInput(await readJson(request));
     const now = unixNow();
     const id = crypto.randomUUID().replaceAll('-', '').slice(0, 12);
-    await env.DB.prepare(
+    const row = await env.DB.prepare(
       `INSERT INTO ilo_tag_events
-        (user_id, id, title, description, event_at, reminder_enabled,
+       (user_id, id, title, description, event_at, reminder_enabled,
          remind_offset_min, notify_at_event_time, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`,
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
+       RETURNING id, title, description, event_at, reminder_enabled,
+                 remind_offset_min, notify_at_event_time, created_at, updated_at`,
     ).bind(
       session.userId, id, input.title, input.description, input.eventAt,
       input.reminderEnabled ? 1 : 0, input.remindOffsetMin,
       input.notifyAtEventTime ? 1 : 0, now,
-    ).run();
-    const row = await env.DB.prepare(
-      `SELECT id, title, description, event_at, reminder_enabled,
-              remind_offset_min, notify_at_event_time, created_at, updated_at
-         FROM ilo_tag_events WHERE user_id = ?1 AND id = ?2 LIMIT 1`,
-    ).bind(session.userId, id).first<EventRow>();
+    ).first<EventRow>();
     if (!row) throw new Error('The event was not saved.');
     return json(eventPayload(row, now), 201);
   } catch (error) {
@@ -182,25 +175,21 @@ export async function taglibroUpdateEvent(request: Request, env: Env, eventId: s
   try {
     const input = eventInput(await readJson(request));
     const now = unixNow();
-    const result = await env.DB.prepare(
+    const row = await env.DB.prepare(
       `UPDATE ilo_tag_events
           SET title = ?1, description = ?2, event_at = ?3,
               reminder_enabled = ?4, remind_offset_min = ?5,
               notify_at_event_time = ?6, reminder_sent = 0,
               reminder_sent_at = NULL, notify_sent = 0, notify_sent_at = NULL,
               updated_at = ?7
-        WHERE user_id = ?8 AND id = ?9`,
+       WHERE user_id = ?8 AND id = ?9
+       RETURNING id, title, description, event_at, reminder_enabled,
+                 remind_offset_min, notify_at_event_time, created_at, updated_at`,
     ).bind(
-      input.title, input.description, input.eventAt, input.reminderEnabled ? 1 : 0,
+         input.title, input.description, input.eventAt, input.reminderEnabled ? 1 : 0,
       input.remindOffsetMin, input.notifyAtEventTime ? 1 : 0, now,
       session.userId, eventId,
-    ).run();
-    if ((result.meta.changes ?? 0) === 0) return json({ error: 'Event was not found.' }, 404);
-    const row = await env.DB.prepare(
-      `SELECT id, title, description, event_at, reminder_enabled,
-              remind_offset_min, notify_at_event_time, created_at, updated_at
-         FROM ilo_tag_events WHERE user_id = ?1 AND id = ?2 LIMIT 1`,
-    ).bind(session.userId, eventId).first<EventRow>();
+    ).first<EventRow>();
     if (!row) return json({ error: 'Event was not found.' }, 404);
     return json(eventPayload(row, now));
   } catch (error) {
@@ -230,8 +219,17 @@ async function dayFor(env: Env, userId: ArrayBuffer, date: string) {
   return dayPayload(date, rows<PlanRow>(plansResult), firstRow<DiaryRow>(diaryResult));
 }
 
-async function upsertDiary(env: Env, userId: ArrayBuffer, date: string, diary: DiaryInput, now: number): Promise<void> {
-  await diaryUpsertStatement(env, userId, date, diary, now).run();
+function planWriteStatements(env: Env, userId: ArrayBuffer, date: string, plans: PlanInput[], now: number) {
+  const statements = [
+    env.DB.prepare('DELETE FROM ilo_tag_plans WHERE user_id = ?1 AND day = ?2').bind(userId, date),
+  ];
+  for (const [position, plan] of plans.entries()) {
+    statements.push(env.DB.prepare(
+      `INSERT INTO ilo_tag_plans(user_id, day, plan_id, position, text, accent, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`,
+    ).bind(userId, date, plan.id, position, plan.text, plan.accent ? 1 : 0, now));
+  }
+  return statements;
 }
 
 function diaryUpsertStatement(env: Env, userId: ArrayBuffer, date: string, diary: DiaryInput, now: number) {
@@ -246,7 +244,7 @@ function diaryUpsertStatement(env: Env, userId: ArrayBuffer, date: string, diary
 
 function plansStatement(env: Env, userId: ArrayBuffer, date: string) {
   return env.DB.prepare(
-    `SELECT day, plan_id, position, text, accent, created_at
+    `SELECT day, plan_id, text, accent
        FROM ilo_tag_plans WHERE user_id = ?1 AND day = ?2
       ORDER BY position ASC, plan_id ASC`,
   ).bind(userId, date);
@@ -254,7 +252,7 @@ function plansStatement(env: Env, userId: ArrayBuffer, date: string) {
 
 function diaryStatement(env: Env, userId: ArrayBuffer, date: string) {
   return env.DB.prepare(
-    'SELECT day, text, mood, plan_state FROM ilo_tag_diary WHERE user_id = ?1 AND day = ?2 LIMIT 1',
+    'SELECT text, mood, plan_state FROM ilo_tag_diary WHERE user_id = ?1 AND day = ?2 LIMIT 1',
   ).bind(userId, date);
 }
 
@@ -272,18 +270,33 @@ function eventsStatement(env: Env, userId: ArrayBuffer, includePast: boolean) {
 function dayPayload(date: string, planRows: PlanRow[], diaryRow: DiaryRow | null) {
   return {
     date,
-    diary: {
-      mood: diaryRow?.mood || '🙂',
-      planState: parsePlanState(diaryRow?.plan_state),
-      text: diaryRow?.text || '',
-    },
-    plans: planRows.map((row) => ({
-      accent: Boolean(row.accent),
-      createdDate: row.day,
-      id: row.plan_id,
-      text: row.text,
-    })),
+    diary: diaryPayload(diaryRow),
+    plans: planRows.map(planRowPayload),
   };
+}
+
+function dayPayloadFromInputs(date: string, plans: PlanInput[], diary: DiaryInput) {
+  return { date, diary: diaryInputPayload(diary), plans: planPayloads(plans) };
+}
+
+function planRowPayload(row: PlanRow): PlanPayload {
+  return { accent: Boolean(row.accent), createdDate: row.day, id: row.plan_id, text: row.text };
+}
+
+function planPayloads(plans: PlanInput[]): PlanPayload[] {
+  return plans.map(({ accent, createdDate, id, text }) => ({ accent, createdDate, id, text }));
+}
+
+function diaryPayload(row: DiaryRow | null): DiaryPayload {
+  return {
+    mood: row?.mood || '🙂',
+    planState: parsePlanState(row?.plan_state),
+    text: row?.text || '',
+  };
+}
+
+function diaryInputPayload(diary: DiaryInput): DiaryPayload {
+  return { mood: diary.mood, planState: diary.planState, text: diary.text };
 }
 
 function eventPayload(row: EventRow, now: number) {
@@ -326,7 +339,9 @@ function diaryInput(input: Record<string, unknown>): DiaryInput {
     for (const [id, raw] of Object.entries(rawState)) {
       if (!validId(id) || typeof raw !== 'object' || raw === null) continue;
       const state = raw as Record<string, unknown>;
-      const status = typeof state.status === 'string' && VALID_STATUSES.has(state.status) ? state.status : 'pending';
+      const status = typeof state.status === 'string' && VALID_STATUSES.has(state.status)
+        ? state.status as 'pending' | 'done' | 'skipped'
+        : 'pending';
       planState[id] = { checked: Boolean(state.checked), status };
     }
   }

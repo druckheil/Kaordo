@@ -92,7 +92,7 @@ never be returned to a client.
   quota, status, receipts, tombstones, and reconciliation metadata only; it is
   not the primary payload store.
 - Applied D1 migrations are immutable. Add the next numbered migration
-  (currently after 0021) and never rewrite a migration already applied
+  (currently after 0025) and never rewrite a migration already applied
   remotely.
 - Keep Cloudflare free-tier traffic small: avoid duplicate polling and
   database calls, use live signals with bounded fallback polling, paginate

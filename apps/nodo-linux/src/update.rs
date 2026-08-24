@@ -14,7 +14,7 @@ const DEFAULT_UPDATE_MANIFEST_URL: &str =
     "https://kaordo.pages.dev/downloads/nodo-linux-0.1.7.json";
 const STATUS_FILENAME: &str = ".update-status.json";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct Manifest {
     version: String,
     #[serde(alias = "linuxX86_64Url", alias = "linux_x86_64_url")]
@@ -32,6 +32,8 @@ pub struct UpdateCheck {
     pub current_version: String,
     pub notes: Option<String>,
     pub target_version: Option<String>,
+    #[serde(skip)]
+    manifest: Option<Manifest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,8 +66,9 @@ pub fn check(config: &Config) -> Result<UpdateCheck, Box<dyn std::error::Error>>
     Ok(UpdateCheck {
         available: available > current,
         current_version: crate::VERSION.to_owned(),
-        notes: manifest.notes,
-        target_version: (available > current).then_some(manifest.version),
+        notes: manifest.notes.clone(),
+        target_version: (available > current).then_some(manifest.version.clone()),
+        manifest: Some(manifest),
     })
 }
 
@@ -131,7 +134,11 @@ pub fn run(
             ),
         )?;
     }
-    let result = apply_update(config, &target_version);
+    let manifest = check
+        .manifest
+        .as_ref()
+        .ok_or("The update manifest was not retained.")?;
+    let result = apply_update(&target_version, manifest);
     if let Err(error) = result {
         if let Some(job_id) = job_id {
             write_status_at_path(
@@ -187,6 +194,11 @@ pub fn start_background(
     config: &Config,
     check: &UpdateCheck,
 ) -> Result<UpdateStatus, Box<dyn std::error::Error>> {
+    if let Some(existing) = read_status(config, None)?
+        && matches!(existing.status.as_str(), "started" | "installing")
+    {
+        return Ok(existing);
+    }
     let target_version = check
         .target_version
         .clone()
@@ -243,17 +255,10 @@ fn is_legacy_default_manifest(url: &str) -> bool {
             .is_some_and(|suffix| suffix.eq_ignore_ascii_case(".json"))
 }
 
-fn apply_update(config: &Config, target_version: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let url = config
-        .update_manifest_url
-        .as_deref()
-        .filter(|url| !is_legacy_default_manifest(url))
-        .unwrap_or(DEFAULT_UPDATE_MANIFEST_URL);
-    let manifest: Manifest = auth::client(20)?
-        .get(url)
-        .send()?
-        .error_for_status()?
-        .json()?;
+fn apply_update(
+    target_version: &str,
+    manifest: &Manifest,
+) -> Result<(), Box<dyn std::error::Error>> {
     if manifest.version != target_version {
         return Err("The update manifest changed while the update was starting.".into());
     }
@@ -344,7 +349,7 @@ fn unix_seconds() -> i64 {
 
 fn temporary_path() -> io::Result<PathBuf> {
     let target = std::env::current_exe()?;
-    Ok(target.with_extension("download.tmp"))
+    Ok(target.with_extension(format!("download.{}.tmp", std::process::id())))
 }
 
 fn version_key(value: &str) -> (u64, u64, u64, u8, u64) {

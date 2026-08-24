@@ -37,7 +37,7 @@ export class TauriIloGateway implements IloGateway {
     return this.invoke('ilo_taglibro_save_diary', { date, diary });
   }
   taglibroSaveDay(date: string, day: Pick<TaglibroDay, 'plans' | 'diary'>): Promise<TaglibroDay> {
-    return this.invoke('ilo_taglibro_save_day', { date, ...day });
+    return this.invoke('ilo_taglibro_save_day', { input: { date, ...day } });
   }
   taglibroListEvents(includePast = false): Promise<{ events: TaglibroEvent[] }> {
     return this.invoke('ilo_taglibro_events', { includePast });

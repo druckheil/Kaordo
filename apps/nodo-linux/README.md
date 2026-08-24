@@ -92,7 +92,7 @@ login                    sign in and persist a protected session
 logout                   remove the local session but keep payloads
 setup                    choose total quota, name and port
 run                      foreground mode
-start / stop / restart   background systemd-user mode
+start / stop / restart   background systemd-user mode (pid/log fallback when no user D-Bus is available)
 status [--json]          local listener and storage status
 install-service          write the systemd user unit without starting it
 uninstall-service        disable and remove the unit

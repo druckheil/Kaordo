@@ -2,8 +2,11 @@ import type { NodoAccess, NodoUpdateResult } from '../domain/nodo';
 import { nodoOrigin, orderedNodoCandidates, type NodoRouteCandidate } from './NodoRoute';
 
 const UPDATE_REQUEST_TIMEOUT_MS = 10_000;
-const UPDATE_POLL_INTERVAL_MS = 900;
-const UPDATE_POLL_ATTEMPTS = 40;
+const UPDATE_STATUS_TIMEOUT_MS = 3_000;
+// A status request is normally local/direct. If the relay is needed, the
+// bounded backoff keeps a slow self-update from consuming the free Worker
+// request budget while still surfacing the result within a few seconds.
+const UPDATE_POLL_DELAYS_MS = [500, 1_000, 1_500, 2_500, 4_000, 6_000, 8_000] as const;
 
 /**
  * Requests a Linux Nodo self-update over the same direct/relay capability
@@ -35,20 +38,23 @@ async function waitForUpdate(
   started: NodoUpdateResult,
 ): Promise<NodoUpdateResult> {
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < UPDATE_POLL_ATTEMPTS; attempt += 1) {
-    await delay(UPDATE_POLL_INTERVAL_MS);
+  let preferredCandidate = preferred;
+  for (const delayMs of UPDATE_POLL_DELAYS_MS) {
+    await delay(delayMs);
     for (const candidate of orderedNodoCandidates(access).sort((left, right) =>
-      Number(right === preferred) - Number(left === preferred))) {
+      Number(right === preferredCandidate) - Number(left === preferredCandidate))) {
       try {
         const result = await requestCandidate(
           access,
           candidate,
           `/v1/update/status?jobId=${encodeURIComponent(started.jobId!)}`,
           'GET',
+          UPDATE_STATUS_TIMEOUT_MS,
         );
         const parsed = parseUpdateResult(result);
         if (!parsed) throw new Error('Nodo returned an invalid update status.');
         if (parsed.status !== 'started') return parsed;
+        preferredCandidate = candidate;
         lastError = null;
         break;
       } catch (error) {
@@ -69,9 +75,10 @@ async function requestCandidate(
   candidate: NodoRouteCandidate,
   path: string,
   method: 'GET' | 'POST',
+  timeoutMs = UPDATE_REQUEST_TIMEOUT_MS,
 ): Promise<unknown> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), UPDATE_REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${nodoOrigin(candidate)}${path}`, {
       cache: 'no-store',
@@ -93,7 +100,7 @@ async function requestCandidate(
 function parseUpdateResult(value: unknown): NodoUpdateResult | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
-  if (typeof record.currentVersion !== 'string' ||
+  if (typeof record.currentVersion !== 'string' || !record.currentVersion.trim() ||
     (record.status !== 'failed' && record.status !== 'installed' &&
       record.status !== 'started' && record.status !== 'up-to-date')) return null;
   const result: NodoUpdateResult = {

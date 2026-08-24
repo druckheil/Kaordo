@@ -8,25 +8,12 @@ interface PagesContext {
   params: { path?: string | string[] };
 }
 
+const RELEASE_VERSIONS = ['0.1.7', '0.1.6', '0.1.5', '0.1.4', '0.1.3', '0.1.2', '0.1.1', '0.1.0'] as const;
+
 const asObjectKey = (path: string | string[] | undefined): string => {
   const pathname = Array.isArray(path) ? path.join('/') : (path ?? '');
-  const release = pathname.includes('0.1.0')
-    ? 'v0.1.0'
-    : pathname.includes('0.1.1')
-      ? 'v0.1.1'
-        : pathname.includes('0.1.2')
-          ? 'v0.1.2'
-          : pathname.includes('0.1.3')
-            ? 'v0.1.3'
-            : pathname.includes('0.1.4')
-              ? 'v0.1.4'
-              : pathname.includes('0.1.5')
-                ? 'v0.1.5'
-                : pathname.includes('0.1.6')
-                  ? 'v0.1.6'
-                  : pathname.includes('0.1.7')
-                    ? 'v0.1.7'
-                    : 'v0.1.3';
+  const version = RELEASE_VERSIONS.find((candidate) => pathname.includes(candidate));
+  const release = version ? `v${version}` : 'v0.1.3';
   return `${release}/${pathname}`;
 };
 

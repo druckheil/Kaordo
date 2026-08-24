@@ -52,7 +52,7 @@ export class WebIloGateway implements IloGateway {
     return requestJson('/api/ilo/taglibro/plans', jsonRequest('PUT', { date, plans }), TAGLIBRO_UNAVAILABLE);
   }
   taglibroSaveDiary(date: string, diary: TaglibroDay['diary']): Promise<TaglibroDay> {
-    return requestJson('/api/ilo/taglibro/diary', jsonRequest('PUT', { date, ...diary }), TAGLIBRO_UNAVAILABLE);
+    return requestJson('/api/ilo/taglibro/diary', jsonRequest('PUT', { date, diary }), TAGLIBRO_UNAVAILABLE);
   }
   taglibroSaveDay(date: string, day: Pick<TaglibroDay, 'plans' | 'diary'>): Promise<TaglibroDay> {
     return requestJson('/api/ilo/taglibro/day', jsonRequest('PUT', { date, ...day }), TAGLIBRO_UNAVAILABLE);

@@ -38,8 +38,13 @@ export class IloGState extends GState<IloSnapshot> {
   #lastRefreshAt = 0;
   #cardsOffset = 0;
   #cardsQuery = { q: '', theme: '' };
-  #taglibroRequestId = 0;
+  #taglibroBootstrapRequestId = 0;
+  #taglibroDayRequestId = 0;
+  #taglibroEventsRequestId = 0;
+  #taglibroMutationRequestId = 0;
   #taglibroInFlight: Promise<void> | null = null;
+  #taglibroDayInFlight = new Map<string, Promise<void>>();
+  #taglibroEventsInFlight = new Map<boolean, Promise<void>>();
   #taglibroDays = new Map<string, TaglibroDay>();
 
   constructor(private readonly gateway: IloGateway) {
@@ -63,10 +68,9 @@ export class IloGState extends GState<IloSnapshot> {
     this.#entered = false;
     this.#requestId += 1;
     this.#cardsRequestId += 1;
-    this.#taglibroRequestId += 1;
+    this.invalidateTaglibroRequests();
     this.#refreshInFlight = null;
     this.#cardsInFlight = null;
-    this.#taglibroInFlight = null;
     this.update((snapshot) => ({
       ...snapshot,
       cardsLoading: false,
@@ -79,15 +83,24 @@ export class IloGState extends GState<IloSnapshot> {
   reset(): void {
     this.#requestId += 1;
     this.#cardsRequestId += 1;
-    this.#taglibroRequestId += 1;
+    this.invalidateTaglibroRequests();
     this.#refreshInFlight = null;
     this.#cardsInFlight = null;
-    this.#taglibroInFlight = null;
     this.#lastRefreshAt = 0;
     this.#cardsOffset = 0;
     this.#cardsQuery = { q: '', theme: '' };
     this.#taglibroDays.clear();
     this.publish({ ...EMPTY_SNAPSHOT, progress: { ...EMPTY_ILO_PROGRESS } });
+  }
+
+  private invalidateTaglibroRequests(): void {
+    this.#taglibroBootstrapRequestId += 1;
+    this.#taglibroDayRequestId += 1;
+    this.#taglibroEventsRequestId += 1;
+    this.#taglibroMutationRequestId += 1;
+    this.#taglibroInFlight = null;
+    this.#taglibroDayInFlight.clear();
+    this.#taglibroEventsInFlight.clear();
   }
 
   refreshTaglibro(force = true): Promise<void> {
@@ -96,7 +109,7 @@ export class IloGState extends GState<IloSnapshot> {
     if (!ownerId) return Promise.resolve();
     const current = this.snapshot.taglibro;
     if (!force && current.phase === 'ready') return Promise.resolve();
-    const requestId = ++this.#taglibroRequestId;
+    const requestId = ++this.#taglibroBootstrapRequestId;
     this.update((snapshot) => ({
       ...snapshot,
       taglibro: { ...snapshot.taglibro, error: null, phase: current.phase === 'ready' ? 'ready' : 'loading', refreshing: true },
@@ -105,7 +118,7 @@ export class IloGState extends GState<IloSnapshot> {
     request = (async () => {
       try {
         const bootstrap = await this.gateway.taglibroBootstrap();
-        if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
+        if (requestId !== this.#taglibroBootstrapRequestId || ownerId !== this.#ownerId) return;
         this.#taglibroDays.set(bootstrap.today.date, bootstrap.today);
         this.update((snapshot) => ({
           ...snapshot,
@@ -115,6 +128,7 @@ export class IloGState extends GState<IloSnapshot> {
             error: null,
             events: bootstrap.events,
             eventsLoaded: true,
+            eventsLoading: false,
             eventsIncludePast: false,
             phase: 'ready',
             refreshing: false,
@@ -122,7 +136,7 @@ export class IloGState extends GState<IloSnapshot> {
           },
         }));
       } catch (error) {
-        if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
+        if (requestId !== this.#taglibroBootstrapRequestId || ownerId !== this.#ownerId) return;
         this.taglibroFail(error);
         this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, phase: 'ready', refreshing: false } }));
       }
@@ -133,25 +147,34 @@ export class IloGState extends GState<IloSnapshot> {
     return request;
   }
 
-  async loadTaglibroDay(date: string, force = false): Promise<void> {
-    if (!date || (!force && this.#taglibroDays.has(date))) {
-      const cached = this.#taglibroDays.get(date);
-      if (cached) this.setTaglibroDay(cached);
-      return;
+  loadTaglibroDay(date: string, force = false): Promise<void> {
+    if (!date) return Promise.resolve();
+    const cached = this.#taglibroDays.get(date);
+    if (!force && cached) {
+      this.setTaglibroDay(cached);
+      return Promise.resolve();
     }
+    const existing = this.#taglibroDayInFlight.get(date);
+    if (existing) return existing;
     const ownerId = this.#ownerId;
-    if (!ownerId) return;
-    const requestId = ++this.#taglibroRequestId;
+    if (!ownerId) return Promise.resolve();
+    const requestId = ++this.#taglibroDayRequestId;
     this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, error: null, selectedDate: date } }));
-    try {
-      const day = await this.gateway.taglibroDay(date);
-      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
-      this.#taglibroDays.set(date, day);
-      this.setTaglibroDay(day);
-    } catch (error) {
-      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
-      this.taglibroFail(error);
-    }
+    const request = (async () => {
+      try {
+        const day = await this.gateway.taglibroDay(date);
+        if (requestId !== this.#taglibroDayRequestId || ownerId !== this.#ownerId) return;
+        this.#taglibroDays.set(date, day);
+        this.setTaglibroDay(day);
+      } catch (error) {
+        if (requestId !== this.#taglibroDayRequestId || ownerId !== this.#ownerId) return;
+        this.taglibroFail(error);
+      }
+    })();
+    this.#taglibroDayInFlight.set(date, request);
+    return request.finally(() => {
+      if (this.#taglibroDayInFlight.get(date) === request) this.#taglibroDayInFlight.delete(date);
+    });
   }
 
   async saveTaglibroPlans(date: string, plans: TaglibroPlan[]): Promise<boolean> {
@@ -166,53 +189,67 @@ export class IloGState extends GState<IloSnapshot> {
     return this.taglibroMutation('save day', () => this.gateway.taglibroSaveDay(date, day));
   }
 
-  async loadTaglibroEvents(includePast = false, force = false): Promise<void> {
-    if (!force && this.snapshot.taglibro.eventsLoaded && this.snapshot.taglibro.eventsIncludePast === includePast) return;
+  loadTaglibroEvents(includePast = false, force = false): Promise<void> {
+    const current = this.snapshot.taglibro;
+    if (current.busy) return Promise.resolve();
+    if (!force && current.eventsLoaded && current.eventsIncludePast === includePast) return Promise.resolve();
+    const existing = this.#taglibroEventsInFlight.get(includePast);
+    if (existing) return existing;
     const ownerId = this.#ownerId;
-    if (!ownerId) return;
-    const requestId = ++this.#taglibroRequestId;
-    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, error: null, eventsIncludePast: includePast } }));
-    try {
-      const result = await this.gateway.taglibroListEvents(includePast);
-      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
-      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: result.events, eventsLoaded: true } }));
-    } catch (error) {
-      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
-      this.taglibroFail(error);
-    }
+    if (!ownerId) return Promise.resolve();
+    const requestId = ++this.#taglibroEventsRequestId;
+    this.update((snapshot) => ({
+      ...snapshot,
+      taglibro: { ...snapshot.taglibro, error: null, eventsLoading: true },
+    }));
+    const request = (async () => {
+      try {
+        const result = await this.gateway.taglibroListEvents(includePast);
+        if (requestId !== this.#taglibroEventsRequestId || ownerId !== this.#ownerId) return;
+        this.update((snapshot) => ({
+          ...snapshot,
+          taglibro: {
+            ...snapshot.taglibro,
+            events: result.events,
+            eventsIncludePast: includePast,
+            eventsLoaded: true,
+            eventsLoading: false,
+          },
+        }));
+      } catch (error) {
+        if (requestId !== this.#taglibroEventsRequestId || ownerId !== this.#ownerId) return;
+        this.taglibroFail(error);
+        this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, eventsLoading: false } }));
+      }
+    })();
+    this.#taglibroEventsInFlight.set(includePast, request);
+    return request.finally(() => {
+      if (this.#taglibroEventsInFlight.get(includePast) === request) this.#taglibroEventsInFlight.delete(includePast);
+    });
   }
 
   async createTaglibroEvent(input: TaglibroEventInput): Promise<boolean> {
-    try {
-      const event = await this.gateway.taglibroCreateEvent(input);
-      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: insertEvent(snapshot.taglibro.events, event), eventsLoaded: true, error: null } }));
-      return true;
-    } catch (error) {
-      this.taglibroFail(error);
-      return false;
-    }
+    const event = await this.taglibroEventMutation('create event', () => this.gateway.taglibroCreateEvent(input));
+    if (!event) return false;
+    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: insertEvent(snapshot.taglibro.events, event), eventsLoaded: true, eventsLoading: false, error: null } }));
+    return true;
   }
 
   async updateTaglibroEvent(eventId: string, input: TaglibroEventInput): Promise<boolean> {
-    try {
-      const event = await this.gateway.taglibroUpdateEvent(eventId, input);
-      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: insertEvent(snapshot.taglibro.events.filter((item) => item.id !== eventId), event), eventsLoaded: true, error: null } }));
-      return true;
-    } catch (error) {
-      this.taglibroFail(error);
-      return false;
-    }
+    const event = await this.taglibroEventMutation('update event', () => this.gateway.taglibroUpdateEvent(eventId, input));
+    if (!event) return false;
+    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: insertEvent(snapshot.taglibro.events.filter((item) => item.id !== eventId), event), eventsLoaded: true, eventsLoading: false, error: null } }));
+    return true;
   }
 
   async deleteTaglibroEvent(eventId: string): Promise<boolean> {
-    try {
+    const deleted = await this.taglibroEventMutation('delete event', async () => {
       await this.gateway.taglibroDeleteEvent(eventId);
-      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: snapshot.taglibro.events.filter((item) => item.id !== eventId), error: null } }));
       return true;
-    } catch (error) {
-      this.taglibroFail(error);
-      return false;
-    }
+    });
+    if (!deleted) return false;
+    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: snapshot.taglibro.events.filter((item) => item.id !== eventId), eventsLoading: false, error: null } }));
+    return true;
   }
 
   clearTaglibroError(): void {
@@ -402,25 +439,56 @@ export class IloGState extends GState<IloSnapshot> {
   private async taglibroMutation(operation: string, request: () => Promise<TaglibroDay>): Promise<boolean> {
     const ownerId = this.#ownerId;
     if (!ownerId || this.snapshot.taglibro.busy) return false;
-    const requestId = ++this.#taglibroRequestId;
+    const requestId = ++this.#taglibroMutationRequestId;
+    // A write supersedes a day read that started before it. Event loading is
+    // independent and is deliberately allowed to continue.
+    this.#taglibroDayRequestId += 1;
+    this.#taglibroDayInFlight.clear();
     this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, busy: operation, error: null } }));
     try {
       const day = await request();
-      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return false;
+      if (requestId !== this.#taglibroMutationRequestId || ownerId !== this.#ownerId) return false;
       this.#taglibroDays.set(day.date, day);
       this.setTaglibroDay(day);
       this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, busy: null, error: null } }));
       return true;
     } catch (error) {
-      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return false;
+      if (requestId !== this.#taglibroMutationRequestId || ownerId !== this.#ownerId) return false;
       this.taglibroFail(error);
       this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, busy: null } }));
       return false;
     }
   }
 
+  private async taglibroEventMutation<T>(operation: string, request: () => Promise<T>): Promise<T | undefined> {
+    const ownerId = this.#ownerId;
+    if (!ownerId || this.snapshot.taglibro.busy) return undefined;
+    const requestId = ++this.#taglibroEventsRequestId;
+    this.update((snapshot) => ({
+      ...snapshot,
+      taglibro: { ...snapshot.taglibro, busy: operation, error: null, eventsLoading: false },
+    }));
+    try {
+      const result = await request();
+      if (requestId !== this.#taglibroEventsRequestId || ownerId !== this.#ownerId) return undefined;
+      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, busy: null, error: null } }));
+      return result;
+    } catch (error) {
+      if (requestId !== this.#taglibroEventsRequestId || ownerId !== this.#ownerId) return undefined;
+      this.taglibroFail(error);
+      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, busy: null } }));
+      return undefined;
+    }
+  }
+
   private setTaglibroDay(day: TaglibroDay): void {
-    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, calendar: day, selectedDate: day.date } }));
+    this.update((snapshot) => {
+      const taglibro = { ...snapshot.taglibro, calendar: day, selectedDate: day.date };
+      const bootstrap = taglibro.bootstrap?.today.date === day.date
+        ? { ...taglibro.bootstrap, today: day }
+        : taglibro.bootstrap;
+      return { ...snapshot, taglibro: { ...taglibro, bootstrap } };
+    });
   }
 
   private taglibroFail(error: unknown): void {

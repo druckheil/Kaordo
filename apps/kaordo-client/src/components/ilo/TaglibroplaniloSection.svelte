@@ -27,7 +27,7 @@
   let plansDraft = $state<TaglibroPlan[]>([]);
   let diaryDraft = $state<TaglibroDay['diary']>({ mood: '🙂', planState: {}, text: '' });
   let calendarDate = $state('');
-  let syncedDay = $state('');
+  let syncedDayKey = $state('');
   let moodOpen = $state(false);
   let eventEditingId = $state<string | null>(null);
   let eventTitle = $state('');
@@ -42,8 +42,9 @@
 
   $effect(() => {
     const day = activeTab === 'calendar' ? selectedDay : todayDay;
-    if (!day.date || day.date === syncedDay) return;
-    syncedDay = day.date;
+    const dayKey = day.date ? JSON.stringify(day) : '';
+    if (!dayKey || dayKey === syncedDayKey) return;
+    syncedDayKey = dayKey;
     if (!calendarDate) calendarDate = day.date;
     plansDraft = clonePlans(day.plans);
     diaryDraft = cloneDiary(day.diary);
@@ -113,7 +114,7 @@
 
   function changeCalendarDate(value: string): void {
     calendarDate = value;
-    syncedDay = '';
+    syncedDayKey = '';
     void iloState.loadTaglibroDay(value, true);
   }
 
@@ -222,14 +223,14 @@
     </section>
   {:else}
     <section class="tag-content" aria-labelledby="events-title">
-      <div class="section-head"><div><span class="eyebrow">Remember what matters</span><h2 id="events-title">Events</h2><p>One-time reminders, kept with the rest of your personal record.</p></div><button class="secondary" type="button" onclick={() => { showPast = !showPast; void iloState.loadTaglibroEvents(showPast, true); }}>{showPast ? 'Hide previous' : 'Show previous'}</button></div>
+      <div class="section-head"><div><span class="eyebrow">Remember what matters</span><h2 id="events-title">Events</h2><p>One-time reminders, kept with the rest of your personal record.</p></div><button class:loading={snapshot.eventsLoading} class="secondary" type="button" disabled={snapshot.eventsLoading} onclick={() => { showPast = !showPast; void iloState.loadTaglibroEvents(showPast, true); }}><span aria-hidden="true">↻</span>{snapshot.eventsLoading ? 'Loading…' : showPast ? 'Hide previous' : 'Show previous'}</button></div>
       <div class="events-layout"><article class="event-form"><div class="card-label"><span>{eventEditingId ? 'Edit event' : 'New event'}</span>{#if eventEditingId}<button type="button" onclick={resetEventForm}>Cancel</button>{/if}</div><label>Title<input bind:value={eventTitle} maxlength="256" placeholder="Dentist, trip, call…" /></label><label>Date & time<input type="datetime-local" bind:value={eventAt} /></label><label>Description<textarea bind:value={eventDescription} rows="4" maxlength="2000" placeholder="Optional context"></textarea></label><div class="reminder-row"><label>Reminder<select bind:value={eventReminder}><option value="">No reminder</option><option value="10">10 minutes before</option><option value="30">30 minutes before</option><option value="60">1 hour before</option><option value="180">3 hours before</option><option value="1440">1 day before</option></select></label><label class="check-label"><input type="checkbox" bind:checked={eventNotify} /> Exact time</label></div><button class="primary full" type="button" disabled={snapshot.busy !== null || !eventTitle.trim() || !eventAt} onclick={submitEvent}>{snapshot.busy ? 'Saving…' : eventEditingId ? 'Save event' : 'Add event'}</button></article><div class="event-list">{#if snapshot.events.length === 0}<div class="empty-card"><span>◷</span><strong>{showPast ? 'No events yet' : 'No upcoming events'}</strong><p>Add a date to keep it visible.</p></div>{/if}{#each snapshot.events as event (event.id)}<article class:past={event.remainingSeconds < 0} class="event-card"><div class="event-date"><strong>{new Date(event.eventIso).getDate()}</strong><span>{new Date(event.eventIso).toLocaleDateString(undefined, { month: 'short' })}</span></div><div class="event-main"><h3>{event.title}</h3><p>{formatEvent(event)} · {remaining(event)}</p>{#if event.description}<span>{event.description}</span>{/if}<small>{event.reminderEnabled ? `Reminder: ${event.remindOffsetMin} min before` : 'No reminder'}{event.notifyAtEventTime ? ' · Exact time' : ''}</small></div><div class="event-actions"><button type="button" onclick={() => editEvent(event)}>Edit</button><button class="danger" type="button" onclick={() => deleteEvent(event.id)}>Delete</button></div></article>{/each}</div></div>
     </section>
   {/if}
 </section>
 
 <style>
-  .taglibro-shell { min-width: 0; color: #34423a; }
+  .taglibro-shell { min-width: 0; color: #34423a; animation: taglibro-enter 220ms cubic-bezier(.22, 1, .36, 1) both; }
   .tag-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 100px; padding: 18px 30px; background: color-mix(in srgb, var(--canvas) 86%, transparent); border-bottom: 1px solid var(--line); }
   .tag-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
   .tag-mark { display: grid; width: 52px; height: 52px; flex: none; color: #f8fbf9; background: linear-gradient(145deg, #835e9a, #5c3977); border: 1px solid #5c3977; border-radius: 15px; box-shadow: 0 10px 24px rgb(92 57 119 / 18%); font-size: calc(20px * var(--text-scale)); font-weight: 730; place-items: center; }
@@ -242,6 +243,7 @@
   .save-state i { width: 7px; height: 7px; background: #6f9a87; border-radius: 50%; box-shadow: 0 0 0 4px rgb(111 154 135 / 10%); }
   .tag-actions button, .section-head button, .calendar-card .card-label button, .event-form .card-label button { height: 35px; padding: 0 13px; color: #537467; background: #f4f8f6; border: 1px solid #cddbd4; border-radius: 10px; cursor: pointer; font-size: calc(8px * var(--text-scale)); font-weight: 710; }
   .tag-actions button.loading span { display: inline-block; animation: spin .8s linear infinite; }
+  .section-head button.loading span { display: inline-block; animation: spin .8s linear infinite; }
   .tag-tabs { display: flex; align-items: center; gap: 4px; min-height: 53px; padding: 8px 30px; background: color-mix(in srgb, var(--panel) 45%, transparent); border-bottom: 1px solid var(--line); }
   .tag-tabs button { display: inline-flex; align-items: center; gap: 7px; height: 35px; padding: 0 13px; color: #78857d; background: transparent; border: 0; border-radius: 9px; cursor: pointer; font-size: calc(9px * var(--text-scale)); font-weight: 680; }
   .tag-tabs button:hover, .tag-tabs button.active { color: #654579; background: #f2edf5; }
@@ -326,6 +328,8 @@
   .event-actions button:hover { background: #f2edf4; color: #765486; }
   .event-actions .danger { color: #ad6b5b; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes taglibro-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { .taglibro-shell, .spinner, .tag-actions button.loading span, .section-head button.loading span { animation: none; } }
   @media (max-width: 950px) { .tag-header { align-items: flex-start; flex-direction: column; } .diary-grid, .calendar-grid, .events-layout { grid-template-columns: 1fr; } }
   @media (max-width: 620px) { .tag-header, .tag-tabs, .tag-content { padding-inline: 16px; } .tag-actions { width: 100%; justify-content: space-between; } .section-head { align-items: flex-start; flex-direction: column; } .plan-row { grid-template-columns: 30px minmax(0, 1fr); } .row-actions { grid-column: 2; } .event-card { grid-template-columns: 42px minmax(0, 1fr); } .event-actions { grid-column: 2; } }
 </style>
