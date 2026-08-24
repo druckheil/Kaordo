@@ -22,7 +22,7 @@ pub fn run(config: &Config, apply: bool) -> Result<(), Box<dyn std::error::Error
     let url = config
         .update_manifest_url
         .clone()
-        .unwrap_or_else(|| "https://kaordo.pages.dev/downloads/nodo-linux-0.1.5.json".to_owned());
+        .unwrap_or_else(|| "https://kaordo.pages.dev/downloads/nodo-linux-0.1.6.json".to_owned());
     if !url.starts_with("https://") {
         return Err("Update manifest must use HTTPS.".into());
     }

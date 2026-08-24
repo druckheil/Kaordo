@@ -31,7 +31,7 @@ manager:
 mkdir -p ~/.local/bin
 curl --fail --location --proto '=https' --tlsv1.2 \
   -o ~/.local/bin/kaordo-nodo \
-  https://kaordo.pages.dev/downloads/Kaordo-Nodo_0.1.5-2a_linux_x86_64
+  https://kaordo.pages.dev/downloads/Kaordo-Nodo_0.1.6-1a_linux_x86_64
 chmod 0755 ~/.local/bin/kaordo-nodo
 export PATH="$HOME/.local/bin:$PATH"
 kaordo-nodo login
