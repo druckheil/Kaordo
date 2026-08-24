@@ -1478,7 +1478,8 @@ pub async fn ilo_progress(client: State<'_, AuthClient>) -> Result<Value, String
 
 #[tauri::command]
 pub async fn ilo_taglibro_bootstrap(client: State<'_, AuthClient>) -> Result<Value, String> {
-    let response = authenticated_request(&client, Method::GET, "/api/ilo/taglibro/bootstrap").await?;
+    let response =
+        authenticated_request(&client, Method::GET, "/api/ilo/taglibro/bootstrap").await?;
     decode_response(response).await
 }
 
@@ -1492,7 +1493,8 @@ pub async fn ilo_taglibro_day(
         &client,
         Method::GET,
         &format!("/api/ilo/taglibro/day?date={}", query_escape(&date)),
-    ).await?;
+    )
+    .await?;
     decode_response(response).await
 }
 
@@ -1509,7 +1511,8 @@ pub async fn ilo_taglibro_save_plans(
         Method::PUT,
         "/api/ilo/taglibro/plans",
         &serde_json::json!({ "date": date, "plans": plans }),
-    ).await?;
+    )
+    .await?;
     decode_response(response).await
 }
 
@@ -1526,7 +1529,8 @@ pub async fn ilo_taglibro_save_diary(
         Method::PUT,
         "/api/ilo/taglibro/diary",
         &serde_json::json!({ "date": date, "diary": diary }),
-    ).await?;
+    )
+    .await?;
     decode_response(response).await
 }
 
@@ -1538,12 +1542,8 @@ pub async fn ilo_taglibro_save_day(
     taglibro_date(&input.date)?;
     validate_taglibro_plans(&input.plans)?;
     validate_taglibro_diary(&input.diary)?;
-    let response = authenticated_json_request(
-        &client,
-        Method::PUT,
-        "/api/ilo/taglibro/day",
-        &input,
-    ).await?;
+    let response =
+        authenticated_json_request(&client, Method::PUT, "/api/ilo/taglibro/day", &input).await?;
     decode_response(response).await
 }
 
@@ -1555,8 +1555,12 @@ pub async fn ilo_taglibro_events(
     let response = authenticated_request(
         &client,
         Method::GET,
-        &format!("/api/ilo/taglibro/events?includePast={}", if include_past { 1 } else { 0 }),
-    ).await?;
+        &format!(
+            "/api/ilo/taglibro/events?includePast={}",
+            i32::from(include_past)
+        ),
+    )
+    .await?;
     decode_response(response).await
 }
 
@@ -1566,12 +1570,9 @@ pub async fn ilo_taglibro_create_event(
     input: TaglibroEventInput,
 ) -> Result<Value, String> {
     validate_taglibro_event(&input)?;
-    let response = authenticated_json_request(
-        &client,
-        Method::POST,
-        "/api/ilo/taglibro/events",
-        &input,
-    ).await?;
+    let response =
+        authenticated_json_request(&client, Method::POST, "/api/ilo/taglibro/events", &input)
+            .await?;
     decode_response(response).await
 }
 
@@ -1588,7 +1589,8 @@ pub async fn ilo_taglibro_update_event(
         Method::PATCH,
         &format!("/api/ilo/taglibro/events/{event_id}"),
         &input,
-    ).await?;
+    )
+    .await?;
     decode_response(response).await
 }
 
@@ -1602,7 +1604,8 @@ pub async fn ilo_taglibro_delete_event(
         &client,
         Method::DELETE,
         &format!("/api/ilo/taglibro/events/{event_id}"),
-    ).await?;
+    )
+    .await?;
     let _: Value = decode_response(response).await?;
     Ok(())
 }
@@ -1953,9 +1956,10 @@ fn taglibro_date(value: &str) -> Result<(), String> {
     if value.len() != 10
         || value.as_bytes().get(4) != Some(&b'-')
         || value.as_bytes().get(7) != Some(&b'-')
-        || !value.bytes().enumerate().all(|(index, byte)| {
-            matches!(index, 4 | 7) || byte.is_ascii_digit()
-        })
+        || !value
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit())
     {
         return Err("The Taglibroplanilo date is invalid.".to_owned());
     }

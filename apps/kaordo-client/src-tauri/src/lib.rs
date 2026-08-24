@@ -314,6 +314,7 @@ fn migrate_legacy_workspace_library(documents_directory: &Path) -> Result<(), St
 ///
 /// Panics when Tauri cannot initialize or the application event loop fails.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[allow(clippy::too_many_lines)]
 pub fn run() {
     let auth_client = auth::AuthClient::new().expect("failed to initialize secure authentication");
     tauri::Builder::default()
