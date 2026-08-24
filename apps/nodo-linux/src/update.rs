@@ -7,6 +7,9 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 
+const DEFAULT_UPDATE_MANIFEST_URL: &str =
+    "https://kaordo.pages.dev/downloads/nodo-linux-0.1.6.json";
+
 #[derive(Debug, Deserialize)]
 struct Manifest {
     version: String,
@@ -21,13 +24,14 @@ struct Manifest {
 pub fn run(config: &Config, apply: bool) -> Result<(), Box<dyn std::error::Error>> {
     let url = config
         .update_manifest_url
-        .clone()
-        .unwrap_or_else(|| "https://kaordo.pages.dev/downloads/nodo-linux-0.1.6.json".to_owned());
+        .as_deref()
+        .filter(|url| !is_legacy_default_manifest(url))
+        .unwrap_or(DEFAULT_UPDATE_MANIFEST_URL);
     if !url.starts_with("https://") {
         return Err("Update manifest must use HTTPS.".into());
     }
     let manifest: Manifest = auth::client(20)?
-        .get(&url)
+        .get(url)
         .send()?
         .error_for_status()?
         .json()?;
@@ -52,6 +56,16 @@ pub fn run(config: &Config, apply: bool) -> Result<(), Box<dyn std::error::Error
     apply_update(&manifest)
 }
 
+/// Older Linux builds persisted their release-specific manifest URL. Treat
+/// those built-in URLs as aliases so a node can bootstrap directly to the
+/// current release instead of walking through every historical scope.
+fn is_legacy_default_manifest(url: &str) -> bool {
+    url.starts_with("https://kaordo.pages.dev/downloads/nodo-linux-")
+        && url
+            .get(url.len().saturating_sub(5)..)
+            .is_some_and(|suffix| suffix.eq_ignore_ascii_case(".json"))
+}
+
 fn apply_update(manifest: &Manifest) -> Result<(), Box<dyn std::error::Error>> {
     if !manifest.linux_url.starts_with("https://") {
         return Err("Update artifact must use HTTPS.".into());
@@ -64,7 +78,7 @@ fn apply_update(manifest: &Manifest) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::create(&temporary)?;
     let mut reader = response;
     let mut hash = Sha256::new();
-    let mut buffer = [0_u8; 128 * 1024];
+    let mut buffer = vec![0_u8; 128 * 1024];
     loop {
         let count = reader.read(&mut buffer)?;
         if count == 0 {

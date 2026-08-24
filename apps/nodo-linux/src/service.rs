@@ -42,6 +42,7 @@ impl NodeService {
         self.config.ensure_identity();
         self.config.validate_ready()?;
         fs::create_dir_all(&self.config.data_dir)?;
+        let _pid_guard = PidFileGuard::install()?;
         let storage = NodeStorage::open(
             &self.config.data_dir,
             self.config.public_quota_bytes,
@@ -190,7 +191,10 @@ pub fn start_background() -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn stop_background() -> Result<(), Box<dyn std::error::Error>> {
     if systemctl_available() {
-        let _ = systemctl(&["--user", "disable", "--now", "kaordo-nodo.service"]);
+        let result = systemctl(&["--user", "disable", "--now", "kaordo-nodo.service"])?;
+        if !result.status.success() {
+            stop_pid()?;
+        }
     } else {
         stop_pid()?;
     }
@@ -201,16 +205,14 @@ pub fn stop_background() -> Result<(), Box<dyn std::error::Error>> {
 pub fn restart_background() -> Result<(), Box<dyn std::error::Error>> {
     if systemctl_available() {
         let result = systemctl(&["--user", "restart", "kaordo-nodo.service"])?;
-        if !result.status.success() {
-            return Err(String::from_utf8_lossy(&result.stderr)
-                .trim()
-                .to_owned()
-                .into());
+        if result.status.success() {
+            crate::ui::success("Nodo restarted.");
+            return Ok(());
         }
-    } else {
-        stop_pid()?;
-        start_background()?;
     }
+    stop_pid()?;
+    wait_until_stopped()?;
+    start_background()?;
     crate::ui::success("Nodo restarted.");
     Ok(())
 }
@@ -255,10 +257,11 @@ pub fn read_status(config: &Config) -> NodeStatus {
 
 fn systemctl_available() -> bool {
     Command::new("systemctl")
-        .arg("--user")
-        .arg("--version")
-        .output()
-        .is_ok_and(|result| result.status.success())
+        .args(["--user", "show-environment"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 fn systemctl(args: &[&str]) -> io::Result<std::process::Output> {
     Command::new("systemctl").args(args).output()
@@ -295,11 +298,90 @@ fn runtime_log_path() -> io::Result<PathBuf> {
 fn stop_pid() -> io::Result<()> {
     let path = pid_path()?;
     let value = fs::read_to_string(&path).unwrap_or_default();
-    if let Ok(pid) = value.trim().parse::<i32>() {
-        let _ = Command::new("kill").arg(pid.to_string()).status();
+    let mut pids = value
+        .trim()
+        .parse::<i32>()
+        .ok()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if pids.is_empty() {
+        pids.extend(discover_nodo_pids());
+    }
+    for pid in pids {
+        if pid != std::process::id() as i32 {
+            let _ = Command::new("kill").arg(pid.to_string()).status();
+        }
     }
     let _ = fs::remove_file(path);
     Ok(())
+}
+
+fn wait_until_stopped() -> io::Result<()> {
+    let config = ConfigStore::new()?
+        .load()?
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Nodo configuration is missing."))?;
+    for _ in 0..30 {
+        if !read_status(&config).online {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn discover_nodo_pids() -> Vec<i32> {
+    let current = std::env::current_exe().ok();
+    fs::read_dir("/proc")
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let pid = entry.file_name().to_string_lossy().parse::<i32>().ok()?;
+            let command = fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+            let arguments = command
+                .split(|byte| *byte == 0)
+                .filter(|argument| !argument.is_empty())
+                .map(String::from_utf8_lossy)
+                .collect::<Vec<_>>();
+            if arguments.get(1).map(|argument| argument.as_ref()) != Some("run") {
+                return None;
+            }
+            let executable = arguments.first()?.as_ref();
+            let matches_current = current
+                .as_ref()
+                .is_some_and(|path| PathBuf::from(executable) == *path);
+            let matches_nodo_name = PathBuf::from(executable)
+                .file_name()
+                .is_some_and(|name| name == "kaordo-nodo");
+            (matches_current || matches_nodo_name).then_some(pid)
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn discover_nodo_pids() -> Vec<i32> {
+    Vec::new()
+}
+
+struct PidFileGuard(PathBuf);
+
+impl PidFileGuard {
+    fn install() -> io::Result<Self> {
+        let path = pid_path()?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, std::process::id().to_string())?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for PidFileGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 fn shell_escape(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
