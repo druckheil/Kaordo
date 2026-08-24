@@ -93,6 +93,17 @@ import {
   iloTrainNext,
   iloUpdateCard,
 } from './ilo/routes';
+import {
+  taglibroBootstrap,
+  taglibroCreateEvent,
+  taglibroDay,
+  taglibroDeleteEvent,
+  taglibroEvents,
+  taglibroSaveDay,
+  taglibroSaveDiary,
+  taglibroSavePlans,
+  taglibroUpdateEvent,
+} from './ilo/taglibro';
 
 const DESKTOP_AUTH_HOST = `${['veri', 'dimensio-api'].join('')}.pshenychnyi-ld.workers.dev`;
 
@@ -171,6 +182,34 @@ export function handleRequest(
   }
   if (request.method === 'GET' && pathname === '/api/ilo/progress') {
     return iloProgress(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/ilo/taglibro/bootstrap') {
+    return taglibroBootstrap(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/ilo/taglibro/day') {
+    return taglibroDay(request, env);
+  }
+  if (request.method === 'PUT' && pathname === '/api/ilo/taglibro/plans') {
+    return taglibroSavePlans(request, env);
+  }
+  if (request.method === 'PUT' && pathname === '/api/ilo/taglibro/diary') {
+    return taglibroSaveDiary(request, env);
+  }
+  if (request.method === 'PUT' && pathname === '/api/ilo/taglibro/day') {
+    return taglibroSaveDay(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/ilo/taglibro/events') {
+    return taglibroEvents(request, env);
+  }
+  if (request.method === 'POST' && pathname === '/api/ilo/taglibro/events') {
+    return taglibroCreateEvent(request, env);
+  }
+  const taglibroEventMatch = pathname.match(/^\/api\/ilo\/taglibro\/events\/([0-9a-f]{8,32})$/u);
+  if (taglibroEventMatch?.[1] && request.method === 'PATCH') {
+    return taglibroUpdateEvent(request, env, taglibroEventMatch[1]);
+  }
+  if (taglibroEventMatch?.[1] && request.method === 'DELETE') {
+    return taglibroDeleteEvent(request, env, taglibroEventMatch[1]);
   }
   if (request.method === 'GET' && pathname === '/api/ligo/bootstrap') {
     return ligoBootstrap(request, env);

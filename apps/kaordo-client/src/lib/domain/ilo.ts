@@ -7,6 +7,7 @@ export const ILO_THEMES = [
 export type IloTheme = typeof ILO_THEMES[number];
 export type IloTab = 'add' | 'edit' | 'progress' | 'search' | 'train';
 export type IloTask = 'cloze_example' | 'de_to_native' | 'native_to_de';
+export type TaglibroTab = 'plans' | 'diary' | 'calendar' | 'events';
 
 export type IloCard = {
   article: string;
@@ -62,6 +63,72 @@ export type IloBootstrap = {
 export type IloCardPage = { cards: IloCard[]; nextOffset: number | null };
 export type IloMutation = { card: IloCard | null; progress: IloProgress; train: IloTrainSnapshot };
 
+export type TaglibroPlan = {
+  accent: boolean;
+  createdDate: string;
+  id: string;
+  text: string;
+};
+
+export type TaglibroPlanState = {
+  checked: boolean;
+  status: 'pending' | 'done' | 'skipped';
+};
+
+export type TaglibroDiary = {
+  mood: string;
+  planState: Record<string, TaglibroPlanState>;
+  text: string;
+};
+
+export type TaglibroDay = {
+  date: string;
+  diary: TaglibroDiary;
+  plans: TaglibroPlan[];
+};
+
+export type TaglibroEvent = {
+  createdAt: number;
+  description: string;
+  eventAt: number;
+  eventIso: string;
+  id: string;
+  notifyAtEventTime: boolean;
+  remindOffsetMin: number | null;
+  reminderEnabled: boolean;
+  remainingSeconds: number;
+  title: string;
+  updatedAt: number;
+};
+
+export type TaglibroBootstrap = {
+  events: TaglibroEvent[];
+  today: TaglibroDay;
+  timezone: string;
+};
+
+export type TaglibroEventInput = {
+  description: string;
+  eventAt: string;
+  notifyAtEventTime: boolean;
+  remindOffsetMin: number | null;
+  reminderEnabled: boolean;
+  title: string;
+};
+
+export type TaglibroSnapshot = {
+  bootstrap: TaglibroBootstrap | null;
+  busy: string | null;
+  calendar: TaglibroDay | null;
+  error: string | null;
+  events: TaglibroEvent[];
+  eventsLoaded: boolean;
+  eventsIncludePast: boolean;
+  phase: 'idle' | 'loading' | 'ready';
+  refreshing: boolean;
+  selectedDate: string;
+};
+
 export type IloErrorEntry = { at: number; message: string; operation: string };
 
 export type IloSnapshot = {
@@ -76,6 +143,7 @@ export type IloSnapshot = {
   progress: IloProgress;
   settings: IloSettings;
   themes: string[];
+  taglibro: TaglibroSnapshot;
   train: IloTrainSnapshot;
   busy: string | null;
 };
@@ -87,4 +155,23 @@ export const EMPTY_ILO_PROGRESS: IloProgress = {
   pointsHistory: [],
   stages: {},
   todayPoints: 0,
+};
+
+export const EMPTY_TAGLIBRO_DAY = (date = ''): TaglibroDay => ({
+  date,
+  diary: { mood: '🙂', planState: {}, text: '' },
+  plans: [],
+});
+
+export const EMPTY_TAGLIBRO_SNAPSHOT: TaglibroSnapshot = {
+  bootstrap: null,
+  busy: null,
+  calendar: null,
+  error: null,
+  events: [],
+  eventsLoaded: false,
+  eventsIncludePast: false,
+  phase: 'idle',
+  refreshing: false,
+  selectedDate: '',
 };

@@ -144,6 +144,15 @@
     listCards: async () => ({ cards: [], nextOffset: null }),
     nextTrain: async () => ({ active: 0, card: null, due: 0 }),
     progress: async () => ({ active: 0, due: 0, learnedToday: false, pointsHistory: [], stages: {}, todayPoints: 0 }),
+    taglibroBootstrap: async () => ({ events: [], timezone: 'Europe/Berlin', today: { date: '', diary: { mood: '🙂', planState: {}, text: '' }, plans: [] } }),
+    taglibroDay: async (date) => ({ date, diary: { mood: '🙂', planState: {}, text: '' }, plans: [] }),
+    taglibroSavePlans: async (date, plans) => ({ date, diary: { mood: '🙂', planState: {}, text: '' }, plans }),
+    taglibroSaveDiary: async (date, diary) => ({ date, diary, plans: [] }),
+    taglibroSaveDay: async (date, day) => ({ date, ...day }),
+    taglibroListEvents: async () => ({ events: [] }),
+    taglibroCreateEvent: async () => { throw new Error('Taglibroplanilo is unavailable.'); },
+    taglibroUpdateEvent: async () => { throw new Error('Taglibroplanilo is unavailable.'); },
+    taglibroDeleteEvent: async () => { throw new Error('Taglibroplanilo is unavailable.'); },
     updateCard: async () => { throw new Error('Lingvolernado is unavailable.'); },
   };
 

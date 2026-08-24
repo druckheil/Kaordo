@@ -1,5 +1,8 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
-import type { IloBootstrap, IloCardInput, IloCardPage, IloMutation, IloProgress, IloTrainSnapshot } from '../domain/ilo';
+import type {
+  IloBootstrap, IloCardInput, IloCardPage, IloMutation, IloProgress, IloTrainSnapshot,
+  TaglibroBootstrap, TaglibroDay, TaglibroEvent, TaglibroEventInput, TaglibroPlan,
+} from '../domain/ilo';
 import type { IloCardsQuery, IloGateway } from './IloGateway';
 import type { TauriInvoke } from './TauriWorkspaceGateway';
 
@@ -24,5 +27,28 @@ export class TauriIloGateway implements IloGateway {
   progress(): Promise<IloProgress> { return this.invoke('ilo_progress'); }
   updateCard(cardId: string, input: IloCardInput): Promise<IloMutation> {
     return this.invoke('ilo_update_card', { cardId, input });
+  }
+  taglibroBootstrap(): Promise<TaglibroBootstrap> { return this.invoke('ilo_taglibro_bootstrap'); }
+  taglibroDay(date: string): Promise<TaglibroDay> { return this.invoke('ilo_taglibro_day', { date }); }
+  taglibroSavePlans(date: string, plans: TaglibroPlan[]): Promise<TaglibroDay> {
+    return this.invoke('ilo_taglibro_save_plans', { date, plans });
+  }
+  taglibroSaveDiary(date: string, diary: TaglibroDay['diary']): Promise<TaglibroDay> {
+    return this.invoke('ilo_taglibro_save_diary', { date, diary });
+  }
+  taglibroSaveDay(date: string, day: Pick<TaglibroDay, 'plans' | 'diary'>): Promise<TaglibroDay> {
+    return this.invoke('ilo_taglibro_save_day', { date, ...day });
+  }
+  taglibroListEvents(includePast = false): Promise<{ events: TaglibroEvent[] }> {
+    return this.invoke('ilo_taglibro_events', { includePast });
+  }
+  taglibroCreateEvent(input: TaglibroEventInput): Promise<TaglibroEvent> {
+    return this.invoke('ilo_taglibro_create_event', { input });
+  }
+  taglibroUpdateEvent(eventId: string, input: TaglibroEventInput): Promise<TaglibroEvent> {
+    return this.invoke('ilo_taglibro_update_event', { eventId, input });
+  }
+  async taglibroDeleteEvent(eventId: string): Promise<void> {
+    await this.invoke('ilo_taglibro_delete_event', { eventId });
   }
 }

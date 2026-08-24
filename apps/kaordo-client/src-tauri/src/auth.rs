@@ -324,6 +324,42 @@ pub struct IloCardInput {
     translation: String,
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaglibroPlanInput {
+    accent: bool,
+    created_date: Option<String>,
+    id: String,
+    text: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaglibroDiaryInput {
+    mood: String,
+    plan_state: Value,
+    text: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaglibroDayInput {
+    date: String,
+    diary: TaglibroDiaryInput,
+    plans: Vec<TaglibroPlanInput>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaglibroEventInput {
+    description: String,
+    event_at: String,
+    notify_at_event_time: bool,
+    remind_offset_min: Option<u32>,
+    reminder_enabled: bool,
+    title: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LigoCleanupInput<'a> {
@@ -1441,6 +1477,137 @@ pub async fn ilo_progress(client: State<'_, AuthClient>) -> Result<Value, String
 }
 
 #[tauri::command]
+pub async fn ilo_taglibro_bootstrap(client: State<'_, AuthClient>) -> Result<Value, String> {
+    let response = authenticated_request(&client, Method::GET, "/api/ilo/taglibro/bootstrap").await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_taglibro_day(
+    client: State<'_, AuthClient>,
+    date: String,
+) -> Result<Value, String> {
+    taglibro_date(&date)?;
+    let response = authenticated_request(
+        &client,
+        Method::GET,
+        &format!("/api/ilo/taglibro/day?date={}", query_escape(&date)),
+    ).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_taglibro_save_plans(
+    client: State<'_, AuthClient>,
+    date: String,
+    plans: Vec<TaglibroPlanInput>,
+) -> Result<Value, String> {
+    taglibro_date(&date)?;
+    validate_taglibro_plans(&plans)?;
+    let response = authenticated_json_request(
+        &client,
+        Method::PUT,
+        "/api/ilo/taglibro/plans",
+        &serde_json::json!({ "date": date, "plans": plans }),
+    ).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_taglibro_save_diary(
+    client: State<'_, AuthClient>,
+    date: String,
+    diary: TaglibroDiaryInput,
+) -> Result<Value, String> {
+    taglibro_date(&date)?;
+    validate_taglibro_diary(&diary)?;
+    let response = authenticated_json_request(
+        &client,
+        Method::PUT,
+        "/api/ilo/taglibro/diary",
+        &serde_json::json!({ "date": date, "diary": diary }),
+    ).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_taglibro_save_day(
+    client: State<'_, AuthClient>,
+    input: TaglibroDayInput,
+) -> Result<Value, String> {
+    taglibro_date(&input.date)?;
+    validate_taglibro_plans(&input.plans)?;
+    validate_taglibro_diary(&input.diary)?;
+    let response = authenticated_json_request(
+        &client,
+        Method::PUT,
+        "/api/ilo/taglibro/day",
+        &input,
+    ).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_taglibro_events(
+    client: State<'_, AuthClient>,
+    include_past: bool,
+) -> Result<Value, String> {
+    let response = authenticated_request(
+        &client,
+        Method::GET,
+        &format!("/api/ilo/taglibro/events?includePast={}", if include_past { 1 } else { 0 }),
+    ).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_taglibro_create_event(
+    client: State<'_, AuthClient>,
+    input: TaglibroEventInput,
+) -> Result<Value, String> {
+    validate_taglibro_event(&input)?;
+    let response = authenticated_json_request(
+        &client,
+        Method::POST,
+        "/api/ilo/taglibro/events",
+        &input,
+    ).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_taglibro_update_event(
+    client: State<'_, AuthClient>,
+    event_id: String,
+    input: TaglibroEventInput,
+) -> Result<Value, String> {
+    taglibro_id(&event_id)?;
+    validate_taglibro_event(&input)?;
+    let response = authenticated_json_request(
+        &client,
+        Method::PATCH,
+        &format!("/api/ilo/taglibro/events/{event_id}"),
+        &input,
+    ).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_taglibro_delete_event(
+    client: State<'_, AuthClient>,
+    event_id: String,
+) -> Result<(), String> {
+    taglibro_id(&event_id)?;
+    let response = authenticated_request(
+        &client,
+        Method::DELETE,
+        &format!("/api/ilo/taglibro/events/{event_id}"),
+    ).await?;
+    let _: Value = decode_response(response).await?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn fluo_public_reserve(
     client: State<'_, AuthClient>,
     node_id: String,
@@ -1778,6 +1945,64 @@ fn validate_ilo_card(input: &IloCardInput) -> Result<(), String> {
         || input.note.chars().count() > 512
     {
         return Err("Ilo card fields are invalid.".to_owned());
+    }
+    Ok(())
+}
+
+fn taglibro_date(value: &str) -> Result<(), String> {
+    if value.len() != 10
+        || value.as_bytes().get(4) != Some(&b'-')
+        || value.as_bytes().get(7) != Some(&b'-')
+        || !value.bytes().enumerate().all(|(index, byte)| {
+            matches!(index, 4 | 7) || byte.is_ascii_digit()
+        })
+    {
+        return Err("The Taglibroplanilo date is invalid.".to_owned());
+    }
+    Ok(())
+}
+
+fn taglibro_id(value: &str) -> Result<(), String> {
+    if !(8..=32).contains(&value.len()) || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("The Taglibroplanilo identifier is invalid.".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_taglibro_plans(plans: &[TaglibroPlanInput]) -> Result<(), String> {
+    if plans.len() > 80 {
+        return Err("Too many Taglibroplanilo plans.".to_owned());
+    }
+    for plan in plans {
+        taglibro_id(&plan.id)?;
+        if plan.text.chars().count() > 512 {
+            return Err("A Taglibroplanilo plan is too long.".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn validate_taglibro_diary(diary: &TaglibroDiaryInput) -> Result<(), String> {
+    if diary.text.chars().count() > 16_000 || diary.mood.chars().count() > 8 {
+        return Err("Taglibroplanilo diary content is invalid.".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_taglibro_event(input: &TaglibroEventInput) -> Result<(), String> {
+    if input.title.trim().is_empty() || input.title.chars().count() > 256 {
+        return Err("Taglibroplanilo event title is invalid.".to_owned());
+    }
+    if input.description.chars().count() > 2_000 || input.event_at.trim().is_empty() {
+        return Err("Taglibroplanilo event details are invalid.".to_owned());
+    }
+    if input.reminder_enabled {
+        let Some(offset) = input.remind_offset_min else {
+            return Err("Taglibroplanilo reminder interval is invalid.".to_owned());
+        };
+        if !(1..=43_200).contains(&offset) {
+            return Err("Taglibroplanilo reminder interval is invalid.".to_owned());
+        }
     }
     Ok(())
 }

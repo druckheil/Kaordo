@@ -21,6 +21,15 @@ function createGateway(): IloGateway & {
     listCards: vi.fn().mockResolvedValue({ cards: [], nextOffset: null }),
     nextTrain: vi.fn(),
     progress: vi.fn(),
+    taglibroBootstrap: vi.fn().mockResolvedValue({ events: [], timezone: 'Europe/Berlin', today: { date: '2026-01-01', diary: { mood: '🙂', planState: {}, text: '' }, plans: [] } }),
+    taglibroDay: vi.fn(),
+    taglibroSavePlans: vi.fn(),
+    taglibroSaveDiary: vi.fn(),
+    taglibroSaveDay: vi.fn(),
+    taglibroListEvents: vi.fn().mockResolvedValue({ events: [] }),
+    taglibroCreateEvent: vi.fn(),
+    taglibroUpdateEvent: vi.fn(),
+    taglibroDeleteEvent: vi.fn(),
     updateCard: vi.fn(),
   };
 }

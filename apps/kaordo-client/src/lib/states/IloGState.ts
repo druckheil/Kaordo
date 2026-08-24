@@ -1,5 +1,7 @@
-import type { IloCardInput, IloErrorEntry, IloSnapshot } from '../domain/ilo';
-import { EMPTY_ILO_PROGRESS } from '../domain/ilo';
+import type {
+  IloCardInput, IloErrorEntry, IloSnapshot, TaglibroDay, TaglibroEventInput, TaglibroPlan,
+} from '../domain/ilo';
+import { EMPTY_ILO_PROGRESS, EMPTY_TAGLIBRO_SNAPSHOT } from '../domain/ilo';
 import type { IloGateway } from '../gateways/IloGateway';
 import { GState } from '../state/GState';
 
@@ -15,6 +17,7 @@ const EMPTY_SNAPSHOT: IloSnapshot = {
   refreshing: false,
   progress: EMPTY_ILO_PROGRESS,
   settings: { nativeLabel: 'russian', onboarded: false },
+  taglibro: { ...EMPTY_TAGLIBRO_SNAPSHOT },
   themes: [],
   train: { active: 0, card: null, due: 0 },
 };
@@ -35,6 +38,9 @@ export class IloGState extends GState<IloSnapshot> {
   #lastRefreshAt = 0;
   #cardsOffset = 0;
   #cardsQuery = { q: '', theme: '' };
+  #taglibroRequestId = 0;
+  #taglibroInFlight: Promise<void> | null = null;
+  #taglibroDays = new Map<string, TaglibroDay>();
 
   constructor(private readonly gateway: IloGateway) {
     super({ ...EMPTY_SNAPSHOT, progress: { ...EMPTY_ILO_PROGRESS } });
@@ -57,20 +63,160 @@ export class IloGState extends GState<IloSnapshot> {
     this.#entered = false;
     this.#requestId += 1;
     this.#cardsRequestId += 1;
+    this.#taglibroRequestId += 1;
     this.#refreshInFlight = null;
     this.#cardsInFlight = null;
-    this.update((snapshot) => ({ ...snapshot, cardsLoading: false, busy: null, refreshing: false }));
+    this.#taglibroInFlight = null;
+    this.update((snapshot) => ({
+      ...snapshot,
+      cardsLoading: false,
+      busy: null,
+      refreshing: false,
+      taglibro: { ...snapshot.taglibro, busy: null, refreshing: false },
+    }));
   }
 
   reset(): void {
     this.#requestId += 1;
     this.#cardsRequestId += 1;
+    this.#taglibroRequestId += 1;
     this.#refreshInFlight = null;
     this.#cardsInFlight = null;
+    this.#taglibroInFlight = null;
     this.#lastRefreshAt = 0;
     this.#cardsOffset = 0;
     this.#cardsQuery = { q: '', theme: '' };
+    this.#taglibroDays.clear();
     this.publish({ ...EMPTY_SNAPSHOT, progress: { ...EMPTY_ILO_PROGRESS } });
+  }
+
+  refreshTaglibro(force = true): Promise<void> {
+    if (this.#taglibroInFlight) return this.#taglibroInFlight;
+    const ownerId = this.#ownerId;
+    if (!ownerId) return Promise.resolve();
+    const current = this.snapshot.taglibro;
+    if (!force && current.phase === 'ready') return Promise.resolve();
+    const requestId = ++this.#taglibroRequestId;
+    this.update((snapshot) => ({
+      ...snapshot,
+      taglibro: { ...snapshot.taglibro, error: null, phase: current.phase === 'ready' ? 'ready' : 'loading', refreshing: true },
+    }));
+    let request: Promise<void>;
+    request = (async () => {
+      try {
+        const bootstrap = await this.gateway.taglibroBootstrap();
+        if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
+        this.#taglibroDays.set(bootstrap.today.date, bootstrap.today);
+        this.update((snapshot) => ({
+          ...snapshot,
+          taglibro: {
+            ...snapshot.taglibro,
+            bootstrap,
+            error: null,
+            events: bootstrap.events,
+            eventsLoaded: true,
+            eventsIncludePast: false,
+            phase: 'ready',
+            refreshing: false,
+            selectedDate: bootstrap.today.date,
+          },
+        }));
+      } catch (error) {
+        if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
+        this.taglibroFail(error);
+        this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, phase: 'ready', refreshing: false } }));
+      }
+    })().finally(() => {
+      if (this.#taglibroInFlight === request) this.#taglibroInFlight = null;
+    });
+    this.#taglibroInFlight = request;
+    return request;
+  }
+
+  async loadTaglibroDay(date: string, force = false): Promise<void> {
+    if (!date || (!force && this.#taglibroDays.has(date))) {
+      const cached = this.#taglibroDays.get(date);
+      if (cached) this.setTaglibroDay(cached);
+      return;
+    }
+    const ownerId = this.#ownerId;
+    if (!ownerId) return;
+    const requestId = ++this.#taglibroRequestId;
+    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, error: null, selectedDate: date } }));
+    try {
+      const day = await this.gateway.taglibroDay(date);
+      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
+      this.#taglibroDays.set(date, day);
+      this.setTaglibroDay(day);
+    } catch (error) {
+      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
+      this.taglibroFail(error);
+    }
+  }
+
+  async saveTaglibroPlans(date: string, plans: TaglibroPlan[]): Promise<boolean> {
+    return this.taglibroMutation('save plans', () => this.gateway.taglibroSavePlans(date, plans));
+  }
+
+  async saveTaglibroDiary(date: string, diary: TaglibroDay['diary']): Promise<boolean> {
+    return this.taglibroMutation('save diary', () => this.gateway.taglibroSaveDiary(date, diary));
+  }
+
+  async saveTaglibroDay(date: string, day: Pick<TaglibroDay, 'plans' | 'diary'>): Promise<boolean> {
+    return this.taglibroMutation('save day', () => this.gateway.taglibroSaveDay(date, day));
+  }
+
+  async loadTaglibroEvents(includePast = false, force = false): Promise<void> {
+    if (!force && this.snapshot.taglibro.eventsLoaded && this.snapshot.taglibro.eventsIncludePast === includePast) return;
+    const ownerId = this.#ownerId;
+    if (!ownerId) return;
+    const requestId = ++this.#taglibroRequestId;
+    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, error: null, eventsIncludePast: includePast } }));
+    try {
+      const result = await this.gateway.taglibroListEvents(includePast);
+      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
+      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: result.events, eventsLoaded: true } }));
+    } catch (error) {
+      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return;
+      this.taglibroFail(error);
+    }
+  }
+
+  async createTaglibroEvent(input: TaglibroEventInput): Promise<boolean> {
+    try {
+      const event = await this.gateway.taglibroCreateEvent(input);
+      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: insertEvent(snapshot.taglibro.events, event), eventsLoaded: true, error: null } }));
+      return true;
+    } catch (error) {
+      this.taglibroFail(error);
+      return false;
+    }
+  }
+
+  async updateTaglibroEvent(eventId: string, input: TaglibroEventInput): Promise<boolean> {
+    try {
+      const event = await this.gateway.taglibroUpdateEvent(eventId, input);
+      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: insertEvent(snapshot.taglibro.events.filter((item) => item.id !== eventId), event), eventsLoaded: true, error: null } }));
+      return true;
+    } catch (error) {
+      this.taglibroFail(error);
+      return false;
+    }
+  }
+
+  async deleteTaglibroEvent(eventId: string): Promise<boolean> {
+    try {
+      await this.gateway.taglibroDeleteEvent(eventId);
+      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, events: snapshot.taglibro.events.filter((item) => item.id !== eventId), error: null } }));
+      return true;
+    } catch (error) {
+      this.taglibroFail(error);
+      return false;
+    }
+  }
+
+  clearTaglibroError(): void {
+    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, error: null } }));
   }
 
   refresh(force = true): Promise<void> {
@@ -252,6 +398,34 @@ export class IloGState extends GState<IloSnapshot> {
       logs,
     }));
   }
+
+  private async taglibroMutation(operation: string, request: () => Promise<TaglibroDay>): Promise<boolean> {
+    const ownerId = this.#ownerId;
+    if (!ownerId || this.snapshot.taglibro.busy) return false;
+    const requestId = ++this.#taglibroRequestId;
+    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, busy: operation, error: null } }));
+    try {
+      const day = await request();
+      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return false;
+      this.#taglibroDays.set(day.date, day);
+      this.setTaglibroDay(day);
+      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, busy: null, error: null } }));
+      return true;
+    } catch (error) {
+      if (requestId !== this.#taglibroRequestId || ownerId !== this.#ownerId) return false;
+      this.taglibroFail(error);
+      this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, busy: null } }));
+      return false;
+    }
+  }
+
+  private setTaglibroDay(day: TaglibroDay): void {
+    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, calendar: day, selectedDate: day.date } }));
+  }
+
+  private taglibroFail(error: unknown): void {
+    this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, error: readableTaglibroError(error) } }));
+  }
 }
 
 function replaceCard(cards: IloSnapshot['cards'], next: NonNullable<Awaited<ReturnType<IloGateway['createCard']>>['card']>): IloSnapshot['cards'] {
@@ -265,6 +439,16 @@ function readableError(error: unknown): string {
   if (typeof error === 'string' && error.trim()) return error;
   if (error instanceof Error && error.message.trim()) return error.message;
   return 'Lingvolernado is unavailable.';
+}
+
+function readableTaglibroError(error: unknown): string {
+  if (typeof error === 'string' && error.trim()) return error;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return 'Taglibroplanilo is unavailable.';
+}
+
+function insertEvent(events: IloSnapshot['taglibro']['events'], next: IloSnapshot['taglibro']['events'][number]) {
+  return [...events, next].sort((left, right) => left.eventAt - right.eventAt || left.id.localeCompare(right.id));
 }
 
 function logKey(ownerId: string): string {

@@ -1,8 +1,12 @@
-import type { IloBootstrap, IloCardInput, IloCardPage, IloMutation, IloProgress, IloTrainSnapshot } from '../domain/ilo';
+import type {
+  IloBootstrap, IloCardInput, IloCardPage, IloMutation, IloProgress, IloTrainSnapshot,
+  TaglibroBootstrap, TaglibroDay, TaglibroEvent, TaglibroEventInput, TaglibroPlan,
+} from '../domain/ilo';
 import type { IloCardsQuery, IloGateway } from './IloGateway';
 import { requestJson } from './WebApiClient';
 
 const UNAVAILABLE = 'Lingvolernado is unavailable.';
+const TAGLIBRO_UNAVAILABLE = 'Taglibroplanilo is unavailable.';
 
 export class WebIloGateway implements IloGateway {
   bootstrap(): Promise<IloBootstrap> {
@@ -37,6 +41,33 @@ export class WebIloGateway implements IloGateway {
   }
   updateCard(cardId: string, input: IloCardInput): Promise<IloMutation> {
     return requestJson(`/api/ilo/cards/${encodeURIComponent(cardId)}`, jsonRequest('PATCH', input), UNAVAILABLE);
+  }
+  taglibroBootstrap(): Promise<TaglibroBootstrap> {
+    return requestJson('/api/ilo/taglibro/bootstrap', {}, TAGLIBRO_UNAVAILABLE);
+  }
+  taglibroDay(date: string): Promise<TaglibroDay> {
+    return requestJson(`/api/ilo/taglibro/day?date=${encodeURIComponent(date)}`, {}, TAGLIBRO_UNAVAILABLE);
+  }
+  taglibroSavePlans(date: string, plans: TaglibroPlan[]): Promise<TaglibroDay> {
+    return requestJson('/api/ilo/taglibro/plans', jsonRequest('PUT', { date, plans }), TAGLIBRO_UNAVAILABLE);
+  }
+  taglibroSaveDiary(date: string, diary: TaglibroDay['diary']): Promise<TaglibroDay> {
+    return requestJson('/api/ilo/taglibro/diary', jsonRequest('PUT', { date, ...diary }), TAGLIBRO_UNAVAILABLE);
+  }
+  taglibroSaveDay(date: string, day: Pick<TaglibroDay, 'plans' | 'diary'>): Promise<TaglibroDay> {
+    return requestJson('/api/ilo/taglibro/day', jsonRequest('PUT', { date, ...day }), TAGLIBRO_UNAVAILABLE);
+  }
+  taglibroListEvents(includePast = false): Promise<{ events: TaglibroEvent[] }> {
+    return requestJson(`/api/ilo/taglibro/events?includePast=${includePast ? '1' : '0'}`, {}, TAGLIBRO_UNAVAILABLE);
+  }
+  taglibroCreateEvent(input: TaglibroEventInput): Promise<TaglibroEvent> {
+    return requestJson('/api/ilo/taglibro/events', jsonRequest('POST', input), TAGLIBRO_UNAVAILABLE);
+  }
+  taglibroUpdateEvent(eventId: string, input: TaglibroEventInput): Promise<TaglibroEvent> {
+    return requestJson(`/api/ilo/taglibro/events/${encodeURIComponent(eventId)}`, jsonRequest('PATCH', input), TAGLIBRO_UNAVAILABLE);
+  }
+  async taglibroDeleteEvent(eventId: string): Promise<void> {
+    await requestJson(`/api/ilo/taglibro/events/${encodeURIComponent(eventId)}`, { method: 'DELETE' }, TAGLIBRO_UNAVAILABLE);
   }
 }
 

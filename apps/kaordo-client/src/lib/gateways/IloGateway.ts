@@ -4,6 +4,11 @@ import type {
   IloCardPage,
   IloMutation,
   IloProgress,
+  TaglibroBootstrap,
+  TaglibroDay,
+  TaglibroEvent,
+  TaglibroEventInput,
+  TaglibroPlan,
   IloTrainSnapshot,
 } from '../domain/ilo';
 
@@ -19,4 +24,16 @@ export interface IloGateway {
   nextTrain(): Promise<IloTrainSnapshot>;
   progress(): Promise<IloProgress>;
   updateCard(cardId: string, input: IloCardInput): Promise<IloMutation>;
+  taglibroBootstrap(): Promise<TaglibroBootstrap>;
+  taglibroDay(date: string): Promise<TaglibroDay>;
+  taglibroSavePlans(date: string, plans: TaglibroPlan[]): Promise<TaglibroDay>;
+  taglibroSaveDiary(
+    date: string,
+    diary: TaglibroDay['diary'],
+  ): Promise<TaglibroDay>;
+  taglibroSaveDay(date: string, day: Pick<TaglibroDay, 'plans' | 'diary'>): Promise<TaglibroDay>;
+  taglibroListEvents(includePast?: boolean): Promise<{ events: TaglibroEvent[] }>;
+  taglibroCreateEvent(input: TaglibroEventInput): Promise<TaglibroEvent>;
+  taglibroUpdateEvent(eventId: string, input: TaglibroEventInput): Promise<TaglibroEvent>;
+  taglibroDeleteEvent(eventId: string): Promise<void>;
 }

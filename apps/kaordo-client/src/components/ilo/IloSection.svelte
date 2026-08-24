@@ -2,6 +2,7 @@
   import LingvolernadoCardForm from './LingvolernadoCardForm.svelte';
   import LingvolernadoDictionary from './LingvolernadoDictionary.svelte';
   import LingvolernadoProgress from './LingvolernadoProgress.svelte';
+  import TaglibroplaniloSection from './TaglibroplaniloSection.svelte';
   import type { IloCard, IloCardInput, IloSnapshot, IloTab } from '../../lib/domain/ilo';
   import type { IloGState } from '../../lib/states/IloGState';
 
@@ -13,6 +14,7 @@
   let pendingDelete = $state<{ ids: string[]; label: string } | null>(null);
   let copyingLogs = $state(false);
   let copiedLogs = $state(false);
+  let activeTool = $state<'lingvolernado' | 'taglibroplanilo'>('lingvolernado');
 
   const tabs = [
     { id: 'train' as const, label: 'Train', icon: 'spark' },
@@ -28,6 +30,11 @@
     if (tab === 'search' && !snapshot.cardsLoaded && !snapshot.cardsLoading) {
       void iloState.searchCards('', '');
     }
+  }
+
+  function openTool(tool: typeof activeTool): void {
+    activeTool = tool;
+    if (tool === 'taglibroplanilo') void iloState.refreshTaglibro(false);
   }
 
   async function grade(action: 'forgot' | 'remember'): Promise<void> {
@@ -105,12 +112,18 @@
       <span>Ilo</span>
       <strong>Tools</strong>
     </header>
-    <button class="tool-card active" type="button" aria-current="page">
+    <button class:active={activeTool === 'lingvolernado'} class="tool-card" type="button" aria-current={activeTool === 'lingvolernado' ? 'page' : undefined} onclick={() => openTool('lingvolernado')}>
       <span class="tool-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="M5 4.5h9.5A3.5 3.5 0 0 1 18 8v11.5H8A3 3 0 0 1 5 16.5z"/><path d="M8 19.5a3 3 0 0 1 0-6h10M9 8h5M9 10.8h3.5"/></svg>
       </span>
       <span><strong>Lingvolernado</strong><small>German vocabulary</small></span>
       {#if snapshot.progress.due > 0}<b>{snapshot.progress.due}</b>{/if}
+    </button>
+    <button class:active={activeTool === 'taglibroplanilo'} class="tool-card tag-tool" type="button" aria-current={activeTool === 'taglibroplanilo' ? 'page' : undefined} onclick={() => openTool('taglibroplanilo')}>
+      <span class="tool-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+      </span>
+      <span><strong>Taglibroplanilo</strong><small>Daily planner & diary</small></span>
     </button>
     <div class="rail-spacer"></div>
     <div class="storage-note">
@@ -119,7 +132,10 @@
     </div>
   </aside>
 
-  <main class="tool-workspace">
+  <main class:taglibro-active={activeTool === 'taglibroplanilo'} class="tool-workspace">
+    {#if activeTool === 'taglibroplanilo'}
+      <TaglibroplaniloSection snapshot={snapshot.taglibro} state={iloState} />
+    {:else}
     <header class="tool-header">
       <div class="tool-heading">
         <span class="hero-mark" aria-hidden="true">L</span>
@@ -286,6 +302,7 @@
         </div>
       </div>
     {/if}
+    {/if}
   </main>
 </section>
 
@@ -313,6 +330,8 @@
   .storage-note strong { color: #5d6e64; font-size: calc(8px * var(--text-scale)); font-weight: 680; }
   .storage-note small { margin-top: 2px; font-size: calc(7px * var(--text-scale)); }
   .tool-workspace { position: relative; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); min-width: 0; min-height: 0; background: radial-gradient(circle at 72% -8%, rgb(77 142 118 / 9%), transparent 30%), var(--canvas); }
+  .tool-workspace.taglibro-active { display: block; overflow: auto; }
+  .tool-workspace.taglibro-active > :global(.taglibro-shell) { min-height: 100%; }
   .tool-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 102px; padding: 18px 30px; background: color-mix(in srgb, var(--canvas) 86%, transparent); border-bottom: 1px solid var(--line); }
   .tool-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
   .hero-mark { display: grid; flex: none; width: 52px; height: 52px; color: #f7fbf9; background: linear-gradient(145deg, #5b9984, #2f6d5b); border: 1px solid #2d6857; border-radius: 15px; box-shadow: 0 10px 24px rgb(45 103 84 / 18%); font-size: calc(20px * var(--text-scale)); font-weight: 730; place-items: center; }
