@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { CanvasService } from '../../lib/services/CanvasService';
+  import type { ArrowHeadMode, ArrowLineStyle } from '../../lib/domain/workspace';
   import { canvasMediaKind } from '../../lib/features/canvasMedia';
   import type { CanvasSnapshot, CanvasTool } from '../../lib/states/CanvasGState';
 
@@ -22,6 +23,16 @@
   const textColors = ['#25332d', '#376f60', '#3f6591', '#9a5148', '#76528e'];
   const highlights = ['#fff1a8', '#dcece5', '#dce8f6', '#f3deda', 'transparent'];
   const leftBarOptions = [0, 1, 2] as const;
+  const arrowHeadModes: Array<[ArrowHeadMode, string, string]> = [
+    ['end', 'End arrow', '→'],
+    ['both', 'Two-sided arrow', '↔'],
+    ['none', 'Plain line', '—'],
+  ];
+  const arrowLineStyles: Array<[ArrowLineStyle, string]> = [
+    ['solid', 'Solid'],
+    ['dashed', 'Dashed'],
+    ['dotted', 'Dotted'],
+  ];
 
   function chooseTool(tool: CanvasTool) {
     canvas.state.setTool(tool);
@@ -129,6 +140,19 @@
     >
       <svg viewBox="0 0 20 20" aria-hidden="true">
         <rect x="3.5" y="4.5" width="13" height="11" rx="2" />
+      </svg>
+    </button>
+    <button
+      class:tool-button--active={snapshot.activeTool === 'arrow'}
+      class="tool-button"
+      type="button"
+      aria-label="Arrow tool"
+      aria-pressed={snapshot.activeTool === 'arrow'}
+      title="Draw arrow"
+      onclick={() => chooseTool('arrow')}
+    >
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <path d="M3 10h11m-4-4 4 4-4 4" />
       </svg>
     </button>
     <button
@@ -249,6 +273,84 @@
     </div>
   {:else if snapshot.activeTool === 'text'}
     <span class="text-tool-hint">Click anywhere to add text</span>
+  {:else if selectedElement?.type === 'arrow'}
+    <div class="style-group" aria-label="Arrow stroke">
+      <span>Stroke</span>
+      {#each strokes as color}
+        <button
+          class:color-button--active={selectedElement.stroke === color}
+          class="color-button color-button--stroke"
+          type="button"
+          aria-label={`Arrow stroke ${color}`}
+          aria-pressed={selectedElement.stroke === color}
+          style={`--color: ${color}`}
+          onclick={() => void canvas.setArrowStroke(color)}
+        ></button>
+      {/each}
+    </div>
+    <label class="arrow-range-group" aria-label="Arrow thickness">
+      <span>Width</span>
+      <input
+        class="arrow-range"
+        type="range"
+        min="1"
+        max="12"
+        step="0.5"
+        value={selectedElement.strokeWidth}
+        oninput={(event) => void canvas.setArrowWidth(Number((event.currentTarget as HTMLInputElement).value))}
+      />
+      <output>{selectedElement.strokeWidth.toFixed(1)}px</output>
+    </label>
+    <div class="arrow-points-group" aria-label="Arrow control points">
+      <span>Points</span>
+      <button
+        class="format-button arrow-points-button"
+        type="button"
+        aria-label="Remove last arrow point"
+        title="Remove last point"
+        disabled={selectedElement.controlPoints.length <= 1}
+        onclick={() => void canvas.removeArrowControlPoint()}
+      >−</button>
+      <output>{selectedElement.controlPoints.length}</output>
+      <button
+        class="format-button arrow-points-button"
+        type="button"
+        aria-label="Add arrow point"
+        title="Add point"
+        disabled={selectedElement.controlPoints.length >= 32}
+        onclick={() => void canvas.addArrowControlPoint()}
+      >+</button>
+    </div>
+    <div class="tool-group arrow-style-group" aria-label="Arrow heads">
+      <span>Heads</span>
+      {#each arrowHeadModes as [mode, label, glyph]}
+        <button
+          class:format-button--active={selectedElement.headMode === mode}
+          class="format-button arrow-head-button"
+          type="button"
+          aria-label={label}
+          aria-pressed={selectedElement.headMode === mode}
+          title={label}
+          onclick={() => void canvas.setArrowHeadMode(mode)}
+        >{glyph}</button>
+      {/each}
+    </div>
+    <div class="tool-group arrow-style-group" aria-label="Arrow line style">
+      <span>Line</span>
+      {#each arrowLineStyles as [style, label]}
+        <button
+          class:format-button--active={selectedElement.lineStyle === style}
+          class="format-button arrow-line-style-button"
+          type="button"
+          aria-label={label}
+          aria-pressed={selectedElement.lineStyle === style}
+          title={label}
+          onclick={() => void canvas.setArrowLineStyle(style)}
+        ><i class="line-style-preview line-style-preview--{style}" aria-hidden="true"></i></button>
+      {/each}
+    </div>
+  {:else if snapshot.activeTool === 'arrow'}
+    <span class="text-tool-hint">Drag between points or elements to draw an arrow</span>
   {:else}
     <div class="style-group" aria-label="Card fill">
       <span>Fill</span>
@@ -286,6 +388,8 @@
       ? snapshot.editingTextId ? 'Editing text' : 'Text selected'
       : selectedElement?.type === 'media'
         ? 'Media selected'
+      : selectedElement?.type === 'arrow'
+        ? 'Arrow selected'
       : snapshot.selectedGlobalElementId
         ? 'Card selected'
       : snapshot.selectedCardId
@@ -435,6 +539,18 @@
   .color-button--highlight::after { background: var(--color); border-radius: 2px; box-shadow: inset 0 -3px rgb(64 73 68 / 14%); }
   .color-button--highlight:last-child::after { background: linear-gradient(135deg, transparent 45%, #b9564d 46%, #b9564d 54%, transparent 55%); }
   .color-button:hover, .color-button--active { background: #edf3ef; border-color: #c5d5cd; }
+  .arrow-points-group { display: flex; align-items: center; gap: 2px; margin-left: 4px; white-space: nowrap; }
+  .arrow-points-group > span { margin-right: 2px; color: #7a867f; font-size: calc(9px * var(--text-scale)); }
+  .arrow-points-group output { min-width: 15px; color: #59675f; text-align: center; font-size: calc(9px * var(--text-scale)); font-variant-numeric: tabular-nums; }
+  .arrow-points-button { min-width: 22px; height: 25px; padding: 0; font-size: calc(14px * var(--text-scale)); line-height: 1; }
+  .arrow-points-button:disabled { cursor: default; opacity: .38; }
+  .arrow-style-group { gap: 2px; margin-left: 5px; white-space: nowrap; }
+  .arrow-style-group > span { margin-right: 2px; color: #7a867f; font-size: calc(9px * var(--text-scale)); }
+  .arrow-head-button { min-width: 28px; padding: 0 4px; font-size: calc(15px * var(--text-scale)); line-height: 1; }
+  .arrow-line-style-button { min-width: 29px; padding: 0 4px; }
+  .line-style-preview { display: block; width: 18px; height: 2px; background: currentColor; border-radius: 999px; }
+  .line-style-preview--dashed { background: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 8px); }
+  .line-style-preview--dotted { height: 4px; background: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 5px); }
   .tool-button:focus-visible, .color-button:focus-visible { outline: 2px solid rgb(55 117 102 / 35%); outline-offset: 1px; }
 
   .canvas-toolbar-status {

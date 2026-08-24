@@ -2,10 +2,23 @@
   import { onDestroy, tick } from 'svelte';
   import type { CanvasPlacement } from '../../lib/domain/canvas';
   import type {
+    ArrowElement,
     CanvasElement,
     RectangleElement,
     WorkspaceCanvasDocument,
   } from '../../lib/domain/workspace';
+  import {
+    arrowFromGesture,
+    continueArrowDraw,
+    isArrowDrawValid,
+    startArrowDraw,
+    type ArrowDrawGesture,
+  } from '../../lib/features/arrowDrawing';
+  import { arrowPoints, snapArrow } from '../../lib/features/arrowGeometry';
+  import {
+    dispatchArrowLiveDrag,
+    type ArrowHandle,
+  } from '../../lib/features/arrowLive';
   import {
     CANVAS_CARD_HEADER_HEIGHT,
   } from '../../lib/features/canvas';
@@ -27,6 +40,7 @@
   import CanvasRectangle from './CanvasRectangle.svelte';
   import CanvasMediaElement from './CanvasMediaElement.svelte';
   import CanvasTextBlock from './CanvasTextBlock.svelte';
+  import CanvasArrow from './CanvasArrow.svelte';
 
   type Props = {
     canvas: CanvasService;
@@ -37,6 +51,7 @@
   };
 
   type MoveGesture = {
+    arrowHandle?: ArrowHandle;
     currentX: number;
     currentY: number;
     element: CanvasElement;
@@ -50,7 +65,9 @@
   let { canvas, document, placement, snapshot, workspaceId }: Props = $props();
   let board = $state<HTMLDivElement>();
   let draftElement: HTMLSpanElement | undefined;
-  let gesture: RectangleDrawGesture | MoveGesture | null = null;
+  let draftArrow: SVGSVGElement | undefined;
+  let draftArrowLine: SVGLineElement | undefined;
+  let gesture: ArrowDrawGesture | RectangleDrawGesture | MoveGesture | null = null;
   let visualFrame: number | null = null;
   let pendingPoint: { x: number; y: number } | null = null;
   let lastRectanglePointerDown: { at: number; id: string } | null = null;
@@ -102,6 +119,19 @@
       return;
     }
     if (
+      event.button === 0 &&
+      snapshot.activeTool === 'arrow' &&
+      snapshot.isCanvasDocumentReady
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      const point = boardPoint(event, true);
+      gesture = startArrowDraw(point, event.pointerId);
+      updateArrowDraft(gesture);
+      board?.setPointerCapture?.(event.pointerId);
+      return;
+    }
+    if (
       event.button !== 0 ||
       snapshot.activeTool !== 'rectangle' ||
       !snapshot.isCanvasDocumentReady
@@ -114,7 +144,11 @@
     board?.setPointerCapture?.(event.pointerId);
   }
 
-  function startMove(event: PointerEvent, element: CanvasElement) {
+  function startMove(
+    event: PointerEvent,
+    element: CanvasElement,
+    arrowHandle?: ArrowHandle,
+  ) {
     // Images/GIFs use a short drag threshold so a click can still open the
     // viewer. Their promoted pointermove has button=-1 by browser design.
     const deferredMediaDrag = element.type === 'media' && event.type === 'pointermove';
@@ -170,10 +204,19 @@
       }
       return;
     }
+    if (event.button === 0 && snapshot.activeTool === 'arrow') {
+      event.preventDefault();
+      const point = boardPoint(event, true);
+      gesture = startArrowDraw(point, event.pointerId);
+      updateArrowDraft(gesture);
+      board?.setPointerCapture?.(event.pointerId);
+      return;
+    }
     if (snapshot.activeTool !== 'select') return;
     event.preventDefault();
     const point = boardPoint(event);
     gesture = {
+      arrowHandle,
       currentX: point.x,
       currentY: point.y,
       element,
@@ -196,7 +239,7 @@
   function continueGesture(event: PointerEvent) {
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     event.preventDefault();
-    pendingPoint = boardPoint(latestPointerEvent(event), gesture.kind === 'draw');
+    pendingPoint = boardPoint(latestPointerEvent(event), gesture.kind !== 'move');
     if (visualFrame !== null) return;
     if (typeof window.requestAnimationFrame !== 'function') {
       flushGestureVisual();
@@ -209,7 +252,7 @@
     const active = gesture;
     cancelVisualFrame();
     if (active) {
-      pendingPoint = boardPoint(latestPointerEvent(event), active.kind === 'draw');
+      pendingPoint = boardPoint(latestPointerEvent(event), active.kind !== 'move');
       flushGestureVisual();
     }
     const finished = active;
@@ -220,19 +263,28 @@
       board.releasePointerCapture(event.pointerId);
     }
 
-    if (finished.kind === 'draw' && !isRectangleDrawValid(finished)) {
+    if (
+      (finished.kind === 'draw' && !isRectangleDrawValid(finished)) ||
+      (finished.kind === 'draw-arrow' && !isArrowDrawValid(finished))
+    ) {
       clearGestureVisual(finished);
       gesture = null;
-      canvas.state.announce('Card is too small and was not created.');
+      canvas.state.announce(
+        finished.kind === 'draw-arrow'
+          ? 'Arrow is too short and was not created.'
+          : 'Card is too small and was not created.',
+      );
       return;
     }
     canvas.state.setTool('select');
+    const currentDocument = canvas.state.canvasDocumentFor(workspaceId);
 
     const element = finished.kind === 'draw'
       ? drawnRectangle(finished)
-      : settleMovedElement(finished);
+      : finished.kind === 'draw-arrow'
+        ? drawnArrow(finished, currentDocument.elements)
+        : settleMovedElement(finished);
     canvas.state.selectGlobalElement(element.id);
-    const currentDocument = canvas.state.canvasDocumentFor(workspaceId);
     const exists = currentDocument.elements.some((candidate) => candidate.id === element.id);
     let updatedElements = exists
       ? currentDocument.elements.map((candidate) =>
@@ -270,12 +322,18 @@
         : element.parentObjectId
           ? `attached to ${panelTitle(element.parentObjectId)}`
           : 'detached from panel';
-      const name = element.type === 'text' ? 'Text' : element.type === 'media' ? 'Media' : 'Card';
+      const name = element.type === 'text'
+        ? 'Text'
+        : element.type === 'media'
+          ? 'Media'
+          : element.type === 'arrow'
+            ? 'Arrow'
+            : 'Card';
       canvas.state.announce(
         exists ? `${name} ${location}.` : `${name} added and ${location}.`,
       );
     } catch {
-      canvas.state.announce('Card could not be saved.');
+      canvas.state.announce('Canvas element could not be saved.');
     }
   }
 
@@ -311,16 +369,76 @@
     };
   }
 
+  function drawnArrow(
+    draw: ArrowDrawGesture,
+    elements: readonly CanvasElement[],
+  ): ArrowElement {
+    const arrow = arrowFromGesture(draw, createElementId(), snapshot.shapeStroke, placement.id);
+    return snapArrow(arrow, elements, snapshot.placements[workspaceId] ?? []);
+  }
+
   function movedElement(move: MoveGesture): CanvasElement {
+    const deltaX = move.currentX - move.startX;
+    const deltaY = move.currentY - move.startY;
+    if (move.element.type === 'arrow') {
+      if (move.arrowHandle !== undefined) {
+        const moved: ArrowElement = {
+          ...move.element,
+          ...(typeof move.arrowHandle === 'number'
+            ? {
+                controlPoints: move.element.controlPoints.map((point, index) =>
+                  index === move.arrowHandle
+                    ? { x: move.currentX, y: move.currentY }
+                    : point,
+                ),
+              }
+            : move.arrowHandle === 'start'
+              ? { startX: move.currentX, startY: move.currentY }
+              : { endX: move.currentX, endY: move.currentY }),
+        };
+        if (move.arrowHandle === 'start') delete moved.startAttachment;
+        else if (move.arrowHandle === 'end') delete moved.endAttachment;
+        return moved;
+      }
+      if (Math.hypot(deltaX, deltaY) < 0.5) return move.element;
+      const resolved = arrowPoints(
+        move.element,
+        document.elements,
+        snapshot.placements[workspaceId] ?? [],
+      );
+      const moved: ArrowElement = {
+        ...move.element,
+        endX: resolved.end.x + deltaX,
+        endY: resolved.end.y + deltaY,
+        startX: resolved.start.x + deltaX,
+        startY: resolved.start.y + deltaY,
+        controlPoints: move.element.controlPoints.map((point) => ({
+          x: point.x + deltaX,
+          y: point.y + deltaY,
+        })),
+        x: move.element.x + deltaX,
+        y: move.element.y + deltaY,
+      };
+      delete moved.startAttachment;
+      delete moved.endAttachment;
+      return moved;
+    }
     return {
       ...move.element,
-      x: move.element.x + move.currentX - move.startX,
-      y: move.element.y + move.currentY - move.startY,
+      x: move.element.x + deltaX,
+      y: move.element.y + deltaY,
     };
   }
 
   function settleMovedElement(move: MoveGesture): CanvasElement {
     const moved = movedElement(move);
+    if (moved.type === 'arrow') {
+      return snapArrow(
+        moved,
+        document.elements,
+        snapshot.placements[workspaceId] ?? [],
+      );
+    }
     const globalX = placement.x + moved.x;
     const globalY = placement.y + CANVAS_CARD_HEADER_HEIGHT + moved.y;
     return settleCanvasElement(
@@ -343,6 +461,15 @@
         }
       }
     }
+    for (const candidate of document.elements) {
+      if (
+        candidate.type === 'arrow' &&
+        (candidate.startAttachment?.elementId && ids.has(candidate.startAttachment.elementId) ||
+          candidate.endAttachment?.elementId && ids.has(candidate.endAttachment.elementId))
+      ) {
+        ids.add(candidate.id);
+      }
+    }
     return [...ids].flatMap((id) => {
       const node = [...root.querySelectorAll<HTMLElement>('[data-canvas-element-id]')]
         .find((candidate) => candidate.dataset.canvasElementId === id);
@@ -362,20 +489,32 @@
     if (active.kind === 'draw') {
       Object.assign(active, continueRectangleDraw(active, point));
       updateDraft(active);
+    } else if (active.kind === 'draw-arrow') {
+      Object.assign(active, continueArrowDraw(active, point));
+      updateArrowDraft(active);
     } else applyMoveVisual(active);
   }
 
   function applyMoveVisual(move: MoveGesture) {
-    const transform = `translate3d(${move.currentX - move.startX}px, ${move.currentY - move.startY}px, 0)`;
+    const x = move.currentX - move.startX;
+    const y = move.currentY - move.startY;
+    const transform = `translate3d(${x}px, ${y}px, 0)`;
+    dispatchLiveMove(move, x, y);
     for (const node of move.visualNodes) {
+      if (node.classList.contains('canvas-arrow') && (move.arrowHandle !== undefined || move.element.type !== 'arrow')) {
+        continue;
+      }
       node.style.transform = transform;
       node.style.willChange = 'transform';
       node.style.zIndex = '8';
     }
   }
 
-  function clearGestureVisual(active: RectangleDrawGesture | MoveGesture | null) {
+  function clearGestureVisual(
+    active: ArrowDrawGesture | RectangleDrawGesture | MoveGesture | null,
+  ) {
     if (active?.kind === 'move') {
+      dispatchLiveEnd(active);
       for (const node of active.visualNodes) {
         node.style.removeProperty('transform');
         node.style.removeProperty('will-change');
@@ -386,6 +525,68 @@
       draftElement.style.display = 'none';
       draftElement.classList.remove('nested-rectangle--invalid');
     }
+    if (draftArrow) draftArrow.style.display = 'none';
+  }
+
+  function dispatchLiveMove(move: MoveGesture, deltaX: number, deltaY: number): void {
+    if (move.element.type === 'arrow' && move.arrowHandle !== undefined) {
+      if (typeof move.arrowHandle === 'number') {
+        dispatchArrowLiveDrag({
+          arrowId: move.element.id,
+          controlPoint: move.arrowHandle,
+          deltaX,
+          deltaY,
+          phase: 'move',
+        });
+        return;
+      }
+      dispatchArrowLiveDrag({
+        arrowId: move.element.id,
+        deltaX,
+        deltaY,
+        endpoint: move.arrowHandle,
+        phase: 'move',
+      });
+      return;
+    }
+    for (const elementId of liveTargetIds(move.element)) {
+      dispatchArrowLiveDrag({ elementId, deltaX, deltaY, phase: 'move' });
+    }
+  }
+
+  function dispatchLiveEnd(move: MoveGesture): void {
+    if (move.element.type === 'arrow' && move.arrowHandle !== undefined) {
+      if (typeof move.arrowHandle === 'number') {
+        dispatchArrowLiveDrag({
+          arrowId: move.element.id,
+          controlPoint: move.arrowHandle,
+          deltaX: 0,
+          deltaY: 0,
+          phase: 'end',
+        });
+        return;
+      }
+      dispatchArrowLiveDrag({
+        arrowId: move.element.id,
+        deltaX: 0,
+        deltaY: 0,
+        endpoint: move.arrowHandle,
+        phase: 'end',
+      });
+      return;
+    }
+    for (const elementId of liveTargetIds(move.element)) {
+      dispatchArrowLiveDrag({ elementId, deltaX: 0, deltaY: 0, phase: 'end' });
+    }
+  }
+
+  function liveTargetIds(element: CanvasElement): string[] {
+    const ids = [element.id];
+    if (element.type !== 'rectangle') return ids;
+    for (const child of document.elements) {
+      if ('parentElementId' in child && child.parentElementId === element.id) ids.push(child.id);
+    }
+    return ids;
   }
 
   function updateDraft(draw: RectangleDrawGesture) {
@@ -394,6 +595,16 @@
     draftElement.style.cssText = rectangleStyle(preview);
     draftElement.style.display = 'block';
     draftElement.classList.toggle('nested-rectangle--invalid', !isRectangleDrawValid(draw));
+  }
+
+  function updateArrowDraft(draw: ArrowDrawGesture) {
+    if (!draftArrow || !draftArrowLine) return;
+    draftArrow.style.display = 'block';
+    draftArrowLine.setAttribute('x1', `${draw.startX}`);
+    draftArrowLine.setAttribute('y1', `${draw.startY}`);
+    draftArrowLine.setAttribute('x2', `${draw.currentX}`);
+    draftArrowLine.setAttribute('y2', `${draw.currentY}`);
+    draftArrowLine.style.opacity = isArrowDrawValid(draw) ? '0.9' : '0.28';
   }
 
   function cancelVisualFrame() {
@@ -435,7 +646,7 @@
 
 <div
   class="card-nested-canvas"
-  class:card-nested-canvas--drawing={snapshot.activeTool === 'rectangle' || snapshot.activeTool === 'text'}
+  class:card-nested-canvas--drawing={snapshot.activeTool === 'arrow' || snapshot.activeTool === 'rectangle' || snapshot.activeTool === 'text'}
   class:card-nested-canvas--text={snapshot.activeTool === 'text'}
   bind:this={board}
   role="application"
@@ -481,6 +692,31 @@
         onStartMove={startMove}
         selected={snapshot.selectedGlobalElementId === element.id}
         workspaceId={workspaceId}
+      />
+    {:else if element.type === 'arrow'}
+      <CanvasArrow
+        arrow={element}
+        elements={document.elements}
+        onContextMenu={(event) => openContextMenu(event, 'Arrow', [
+          {
+            action: () => canvas.state.selectGlobalElement(element.id),
+            icon: 'select',
+            id: 'select-arrow',
+            label: 'Select Arrow',
+          },
+          {
+            action: () => canvas.deleteCanvasElement(workspaceId, element.id),
+            confirmation: 'Delete this arrow?',
+            danger: true,
+            icon: 'delete',
+            id: 'delete-arrow',
+            label: 'Delete Arrow',
+          },
+        ])}
+        onStartMove={startMove}
+        onStartPointMove={startMove}
+        placements={snapshot.placements[workspaceId] ?? []}
+        selected={snapshot.selectedGlobalElementId === element.id}
       />
     {:else if element.type === 'text'}
       <CanvasTextBlock
@@ -530,9 +766,34 @@
     aria-hidden="true"
   ></span>
 
+  <svg
+    bind:this={draftArrow}
+    class="canvas-arrow canvas-arrow--draft"
+    style="display:none"
+    viewBox={`0 0 ${Math.max(1, placement.width)} ${Math.max(1, placement.height - CANVAS_CARD_HEADER_HEIGHT)}`}
+    aria-hidden="true"
+  >
+    <defs>
+      <marker id={`nested-arrow-draft-head-${placement.id}`} markerHeight="6" markerUnits="strokeWidth" markerWidth="6" orient="auto-start-reverse" refX="5" refY="3" viewBox="0 0 6 6">
+        <path d="M0 0 6 3 0 6Z" fill="currentColor"></path>
+      </marker>
+    </defs>
+    <line
+      bind:this={draftArrowLine}
+      marker-end={`url(#nested-arrow-draft-head-${placement.id})`}
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-width="2.5"
+    ></line>
+  </svg>
+
   {#if elements.length === 0}
     <span class="nested-canvas-empty" aria-hidden="true">
-      {snapshot.activeTool === 'rectangle' ? 'Draw a card here' : 'Add cards here to attach them'}
+      {snapshot.activeTool === 'rectangle'
+        ? 'Draw a card here'
+        : snapshot.activeTool === 'arrow'
+          ? 'Draw an arrow here'
+          : 'Add cards here to attach them'}
     </span>
   {/if}
 </div>
@@ -563,6 +824,16 @@
 
   .nested-rectangle--draft {
     opacity: 0.72;
+    pointer-events: none;
+  }
+
+  .canvas-arrow--draft {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    color: #397565;
+    opacity: 0.9;
     pointer-events: none;
   }
 

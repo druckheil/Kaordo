@@ -35,7 +35,7 @@ export type CanvasSnapshot = {
   zooms: Record<string, number>;
 };
 
-export type CanvasTool = 'rectangle' | 'select' | 'text';
+export type CanvasTool = 'arrow' | 'rectangle' | 'select' | 'text';
 
 /** Owns serializable canvas-session data and small cross-component UI signals. */
 export class CanvasGState extends GState<CanvasSnapshot> {
@@ -250,9 +250,15 @@ export class CanvasGState extends GState<CanvasSnapshot> {
         ...this.snapshot.canvasDocuments,
         [workspaceId]: {
           ...document,
-          elements: document.elements.filter(
-            (element) => element.parentObjectId !== objectId,
-          ),
+          elements: document.elements
+            .filter((element) => element.parentObjectId !== objectId)
+            .map((element) => {
+              if (element.type !== 'arrow') return element;
+              const next = { ...element };
+              if (next.startAttachment?.objectId === objectId) delete next.startAttachment;
+              if (next.endAttachment?.objectId === objectId) delete next.endAttachment;
+              return next;
+            }),
           placements: document.placements.filter(
             (placement) => placement.objectId !== objectId,
           ),
@@ -277,7 +283,10 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedGlobalElementId: document.elements.some(
         (element) =>
           element.id === this.snapshot.selectedGlobalElementId &&
-          element.parentObjectId === objectId,
+          (element.parentObjectId === objectId ||
+            (element.type === 'arrow' &&
+              (element.startAttachment?.objectId === objectId ||
+                element.endAttachment?.objectId === objectId))),
       )
         ? null
         : this.snapshot.selectedGlobalElementId,
@@ -294,6 +303,12 @@ export class CanvasGState extends GState<CanvasSnapshot> {
           elements: document.elements
             .filter((element) => element.id !== elementId)
             .map((element) => {
+              if (element.type === 'arrow') {
+                const detached = { ...element };
+                if (detached.startAttachment?.elementId === elementId) delete detached.startAttachment;
+                if (detached.endAttachment?.elementId === elementId) delete detached.endAttachment;
+                return detached;
+              }
               if (
                 (element.type !== 'text' && element.type !== 'media') ||
                 element.parentElementId !== elementId

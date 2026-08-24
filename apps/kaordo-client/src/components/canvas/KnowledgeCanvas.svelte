@@ -77,6 +77,12 @@
         label: 'Card Tool',
       },
       {
+        action: () => canvas.state.setTool('arrow'),
+        icon: 'arrow',
+        id: 'arrow-tool',
+        label: 'Arrow Tool',
+      },
+      {
         action: () => canvas.state.setTool('text'),
         icon: 'text',
         id: 'text-tool',

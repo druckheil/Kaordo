@@ -9,6 +9,7 @@ import {
   moveCanvasPoint,
   POINTER_DRAG_THRESHOLD,
 } from '../features/canvas';
+import { dispatchArrowLiveDrag } from '../features/arrowLive';
 import { CanvasGState } from '../states/CanvasGState';
 import type { CanvasBounds } from './CanvasViewportService';
 import { CanvasViewportService } from './CanvasViewportService';
@@ -44,6 +45,7 @@ export class CanvasDragService {
   readonly #state: CanvasGState;
   readonly #viewport: CanvasViewportService;
   #drag: ObjectPointerDrag | null = null;
+  #finishingDrag: ObjectPointerDrag | null = null;
   #floatingCard: HTMLElement | null = null;
   #suppressClickId: string | null = null;
 
@@ -187,7 +189,7 @@ export class CanvasDragService {
     }
   }
 
-  finish(event: PointerEvent): void {
+  async finish(event: PointerEvent): Promise<void> {
     const drag = this.#drag;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const sample = this.latestPointerSample(event);
@@ -225,7 +227,30 @@ export class CanvasDragService {
         committedPoint,
       );
       this.#commitPlacement(placement);
-      this.resetDrag(drag.object.id, true, false);
+      // `place` updates the state synchronously, but Svelte does not patch the
+      // positioner DOM until the next microtask. Keep the imperative transform
+      // and the arrow live offset in place until that patch lands; clearing
+      // them immediately makes attached arrow endpoints jump back to the old
+      // parent position for one frame on pointer release.
+      this.#finishingDrag = drag;
+      this.clearDragVisual(drag, false, false);
+      this.#drag = null;
+      this.#state.resetInteractions();
+      window.setTimeout(() => {
+        if (this.#suppressClickId === drag.object.id) this.#suppressClickId = null;
+      }, 0);
+      this.releasePointerCapture(drag);
+      void tick().then(() => {
+        if (this.#finishingDrag !== drag) return;
+        dispatchArrowLiveDrag({
+          objectId: drag.object.id,
+          deltaX: 0,
+          deltaY: 0,
+          phase: 'end',
+        });
+        this.#finishingDrag = null;
+      });
+      return;
     } else {
       this.resetDrag(drag.object.id, true, true);
     }
@@ -242,6 +267,7 @@ export class CanvasDragService {
   handleCaptureLost(event: PointerEvent): void {
     const drag = this.#drag;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    if (this.#finishingDrag === drag) return;
     this.resetDrag(drag.object.id, drag.hasMoved, true);
   }
 
@@ -379,9 +405,25 @@ export class CanvasDragService {
         drag.canvasY!,
       );
       positionElement.style.zIndex = '6';
+      const deltaX = drag.canvasX! - drag.originCanvasX!;
+      const deltaY = drag.canvasY! - drag.originCanvasY!;
+      dispatchArrowLiveDrag({
+        objectId: drag.object.id,
+        deltaX,
+        deltaY,
+        phase: 'move',
+      });
     } else if (canvasCard && positionElement) {
       this.restorePosition(drag);
       positionElement.style.removeProperty('z-index');
+      if (drag.wasOnCanvas) {
+        dispatchArrowLiveDrag({
+          objectId: drag.object.id,
+          deltaX: 0,
+          deltaY: 0,
+          phase: 'end',
+        });
+      }
     }
 
     const floating = this.#floatingCard;
@@ -431,11 +473,20 @@ export class CanvasDragService {
   private clearDragVisual(
     drag: ObjectPointerDrag,
     restorePosition: boolean,
+    endLive = true,
   ): void {
     if (restorePosition) this.restorePosition(drag);
     drag.canvasCard?.classList.remove('canvas-card--dragging');
     drag.positionElement?.style.removeProperty('will-change');
     drag.positionElement?.style.removeProperty('z-index');
+    if (drag.wasOnCanvas && endLive) {
+      dispatchArrowLiveDrag({
+        objectId: drag.object.id,
+        deltaX: 0,
+        deltaY: 0,
+        phase: 'end',
+      });
+    }
     this.#floatingCard?.style.removeProperty('transform');
     if (this.#floatingCard) this.#floatingCard.style.visibility = 'hidden';
   }

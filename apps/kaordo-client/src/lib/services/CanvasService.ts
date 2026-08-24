@@ -1,6 +1,8 @@
 import { tick } from 'svelte';
 import type { CanvasPlacement } from '../domain/canvas';
 import type {
+  ArrowHeadMode,
+  ArrowLineStyle,
   CanvasElement,
   MediaElement,
   ObjectDocument,
@@ -27,6 +29,7 @@ import {
   canvasMediaKind,
   canvasMediaMimeType,
 } from '../features/canvasMedia';
+import { arrowPoints } from '../features/arrowGeometry';
 import { CanvasGState } from '../states/CanvasGState';
 import { CanvasDragService } from './CanvasDragService';
 import { CanvasViewportService } from './CanvasViewportService';
@@ -481,7 +484,7 @@ export class CanvasService {
       originY = metrics.scrollTop + Math.max(0, metrics.height / 2 - frame.height / 2);
     }
     const siblings = sourceDocument.elements.filter((element) =>
-      element.type !== 'rectangle' &&
+      (element.type === 'text' || element.type === 'media') &&
       element.parentElementId === parentElementId &&
       element.parentObjectId === parentObjectId,
     );
@@ -717,6 +720,81 @@ export class CanvasService {
   async setRectangleStroke(color: string): Promise<void> {
     this.state.setShapeStroke(color);
     await this.updateSelectedRectangle({ stroke: color });
+  }
+
+  async setArrowStroke(color: string): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    const workspace = this.#getWorkspace();
+    if (!workspace || selected?.type !== 'arrow') return;
+    await this.updateCanvasElement(workspace.id, { ...selected, stroke: color });
+  }
+
+  async setArrowWidth(strokeWidth: number): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    const workspace = this.#getWorkspace();
+    if (!workspace || selected?.type !== 'arrow') return;
+    await this.updateCanvasElement(workspace.id, {
+      ...selected,
+      strokeWidth: clamp(strokeWidth, 1, 12),
+    });
+  }
+
+  async setArrowHeadMode(headMode: ArrowHeadMode): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    const workspace = this.#getWorkspace();
+    if (!workspace || selected?.type !== 'arrow') return;
+    await this.updateCanvasElement(workspace.id, { ...selected, headMode });
+  }
+
+  async setArrowLineStyle(lineStyle: ArrowLineStyle): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    const workspace = this.#getWorkspace();
+    if (!workspace || selected?.type !== 'arrow') return;
+    await this.updateCanvasElement(workspace.id, { ...selected, lineStyle });
+  }
+
+  async addArrowControlPoint(): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    const workspace = this.#getWorkspace();
+    if (!workspace || selected?.type !== 'arrow') return;
+    if (selected.controlPoints.length >= 32) return;
+    const document = this.state.canvasDocumentFor(workspace.id);
+    const placements = this.state.placementsFor(workspace.id);
+    const resolved = arrowPoints(selected, document.elements, placements);
+    const anchors = [resolved.start, ...selected.controlPoints, resolved.end];
+    let segmentIndex = 0;
+    let longestSegment = -1;
+    for (let index = 0; index < anchors.length - 1; index += 1) {
+      const length = Math.hypot(
+        anchors[index + 1].x - anchors[index].x,
+        anchors[index + 1].y - anchors[index].y,
+      );
+      if (length > longestSegment) {
+        longestSegment = length;
+        segmentIndex = index;
+      }
+    }
+    const first = anchors[segmentIndex];
+    const second = anchors[segmentIndex + 1];
+    const controlPoints = [...selected.controlPoints];
+    controlPoints.splice(segmentIndex, 0, {
+      x: (first.x + second.x) / 2,
+      y: (first.y + second.y) / 2,
+    });
+    await this.updateCanvasElement(workspace.id, {
+      ...selected,
+      controlPoints,
+    });
+  }
+
+  async removeArrowControlPoint(): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    const workspace = this.#getWorkspace();
+    if (!workspace || selected?.type !== 'arrow' || selected.controlPoints.length <= 1) return;
+    await this.updateCanvasElement(workspace.id, {
+      ...selected,
+      controlPoints: selected.controlPoints.slice(0, -1),
+    });
   }
 
   startObjectResize(event: PointerEvent, placement: CanvasPlacement): void {
@@ -1381,7 +1459,11 @@ function copyCanvasDocument(
   document: WorkspaceCanvasDocument,
 ): WorkspaceCanvasDocument {
   return {
-    elements: document.elements.map((element) => ({ ...element })),
+    elements: document.elements.map((element) =>
+      element.type === 'arrow'
+        ? { ...element, controlPoints: element.controlPoints.map((point) => ({ ...point })) }
+        : { ...element },
+    ),
     placements: document.placements.map((placement) => ({ ...placement })),
     version: 1,
   };

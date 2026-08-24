@@ -26,6 +26,45 @@ export type RectangleElement = {
   y: number;
 };
 
+export type ArrowAnchorSide = 'bottom' | 'left' | 'right' | 'top';
+
+export type ArrowAttachment = {
+  elementId?: string;
+  objectId?: string;
+  offset: number;
+  side: ArrowAnchorSide;
+};
+
+export type ArrowControlPoint = {
+  x: number;
+  y: number;
+};
+
+export type ArrowHeadMode = 'both' | 'end' | 'none';
+
+export type ArrowLineStyle = 'dashed' | 'dotted' | 'solid';
+
+export type ArrowElement = {
+  controlPoints: ArrowControlPoint[];
+  endAttachment?: ArrowAttachment;
+  endX: number;
+  endY: number;
+  headMode: ArrowHeadMode;
+  height: number;
+  id: string;
+  parentObjectId?: string;
+  startAttachment?: ArrowAttachment;
+  startX: number;
+  startY: number;
+  stroke: string;
+  strokeWidth: number;
+  type: 'arrow';
+  lineStyle: ArrowLineStyle;
+  width: number;
+  x: number;
+  y: number;
+};
+
 export type TextElement = {
   color: string;
   fontSize: number;
@@ -60,7 +99,7 @@ export type MediaElement = {
   y: number;
 };
 
-export type CanvasElement = RectangleElement | TextElement | MediaElement;
+export type CanvasElement = ArrowElement | RectangleElement | TextElement | MediaElement;
 
 export type ObjectDocumentElement = RectangleElement | RichTextElement;
 
@@ -322,6 +361,8 @@ function normalizeRectangle(value: unknown): RectangleElement | null {
 function normalizeCanvasElement(value: unknown): CanvasElement | null {
   const rectangle = normalizeRectangle(value);
   if (rectangle) return rectangle;
+  const arrow = normalizeArrow(value);
+  if (arrow) return arrow;
   const media = normalizeMedia(value);
   if (media) return media;
   if (
@@ -361,6 +402,112 @@ function normalizeCanvasElement(value: unknown): CanvasElement | null {
     text.leftBars = value.leftBars;
   }
   return text;
+}
+
+function normalizeArrow(value: unknown): ArrowElement | null {
+  if (
+    !isRecord(value) ||
+    value.type !== 'arrow' ||
+    typeof value.id !== 'string' ||
+    !isFiniteNumber(value.x) ||
+    !isFiniteNumber(value.y) ||
+    !isFiniteNumber(value.width) ||
+    !isFiniteNumber(value.height) ||
+    !isFiniteNumber(value.startX) ||
+    !isFiniteNumber(value.startY) ||
+    !isFiniteNumber(value.endX) ||
+    !isFiniteNumber(value.endY) ||
+    !isFiniteNumber(value.strokeWidth) ||
+    typeof value.stroke !== 'string'
+  ) {
+    return null;
+  }
+  const legacyCurvature = isFiniteNumber(value.curvature)
+    ? Math.max(-1, Math.min(1, value.curvature))
+    : 0;
+  const rawControlPoints = Array.isArray(value.controlPoints)
+    ? value.controlPoints.flatMap((point) => {
+        if (
+          !isRecord(point) ||
+          !isFiniteNumber(point.x) ||
+          !isFiniteNumber(point.y)
+        ) {
+          return [];
+        }
+        return [{ x: point.x, y: point.y }];
+      }).slice(0, 32)
+    : null;
+  const arrow: ArrowElement = {
+    controlPoints: rawControlPoints ?? [
+      legacyArrowControlPoint(
+        { x: value.startX, y: value.startY },
+        { x: value.endX, y: value.endY },
+        legacyCurvature,
+      ),
+    ],
+    endX: value.endX,
+    endY: value.endY,
+    headMode: matchesArrowHeadMode(value.headMode) ? value.headMode : 'end',
+    height: Math.max(1, value.height),
+    id: value.id,
+    startX: value.startX,
+    startY: value.startY,
+    stroke: value.stroke,
+    strokeWidth: Math.max(1, value.strokeWidth),
+    type: 'arrow',
+    lineStyle: matchesArrowLineStyle(value.lineStyle) ? value.lineStyle : 'solid',
+    width: Math.max(1, value.width),
+    x: value.x,
+    y: value.y,
+  };
+  if (typeof value.parentObjectId === 'string') arrow.parentObjectId = value.parentObjectId;
+  const startAttachment = normalizeArrowAttachment(value.startAttachment);
+  if (startAttachment) arrow.startAttachment = startAttachment;
+  const endAttachment = normalizeArrowAttachment(value.endAttachment);
+  if (endAttachment) arrow.endAttachment = endAttachment;
+  return arrow;
+}
+
+function matchesArrowHeadMode(value: unknown): value is ArrowHeadMode {
+  return value === 'both' || value === 'end' || value === 'none';
+}
+
+function matchesArrowLineStyle(value: unknown): value is ArrowLineStyle {
+  return value === 'dashed' || value === 'dotted' || value === 'solid';
+}
+
+function legacyArrowControlPoint(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  curvature: number,
+): ArrowControlPoint {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const length = Math.hypot(deltaX, deltaY);
+  if (length < 0.001 || Math.abs(curvature) < 0.001) {
+    return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+  }
+  const bend = curvature * length * 0.45;
+  return {
+    x: (start.x + end.x) / 2 - (deltaY / length) * bend,
+    y: (start.y + end.y) / 2 + (deltaX / length) * bend,
+  };
+}
+
+function normalizeArrowAttachment(value: unknown): ArrowAttachment | null {
+  if (
+    !isRecord(value) ||
+    !isFiniteNumber(value.offset) ||
+    !matchesArrowAnchorSide(value.side) ||
+    (typeof value.elementId !== 'string' && typeof value.objectId !== 'string')
+  ) return null;
+  const attachment: ArrowAttachment = {
+    offset: Math.max(0, Math.min(1, value.offset)),
+    side: value.side,
+  };
+  if (typeof value.elementId === 'string') attachment.elementId = value.elementId;
+  if (typeof value.objectId === 'string') attachment.objectId = value.objectId;
+  return attachment;
 }
 
 function normalizeMedia(value: unknown): MediaElement | null {
@@ -403,6 +550,10 @@ function normalizeMedia(value: unknown): MediaElement | null {
 
 function matchesCanvasMediaKind(value: unknown): value is CanvasMediaKind {
   return value === 'audio' || value === 'gif' || value === 'image' || value === 'video';
+}
+
+function matchesArrowAnchorSide(value: unknown): value is ArrowAnchorSide {
+  return value === 'bottom' || value === 'left' || value === 'right' || value === 'top';
 }
 
 function matchesTextAlign(value: unknown): value is TextElement['textAlign'] {

@@ -78,6 +78,7 @@
 
   function iconPath(icon: ContextMenuIcon): string {
     switch (icon) {
+      case 'arrow': return 'M4 10h9m-3-3 3 3-3 3M4 5h12v10H4z';
       case 'delete': return 'M5 6h10m-8 0 .7 10h4.6L13 6M8 6V4h4v2m-3 3v4m2-4v4';
       case 'edit': return 'M5 15h3l7.4-7.4-3-3L5 12v3Zm6.3-9.3 3 3';
       case 'focus': return 'M7 4H4v3m9-3h3v3M7 16H4v-3m9 3h3v-3M7.5 10h5';

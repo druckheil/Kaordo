@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {
+    ArrowElement,
     ObjectSummary,
     MediaElement,
     RectangleElement,
@@ -62,7 +63,17 @@
     selected: boolean;
   };
 
-  type ElementNode = CardNode | TextNode | MediaNode;
+  type ArrowNode = {
+    depth: number;
+    element: ArrowElement;
+    id: string;
+    key: string;
+    kind: 'arrow';
+    label: string;
+    selected: boolean;
+  };
+
+  type ElementNode = ArrowNode | CardNode | TextNode | MediaNode;
 
   type ContentNode = PanelNode | ElementNode;
 
@@ -136,6 +147,7 @@
     const element = node.element;
     const isCard = element.type === 'rectangle';
     const isMedia = element.type === 'media';
+    const isArrow = element.type === 'arrow';
     openContextMenu(event, node.label, [
       {
         action: () => focusNode(node),
@@ -150,7 +162,7 @@
             id: 'text-tool',
             label: 'Text Tool',
           }]
-        : isMedia
+        : isMedia || isArrow
         ? []
         : [{
             action: () => canvas.state.editText(element.id),
@@ -160,16 +172,19 @@
           }]),
       {
         action: () => canvas.deleteCanvasElement(workspace.id, element.id),
-          confirmation: `Delete this ${isCard ? 'card' : isMedia ? 'media' : 'text'}?`,
+          confirmation: `Delete this ${isCard ? 'card' : isMedia ? 'media' : isArrow ? 'arrow' : 'text'}?`,
         danger: true,
         icon: 'delete',
         id: `delete-${node.kind}`,
-          label: `Delete ${isCard ? 'Card' : isMedia ? 'Media' : 'Text'}`,
+          label: `Delete ${isCard ? 'Card' : isMedia ? 'Media' : isArrow ? 'Arrow' : 'Text'}`,
       },
     ]);
   }
 
   function nodeSubtitle(node: ElementNode): string {
+    if (node.kind === 'arrow') {
+      return node.element.parentObjectId ? 'Arrow · Panel' : 'Arrow · Canvas';
+    }
     if (node.kind === 'card') {
       return node.element.parentObjectId ? 'Card · Panel' : 'Card · Canvas';
     }
@@ -232,6 +247,20 @@
       });
     };
 
+    const addArrow = (element: ArrowElement, depth: number) => {
+      if (emitted.has(element.id)) return;
+      emitted.add(element.id);
+      nodes.push({
+        depth,
+        element,
+        id: element.id,
+        key: `arrow:${element.id}`,
+        kind: 'arrow',
+        label: 'Arrow',
+        selected: snapshot.selectedGlobalElementId === element.id,
+      });
+    };
+
     const addCard = (element: RectangleElement, depth: number) => {
       if (emitted.has(element.id)) return;
       emitted.add(element.id);
@@ -282,6 +311,11 @@
           (!element.parentElementId || !cards.has(element.parentElementId))
         ) {
           addMedia(element, 1);
+        } else if (
+          element.type === 'arrow' &&
+          element.parentObjectId === object.id
+        ) {
+          addArrow(element, 1);
         }
       }
     }
@@ -292,6 +326,12 @@
       if (element.type === 'rectangle') {
         if (!element.parentObjectId || !panelIds.has(element.parentObjectId)) {
           addCard(element, 0);
+        }
+        continue;
+      }
+      if (element.type === 'arrow') {
+        if (!element.parentObjectId || !panelIds.has(element.parentObjectId)) {
+          addArrow(element, 0);
         }
         continue;
       }
@@ -348,6 +388,7 @@
             class:content-node--card={node.kind === 'card'}
             class:content-node--text={node.kind === 'text'}
             class:content-node--media={node.kind === 'media'}
+            class:content-node--arrow={node.kind === 'arrow'}
             class:content-node--selected={node.kind !== 'panel' && node.selected}
             class:content-node--placed={node.kind === 'panel' && node.placed}
             style={`--depth: ${node.depth}`}
@@ -374,8 +415,10 @@
                 <svg viewBox="0 0 20 20"><rect x="3.5" y="4.5" width="13" height="11" rx="2" /></svg>
               {:else if node.kind === 'text'}
                 <span>T</span>
-              {:else}
+              {:else if node.kind === 'media'}
                 <svg viewBox="0 0 20 20"><path d="M5 4h10v12H5zM8 4v12M8 8h7M8 12h7" /></svg>
+              {:else}
+                <svg viewBox="0 0 20 20"><path d="M3 10h11m-4-4 4 4-4 4" /></svg>
               {/if}
             </span>
             <span class="content-node-copy">
@@ -463,6 +506,7 @@
   .content-node--card .content-node-guide { background: #b8874b; }
   .content-node--text .content-node-guide { background: #8c6da7; }
   .content-node--media .content-node-guide { background: #4c8b79; }
+  .content-node--arrow .content-node-guide { background: #4a719b; }
 
   .content-node-icon {
     display: grid;
@@ -494,6 +538,12 @@
     color: #357866;
     background: #e0f0e9;
     border-color: #add2c2;
+  }
+
+  .content-node--arrow .content-node-icon {
+    color: #456e98;
+    background: #e4edf6;
+    border-color: #b8cce0;
   }
 
   .content-node-icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
