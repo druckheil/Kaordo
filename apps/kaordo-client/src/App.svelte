@@ -15,6 +15,7 @@
   import NodoSection from './components/nodo/NodoSection.svelte';
   import RondoSection from './components/rondo/RondoSection.svelte';
   import LigoSection from './components/ligo/LigoSection.svelte';
+  import IloSection from './components/ilo/IloSection.svelte';
   import StorageItemsPanel from './components/nodo/StorageItemsPanel.svelte';
   import SettingsSection from './components/settings/SettingsSection.svelte';
   import ContextMenu from './components/ui/ContextMenu.svelte';
@@ -28,6 +29,7 @@
   import { RondoController } from './lib/RondoController';
   import { LigoController } from './lib/LigoController';
   import { ProfileController } from './lib/ProfileController';
+  import { IloController } from './lib/IloController';
   import type { ProfileEditValues } from './components/dialog/ProfileEditDialog.svelte';
   import type { AppScale, AppTheme, TextScale } from './lib/domain/appearance';
   import type { AuthMode, AuthSession } from './lib/domain/auth';
@@ -51,6 +53,7 @@
   import type { RondoGateway } from './lib/gateways/RondoGateway';
   import type { LigoGateway } from './lib/gateways/LigoGateway';
   import type { ProfileGateway } from './lib/gateways/ProfileGateway';
+  import type { IloGateway } from './lib/gateways/IloGateway';
   import { NodeFluoGateway } from './lib/gateways/NodeFluoGateway';
   import { NodoRegistry } from './lib/services/NodoRegistry';
   import { closeContextMenu } from './lib/ui/contextMenu';
@@ -131,6 +134,18 @@
     save: async () => { throw new Error('Profile storage is unavailable.'); },
   };
 
+  const EMPTY_ILO_GATEWAY: IloGateway = {
+    bootstrap: async () => { throw new Error('Lingvolernado is unavailable.'); },
+    createCard: async () => { throw new Error('Lingvolernado is unavailable.'); },
+    deleteCard: async () => { throw new Error('Lingvolernado is unavailable.'); },
+    deleteCards: async () => { throw new Error('Lingvolernado is unavailable.'); },
+    grade: async () => { throw new Error('Lingvolernado is unavailable.'); },
+    listCards: async () => ({ cards: [], nextOffset: null }),
+    nextTrain: async () => ({ active: 0, card: null, due: 0 }),
+    progress: async () => ({ active: 0, due: 0, learnedToday: false, pointsHistory: [], stages: {}, todayPoints: 0 }),
+    updateCard: async () => { throw new Error('Lingvolernado is unavailable.'); },
+  };
+
   type AppProps = {
     autoloadWorkspaceLibrary?: boolean;
     adminGateway: AdminGateway;
@@ -138,6 +153,7 @@
     authGateway: AuthGateway;
     files?: WorkspaceSummary[];
     fluoGateway?: FluoGateway;
+    iloGateway?: IloGateway;
     initialAuthUser?: import('./lib/domain/auth').AuthUser | null;
     ligoGateway?: LigoGateway;
     mediaSettingsGateway?: MediaSettingsGateway;
@@ -161,6 +177,7 @@
     files = [],
     fluoGateway = undefined,
     initialAuthUser = null,
+    iloGateway = EMPTY_ILO_GATEWAY,
     ligoGateway = EMPTY_LIGO_GATEWAY,
     mediaSettingsGateway = new WebMediaSettingsGateway(),
     nodoGateway = EMPTY_NODO_GATEWAY,
@@ -185,6 +202,7 @@
     () => auth.state.handleSessionRevoked(),
   ));
   const profile = untrack(() => new ProfileController(profileGateway));
+  const ilo = untrack(() => new IloController(iloGateway));
   const effectiveFluoGateway = untrack(() => fluoGateway ?? new NodeFluoGateway(nodoGateway));
   // App construction is intentionally one-shot. Runtime changes flow through
   // the state managers instead of rebuilding the composition root.
@@ -224,6 +242,7 @@
   let terminatingSessionId = $state<string | null>(null);
   let ligoSnapshot = $state(ligo.state.snapshot);
   let profileSnapshot = $state(profile.state.snapshot);
+  let iloSnapshot = $state(ilo.state.snapshot);
   let activeSection = $state<AppSection>('klaro');
   type StorageBrowserTarget =
     | { kind: 'public'; title: string; subtitle: string }
@@ -416,6 +435,8 @@
         }
       }
       if (activeSection === 'rondo') rondo.start();
+      ilo.state.configure(userId);
+      if (activeSection === 'ilo') ilo.start();
       ligo.state.configure(snapshot.user?.id ?? null);
       // Ligo's hibernatable socket is also the app-level presence signal, so
       // it remains connected while the authenticated application is open.
@@ -446,6 +467,8 @@
       accountAction = null;
       rondo.stop();
       rondo.state.reset();
+      ilo.stop();
+      ilo.state.configure(null);
       ligo.stop();
       ligo.state.configure(null);
     }
@@ -485,6 +508,9 @@
   const unsubscribeProfile = profile.manager.subscribe((snapshot) => {
     if (snapshot) profileSnapshot = snapshot;
   });
+  const unsubscribeIlo = ilo.manager.subscribe((snapshot) => {
+    if (snapshot) iloSnapshot = snapshot;
+  });
 
   onMount(() => {
     appearance.start();
@@ -502,6 +528,7 @@
     unsubscribeRondo();
     unsubscribeLigo();
     unsubscribeProfile();
+    unsubscribeIlo();
     unsubscribeNodo();
     unsubscribeFluo();
     unsubscribeCanvas();
@@ -512,6 +539,7 @@
     rondo.shutdown();
     ligo.shutdown();
     profile.shutdown();
+    ilo.shutdown();
     appearance.shutdown();
     mediaSettings.shutdown();
     publicStorage.shutdown();
@@ -661,6 +689,8 @@
     else editor.stopFluo();
     if (section === 'rondo') rondo.start();
     else rondo.stop();
+    if (section === 'ilo') ilo.start();
+    else ilo.stop();
   }
 
   function handleGlobalKeydown(event: KeyboardEvent) {
@@ -859,6 +889,8 @@
       <RondoSection media={mediaSettingsSnapshot} snapshot={rondoSnapshot} state={rondo.state} />
     {:else if activeSection === 'ligo'}
       <LigoSection snapshot={ligoSnapshot} state={ligo.state} />
+    {:else if activeSection === 'ilo'}
+      <IloSection snapshot={iloSnapshot} state={ilo.state} />
     {/if}
   </div>
 

@@ -37,6 +37,7 @@ html[data-theme='dark'] .workspace-shell {
 
 html[data-theme='dark'] :is(
   .fluo-shell,
+  .ilo-shell,
   .profile-shell,
   .regado-shell,
   .section-placeholder,
@@ -48,6 +49,65 @@ html[data-theme='dark'] :is(
   background:
     radial-gradient(circle at 74% 4%, rgb(92 161 137 / 8%), transparent 31%),
     #171e1a !important;
+}
+
+html[data-theme='dark'] :is(.tool-workspace, .tools-rail) {
+  color: #d4ded8 !important;
+  background: #171e1a !important;
+  border-color: #344039 !important;
+}
+
+html[data-theme='dark'] :is(
+  .tool-header,
+  .tool-tabs,
+  .training-card,
+  .queue-clear,
+  .word-form,
+  .dictionary-shell article,
+  .search-bar,
+  .summary-grid article,
+  .charts-grid > article,
+  .activity-empty,
+  .log-list article
+) {
+  color: #cfd9d3 !important;
+  background: #202924 !important;
+  border-color: #354139 !important;
+  box-shadow: 0 14px 34px rgb(0 0 0 / 16%) !important;
+}
+
+html[data-theme='dark'] :is(
+  .tool-heading h1,
+  .training-card h2,
+  .queue-clear h2,
+  .word-form h3,
+  .dictionary-shell h3,
+  .dictionary-shell .word-identity strong,
+  .progress-shell h3,
+  .progress-shell h4,
+  .progress-shell .summary-grid strong,
+  .activity-view h2
+) {
+  color: #e3ece7 !important;
+}
+
+html[data-theme='dark'] :is(
+  .word-form input,
+  .word-form select,
+  .word-form textarea,
+  .dictionary-shell input,
+  .dictionary-shell select,
+  .noun-toggle button
+) {
+  color: #dce6e0 !important;
+  background: #171e1a !important;
+  border-color: #3b4840 !important;
+}
+
+html[data-theme='dark'] :is(.answer-panel, .tool-icon, .theme, .stage-index) {
+  color: #89b9a8 !important;
+  background: #263b33 !important;
+  border-color: #3c594d !important;
 }
 
 /* Fluo is a long accelerated scroll surface. Keep it opaque so WKWebView can

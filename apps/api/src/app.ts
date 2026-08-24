@@ -82,6 +82,17 @@ import {
   getProfile,
   reserveProfileStorage,
 } from './profile/routes';
+import {
+  iloBootstrap,
+  iloCards,
+  iloCreateCard,
+  iloDeleteCard,
+  iloDeleteCards,
+  iloGrade,
+  iloProgress,
+  iloTrainNext,
+  iloUpdateCard,
+} from './ilo/routes';
 
 const DESKTOP_AUTH_HOST = `${['veri', 'dimensio-api'].join('')}.pshenychnyi-ld.workers.dev`;
 
@@ -132,6 +143,34 @@ export function handleRequest(
   }
   if (request.method === 'GET' && pathname === '/api/rondo/bootstrap') {
     return rondoBootstrap(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/ilo/bootstrap') {
+    return iloBootstrap(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/ilo/cards') {
+    return iloCards(request, env);
+  }
+  if (request.method === 'POST' && pathname === '/api/ilo/cards') {
+    return iloCreateCard(request, env);
+  }
+  if (request.method === 'DELETE' && pathname === '/api/ilo/cards') {
+    return iloDeleteCards(request, env);
+  }
+  const iloCardMatch = pathname.match(/^\/api\/ilo\/cards\/([0-9a-f]{8,32})$/u);
+  if (request.method === 'PATCH' && iloCardMatch?.[1]) {
+    return iloUpdateCard(request, env, iloCardMatch[1]);
+  }
+  if (request.method === 'DELETE' && iloCardMatch?.[1]) {
+    return iloDeleteCard(request, env, iloCardMatch[1]);
+  }
+  if (request.method === 'GET' && pathname === '/api/ilo/train/next') {
+    return iloTrainNext(request, env);
+  }
+  if (request.method === 'POST' && pathname === '/api/ilo/train/grade') {
+    return iloGrade(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/ilo/progress') {
+    return iloProgress(request, env);
   }
   if (request.method === 'GET' && pathname === '/api/ligo/bootstrap') {
     return ligoBootstrap(request, env);

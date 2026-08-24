@@ -14,6 +14,7 @@ import { createNodoGateway } from './lib/gateways/createNodoGateway';
 import { createRondoGateway } from './lib/gateways/createRondoGateway';
 import { createLigoGateway } from './lib/gateways/createLigoGateway';
 import { createProfileGateway } from './lib/gateways/createProfileGateway';
+import { createIloGateway } from './lib/gateways/createIloGateway';
 
 const target = document.getElementById('app');
 
@@ -31,6 +32,7 @@ const app = mount(App, {
     authGateway: createAuthGateway(),
     nodoGateway,
     ligoGateway: createLigoGateway(),
+    iloGateway: createIloGateway(),
     profileGateway: createProfileGateway(nodoGateway),
     rondoGateway: createRondoGateway(),
     workspaceGateway: createWorkspaceGateway(),

@@ -1,6 +1,6 @@
 import type { AuthUser } from './auth';
 
-export type AppSection = 'agordoj' | 'fluo' | 'klaro' | 'ligo' | 'mi' | 'nodo' | 'regado' | 'rondo';
+export type AppSection = 'agordoj' | 'fluo' | 'ilo' | 'klaro' | 'ligo' | 'mi' | 'nodo' | 'regado' | 'rondo';
 
 export type AppSectionDefinition = {
   description: string;
@@ -16,6 +16,7 @@ export const APP_SECTIONS: ReadonlyArray<AppSectionDefinition> = [
   { description: 'Personal data node', id: 'nodo', label: 'Nodo' },
   { description: 'Application appearance and scale', id: 'agordoj', label: 'Agordoj' },
   { description: 'Administration and service health', id: 'regado', label: 'Regado' },
+  { description: 'Language tools and personal learning', id: 'ilo', label: 'Ilo' },
   { description: 'Knowledge and encyclopedias', id: 'klaro', label: 'Klaro' },
 ];
 

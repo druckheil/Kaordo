@@ -312,6 +312,18 @@ pub struct LigoDeliveryInput {
     storage: String,
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IloCardInput {
+    article: String,
+    example: String,
+    german: String,
+    note: String,
+    plural: String,
+    theme: String,
+    translation: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LigoCleanupInput<'a> {
@@ -341,6 +353,19 @@ struct LigoDeleteInput<'a> {
 struct LigoStorageInput<'a> {
     selected_node_id: &'a str,
     stack_limit_bytes: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IloGradeInput<'a> {
+    action: &'a str,
+    card_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IloDeleteCardsInput<'a> {
+    card_ids: &'a [String],
 }
 
 #[derive(Deserialize)]
@@ -1285,6 +1310,131 @@ pub async fn ligo_acknowledge(
 }
 
 #[tauri::command]
+pub async fn ilo_bootstrap(client: State<'_, AuthClient>) -> Result<Value, String> {
+    let response = authenticated_request(&client, Method::GET, "/api/ilo/bootstrap").await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_cards(
+    client: State<'_, AuthClient>,
+    q: String,
+    theme: String,
+    offset: u32,
+    limit: u32,
+) -> Result<Value, String> {
+    if !(1..=100).contains(&limit) || offset > 100_000 {
+        return Err("Ilo card page is invalid.".to_owned());
+    }
+    if q.chars().count() > 64 || theme.chars().count() > 32 {
+        return Err("Ilo card search is invalid.".to_owned());
+    }
+    let path = format!(
+        "/api/ilo/cards?limit={limit}&offset={offset}&q={}&theme={}",
+        query_escape(&q),
+        query_escape(&theme),
+    );
+    let response = authenticated_request(&client, Method::GET, &path).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_create_card(
+    client: State<'_, AuthClient>,
+    input: IloCardInput,
+) -> Result<Value, String> {
+    validate_ilo_card(&input)?;
+    let response = authenticated_json_request(&client, Method::POST, "/api/ilo/cards", &input).await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_update_card(
+    client: State<'_, AuthClient>,
+    card_id: String,
+    input: IloCardInput,
+) -> Result<Value, String> {
+    ilo_card_id(&card_id)?;
+    validate_ilo_card(&input)?;
+    let response = authenticated_json_request(
+        &client,
+        Method::PATCH,
+        &format!("/api/ilo/cards/{card_id}"),
+        &input,
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_delete_card(
+    client: State<'_, AuthClient>,
+    card_id: String,
+) -> Result<Value, String> {
+    ilo_card_id(&card_id)?;
+    let response = authenticated_request(
+        &client,
+        Method::DELETE,
+        &format!("/api/ilo/cards/{card_id}"),
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_delete_cards(
+    client: State<'_, AuthClient>,
+    card_ids: Vec<String>,
+) -> Result<Value, String> {
+    if card_ids.is_empty() || card_ids.len() > 100 {
+        return Err("The Ilo card selection is invalid.".to_owned());
+    }
+    for card_id in &card_ids {
+        ilo_card_id(card_id)?;
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::DELETE,
+        "/api/ilo/cards",
+        &IloDeleteCardsInput { card_ids: &card_ids },
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_train_next(client: State<'_, AuthClient>) -> Result<Value, String> {
+    let response = authenticated_request(&client, Method::GET, "/api/ilo/train/next").await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_grade(
+    client: State<'_, AuthClient>,
+    card_id: String,
+    action: String,
+) -> Result<Value, String> {
+    ilo_card_id(&card_id)?;
+    if action != "remember" && action != "forgot" {
+        return Err("Ilo training grade is invalid.".to_owned());
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::POST,
+        "/api/ilo/train/grade",
+        &IloGradeInput { action: &action, card_id: &card_id },
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn ilo_progress(client: State<'_, AuthClient>) -> Result<Value, String> {
+    let response = authenticated_request(&client, Method::GET, "/api/ilo/progress").await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
 pub async fn fluo_public_reserve(
     client: State<'_, AuthClient>,
     node_id: String,
@@ -1609,6 +1759,36 @@ async fn authenticated_json_request<T: Serialize + ?Sized>(
         return Err("Authentication is required.".to_owned());
     }
     Ok(response)
+}
+
+fn validate_ilo_card(input: &IloCardInput) -> Result<(), String> {
+    if input.german.trim().is_empty() || input.german.chars().count() > 256
+        || input.translation.trim().is_empty() || input.translation.chars().count() > 512
+        || input.article.chars().count() > 64 || input.plural.chars().count() > 256
+        || input.example.chars().count() > 512 || input.note.chars().count() > 512
+    {
+        return Err("Ilo card fields are invalid.".to_owned());
+    }
+    Ok(())
+}
+
+fn ilo_card_id(value: &str) -> Result<(), String> {
+    if !(8..=32).contains(&value.len()) || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("The Ilo card identifier is invalid.".to_owned());
+    }
+    Ok(())
+}
+
+fn query_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for byte in value.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            escaped.push(char::from(*byte));
+        } else {
+            write!(escaped, "%{byte:02X}").expect("writing query escape cannot fail");
+        }
+    }
+    escaped
 }
 
 fn node_id_path(value: &str) -> Result<String, String> {

@@ -6,6 +6,7 @@
   const SECTION_STATUS: Record<AppSection, string> = {
     agordoj: 'Application settings',
     fluo: 'Local social feed',
+    ilo: 'Personal tools',
     klaro: 'workspace',
     ligo: 'Direct messages and file sharing',
     mi: 'Personal profile',
