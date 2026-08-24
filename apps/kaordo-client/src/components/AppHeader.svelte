@@ -17,7 +17,12 @@
   };
 
   let { activeFile, activeSection, onBack, onNavigate, platform, sections }: Props = $props();
-  let navigationSections = $derived(sections.filter((section) => section.id !== 'agordoj'));
+  let navigationSections = $derived(
+    sections.filter((section) => !['mi', 'regado', 'agordoj'].includes(section.id)),
+  );
+  let utilitySections = $derived(
+    sections.filter((section) => section.id === 'mi' || section.id === 'regado'),
+  );
   let appBarElement = $state<HTMLElement>();
   let backButtonElement = $state<HTMLButtonElement>();
   let segmentedElement = $state<HTMLElement>();
@@ -158,15 +163,7 @@
         ></button>
       </div>
     {/if}
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32" role="presentation">
-          <path d="M7 8.5 16 4l9 4.5v10L16 28l-9-9.5z" />
-          <path d="m7 8.5 9 4.8 9-4.8M16 13.3V28" />
-        </svg>
-      </span>
-      <span class="brand-name">Kaordo</span>
-    </div>
+    <span class="brand-name">Kaordo</span>
   </div>
 
   <nav
@@ -185,7 +182,42 @@
         aria-label={section.label}
         onchange={() => onNavigate(section.id)}
       />
-      <label for={`kaordo-section-${section.id}`} title={section.description}>{section.label}</label>
+      <label for={`kaordo-section-${section.id}`} title={section.description}>
+        {#if section.id === 'fluo'}
+          <svg class="section-tab__icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M4 4.5h12v8H9l-3.5 3v-3H4z" />
+            <path d="M7 8h6M7 10.5h4" />
+          </svg>
+        {:else if section.id === 'ligo'}
+          <svg class="section-tab__icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M4 5.5h12v8H9l-3.5 3v-3H4z" />
+            <path d="M7 8.5h6M7 11h4" />
+          </svg>
+        {:else if section.id === 'rondo'}
+          <svg class="section-tab__icon" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="10" cy="6" r="2.5" />
+            <circle cx="5.5" cy="10.5" r="2" />
+            <circle cx="14.5" cy="10.5" r="2" />
+            <path d="M6.5 16c.4-2 1.5-3 3.5-3s3.1 1 3.5 3M3 16c.2-1.4 1-2.1 2.5-2.1M17 16c-.2-1.4-1-2.1-2.5-2.1" />
+          </svg>
+        {:else if section.id === 'nodo'}
+          <svg class="section-tab__icon" viewBox="0 0 20 20" aria-hidden="true">
+            <rect x="4" y="3.5" width="12" height="13" rx="2" />
+            <path d="M7 7h6M7 10h6M7 13h3" />
+            <circle cx="13.5" cy="13" r=".7" fill="currentColor" stroke="none" />
+          </svg>
+        {:else if section.id === 'klaro'}
+          <svg class="section-tab__icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M3.5 4.5c2.3-.7 4.3-.3 6.5 1v10c-2.2-1.3-4.2-1.7-6.5-1zM16.5 4.5c-2.3-.7-4.3-.3-6.5 1v10c2.2-1.3 4.2-1.7 6.5-1z" />
+          </svg>
+        {:else}
+          <svg class="section-tab__icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="m10 3 1.2 3.3L14.5 7.5l-3.3 1.2L10 12l-1.2-3.3-3.3-1.2 3.3-1.2z" />
+            <path d="m15.5 11.5.6 1.6 1.6.6-1.6.6-.6 1.7-.6-1.7-1.6-.6 1.6-.6z" />
+          </svg>
+        {/if}
+        <span>{section.label}</span>
+      </label>
     {/each}
   </nav>
 
@@ -207,19 +239,44 @@
         {activeFile.name}.vdw
       </span>
     {/if}
-    <button
-      class="sui-btn sui-btn-icon settings-action"
-      class:settings-action--active={activeSection === 'agordoj'}
-      type="button"
-      title="Agordoj"
-      aria-label="Open application settings"
-      onclick={() => onNavigate('agordoj')}
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="m12 3 1 1.8 2.1.6 1.8-1 1.7 1.7-1 1.8.6 2.1 1.8 1v2.4l-1.8 1-.6 2.1 1 1.8-1.7 1.7-1.8-1-2.1.6-1 1.8H9.6l-1-1.8-2.1-.6-1.8 1L3 17.4l1-1.8-.6-2.1-1.8-1V10l1.8-1L4 6.9 3 5.1 4.7 3.4l1.8 1 2.1-.6 1-1.8H12Z" />
-        <circle cx="10.8" cy="11.2" r="2.7" />
-      </svg>
-    </button>
+    <div class="header-actions" aria-label="Account and application controls">
+      {#each utilitySections as section}
+        <button
+          class="header-action"
+          class:header-action--active={activeSection === section.id}
+          type="button"
+          aria-current={activeSection === section.id ? 'page' : undefined}
+          onclick={() => onNavigate(section.id)}
+        >
+          {#if section.id === 'mi'}
+            <svg class="header-action__icon" viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="10" cy="6.5" r="3" />
+              <path d="M4 17c.7-3.1 2.7-4.7 6-4.7s5.3 1.6 6 4.7" />
+            </svg>
+          {:else}
+            <svg class="header-action__icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="m10 2.2 6 2.2v4.5c0 3.7-2.4 6.7-6 8.9-3.6-2.2-6-5.2-6-8.9V4.4z" />
+              <path d="M7 9.5h6M7.8 12.2h4.4" />
+            </svg>
+          {/if}
+          <span>{section.label}</span>
+        </button>
+      {/each}
+      <button
+        class="header-action settings-action"
+        class:header-action--active={activeSection === 'agordoj'}
+        type="button"
+        title="Agordoj"
+        aria-label="Open application settings"
+        aria-current={activeSection === 'agordoj' ? 'page' : undefined}
+        onclick={() => onNavigate('agordoj')}
+      >
+        <svg class="header-action__icon settings-action__icon" viewBox="0 0 20 20" aria-hidden="true">
+          <path fill-rule="evenodd" d="M8.4 1.8h3.2l.5 1.8c.5.1 1 .3 1.5.6l1.6-1 2.3 2.3-1 1.6c.3.5.5 1 .6 1.5l1.8.5v3.2l-1.8.5c-.1.5-.3 1-.6 1.5l1 1.6-2.3 2.3-1.6-1c-.5.3-1 .5-1.5.6l-.5 1.8H8.4l-.5-1.8c-.5-.1-1-.3-1.5-.6l-1.6 1-2.3-2.3 1-1.6c-.3-.5-.5-1-.6-1.5l-1.8-.5V9.1l1.8-.5c.1-.5.3-1 .6-1.5l-1-1.6 2.3-2.3 1.6 1c.5-.3 1-.5 1.5-.6zM10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+        </svg>
+        <span>Agordoj</span>
+      </button>
+    </div>
   </div>
 </header>
 
@@ -256,12 +313,6 @@
     --header-control: rgb(255 255 255 / 7%);
     --header-control-border: rgb(255 255 255 / 10%);
     --header-primary: var(--accent);
-  }
-
-  :global(html[data-theme='dark']) .sui-btn {
-    box-shadow:
-      2px 2px 6px rgb(0 0 0 / 28%),
-      -2px -2px 6px rgb(255 255 255 / 5%);
   }
 
   :global(html[data-theme='dark']) .sui-segmented {
@@ -321,72 +372,53 @@
     background: #28c840;
   }
 
-  .brand {
+  .brand-name {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
     min-width: 0;
-  }
-
-  .brand-mark {
-    display: grid;
-    flex: none;
-    width: 23px;
-    height: 23px;
-    color: var(--header-muted);
-    background: var(--header-control);
-    border: 1px solid var(--header-control-border);
-    border-radius: 7px;
-    place-items: center;
-  }
-
-  .brand-mark svg {
-    width: 15px;
-    height: 15px;
-    fill: none;
-    stroke: currentColor;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-width: 1.7;
-  }
-
-  .brand-name {
     color: var(--header-text);
     font-size: calc(12px * var(--text-scale));
     font-weight: 620;
     letter-spacing: 0.01em;
   }
 
-  /* SoftUI icon button, kept scoped to the header so its global reset is not
-     applied to the rest of the app. */
-  .sui-btn {
+  .header-actions {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    padding: 0;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .header-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 25px;
+    padding: 3px 9px;
     color: var(--header-muted);
     background: var(--header-control);
     border: 1px solid var(--header-control-border);
-    border-radius: 50%;
+    border-radius: 999px;
     box-shadow:
       2px 2px 6px rgb(184 192 204 / 54%),
       -2px -2px 6px rgb(255 255 255 / 70%);
     cursor: pointer;
+    font-size: calc(10px * var(--text-scale));
+    font-weight: 620;
+    line-height: 1.2;
     transition:
       color 150ms ease,
       background 150ms ease,
       box-shadow 150ms ease,
       transform 150ms ease;
+    white-space: nowrap;
   }
 
-  .sui-btn-icon {
-    width: 25px;
-    height: 25px;
-  }
-
-  .sui-btn svg {
-    width: 14px;
-    height: 14px;
+  .header-action__icon {
+    width: 13px;
+    height: 13px;
+    flex: none;
     fill: none;
     stroke: currentColor;
     stroke-linecap: round;
@@ -394,7 +426,12 @@
     stroke-width: 1.5;
   }
 
-  .sui-btn:hover {
+  .settings-action__icon {
+    fill: currentColor;
+    stroke: none;
+  }
+
+  .header-action:hover {
     color: var(--header-text);
     box-shadow:
       1px 1px 4px rgb(184 192 204 / 62%),
@@ -402,21 +439,21 @@
     transform: translateY(-1px);
   }
 
-  .sui-btn:active {
+  .header-action:active {
     box-shadow: inset 2px 2px 5px rgb(184 192 204 / 62%);
     transform: translateY(0);
   }
 
-  .settings-action--active {
+  .header-action:focus-visible {
+    outline: 2px solid var(--header-primary);
+    outline-offset: 2px;
+  }
+
+  .header-action--active {
     color: #fff;
     background: var(--header-primary);
     border-color: transparent;
     box-shadow: 0 2px 8px rgb(91 84 224 / 30%);
-  }
-
-  .sui-btn:focus-visible {
-    outline: 2px solid var(--header-primary);
-    outline-offset: 2px;
   }
 
   .section-tabs {
@@ -473,6 +510,10 @@
   .sui-segmented label {
     position: relative;
     z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
     padding: 4px 9px;
     color: var(--sui-text-muted);
     border-radius: var(--sui-radius-full);
@@ -486,6 +527,17 @@
     transition: color var(--sui-transition-fast) ease;
     user-select: none;
     white-space: nowrap;
+  }
+
+  .section-tab__icon {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.45;
   }
 
   .sui-segmented label:hover {
@@ -579,10 +631,6 @@
     width: 1px;
     height: 14px;
     background: var(--header-border);
-  }
-
-  .section-context .settings-action {
-    margin-left: 2px;
   }
 
   @media (max-width: 1120px) {

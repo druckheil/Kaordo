@@ -451,7 +451,7 @@
       // Ligo's hibernatable socket is also the app-level presence signal, so
       // it remains connected while the authenticated application is open.
       ligo.start();
-      if (snapshot.user?.role === 'user' && activeSection === 'regado') {
+      if (snapshot.user?.role !== 'superadmin' && activeSection === 'regado') {
         activeSection = 'klaro';
         regado.stop();
       }
@@ -675,6 +675,7 @@
 
   function navigate(section: AppSection) {
     if (activeSection === section) return;
+    if (section === 'regado' && authSnapshot.user?.role !== 'superadmin') return;
     closeContextMenu();
     editor.canvas.clearInteractions();
     isCreateWorkspaceOpen = false;
@@ -862,7 +863,7 @@
         onTerminateSession={terminateSession}
         user={authSnapshot.user}
       />
-    {:else if activeSection === 'regado' && authSnapshot.user?.role !== 'user'}
+    {:else if activeSection === 'regado' && authSnapshot.user?.role === 'superadmin'}
       <RegadoSection
         snapshot={regadoSnapshot}
         onRefresh={() => regado.state.refresh()}
