@@ -19,6 +19,17 @@ body {
   background: var(--chrome);
 }
 
+html[data-kaordo-platform='desktop'],
+html[data-kaordo-platform='desktop'] body,
+html[data-kaordo-platform='desktop'] #app {
+  background: transparent;
+}
+
+html[data-kaordo-platform='desktop'] #app {
+  overflow: hidden;
+  border-radius: 14px;
+}
+
 button,
 input,
 textarea {

@@ -23,6 +23,14 @@ if (!target) {
 }
 
 const nodoGateway = createNodoGateway();
+const workspaceGateway = createWorkspaceGateway();
+
+// A transparent Tauri window needs transparent document roots so the
+// desktop-only border radius can reveal the native window background. Keep
+// the browser build opaque and unchanged.
+if (workspaceGateway.platform === 'desktop') {
+  document.documentElement.dataset.kaordoPlatform = 'desktop';
+}
 
 const app = mount(App, {
   target,
@@ -35,7 +43,7 @@ const app = mount(App, {
     iloGateway: createIloGateway(),
     profileGateway: createProfileGateway(nodoGateway),
     rondoGateway: createRondoGateway(),
-    workspaceGateway: createWorkspaceGateway(),
+    workspaceGateway,
   },
 });
 

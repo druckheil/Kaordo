@@ -760,6 +760,7 @@
 {#if authSnapshot.phase === 'authenticated'}
 <div
   class="app-shell"
+  class:app-shell--desktop={platform === 'desktop'}
   inert={isModalOpen}
   aria-hidden={isModalOpen ? 'true' : undefined}
 >
@@ -769,6 +770,7 @@
     {activeSection}
     onBack={closeFile}
     onNavigate={navigate}
+    {platform}
     sections={appSectionsFor(authSnapshot.user?.role ?? 'user')}
   />
 
@@ -966,11 +968,16 @@
 <style>
   .app-shell {
     display: grid;
-    grid-template-rows: 56px minmax(0, 1fr) 28px;
+    grid-template-rows: 32px minmax(0, 1fr) 28px;
     width: 100%;
     height: 100%;
     background: var(--canvas);
     animation: shell-enter 260ms ease-out both;
+  }
+
+  .app-shell--desktop {
+    overflow: hidden;
+    border-radius: 14px;
   }
 
   .workspace-shell {
