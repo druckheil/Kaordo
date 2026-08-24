@@ -239,7 +239,7 @@
           onDeleteMany={requestDeleteMany}
           onEdit={editCard}
           onLoadMore={() => iloState.loadMoreCards()}
-          onSearch={(query, theme) => iloState.searchCards(query, theme)}
+          onSearch={(query, theme, force) => iloState.searchCards(query, theme, force)}
           themes={snapshot.themes}
         />
       {:else if activeTab === 'add'}

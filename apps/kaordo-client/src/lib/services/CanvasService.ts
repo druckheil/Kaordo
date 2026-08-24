@@ -13,6 +13,7 @@ import type {
   WorkspaceDetail,
 } from '../domain/workspace';
 import {
+  canvasElementIdsForObject,
   copyObjectDocument,
   sanitizeTextHtml,
   serializeObjectDocument,
@@ -85,6 +86,7 @@ export class CanvasService {
   readonly #textEditors = new Map<string, TextEditorController>();
   readonly #mediaBlobs = new Map<string, Blob>();
   readonly #mediaLoads = new Map<string, Promise<Blob | null>>();
+  #mediaBlobBytes = 0;
 
   constructor(
     state: CanvasGState,
@@ -147,12 +149,14 @@ export class CanvasService {
     workspaceId: string,
     document: WorkspaceCanvasDocument,
   ): Promise<void> {
+    const currentDocument = this.state.canvasDocumentFor(workspaceId);
+    const persistedDocument = this.#persistedCanvasDocuments.get(workspaceId);
     if (
-      !sameCanvasDocument(
-        this.state.canvasDocumentFor(workspaceId),
-        document,
-      )
-    ) {
+      !this.#canvasSaves.has(workspaceId) &&
+      persistedDocument &&
+      sameCanvasDocument(persistedDocument, document)
+    ) return;
+    if (!sameCanvasDocument(currentDocument, document)) {
       this.recordHistoryBeforeChange(workspaceId);
     }
     this.state.setCanvasDocument(workspaceId, document);
@@ -160,7 +164,7 @@ export class CanvasService {
     const operation = (previous?.catch(() => undefined) ?? Promise.resolve())
       .then(() => this.#saveCanvasDocument(workspaceId, document))
       .then(() => {
-        this.#persistedCanvasDocuments.set(workspaceId, document);
+        this.#persistedCanvasDocuments.set(workspaceId, copyCanvasDocument(document));
       });
     this.#canvasSaves.set(workspaceId, operation);
     try {
@@ -196,6 +200,12 @@ export class CanvasService {
     const currentObject = current?.id === workspaceId
       ? current.objects.find((object) => object.id === objectId)
       : undefined;
+    if (
+      currentObject &&
+      sameObjectDocument(currentObject.document, document)
+    ) {
+      return;
+    }
     if (
       currentObject &&
       !sameObjectDocument(currentObject.document, document)
@@ -242,7 +252,7 @@ export class CanvasService {
       if (key.startsWith(`${workspaceId}:`)) this.#pendingPlacements.delete(key);
     }
     for (const key of this.#mediaBlobs.keys()) {
-      if (key.startsWith(`${workspaceId}:`)) this.#mediaBlobs.delete(key);
+      if (key.startsWith(`${workspaceId}:`)) this.forgetMediaBlob(key);
     }
     for (const key of this.#mediaLoads.keys()) {
       if (key.startsWith(`${workspaceId}:`)) this.#mediaLoads.delete(key);
@@ -254,13 +264,15 @@ export class CanvasService {
     workspaceId: string,
     objectId: string,
   ): Promise<void> {
-    const mediaIds = this.state
-      .canvasDocumentFor(workspaceId)
-      .elements
-      .filter((element): element is MediaElement =>
-        element.type === 'media' && element.parentObjectId === objectId,
-      )
-      .map((element) => element.mediaId);
+    const document = this.state.canvasDocumentFor(workspaceId);
+    const removedElementIds = canvasElementIdsForObject(document, objectId);
+    const mediaIds = [...new Set(
+      document.elements
+        .filter((element): element is MediaElement =>
+          element.type === 'media' && removedElementIds.has(element.id),
+        )
+        .map((element) => element.mediaId),
+    )];
     this.state.removeObject(workspaceId, objectId);
     await this.saveWorkspaceCanvasDocument(
       workspaceId,
@@ -269,7 +281,7 @@ export class CanvasService {
     await Promise.allSettled(mediaIds.map((mediaId) => this.#deleteCanvasMedia(workspaceId, mediaId)));
     for (const mediaId of mediaIds) {
       const key = mediaKey(workspaceId, mediaId);
-      this.#mediaBlobs.delete(key);
+      this.forgetMediaBlob(key);
       this.#mediaLoads.delete(key);
     }
   }
@@ -289,7 +301,7 @@ export class CanvasService {
     );
     if (target.type === 'media') {
       await this.#deleteCanvasMedia(workspaceId, target.mediaId).catch(() => undefined);
-      this.#mediaBlobs.delete(mediaKey(workspaceId, target.mediaId));
+      this.forgetMediaBlob(mediaKey(workspaceId, target.mediaId));
       this.#mediaLoads.delete(mediaKey(workspaceId, target.mediaId));
     }
     this.state.announce('Element deleted.');
@@ -359,7 +371,7 @@ export class CanvasService {
       // one file at a time.
       await Promise.all(pending.map(async ({ element, file }) => {
         await this.#saveCanvasMedia(workspaceId, element.mediaId, file);
-        this.#mediaBlobs.set(mediaKey(workspaceId, element.mediaId), file);
+        this.cacheMediaBlob(mediaKey(workspaceId, element.mediaId), file);
       }));
       // Another interaction may have committed while the platform was
       // writing a large file. Merge into the latest snapshot instead of
@@ -378,7 +390,7 @@ export class CanvasService {
         pending.map(({ element }) => this.#deleteCanvasMedia(workspaceId, element.mediaId)),
       );
       for (const { element } of pending) {
-        this.#mediaBlobs.delete(mediaKey(workspaceId, element.mediaId));
+        this.forgetMediaBlob(mediaKey(workspaceId, element.mediaId));
       }
       throw error;
     }
@@ -398,7 +410,7 @@ export class CanvasService {
     element: Pick<MediaElement, 'mediaId' | 'mimeType'>,
   ): Promise<Blob | null> {
     const key = mediaKey(workspaceId, element.mediaId);
-    const cached = this.#mediaBlobs.get(key);
+    const cached = this.cachedMediaBlob(key);
     if (cached) return cached;
     const activeLoad = this.#mediaLoads.get(key);
     if (activeLoad) return activeLoad;
@@ -415,11 +427,39 @@ export class CanvasService {
       // A deletion/workspace reset can remove the in-flight entry while the
       // platform read is still pending. Do not repopulate a cache that was
       // explicitly invalidated in that case.
-      if (this.#mediaLoads.get(key) === load && blob) this.#mediaBlobs.set(key, blob);
+      if (this.#mediaLoads.get(key) === load && blob) this.cacheMediaBlob(key, blob);
       return blob;
     } finally {
       if (this.#mediaLoads.get(key) === load) this.#mediaLoads.delete(key);
     }
+  }
+
+  private cachedMediaBlob(key: string): Blob | undefined {
+    const blob = this.#mediaBlobs.get(key);
+    if (!blob) return undefined;
+    // Map insertion order is used as a tiny LRU, keeping recently visible
+    // media warm while allowing large canvases to release old video blobs.
+    this.#mediaBlobs.delete(key);
+    this.#mediaBlobs.set(key, blob);
+    return blob;
+  }
+
+  private cacheMediaBlob(key: string, blob: Blob): void {
+    this.forgetMediaBlob(key);
+    this.#mediaBlobs.set(key, blob);
+    this.#mediaBlobBytes += blob.size;
+    while (this.#mediaBlobBytes > MAX_MEDIA_MEMORY_BYTES) {
+      const oldest = this.#mediaBlobs.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.forgetMediaBlob(oldest);
+    }
+  }
+
+  private forgetMediaBlob(key: string): void {
+    const blob = this.#mediaBlobs.get(key);
+    if (!blob) return;
+    this.#mediaBlobs.delete(key);
+    this.#mediaBlobBytes = Math.max(0, this.#mediaBlobBytes - blob.size);
   }
 
   private mediaPosition(
@@ -915,7 +955,7 @@ export class CanvasService {
           );
           this.state.setCanvasDocument(workspace.id, document);
           this.state.restorePlacements(workspace, document);
-          this.#persistedCanvasDocuments.set(workspace.id, loadedDocument);
+          this.#persistedCanvasDocuments.set(workspace.id, copyCanvasDocument(loadedDocument));
           this.state.markCanvasDocumentReady();
           for (const key of this.#pendingPlacements.keys()) {
             if (key.startsWith(`${workspace.id}:`)) {
@@ -1178,7 +1218,7 @@ export class CanvasService {
       const restored = copyCanvasDocument(snapshot.canvasDocument);
       this.state.setCanvasDocument(workspaceId, restored);
       this.state.restorePlacements(this.#getWorkspace() ?? workspace, restored);
-      this.#persistedCanvasDocuments.set(workspaceId, restored);
+      this.#persistedCanvasDocuments.set(workspaceId, copyCanvasDocument(restored));
     } finally {
       this.#replayingHistory = false;
     }
@@ -1389,6 +1429,7 @@ type CanvasHistoryState = {
 };
 
 const MAX_HISTORY_ENTRIES = 100;
+const MAX_MEDIA_MEMORY_BYTES = 256 * 1024 * 1024;
 
 export type TextFormatCommand =
   | 'bold'

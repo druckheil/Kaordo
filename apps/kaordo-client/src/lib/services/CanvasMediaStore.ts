@@ -15,7 +15,13 @@ export async function saveCanvasMediaBlob(
     memoryFallback.set(key, blob);
     return;
   }
-  await transaction(database, 'readwrite', (store) => store.put({ blob, key }));
+  try {
+    await transaction(database, 'readwrite', (store) => store.put({ blob, key }));
+  } catch {
+    // Private canvas media must remain usable when a WebView blocks or fills
+    // IndexedDB. Keep the current session functional without hiding the blob.
+    memoryFallback.set(key, blob);
+  }
 }
 
 export async function loadCanvasMediaBlob(
@@ -23,12 +29,18 @@ export async function loadCanvasMediaBlob(
   mediaId: string,
 ): Promise<Blob | null> {
   const key = mediaKey(workspaceId, mediaId);
+  const memory = memoryFallback.get(key);
+  if (memory) return memory;
   const database = await openDatabase();
-  if (!database) return memoryFallback.get(key) ?? null;
-  const value = await request<StoredMedia | undefined>(
-    database.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(key),
-  );
-  return value?.blob ?? null;
+  if (!database) return null;
+  try {
+    const value = await request<StoredMedia | undefined>(
+      database.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(key),
+    );
+    return value?.blob ?? memoryFallback.get(key) ?? null;
+  } catch {
+    return memoryFallback.get(key) ?? null;
+  }
 }
 
 export async function deleteCanvasMediaBlob(
@@ -39,7 +51,7 @@ export async function deleteCanvasMediaBlob(
   memoryFallback.delete(key);
   const database = await openDatabase();
   if (!database) return;
-  await transaction(database, 'readwrite', (store) => store.delete(key));
+  await transaction(database, 'readwrite', (store) => store.delete(key)).catch(() => undefined);
 }
 
 function mediaKey(workspaceId: string, mediaId: string): string {

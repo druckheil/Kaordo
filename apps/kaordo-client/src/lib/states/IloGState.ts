@@ -19,12 +19,20 @@ const EMPTY_SNAPSHOT: IloSnapshot = {
   train: { active: 0, card: null, due: 0 },
 };
 
+// Switching between application sections should reuse a recent bootstrap.
+// An explicit refresh still bypasses this window, while a stale section entry
+// avoids an unnecessary Worker/D1 round-trip.
+const BOOTSTRAP_STALE_AFTER_MS = 30_000;
+const CARDS_PAGE_SIZE = 50;
+
 export class IloGState extends GState<IloSnapshot> {
   #ownerId: string | null = null;
   #entered = false;
   #requestId = 0;
   #cardsRequestId = 0;
   #refreshInFlight: Promise<void> | null = null;
+  #cardsInFlight: { key: string; promise: Promise<void> } | null = null;
+  #lastRefreshAt = 0;
   #cardsOffset = 0;
   #cardsQuery = { q: '', theme: '' };
 
@@ -37,12 +45,12 @@ export class IloGState extends GState<IloSnapshot> {
     this.#ownerId = ownerId;
     this.reset();
     if (ownerId) this.update((snapshot) => ({ ...snapshot, logs: readLogs(ownerId) }));
-    if (this.#entered && ownerId) void this.refresh();
+    if (this.#entered && ownerId) void this.refresh(false);
   }
 
   override enter(): void {
     this.#entered = true;
-    if (this.#ownerId) void this.refresh();
+    if (this.#ownerId) void this.refresh(false);
   }
 
   override exit(): void {
@@ -50,6 +58,7 @@ export class IloGState extends GState<IloSnapshot> {
     this.#requestId += 1;
     this.#cardsRequestId += 1;
     this.#refreshInFlight = null;
+    this.#cardsInFlight = null;
     this.update((snapshot) => ({ ...snapshot, cardsLoading: false, busy: null, refreshing: false }));
   }
 
@@ -57,16 +66,25 @@ export class IloGState extends GState<IloSnapshot> {
     this.#requestId += 1;
     this.#cardsRequestId += 1;
     this.#refreshInFlight = null;
+    this.#cardsInFlight = null;
+    this.#lastRefreshAt = 0;
     this.#cardsOffset = 0;
     this.#cardsQuery = { q: '', theme: '' };
     this.publish({ ...EMPTY_SNAPSHOT, progress: { ...EMPTY_ILO_PROGRESS } });
   }
 
-  refresh(): Promise<void> {
+  refresh(force = true): Promise<void> {
     if (this.snapshot.busy) return Promise.resolve();
     if (this.#refreshInFlight) return this.#refreshInFlight;
     const ownerId = this.#ownerId;
     if (!ownerId) return Promise.resolve();
+    if (
+      !force &&
+      this.snapshot.phase === 'ready' &&
+      Date.now() - this.#lastRefreshAt < BOOTSTRAP_STALE_AFTER_MS
+    ) {
+      return Promise.resolve();
+    }
     const requestId = ++this.#requestId;
     this.update((snapshot) => ({
       ...snapshot,
@@ -79,6 +97,7 @@ export class IloGState extends GState<IloSnapshot> {
       try {
         const bootstrap = await this.gateway.bootstrap();
         if (requestId !== this.#requestId || ownerId !== this.#ownerId) return;
+        this.#lastRefreshAt = Date.now();
         this.publish({
           ...this.snapshot,
           error: null,
@@ -101,8 +120,18 @@ export class IloGState extends GState<IloSnapshot> {
     return request;
   }
 
-  searchCards(q: string, theme: string): Promise<void> {
-    this.#cardsQuery = { q: q.trim(), theme: theme.trim() };
+  searchCards(q: string, theme: string, force = false): Promise<void> {
+    const nextQuery = { q: q.trim(), theme: theme.trim() };
+    if (
+      !force &&
+      this.snapshot.cardsLoaded &&
+      !this.snapshot.cardsLoading &&
+      this.#cardsQuery.q === nextQuery.q &&
+      this.#cardsQuery.theme === nextQuery.theme
+    ) {
+      return Promise.resolve();
+    }
+    this.#cardsQuery = nextQuery;
     this.#cardsOffset = 0;
     return this.loadCards(false);
   }
@@ -150,24 +179,34 @@ export class IloGState extends GState<IloSnapshot> {
   private async loadCards(append: boolean): Promise<void> {
     const ownerId = this.#ownerId;
     if (!ownerId) return;
-    const requestId = ++this.#cardsRequestId;
     const offset = append ? this.#cardsOffset : 0;
+    const key = `${this.#cardsQuery.q}\u0000${this.#cardsQuery.theme}\u0000${offset}`;
+    if (this.#cardsInFlight?.key === key) return this.#cardsInFlight.promise;
+    const requestId = ++this.#cardsRequestId;
     this.update((snapshot) => ({ ...snapshot, cardsLoading: true, error: null }));
+    const promise = (async () => {
+      try {
+        const page = await this.gateway.listCards({ ...this.#cardsQuery, limit: CARDS_PAGE_SIZE, offset });
+        if (requestId !== this.#cardsRequestId || ownerId !== this.#ownerId) return;
+        this.#cardsOffset = page.nextOffset ?? offset + page.cards.length;
+        this.update((snapshot) => ({
+          ...snapshot,
+          cards: append ? [...snapshot.cards, ...page.cards] : page.cards,
+          cardsHasMore: page.nextOffset !== null,
+          cardsLoaded: true,
+          cardsLoading: false,
+        }));
+      } catch (error) {
+        if (requestId !== this.#cardsRequestId || ownerId !== this.#ownerId) return;
+        this.fail('load cards', error);
+        this.update((snapshot) => ({ ...snapshot, cardsLoading: false }));
+      }
+    })();
+    this.#cardsInFlight = { key, promise };
     try {
-      const page = await this.gateway.listCards({ ...this.#cardsQuery, limit: 50, offset });
-      if (requestId !== this.#cardsRequestId || ownerId !== this.#ownerId) return;
-      this.#cardsOffset = page.nextOffset ?? offset + page.cards.length;
-      this.update((snapshot) => ({
-        ...snapshot,
-        cards: append ? [...snapshot.cards, ...page.cards] : page.cards,
-        cardsHasMore: page.nextOffset !== null,
-        cardsLoaded: true,
-        cardsLoading: false,
-      }));
-    } catch (error) {
-      if (requestId !== this.#cardsRequestId || ownerId !== this.#ownerId) return;
-      this.fail('load cards', error);
-      this.update((snapshot) => ({ ...snapshot, cardsLoading: false }));
+      await promise;
+    } finally {
+      if (this.#cardsInFlight?.promise === promise) this.#cardsInFlight = null;
     }
   }
 
@@ -181,6 +220,10 @@ export class IloGState extends GState<IloSnapshot> {
     try {
       const result = await request();
       if (requestId !== this.#requestId || ownerId !== this.#ownerId) return false;
+      // Mutation responses include the current training/progress snapshot, so
+      // a section switch immediately after saving does not need another
+      // bootstrap request.
+      this.#lastRefreshAt = Date.now();
       this.update((snapshot) => ({
         ...snapshot,
         busy: null,

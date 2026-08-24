@@ -263,6 +263,74 @@ describe('CanvasService interaction boundaries', () => {
     });
   });
 
+  it('removes nested media when a panel is deleted', async () => {
+    const deleteMedia = vi.fn().mockResolvedValue(undefined);
+    const state = new CanvasGState();
+    state.setCanvasDocument(workspace.id, {
+      elements: [
+        {
+          fill: '#ffffff',
+          height: 160,
+          id: 'card-1',
+          parentObjectId: 'object-1',
+          radius: 10,
+          stroke: '#000000',
+          strokeWidth: 2,
+          type: 'rectangle',
+          width: 240,
+          x: 20,
+          y: 20,
+        },
+        {
+          color: '#25332d',
+          fontSize: 16,
+          height: 48,
+          html: 'Nested',
+          id: 'text-1',
+          parentElementId: 'card-1',
+          parentObjectId: 'object-1',
+          textAlign: 'left',
+          type: 'text',
+          width: 120,
+          x: 30,
+          y: 30,
+        },
+        {
+          height: 72,
+          id: 'media-1',
+          kind: 'image',
+          mediaId: 'blob-1',
+          mimeType: 'image/png',
+          name: 'image.png',
+          parentElementId: 'text-1',
+          size: 1,
+          type: 'media',
+          width: 120,
+          x: 30,
+          y: 84,
+        },
+      ],
+      placements: [],
+      version: 1,
+    });
+    const service = new CanvasService(
+      state,
+      () => workspace,
+      undefined,
+      undefined,
+      vi.fn().mockResolvedValue(undefined),
+      undefined,
+      undefined,
+      undefined,
+      deleteMedia,
+    );
+
+    await service.removeObjectReferences(workspace.id, 'object-1');
+
+    expect(state.canvasDocumentFor(workspace.id).elements).toEqual([]);
+    expect(deleteMedia).toHaveBeenCalledWith(workspace.id, 'blob-1');
+  });
+
   it('undoes and redoes canvas changes through the platform shortcut', async () => {
     const initial = {
       elements: [],

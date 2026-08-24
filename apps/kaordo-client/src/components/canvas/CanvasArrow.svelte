@@ -36,6 +36,8 @@
   let liveStartDelta = $state({ deltaX: 0, deltaY: 0 });
   let liveEndDelta = $state({ deltaX: 0, deltaY: 0 });
   let liveControlDeltas = $state<Record<number, { deltaX: number; deltaY: number }>>({});
+  let pendingLiveDrags = new Map<string, ArrowLiveDragDetail>();
+  let liveFrame: number | null = null;
   let points = $derived.by(() => {
     const base = arrowPoints(arrow, elements, placements);
     return {
@@ -67,6 +69,26 @@
     const handleLiveDrag = (event: Event) => {
       const detail = (event as CustomEvent<ArrowLiveDragDetail>).detail;
       if (!detail) return;
+      pendingLiveDrags.set(liveDetailKey(detail), detail);
+      if (liveFrame !== null) return;
+      liveFrame = requestAnimationFrame(() => {
+        liveFrame = null;
+        const next = [...pendingLiveDrags.values()];
+        pendingLiveDrags = new Map();
+        for (const drag of next) applyLiveDrag(drag);
+      });
+    };
+
+    window.addEventListener(ARROW_LIVE_DRAG_EVENT, handleLiveDrag);
+    return () => {
+      window.removeEventListener(ARROW_LIVE_DRAG_EVENT, handleLiveDrag);
+      if (liveFrame !== null) cancelAnimationFrame(liveFrame);
+      liveFrame = null;
+      pendingLiveDrags.clear();
+    };
+  });
+
+  function applyLiveDrag(detail: ArrowLiveDragDetail): void {
       if (detail.phase === 'end') {
         if (detail.arrowId === arrow.id && detail.controlPoint !== undefined) {
           const next = { ...liveControlDeltas };
@@ -100,10 +122,18 @@
       liveEndDelta = matchesAttachment(arrow.endAttachment, detail)
         ? { deltaX: detail.deltaX, deltaY: detail.deltaY }
         : { deltaX: 0, deltaY: 0 };
-    };
-    window.addEventListener(ARROW_LIVE_DRAG_EVENT, handleLiveDrag);
-    return () => window.removeEventListener(ARROW_LIVE_DRAG_EVENT, handleLiveDrag);
-  });
+  }
+
+  function liveDetailKey(detail: ArrowLiveDragDetail): string {
+    if (detail.arrowId) {
+      if (detail.controlPoint !== undefined) return `arrow:${detail.arrowId}:control:${detail.controlPoint}`;
+      if (detail.endpoint) return `arrow:${detail.arrowId}:endpoint:${detail.endpoint}`;
+      return `arrow:${detail.arrowId}`;
+    }
+    if (detail.elementId) return `element:${detail.elementId}`;
+    if (detail.objectId) return `object:${detail.objectId}`;
+    return detail.phase;
+  }
 
   function matchesAttachment(
     attachment: ArrowAttachment | undefined,

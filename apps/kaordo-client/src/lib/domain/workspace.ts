@@ -202,6 +202,39 @@ export type WorkspaceCanvasPlacement = {
   y: number;
 };
 
+/**
+ * Returns every canvas element owned by a panel, including elements nested in
+ * cards or other elements. Keeping this traversal in the domain layer makes
+ * deletion and cleanup use the same hierarchy rules.
+ */
+export function canvasElementIdsForObject(
+  document: WorkspaceCanvasDocument,
+  objectId: string,
+): Set<string> {
+  const children = new Map<string, string[]>();
+  for (const element of document.elements) {
+    if (
+      (element.type !== 'text' && element.type !== 'media') ||
+      !element.parentElementId
+    ) continue;
+    const siblings = children.get(element.parentElementId) ?? [];
+    siblings.push(element.id);
+    children.set(element.parentElementId, siblings);
+  }
+
+  const ids = new Set<string>();
+  const pending = document.elements
+    .filter((element) => element.parentObjectId === objectId)
+    .map((element) => element.id);
+  while (pending.length > 0) {
+    const id = pending.pop();
+    if (!id || ids.has(id)) continue;
+    ids.add(id);
+    pending.push(...(children.get(id) ?? []));
+  }
+  return ids;
+}
+
 export function normalizeWorkspaceCanvasDocument(
   value: unknown,
 ): WorkspaceCanvasDocument {

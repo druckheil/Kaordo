@@ -197,17 +197,16 @@ function resolvePoint(
   placements: readonly CanvasPlacement[],
 ): ArrowPoint {
   if (!attachment) return fallback;
-  const globalFrame = attachment.elementId
-    ? elements.find((element) => element.id === attachment.elementId)
-      ? canvasElementFrame(
-          elements.find((element) => element.id === attachment.elementId)!,
-          placements,
-        )
-      : null
-    : attachment.objectId
-      ? placements.find((placement) => placement.id === attachment.objectId)
-        ? canvasObjectFrame(placements.find((placement) => placement.id === attachment.objectId)!)
-        : null
+  const element = attachment.elementId
+    ? elements.find((candidate) => candidate.id === attachment.elementId)
+    : undefined;
+  const placement = attachment.objectId
+    ? placements.find((candidate) => candidate.id === attachment.objectId)
+    : undefined;
+  const globalFrame = element
+    ? canvasElementFrame(element, placements)
+    : placement
+      ? canvasObjectFrame(placement)
       : null;
   if (!globalFrame) return fallback;
   return anchorPoint(localFrame(globalFrame, arrow.parentObjectId, placements), attachment);

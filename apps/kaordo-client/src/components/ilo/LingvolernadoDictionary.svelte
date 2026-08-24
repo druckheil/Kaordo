@@ -11,7 +11,7 @@
     onDeleteMany: (cardIds: string[]) => void;
     onEdit: (card: IloCard) => void;
     onLoadMore: () => Promise<void>;
-    onSearch: (query: string, theme: string) => Promise<void>;
+    onSearch: (query: string, theme: string, force?: boolean) => Promise<void>;
     themes: string[];
   };
 
@@ -94,7 +94,7 @@
         {#each themes as option}<option value={option}>{titleize(option)}</option>{/each}
       </select>
     </label>
-    <button class="refresh" type="button" disabled={loading} onclick={() => onSearch(query, theme)} title="Refresh dictionary">
+    <button class="refresh" type="button" disabled={loading} onclick={() => onSearch(query, theme, true)} title="Refresh dictionary">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M15.5 7.5A6 6 0 1 0 16 12M15.5 3.5v4h-4"/></svg>
     </button>
   </div>

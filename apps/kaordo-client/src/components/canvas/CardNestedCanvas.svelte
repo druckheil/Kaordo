@@ -15,10 +15,11 @@
     type ArrowDrawGesture,
   } from '../../lib/features/arrowDrawing';
   import { arrowPoints, snapArrow } from '../../lib/features/arrowGeometry';
+  import type { ArrowHandle } from '../../lib/features/arrowLive';
   import {
-    dispatchArrowLiveDrag,
-    type ArrowHandle,
-  } from '../../lib/features/arrowLive';
+    dispatchCanvasLiveEnd,
+    dispatchCanvasLiveMove,
+  } from '../../lib/features/canvasLive';
   import {
     CANVAS_CARD_HEADER_HEIGHT,
   } from '../../lib/features/canvas';
@@ -499,7 +500,7 @@
     const x = move.currentX - move.startX;
     const y = move.currentY - move.startY;
     const transform = `translate3d(${x}px, ${y}px, 0)`;
-    dispatchLiveMove(move, x, y);
+    dispatchCanvasLiveMove(move, document.elements, x, y);
     for (const node of move.visualNodes) {
       if (node.classList.contains('canvas-arrow') && (move.arrowHandle !== undefined || move.element.type !== 'arrow')) {
         continue;
@@ -514,7 +515,7 @@
     active: ArrowDrawGesture | RectangleDrawGesture | MoveGesture | null,
   ) {
     if (active?.kind === 'move') {
-      dispatchLiveEnd(active);
+      dispatchCanvasLiveEnd(active, document.elements);
       for (const node of active.visualNodes) {
         node.style.removeProperty('transform');
         node.style.removeProperty('will-change');
@@ -526,67 +527,6 @@
       draftElement.classList.remove('nested-rectangle--invalid');
     }
     if (draftArrow) draftArrow.style.display = 'none';
-  }
-
-  function dispatchLiveMove(move: MoveGesture, deltaX: number, deltaY: number): void {
-    if (move.element.type === 'arrow' && move.arrowHandle !== undefined) {
-      if (typeof move.arrowHandle === 'number') {
-        dispatchArrowLiveDrag({
-          arrowId: move.element.id,
-          controlPoint: move.arrowHandle,
-          deltaX,
-          deltaY,
-          phase: 'move',
-        });
-        return;
-      }
-      dispatchArrowLiveDrag({
-        arrowId: move.element.id,
-        deltaX,
-        deltaY,
-        endpoint: move.arrowHandle,
-        phase: 'move',
-      });
-      return;
-    }
-    for (const elementId of liveTargetIds(move.element)) {
-      dispatchArrowLiveDrag({ elementId, deltaX, deltaY, phase: 'move' });
-    }
-  }
-
-  function dispatchLiveEnd(move: MoveGesture): void {
-    if (move.element.type === 'arrow' && move.arrowHandle !== undefined) {
-      if (typeof move.arrowHandle === 'number') {
-        dispatchArrowLiveDrag({
-          arrowId: move.element.id,
-          controlPoint: move.arrowHandle,
-          deltaX: 0,
-          deltaY: 0,
-          phase: 'end',
-        });
-        return;
-      }
-      dispatchArrowLiveDrag({
-        arrowId: move.element.id,
-        deltaX: 0,
-        deltaY: 0,
-        endpoint: move.arrowHandle,
-        phase: 'end',
-      });
-      return;
-    }
-    for (const elementId of liveTargetIds(move.element)) {
-      dispatchArrowLiveDrag({ elementId, deltaX: 0, deltaY: 0, phase: 'end' });
-    }
-  }
-
-  function liveTargetIds(element: CanvasElement): string[] {
-    const ids = [element.id];
-    if (element.type !== 'rectangle') return ids;
-    for (const child of document.elements) {
-      if ('parentElementId' in child && child.parentElementId === element.id) ids.push(child.id);
-    }
-    return ids;
   }
 
   function updateDraft(draw: RectangleDrawGesture) {

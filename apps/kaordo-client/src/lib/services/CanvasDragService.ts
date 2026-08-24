@@ -352,6 +352,16 @@ export class CanvasDragService {
       this.clearDragVisual(drag, true);
       this.releasePointerCapture(drag);
     }
+    const finishing = this.#finishingDrag;
+    if (finishing) {
+      dispatchArrowLiveDrag({
+        objectId: finishing.object.id,
+        deltaX: 0,
+        deltaY: 0,
+        phase: 'end',
+      });
+    }
+    this.#finishingDrag = null;
     this.#drag = null;
     this.#suppressClickId = null;
   }

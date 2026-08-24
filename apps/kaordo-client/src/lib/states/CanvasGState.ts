@@ -8,8 +8,13 @@ import type {
   WorkspaceCanvasDocument,
   WorkspaceDetail,
 } from '../domain/workspace';
-import { CANVAS_CARD_HEIGHT, CANVAS_CARD_WIDTH } from '../features/canvas';
-import { CANVAS_DEFAULT_ZOOM, clampCanvasZoom } from '../features/canvas';
+import { canvasElementIdsForObject } from '../domain/workspace';
+import {
+  CANVAS_CARD_HEIGHT,
+  CANVAS_CARD_WIDTH,
+  CANVAS_DEFAULT_ZOOM,
+  clampCanvasZoom,
+} from '../features/canvas';
 import { GState } from '../state/GState';
 
 export type CanvasSnapshot = {
@@ -245,18 +250,25 @@ export class CanvasGState extends GState<CanvasSnapshot> {
 
   removeObject(workspaceId: string, objectId: string): void {
     const document = this.canvasDocumentFor(workspaceId);
+    const removedElementIds = canvasElementIdsForObject(document, objectId);
     this.patch({
       canvasDocuments: {
         ...this.snapshot.canvasDocuments,
         [workspaceId]: {
           ...document,
           elements: document.elements
-            .filter((element) => element.parentObjectId !== objectId)
+            .filter((element) => !removedElementIds.has(element.id))
             .map((element) => {
               if (element.type !== 'arrow') return element;
               const next = { ...element };
               if (next.startAttachment?.objectId === objectId) delete next.startAttachment;
               if (next.endAttachment?.objectId === objectId) delete next.endAttachment;
+              if (next.startAttachment?.elementId && removedElementIds.has(next.startAttachment.elementId)) {
+                delete next.startAttachment;
+              }
+              if (next.endAttachment?.elementId && removedElementIds.has(next.endAttachment.elementId)) {
+                delete next.endAttachment;
+              }
               return next;
             }),
           placements: document.placements.filter(
@@ -266,8 +278,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       },
       editingTextId: document.elements.some(
         (element) =>
-          element.id === this.snapshot.editingTextId &&
-          element.parentObjectId === objectId,
+          element.id === this.snapshot.editingTextId && removedElementIds.has(element.id),
       )
         ? null
         : this.snapshot.editingTextId,
@@ -283,7 +294,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedGlobalElementId: document.elements.some(
         (element) =>
           element.id === this.snapshot.selectedGlobalElementId &&
-          (element.parentObjectId === objectId ||
+          (removedElementIds.has(element.id) ||
             (element.type === 'arrow' &&
               (element.startAttachment?.objectId === objectId ||
                 element.endAttachment?.objectId === objectId))),
