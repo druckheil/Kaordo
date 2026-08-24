@@ -28,6 +28,9 @@ const asObjectKey = (path: string | string[] | undefined): string => {
   return `${release}/${pathname}`;
 };
 
+const cacheControl = (key: string): string =>
+  key.endsWith('.json') ? 'no-store, max-age=0' : 'public, max-age=3600, immutable';
+
 export const onRequest = async ({ request, env, params }: PagesContext): Promise<Response> => {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
@@ -44,7 +47,7 @@ export const onRequest = async ({ request, env, params }: PagesContext): Promise
     metadata.writeHttpMetadata(headers);
     headers.set('etag', metadata.httpEtag);
     headers.set('accept-ranges', 'bytes');
-    headers.set('cache-control', 'public, max-age=3600, immutable');
+    headers.set('cache-control', cacheControl(key));
     headers.set('content-length', String(metadata.size));
     headers.set('content-disposition', `attachment; filename="${key.split('/').at(-1)}"`);
     return new Response(null, { headers });
@@ -59,7 +62,7 @@ export const onRequest = async ({ request, env, params }: PagesContext): Promise
   object.writeHttpMetadata(headers);
   headers.set('etag', object.httpEtag);
   headers.set('accept-ranges', 'bytes');
-  headers.set('cache-control', 'public, max-age=3600, immutable');
+  headers.set('cache-control', cacheControl(key));
   headers.set('content-disposition', `attachment; filename="${key.split('/').at(-1)}"`);
 
   if ('range' in object && object.range) {
