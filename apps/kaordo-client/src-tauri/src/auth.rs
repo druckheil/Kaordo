@@ -1344,7 +1344,8 @@ pub async fn ilo_create_card(
     input: IloCardInput,
 ) -> Result<Value, String> {
     validate_ilo_card(&input)?;
-    let response = authenticated_json_request(&client, Method::POST, "/api/ilo/cards", &input).await?;
+    let response =
+        authenticated_json_request(&client, Method::POST, "/api/ilo/cards", &input).await?;
     decode_response(response).await
 }
 
@@ -1396,7 +1397,9 @@ pub async fn ilo_delete_cards(
         &client,
         Method::DELETE,
         "/api/ilo/cards",
-        &IloDeleteCardsInput { card_ids: &card_ids },
+        &IloDeleteCardsInput {
+            card_ids: &card_ids,
+        },
     )
     .await?;
     decode_response(response).await
@@ -1422,7 +1425,10 @@ pub async fn ilo_grade(
         &client,
         Method::POST,
         "/api/ilo/train/grade",
-        &IloGradeInput { action: &action, card_id: &card_id },
+        &IloGradeInput {
+            action: &action,
+            card_id: &card_id,
+        },
     )
     .await?;
     decode_response(response).await
@@ -1762,10 +1768,14 @@ async fn authenticated_json_request<T: Serialize + ?Sized>(
 }
 
 fn validate_ilo_card(input: &IloCardInput) -> Result<(), String> {
-    if input.german.trim().is_empty() || input.german.chars().count() > 256
-        || input.translation.trim().is_empty() || input.translation.chars().count() > 512
-        || input.article.chars().count() > 64 || input.plural.chars().count() > 256
-        || input.example.chars().count() > 512 || input.note.chars().count() > 512
+    if input.german.trim().is_empty()
+        || input.german.chars().count() > 256
+        || input.translation.trim().is_empty()
+        || input.translation.chars().count() > 512
+        || input.article.chars().count() > 64
+        || input.plural.chars().count() > 256
+        || input.example.chars().count() > 512
+        || input.note.chars().count() > 512
     {
         return Err("Ilo card fields are invalid.".to_owned());
     }

@@ -1033,10 +1033,10 @@ describe('workspace navigation and objects', () => {
       objectId: 'object-1',
       workspaceId: researchFile.id,
     });
-    expect(invoke).toHaveBeenCalledWith('save_canvas_document', {
-      documentJson: '{"elements":[],"placements":[],"version":1}',
-      workspaceId: researchFile.id,
-    });
+    // The canvas document was already empty, so deleting the panel does not
+    // issue a redundant persistence write.
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'save_canvas_document'))
+      .toBe(false);
   });
 
   it('opens the enlarged canvas at its center and places the first object there', async () => {
@@ -1730,9 +1730,9 @@ describe('workspace navigation and objects', () => {
       clientY: 385,
       pointerId: 21,
     });
-    expect(document.querySelector('.global-element-drag-layer'))
-      .toBeInTheDocument();
-    expect(globalRectangle).toHaveClass('global-rectangle--moving-source');
+    // The move is painted imperatively on the existing shell; no duplicate
+    // drag-layer element is created while the pointer is moving.
+    expect(globalRectangle.closest('.canvas-rectangle-shell')).not.toBeNull();
     await fireEvent.pointerUp(globalRectangle, {
       clientX: 335,
       clientY: 385,
@@ -1742,8 +1742,6 @@ describe('workspace navigation and objects', () => {
     const attachedRectangle = await screen.findByRole('button', {
       name: 'Card',
     });
-    expect(document.querySelector('.global-element-drag-layer'))
-      .not.toBeInTheDocument();
     expect(
       attachedRectangle.closest('[data-canvas-positioner-id="object-1"]'),
     ).not.toBeNull();

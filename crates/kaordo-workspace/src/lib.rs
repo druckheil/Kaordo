@@ -378,6 +378,11 @@ impl WorkspaceLibrary {
     }
 
     /// Returns the size of a durable canvas media blob, if it exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the workspace or media path cannot be inspected,
+    /// or when the media path is not a regular file.
     pub fn canvas_media_size(
         &self,
         workspace_id: Uuid,
@@ -405,6 +410,11 @@ impl WorkspaceLibrary {
     }
 
     /// Reads one bounded range from a completed canvas media blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the requested range is invalid, the workspace or
+    /// media cannot be opened, or the file cannot be read.
     pub fn read_canvas_media_chunk(
         &self,
         workspace_id: Uuid,
@@ -434,14 +444,16 @@ impl WorkspaceLibrary {
                 "The canvas media range is outside the stored file.".to_owned(),
             ));
         }
-        let amount = length.min(metadata.len() - offset);
+        let amount = usize::try_from(length.min(metadata.len() - offset)).map_err(|_| {
+            WorkspaceError::InvalidCanvasMedia("Canvas media range is too large.".to_owned())
+        })?;
         file.seek(io::SeekFrom::Start(offset))
             .map_err(|source| WorkspaceError::Io {
                 action: "seek in the canvas media",
                 path: path.clone(),
                 source,
             })?;
-        let mut bytes = vec![0; amount as usize];
+        let mut bytes = vec![0; amount];
         file.read_exact(&mut bytes)
             .map_err(|source| WorkspaceError::Io {
                 action: "read the canvas media",
@@ -453,6 +465,11 @@ impl WorkspaceLibrary {
 
     /// Writes one resumable chunk and atomically publishes the blob at the
     /// final chunk. Incomplete files never appear as readable media.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the chunk or declared range is invalid, the
+    /// workspace cannot be opened, or the media cannot be written safely.
     pub fn write_canvas_media_chunk(
         &self,
         workspace_id: Uuid,
@@ -479,17 +496,18 @@ impl WorkspaceLibrary {
         ensure_regular_directory(&directory)?;
         let destination = canvas_media_path(&workspace, media_id);
         let temporary = directory.join(format!(".media-{media_id}.part"));
-        if let Ok(metadata) = fs::symlink_metadata(&temporary) {
-            if !metadata.file_type().is_file() {
-                return Err(WorkspaceError::InvalidCanvasMedia(
-                    "The canvas media temporary file is invalid.".to_owned(),
-                ));
-            }
+        if let Ok(metadata) = fs::symlink_metadata(&temporary)
+            && !metadata.file_type().is_file()
+        {
+            return Err(WorkspaceError::InvalidCanvasMedia(
+                "The canvas media temporary file is invalid.".to_owned(),
+            ));
         }
         let mut file = OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
+            .truncate(false)
             .open(&temporary)
             .map_err(|source| WorkspaceError::Io {
                 action: "open the temporary canvas media",
@@ -533,6 +551,11 @@ impl WorkspaceLibrary {
     }
 
     /// Deletes completed and incomplete canvas media. Missing files are fine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the workspace cannot be found or a media file
+    /// cannot be removed.
     pub fn delete_canvas_media(
         &self,
         workspace_id: Uuid,
@@ -619,13 +642,13 @@ fn open_canvas_media_file(path: &Path) -> io::Result<File> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use rustix::fs::{Mode, OFlags, open};
-        return open(
+        open(
             path,
             OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
             Mode::empty(),
         )
         .map(File::from)
-        .map_err(Into::into);
+        .map_err(Into::into)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
