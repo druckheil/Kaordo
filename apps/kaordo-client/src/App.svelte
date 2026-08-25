@@ -1003,7 +1003,10 @@
     position: relative;
     min-width: 0;
     min-height: 0;
-    contain: layout paint style;
+    /* Fluo owns a viewport-fixed composer trigger. Paint containment would
+       establish a scrolling containing block and make that control move with
+       the feed instead of staying pinned to the app viewport. */
+    contain: style;
   }
 
   .fluo-host--hidden {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, tick } from 'svelte';
   import {
     FLUO_MAX_POST_LENGTH,
     FLUO_MAX_ATTACHMENTS,
@@ -18,9 +19,16 @@
   let { active = true, snapshot, fluoState }: Props = $props();
   let attachmentInput = $state<HTMLInputElement>();
   let composer = $state<HTMLTextAreaElement>();
+  let composerTrigger = $state<HTMLButtonElement>();
+  let composerModal = $state<HTMLElement>();
+  let emojiWrap = $state<HTMLDivElement>();
   let shell = $state<HTMLElement>();
+  let composerOpen = $state(false);
+  let emojiOpen = $state(false);
   let nodePickerOpen = $state(false);
   let mediaPreparation = Promise.resolve();
+  let composerShakeAnimation: Animation | null = null;
+  const EMOJI_OPTIONS = ['🙂', '😀', '😂', '😍', '😮', '😢', '🔥', '🎉', '👍', '💡', '🌿', '✨'];
   let remaining = $derived(FLUO_MAX_POST_LENGTH - snapshot.draft.length);
   let mediaCount = $derived(snapshot.draftAttachments.length);
   let selectedNode = $derived(snapshot.nodes.find(({ id }) => id === snapshot.selectedNodeId));
@@ -43,11 +51,78 @@
         Math.max(1, snapshot.uploadProgress.totalBytes) * 100))
     : 0);
 
+  onDestroy(() => {
+    composerShakeAnimation?.cancel();
+  });
+
+  function openComposer() {
+    if (snapshot.isPublishing) return;
+    composerOpen = true;
+    emojiOpen = false;
+    void tick().then(() => composer?.focus({ preventScroll: true }));
+  }
+
+  function closeComposer() {
+    if (snapshot.isPublishing) return;
+    composerOpen = false;
+    emojiOpen = false;
+    void tick().then(() => composerTrigger?.focus({ preventScroll: true }));
+  }
+
+  function handleComposerDialogKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    closeComposer();
+  }
+
+  function handleWindowPointerdown(event: PointerEvent) {
+    if (!emojiOpen || !emojiWrap) return;
+    if (event.target instanceof Node && emojiWrap.contains(event.target)) return;
+    emojiOpen = false;
+  }
+
+  function handleComposerBackdropClick(event: MouseEvent) {
+    if (snapshot.isPublishing || event.target !== event.currentTarget) return;
+    composerShakeAnimation?.cancel();
+    const animation = composerModal?.animate(
+      [
+        { transform: 'translateX(0)' },
+        { transform: 'translateX(-8px)' },
+        { transform: 'translateX(7px)' },
+        { transform: 'translateX(-5px)' },
+        { transform: 'translateX(3px)' },
+        { transform: 'translateX(0)' },
+      ],
+      { duration: 360, easing: 'cubic-bezier(.36,.07,.19,.97)' },
+    );
+    if (!animation) return;
+    composerShakeAnimation = animation;
+    void animation.finished.then(() => {
+      if (composerShakeAnimation === animation) composerShakeAnimation = null;
+    }).catch(() => undefined);
+  }
+
+  function insertEmoji(emoji: string) {
+    const current = snapshot.draft;
+    const start = composer?.selectionStart ?? current.length;
+    const end = composer?.selectionEnd ?? current.length;
+    fluoState.setDraft(`${current.slice(0, start)}${emoji}${current.slice(end)}`);
+    emojiOpen = false;
+    void tick().then(() => {
+      if (!composer) return;
+      const caret = start + emoji.length;
+      composer.focus({ preventScroll: true });
+      composer.setSelectionRange(caret, caret);
+    });
+  }
+
   async function publish() {
     await mediaPreparation;
     if (await fluoState.publishPost()) {
       if (composer) composer.style.height = '';
-      composer?.focus({ preventScroll: true });
+      composerOpen = false;
+      emojiOpen = false;
+      void tick().then(() => composerTrigger?.focus({ preventScroll: true }));
     }
   }
 
@@ -150,6 +225,8 @@
 
 </script>
 
+<svelte:window onpointerdown={handleWindowPointerdown} />
+
 <main bind:this={shell} class="fluo-shell" aria-labelledby="fluo-title">
   <div class="fluo-layout">
     <section class="feed-column" aria-label="Global Fluo timeline">
@@ -179,121 +256,19 @@
         </div>
       </header>
 
-      <article class="composer-card" aria-label="Create a post">
-        <span class="avatar avatar--composer" aria-hidden="true">Y</span>
-        <div class="composer-body">
-          <div class="node-picker">
-            <span class="node-picker-caption">Store this post on</span>
-            <div class="node-picker-selection">
-              <button
-                class="node-storage-button"
-                type="button"
-                aria-label={`Choose storage Nodo, currently ${selectedNodeName}`}
-                title="Choose storage Nodo"
-                disabled={snapshot.isPublishing || snapshot.isLoading && !snapshot.publicStorage}
-                onclick={() => { nodePickerOpen = true; }}
-              >
-                <svg viewBox="0 0 28 28" aria-hidden="true"><rect x="4" y="4.5" width="20" height="19" rx="3"/><circle cx="10" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M8 21l2-5h8l2 5M10 12h8"/></svg>
-                <i style={`--node-fill:${selectedNodeFill}%`}></i>
-              </button>
-              <span class="node-selection-copy">
-                <strong>{selectedNodeName}</strong>
-                <small>{selectedNodeQuota ? `${uploadBytes(selectedNodeUsed)} of ${uploadBytes(selectedNodeQuota)}` : 'Storage unavailable'}</small>
-              </span>
-            </div>
-          </div>
-          {#if !snapshot.isLoading && snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION && !publicAvailable}
-            <p class="node-hint">No writable Public Nodo is reachable right now.</p>
-          {:else if !snapshot.isLoading && snapshot.selectedNodeId !== PUBLIC_FLUO_DESTINATION && !selectedNode}
-            <p class="node-hint">Start one of your private Nodo hosts before publishing.</p>
-          {/if}
-          <textarea
-            bind:this={composer}
-            aria-label="Post text"
-            maxlength={FLUO_MAX_POST_LENGTH}
-            placeholder="What is worth sharing?"
-            rows="3"
-            disabled={snapshot.isPublishing}
-            bind:value={() => snapshot.draft, (draft) => fluoState.setDraft(draft)}
-            oninput={resizeComposer}
-            onkeydown={handleComposerKeydown}
-          ></textarea>
-          {#if snapshot.draftAttachments.length}
-            <div class="draft-media" aria-label="Attached media">
-              {#each snapshot.draftAttachments as attachment (attachment.id)}
-                <figure class:media-video={attachment.kind === 'video'}>
-                  {#if attachment.kind === 'video'}
-                    <video src={attachment.url} muted preload="metadata" aria-label={attachment.name}></video>
-                  {:else}
-                    <img src={attachment.url} alt={attachment.name} />
-                  {/if}
-                  {#if attachment.kind !== 'image'}<span>{attachment.kind === 'gif' ? 'GIF' : 'VIDEO'}</span>{/if}
-                  <button
-                    type="button"
-                    disabled={snapshot.isPublishing}
-                    aria-label={`Remove ${attachment.name}`}
-                    title="Remove attachment"
-                    onclick={() => fluoState.removeAttachment(attachment.id)}
-                  >×</button>
-                </figure>
-              {/each}
-            </div>
-          {/if}
-          {#if snapshot.attachmentError}
-            <p class="attachment-error" role="alert">{snapshot.attachmentError}</p>
-          {/if}
-          {#if snapshot.uploadProgress}
-            <div
-              class="upload-progress"
-              role="progressbar"
-              aria-label="Media upload progress"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-valuenow={uploadPercent}
-            >
-              <div class="upload-copy">
-                <span>Uploading {snapshot.uploadProgress.attachmentName} <small>{snapshot.uploadProgress.attachmentIndex}/{snapshot.uploadProgress.attachmentTotal}</small></span>
-                <strong>{uploadPercent}%</strong>
-              </div>
-              <div class="upload-track"><i style={`width:${uploadPercent}%`}></i></div>
-              <p>{uploadBytes(snapshot.uploadProgress.uploadedBytes)} of {uploadBytes(snapshot.uploadProgress.totalBytes)} transferred</p>
-            </div>
-          {/if}
-          <footer class="composer-footer">
-            <div class="composer-tools">
-              <input
-                bind:this={attachmentInput}
-                class="media-input"
-                type="file"
-                accept="image/*,video/*"
-                multiple
-                onchange={attachFiles}
-              />
-              <button
-                class="attach-button"
-                type="button"
-                disabled={snapshot.isPublishing}
-                aria-label="Attach images, GIFs, or videos"
-                title="Up to 4 images, GIFs, or videos"
-                onclick={() => attachmentInput?.click()}
-              >
-                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 4h10a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 15 16H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 4Z"/><circle cx="7" cy="7.5" r="1"/><path d="m4 14 3.8-3.8 2.5 2.3 1.8-1.7L16 14.3"/></svg>
-                Media
-              </button>
-              <span class="media-limits">{mediaCount}/{FLUO_MAX_ATTACHMENTS} media</span>
-            </div>
-            <div class="composer-actions">
-              <span class:character-count--near={remaining < 80}>{remaining}</span>
-              <button
-                class="post-button"
-                type="button"
-                disabled={snapshot.isPublishing || !destinationAvailable || (!snapshot.draft.trim() && !snapshot.draftAttachments.length)}
-                onclick={publish}
-              >{snapshot.uploadProgress ? 'Uploading…' : snapshot.isPublishing ? 'Saving…' : 'Post'}</button>
-            </div>
-          </footer>
-        </div>
-      </article>
+      <button
+        bind:this={composerTrigger}
+        class="sui-btn fluo-create-trigger"
+        type="button"
+        aria-label="Create a post"
+        onclick={openComposer}
+      >
+        <svg class="fluo-create-trigger__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4.75 19.25h4.1L19 9.1a2.12 2.12 0 0 0-3-3L5.85 16.25z" />
+          <path d="m14.5 7.5 2 2" />
+        </svg>
+        <span>New post</span>
+      </button>
 
       {#if snapshot.storageError}
         <p class="storage-error" role="alert">{snapshot.storageError}</p>
@@ -323,7 +298,7 @@
           <h2>The global feed is quiet</h2>
           <p>Posts from every available Nodo will appear here in publication order. Choosing a Nodo above only decides where your next post is stored.</p>
           {#if snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION ? publicAvailable : selectedNode}
-            <button type="button" onclick={() => composer?.focus({ preventScroll: true })}>Write a post</button>
+            <button type="button" onclick={openComposer}>Write a post</button>
           {/if}
         </div>
       {/if}
@@ -349,6 +324,178 @@
   </div>
 </main>
 
+{#if composerOpen}
+  <div
+    class="sui-modal-backdrop sui-modal-static sui-modal-open"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="fluo-compose-title"
+    tabindex="-1"
+    onkeydown={handleComposerDialogKeydown}
+    onclick={handleComposerBackdropClick}
+  >
+    <section bind:this={composerModal} class="sui-modal sui-modal-lg fluo-compose-modal" tabindex="-1">
+      <header class="sui-modal-header">
+        <div class="fluo-compose-heading">
+          <span class="fluo-compose-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M5 5h14v10H9l-4 4V5Zm4 5h6m-6 3h4" /></svg>
+          </span>
+          <div>
+            <span class="fluo-compose-eyebrow">FLUO</span>
+            <h2 id="fluo-compose-title">Create a post</h2>
+          </div>
+        </div>
+        <button class="sui-modal-close" type="button" aria-label="Close post composer" disabled={snapshot.isPublishing} onclick={closeComposer}></button>
+      </header>
+
+      <form class="sui-modal-body fluo-compose-form" novalidate onsubmit={(event) => { event.preventDefault(); void publish(); }}>
+        <div class="sui-form-group fluo-compose-node-group">
+          <label class="sui-label" for="fluo-node-storage">Store this post on</label>
+          <button
+            id="fluo-node-storage"
+            class="fluo-node-selection"
+            type="button"
+            aria-label={`Choose storage Nodo, currently ${selectedNodeName}`}
+            disabled={snapshot.isPublishing || snapshot.isLoading && !snapshot.publicStorage}
+            onclick={() => { nodePickerOpen = true; }}
+          >
+            <span class="fluo-node-selection__icon" aria-hidden="true">
+              <svg viewBox="0 0 28 28"><rect x="4" y="4.5" width="20" height="19" rx="3"/><circle cx="10" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M8 21l2-5h8l2 5M10 12h8"/></svg>
+              <i style={`--node-fill:${selectedNodeFill}%`}></i>
+            </span>
+            <span class="fluo-node-selection__copy">
+              <strong>{selectedNodeName}</strong>
+              <small>{selectedNodeQuota ? `${uploadBytes(selectedNodeUsed)} of ${uploadBytes(selectedNodeQuota)}` : 'Storage unavailable'}</small>
+            </span>
+            <svg class="fluo-node-selection__chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+          </button>
+          {#if !snapshot.isLoading && snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION && !publicAvailable}
+            <span class="sui-form-hint sui-hint-warning">No writable Public Nodo is reachable right now.</span>
+          {:else if !snapshot.isLoading && snapshot.selectedNodeId !== PUBLIC_FLUO_DESTINATION && !selectedNode}
+            <span class="sui-form-hint sui-hint-warning">Start one of your private Nodo hosts before publishing.</span>
+          {/if}
+        </div>
+
+        <hr class="sui-divider" />
+
+        <div class="sui-form-group fluo-compose-text-group">
+          <label class="sui-label" for="fluo-post-text">Your message</label>
+          <textarea
+            bind:this={composer}
+            id="fluo-post-text"
+            class="sui-input sui-textarea"
+            aria-label="Post text"
+            maxlength={FLUO_MAX_POST_LENGTH}
+            placeholder="What is worth sharing?"
+            rows="4"
+            disabled={snapshot.isPublishing}
+            bind:value={() => snapshot.draft, (draft) => fluoState.setDraft(draft)}
+            oninput={resizeComposer}
+            onkeydown={handleComposerKeydown}
+          ></textarea>
+          <div class="fluo-compose-meta">
+            <span>{mediaCount}/{FLUO_MAX_ATTACHMENTS} media</span>
+            <span class:character-count--near={remaining < 80}>{remaining} characters left</span>
+          </div>
+        </div>
+
+        {#if snapshot.draftAttachments.length}
+          <div class="draft-media" aria-label="Attached media">
+            {#each snapshot.draftAttachments as attachment (attachment.id)}
+              <figure class:media-video={attachment.kind === 'video'}>
+                {#if attachment.kind === 'video'}
+                  <video src={attachment.url} muted preload="metadata" aria-label={attachment.name}></video>
+                {:else}
+                  <img src={attachment.url} alt={attachment.name} />
+                {/if}
+                {#if attachment.kind !== 'image'}<span>{attachment.kind === 'gif' ? 'GIF' : 'VIDEO'}</span>{/if}
+                <button
+                  type="button"
+                  disabled={snapshot.isPublishing}
+                  aria-label={`Remove ${attachment.name}`}
+                  title="Remove attachment"
+                  onclick={() => fluoState.removeAttachment(attachment.id)}
+                >×</button>
+              </figure>
+            {/each}
+          </div>
+        {/if}
+        {#if snapshot.attachmentError}
+          <p class="attachment-error" role="alert">{snapshot.attachmentError}</p>
+        {/if}
+        {#if snapshot.uploadProgress}
+          <div
+            class="upload-progress"
+            role="progressbar"
+            aria-label="Media upload progress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={uploadPercent}
+          >
+            <div class="upload-copy">
+              <span>Uploading {snapshot.uploadProgress.attachmentName} <small>{snapshot.uploadProgress.attachmentIndex}/{snapshot.uploadProgress.attachmentTotal}</small></span>
+              <strong>{uploadPercent}%</strong>
+            </div>
+            <div class="upload-track"><i style={`width:${uploadPercent}%`}></i></div>
+            <p>{uploadBytes(snapshot.uploadProgress.uploadedBytes)} of {uploadBytes(snapshot.uploadProgress.totalBytes)} transferred</p>
+          </div>
+        {/if}
+
+        <hr class="sui-divider" />
+
+        <input
+          bind:this={attachmentInput}
+          class="media-input"
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          onchange={attachFiles}
+        />
+        <footer class="sui-modal-footer fluo-compose-footer">
+          <div class="fluo-compose-tools">
+            <button
+              class="sui-btn sui-btn-icon fluo-compose-icon-button"
+              type="button"
+              disabled={snapshot.isPublishing}
+              aria-label="Attach media"
+              title="Attach images, GIFs, or videos"
+              onclick={() => attachmentInput?.click()}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"/><circle cx="9" cy="9" r="1.5"/><path d="m6 17 4.2-4.2 2.7 2.4 2.1-2.1L18 17" /></svg>
+            </button>
+            <div bind:this={emojiWrap} class="fluo-emoji-wrap">
+              <button
+                class="sui-btn sui-btn-icon fluo-compose-icon-button"
+                type="button"
+                disabled={snapshot.isPublishing}
+                aria-label="Add emoji"
+                aria-expanded={emojiOpen}
+                title="Add emoji"
+                onclick={() => { emojiOpen = !emojiOpen; }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="9" cy="10" r=".8" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r=".8" fill="currentColor" stroke="none"/><path d="M8.5 14c1.8 2.4 5.2 2.4 7 0" /></svg>
+              </button>
+              {#if emojiOpen}
+                <div class="fluo-emoji-popover" role="menu" aria-label="Choose an emoji">
+                  {#each EMOJI_OPTIONS as emoji}
+                    <button type="button" role="menuitem" aria-label={`Insert ${emoji}`} onclick={() => insertEmoji(emoji)}>{emoji}</button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+            <span class="fluo-compose-media-count">{mediaCount}/{FLUO_MAX_ATTACHMENTS} media</span>
+          </div>
+          <button
+            class="sui-btn sui-btn-primary fluo-compose-post-button"
+            type="submit"
+            disabled={snapshot.isPublishing || !destinationAvailable || (!snapshot.draft.trim() && !snapshot.draftAttachments.length)}
+          >{snapshot.uploadProgress ? 'Uploading…' : snapshot.isPublishing ? 'Saving…' : 'Post'}</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+{/if}
+
 {#if nodePickerOpen}
   <NodoPickerDialog
     description="Choose the Public Nodo pool or one of your private hosts. This only changes where the next post is stored."
@@ -364,6 +511,7 @@
 
 <style>
   .fluo-shell {
+    position: relative;
     min-width: 0;
     min-height: 0;
     overflow: auto;
@@ -375,8 +523,46 @@
     will-change: scroll-position;
     color: #2b3530;
     background: #f4f6f2;
-    contain: layout paint style;
+    /* Keep fixed controls viewport-anchored; paint containment would make a
+       fixed descendant relative to this scrolling surface. */
+    contain: style;
     isolation: isolate;
+  }
+
+  /* SoftUI's vendored palette is scoped here so its global reset cannot alter
+     the rest of Kaordo. */
+  .fluo-shell,
+  .sui-modal-backdrop {
+    --sui-bg: #e4e9f0;
+    --sui-bg-light: #edf1f7;
+    --sui-bg-dark: #d1d9e6;
+    --sui-shadow-light: #fff;
+    --sui-shadow-dark: #b8c0cc;
+    --sui-primary: #5b54e0;
+    --sui-primary-hover: #4a44c4;
+    --sui-text: #2d3748;
+    --sui-text-muted: #5a6a7e;
+    --sui-radius-sm: 10px;
+    --sui-radius: 16px;
+    --sui-radius-lg: 24px;
+    --sui-shadow-raised: 6px 6px 14px var(--sui-shadow-dark), -6px -6px 14px var(--sui-shadow-light);
+    --sui-shadow-raised-sm: 3px 3px 8px var(--sui-shadow-dark), -3px -3px 8px var(--sui-shadow-light);
+    --sui-shadow-raised-lg: 10px 10px 20px var(--sui-shadow-dark), -10px -10px 20px var(--sui-shadow-light);
+    --sui-shadow-inset: inset 3px 3px 8px var(--sui-shadow-dark), inset -3px -3px 8px var(--sui-shadow-light);
+    --sui-shadow-inset-sm: inset 2px 2px 5px var(--sui-shadow-dark), inset -2px -2px 5px var(--sui-shadow-light);
+  }
+
+  :global(html[data-theme='dark']) .fluo-shell,
+  :global(html[data-theme='dark']) .sui-modal-backdrop {
+    --sui-bg: #2a2d35;
+    --sui-bg-light: #31343c;
+    --sui-bg-dark: #23262d;
+    --sui-shadow-light: #33363f;
+    --sui-shadow-dark: #1e2027;
+    --sui-primary: var(--accent, #69a993);
+    --sui-primary-hover: color-mix(in srgb, var(--sui-primary) 84%, white);
+    --sui-text: #e2e8f0;
+    --sui-text-muted: #9ba5b8;
   }
 
   .fluo-layout {
@@ -476,103 +662,205 @@
 
   @keyframes feed-refresh-spin { to { transform: rotate(360deg); } }
 
-
-  .composer-card {
-    display: grid;
-    grid-template-columns: 40px minmax(0, 1fr);
-    gap: 12px;
+  .fluo-create-trigger {
+    position: fixed;
+    display: inline-flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: center;
+    right: max(28px, calc((100% - 1000px) / 2 + 25px));
+    left: auto;
+    bottom: 46px;
+    z-index: 90;
+    width: 256px;
+    min-width: 254px;
+    height: 48px;
+    padding: 0 24px;
+    color: #2d3748;
     background: #fff;
-    border: 1px solid #d9e0db;
-  }
-
-  .composer-card {
-    padding: 16px 17px 13px;
-    border-radius: 14px;
-    box-shadow:
-      0 12px 30px rgb(35 64 52 / 7%),
-      inset 0 1px rgb(255 255 255 / 90%);
-  }
-
-  .avatar {
-    display: grid;
-    width: 38px;
-    height: 38px;
-    color: #f5fbf8;
-    background: linear-gradient(145deg, #4d8d79, #2c6555);
-    border: 1px solid rgb(36 89 72 / 46%);
-    border-radius: 12px;
-    box-shadow: inset 0 1px rgb(255 255 255 / 18%);
-    font-size: calc(12px * var(--text-scale));
-    font-weight: 720;
-    place-items: center;
-  }
-
-  .avatar--composer { margin-top: 1px; }
-  .composer-body { min-width: 0; }
-
-  .node-picker {
-    display: grid;
-    gap: 6px;
-    margin: 0 0 10px;
-    padding: 0 2px 10px;
-    color: #748078;
-    border-bottom: 1px solid #e7ebe8;
-    font-size: calc(9px * var(--text-scale));
-    font-weight: 650;
-  }
-
-  .node-picker-caption { font-weight: 650; }
-
-  .node-picker-selection { display: flex; align-items: center; gap: 9px; min-width: 0; }
-
-  .node-storage-button {
-    position: relative;
-    display: grid;
-    flex: none;
-    width: 42px;
-    height: 42px;
-    padding: 0;
-    color: #4d806f;
-    background: rgb(255 255 255 / 72%);
-    border: 1px solid #c5d9cf;
-    border-radius: 12px;
+    border: 1px solid #c8d1de;
+    border-radius: 999px;
     cursor: pointer;
-    place-items: center;
-    box-shadow: 0 4px 12px rgb(20 48 39 / 6%);
-    transition: transform 120ms ease, background 120ms ease;
+    font-family: inherit;
+    font-size: calc(12px * var(--text-scale));
+    font-weight: 700;
+    letter-spacing: .01em;
+    white-space: nowrap;
+    box-shadow: 3px 3px 8px #b8c0cc, -3px -3px 8px #fff;
+    transition: background 130ms ease, border-color 130ms ease,
+      box-shadow 130ms ease, color 130ms ease, transform 130ms ease;
   }
 
-  .node-storage-button:hover:not(:disabled) { transform: translateY(-1px); background: #edf6f1; }
-  .node-storage-button:disabled { cursor: default; opacity: .5; }
-  .node-storage-button svg { width: 25px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.45; }
-  .node-storage-button i { position: absolute; right: 4px; bottom: 4px; width: 8px; height: 8px; background: conic-gradient(#4cab7d var(--node-fill), rgb(91 113 103 / 20%) 0); border: 1px solid white; border-radius: 50%; }
+  .fluo-create-trigger__icon {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+  }
 
-  .node-selection-copy { display: grid; min-width: 0; gap: 2px; }
-  .node-selection-copy strong { overflow: hidden; color: #3f6f61; font-size: calc(11px * var(--text-scale)); text-overflow: ellipsis; white-space: nowrap; }
-  .node-selection-copy small { color: #7b8d84; font-size: calc(9px * var(--text-scale)); }
-
-  .node-hint { margin: -2px 2px 9px; color: #9a6b48; font-size: calc(8px * var(--text-scale)); }
-
-  textarea {
+  .fluo-create-trigger > span {
     display: block;
-    width: 100%;
-    height: auto;
-    min-height: 68px;
-    padding: 3px 2px 10px;
-    resize: none;
-    overflow: hidden;
-    color: #2c3731;
-    background: transparent;
-    border: 0;
-    outline: none;
-    font-size: calc(14px * var(--text-scale));
-    line-height: 1.55;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
+    flex: 0 0 auto;
+    line-height: 1;
   }
 
-  textarea::placeholder { color: #9aa49e; }
-  textarea:disabled { opacity: .64; }
+  .fluo-create-trigger:hover {
+    color: var(--sui-primary);
+    background: #fbfcfe;
+    border-color: #b8c5d5;
+    box-shadow: 4px 4px 10px #b8c0cc, -3px -3px 9px #fff;
+    transform: translateY(-1px);
+  }
+
+  .fluo-create-trigger:active {
+    color: var(--sui-primary);
+    background: #f0f3f8;
+    border-color: #c8d1de;
+    box-shadow: inset 2px 2px 5px #b8c0cc, inset -2px -2px 5px #fff;
+    transform: translateY(1px) scale(.985);
+  }
+
+  .fluo-create-trigger:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--sui-primary) 48%, transparent);
+    outline-offset: 3px;
+  }
+
+  :global(html[data-theme='dark']) .fluo-create-trigger {
+    color: var(--sui-text);
+    background: var(--sui-bg);
+    border-color: #4b5361;
+    box-shadow: 3px 3px 8px #1e2027, -3px -3px 8px #33363f;
+  }
+
+  :global(html[data-theme='dark']) .fluo-create-trigger:hover {
+    color: var(--sui-primary);
+    background: var(--sui-bg-light);
+    border-color: #5b6574;
+    box-shadow: 4px 4px 10px #1e2027, -3px -3px 9px #33363f;
+  }
+
+  :global(html[data-theme='dark']) .fluo-create-trigger:active {
+    background: var(--sui-bg-dark);
+    box-shadow: inset 2px 2px 5px #1e2027, inset -2px -2px 5px #33363f;
+  }
+
+
+  /* SoftUI large form modal, kept scoped to Fluo so the vendored library's
+     global reset never changes the rest of the application. */
+  .sui-modal-backdrop {
+    position: fixed;
+    top: var(--app-header-height, 32px);
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    height: auto;
+    z-index: 110;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: color-mix(in srgb, var(--chrome, #1c2825) 34%, transparent);
+    animation: fluo-modal-fade 160ms ease-out both;
+  }
+
+  .sui-modal {
+    width: min(720px, calc(100vw - 34px));
+    max-height: min(790px, calc(100vh - 34px));
+    overflow: auto;
+    color: var(--sui-text);
+    background: var(--sui-bg);
+    border: 0;
+    border-radius: var(--sui-radius-lg);
+    box-shadow: 0 24px 60px rgb(17 24 39 / 24%);
+    outline: none;
+    animation: fluo-modal-enter 190ms cubic-bezier(.2,.8,.2,1) both;
+  }
+
+  .sui-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 48px;
+    padding: 2px 18px;
+    background: var(--sui-bg);
+    border-bottom: 1px solid color-mix(in srgb, var(--sui-shadow-dark) 22%, transparent);
+  }
+
+  .fluo-compose-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .fluo-compose-mark { display: grid; flex: none; width: 42px; height: 42px; color: var(--sui-primary); background: var(--sui-bg); border-radius: 12px; box-shadow: var(--sui-shadow-inset-sm); place-items: center; }
+  .fluo-compose-mark svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.55; }
+  .fluo-compose-heading > div { min-width: 0; }
+  .fluo-compose-eyebrow { display: block; color: var(--sui-primary); font-size: calc(7px * var(--text-scale)); font-weight: 780; letter-spacing: .16em; line-height: 1; }
+  .fluo-compose-heading h2 { margin-top: 3px; color: var(--sui-text); font-size: calc(15px * var(--text-scale)); font-weight: 720; letter-spacing: -.03em; }
+
+  .sui-modal-close { position: relative; display: grid; flex: none; width: 32px; height: 32px; padding: 0; color: var(--sui-text-muted); background: var(--sui-bg); border: 0; border-radius: 50%; box-shadow: var(--sui-shadow-raised-sm); cursor: pointer; place-items: center; transition: box-shadow 140ms ease, color 140ms ease; }
+  .sui-modal-close::before, .sui-modal-close::after { position: absolute; width: 14px; height: 2px; content: ''; background: currentColor; border-radius: 2px; }
+  .sui-modal-close::before { transform: rotate(45deg); }
+  .sui-modal-close::after { transform: rotate(-45deg); }
+  .sui-modal-close:hover:not(:disabled) { color: var(--sui-primary); box-shadow: var(--sui-shadow-inset-sm); }
+  .sui-modal-close:disabled { cursor: default; opacity: .45; }
+
+  .sui-modal-body { padding: 18px 20px 0; }
+  .fluo-compose-form { display: block; }
+  .sui-form-group { margin-bottom: 0; }
+  .sui-label { display: block; margin: 0 0 8px; color: var(--sui-text); font-size: calc(10px * var(--text-scale)); font-weight: 720; letter-spacing: .02em; }
+  .fluo-node-selection { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 62px; padding: 9px 12px; color: var(--sui-text); text-align: left; background: var(--sui-bg); border: 0; border-radius: var(--sui-radius); box-shadow: var(--sui-shadow-raised); cursor: pointer; transition: box-shadow 140ms ease, transform 140ms ease, color 140ms ease; }
+  .fluo-node-selection:hover:not(:disabled) { color: var(--sui-primary); box-shadow: var(--sui-shadow-raised-sm); transform: translateY(-1px); }
+  .fluo-node-selection:active:not(:disabled) { color: var(--sui-primary); box-shadow: var(--sui-shadow-inset); transform: translateY(1px) scale(.995); }
+  .fluo-node-selection:disabled { cursor: default; opacity: .5; }
+  .fluo-node-selection__icon { position: relative; display: grid; flex: none; width: 40px; height: 40px; color: var(--sui-primary); background: var(--sui-bg); border-radius: 11px; box-shadow: var(--sui-shadow-inset-sm); place-items: center; }
+  .fluo-node-selection__icon svg { width: 25px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.45; }
+  .fluo-node-selection__icon i { position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px; background: conic-gradient(var(--sui-primary) var(--node-fill), color-mix(in srgb, var(--sui-text-muted) 20%, transparent) 0); border: 1px solid var(--sui-bg); border-radius: 50%; }
+  .fluo-node-selection__copy { display: grid; min-width: 0; gap: 3px; }
+  .fluo-node-selection__copy strong, .fluo-node-selection__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fluo-node-selection__copy strong { color: var(--sui-primary); font-size: calc(12px * var(--text-scale)); }
+  .fluo-node-selection__copy small { color: var(--sui-text-muted); font-size: calc(9px * var(--text-scale)); }
+  .fluo-node-selection__chevron { width: 18px; height: 18px; margin-left: auto; flex: none; fill: none; stroke: var(--sui-text-muted); stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
+  .sui-form-hint { display: block; margin-top: 7px; color: var(--sui-text-muted); font-size: calc(9px * var(--text-scale)); }
+  .sui-hint-warning { color: #f5a623; }
+  .sui-divider { height: 0; margin: 19px 0; border: 0; border-top: 1px solid color-mix(in srgb, var(--sui-shadow-dark) 24%, transparent); border-bottom: 1px solid var(--sui-shadow-light); }
+  .fluo-compose-text-group .sui-label { margin-bottom: 7px; }
+  .sui-input { display: block; width: 100%; padding: 12px 15px; color: var(--sui-text); background: var(--sui-bg); border: 0; border-radius: var(--sui-radius-sm); box-shadow: var(--sui-shadow-inset); outline: none; font: inherit; transition: box-shadow 140ms ease; }
+  .sui-input:focus { box-shadow: var(--sui-shadow-inset), 0 0 0 3px color-mix(in srgb, var(--sui-primary) 20%, transparent); }
+  .sui-textarea { min-height: 122px; max-height: 220px; resize: vertical; overflow-x: hidden; overflow-y: auto; line-height: 1.55; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--sui-primary) 52%, transparent) transparent; }
+  .sui-input::placeholder { color: var(--sui-text-muted); opacity: .78; }
+  .sui-input:disabled { cursor: default; opacity: .6; }
+  .fluo-compose-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 7px; color: var(--sui-text-muted); font-size: calc(8px * var(--text-scale)); font-variant-numeric: tabular-nums; }
+  .fluo-compose-meta .character-count--near { color: color-mix(in srgb, var(--sui-primary) 62%, #b56c54); }
+
+  /* The form already supplies the 20px horizontal inset. Keeping another
+     inset here pushed both footer groups toward the center. */
+  .fluo-compose-footer { display: grid !important; grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: 100%; gap: 16px; padding: 0 0 18px !important; }
+  .fluo-compose-tools { position: relative; display: flex; align-items: center; justify-self: start; gap: 8px; min-width: 0; margin: 0; }
+  .fluo-compose-icon-button { display: grid; width: 40px; height: 40px; padding: 0; color: var(--sui-primary); background: var(--sui-bg); border: 0; border-radius: 50%; box-shadow: var(--sui-shadow-raised-sm); cursor: pointer; place-items: center; transition: transform 140ms ease, box-shadow 140ms ease, color 140ms ease; }
+  .fluo-compose-icon-button:hover:not(:disabled) { color: var(--sui-primary-hover); transform: translateY(-1px); box-shadow: var(--sui-shadow-raised-sm); }
+  .fluo-compose-icon-button:active:not(:disabled) { box-shadow: var(--sui-shadow-inset); transform: translateY(1px); }
+  .fluo-compose-icon-button:disabled { cursor: default; opacity: .45; }
+  .fluo-compose-icon-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
+  .fluo-compose-media-count { margin-left: 2px; color: var(--sui-text-muted); font-size: calc(9px * var(--text-scale)); white-space: nowrap; }
+  .fluo-emoji-wrap { position: relative; }
+  .fluo-emoji-popover { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 2; display: grid; grid-template-columns: repeat(4, 34px); gap: 4px; padding: 8px; background: var(--sui-bg); border: 0; border-radius: var(--sui-radius); box-shadow: var(--sui-shadow-raised); animation: fluo-emoji-enter 120ms ease-out both; }
+  .fluo-emoji-popover button { display: grid; width: 34px; height: 34px; padding: 0; background: transparent; border: 0; border-radius: 9px; cursor: pointer; font-size: 18px; place-items: center; }
+  .fluo-emoji-popover button:hover { background: var(--sui-bg-light); box-shadow: var(--sui-shadow-inset-sm); }
+  .fluo-compose-post-button { flex: 0 0 auto; justify-self: end; min-width: 94px; height: 42px; margin: 0; padding: 0 20px; color: #fff; background: var(--sui-primary); border: 0; border-radius: var(--sui-radius-sm); box-shadow: 4px 4px 12px rgb(48 34 68 / 28%) !important; cursor: pointer; font: inherit; font-size: calc(11px * var(--text-scale)); font-weight: 730; outline: none; -webkit-appearance: none; appearance: none; -webkit-tap-highlight-color: transparent; transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease; }
+  .fluo-compose-post-button:hover:not(:disabled) { background: var(--sui-primary-hover); transform: translateY(-1px); box-shadow: 5px 5px 14px rgb(48 34 68 / 32%) !important; }
+  .fluo-compose-post-button:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 2px 2px 5px rgb(0 0 0 / 30%) !important; }
+  .fluo-compose-post-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--sui-primary) 55%, transparent); outline-offset: 3px; box-shadow: 4px 4px 12px rgb(48 34 68 / 28%) !important; }
+  .fluo-compose-post-button:focus:not(:focus-visible) { outline: none; }
+  .fluo-compose-post-button:disabled { cursor: default; opacity: .43; }
+
+  .media-input { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+
+  @keyframes fluo-modal-fade { from { opacity: 0; } }
+  @keyframes fluo-modal-enter { from { opacity: 0; transform: translateY(13px) scale(.98); } }
+  @keyframes fluo-emoji-enter { from { opacity: 0; transform: translateY(4px) scale(.97); } }
 
   .draft-media {
     display: grid;
@@ -587,80 +875,30 @@
     height: 92px;
     margin: 0;
     overflow: hidden;
-    background: #e9eeea;
-    border: 1px solid #d5ddd8;
+    background: var(--sui-bg);
+    border: 0;
     border-radius: 10px;
+    box-shadow: var(--sui-shadow-inset-sm);
   }
 
   .draft-media :is(img, video) { width: 100%; height: 100%; object-fit: cover; }
-  .draft-media figure > span { position: absolute; bottom: 6px; left: 6px; padding: 3px 5px; color: #fff; background: rgb(17 29 24 / 76%); border-radius: 5px; font-size: calc(7px * var(--text-scale)); font-weight: 750; letter-spacing: .05em; }
-  .draft-media button { position: absolute; top: 6px; right: 6px; display: grid; width: 21px; height: 21px; padding: 0; color: #fff; background: rgb(17 28 23 / 80%); border: 1px solid rgb(255 255 255 / 28%); border-radius: 50%; cursor: pointer; font-size: calc(15px * var(--text-scale)); line-height: 1; place-items: center; }
-  .draft-media button:hover { background: #9a4f4b; }
-  .draft-media button:disabled { opacity: .45; cursor: default; }
+  .draft-media figure > span { position: absolute; bottom: 6px; left: 6px; padding: 3px 5px; color: var(--sui-text); background: var(--sui-bg-light); border-radius: 5px; box-shadow: var(--sui-shadow-raised-sm); font-size: calc(7px * var(--text-scale)); font-weight: 750; letter-spacing: .05em; }
+  .draft-media button { position: absolute; top: 6px; right: 6px; display: grid; width: 21px; height: 21px; padding: 0; color: var(--sui-text-muted); background: var(--sui-bg); border: 0; border-radius: 50%; box-shadow: 3px 3px 8px rgb(34 44 58 / 30%) !important; cursor: pointer; font-size: calc(15px * var(--text-scale)); line-height: 1; place-items: center; outline: none; -webkit-tap-highlight-color: transparent; transition: transform 120ms ease, box-shadow 120ms ease, color 120ms ease, background 120ms ease; }
+  .draft-media button:hover:not(:disabled) { color: #fff; background: #b74a62; transform: translateY(-1px); box-shadow: 4px 4px 9px rgb(34 44 58 / 34%) !important; }
+  .draft-media button:active:not(:disabled) { color: #fff; background: #9f3d53; transform: translateY(1px) scale(.93); box-shadow: inset 2px 2px 5px rgb(0 0 0 / 32%) !important; }
+  .draft-media button:focus-visible { outline: 2px solid color-mix(in srgb, #b74a62 58%, transparent); outline-offset: 2px; box-shadow: 3px 3px 8px rgb(34 44 58 / 30%) !important; }
+  .draft-media button:disabled { opacity: .45; cursor: default; box-shadow: none !important; transform: none; }
 
-  .attachment-error { margin: 0 0 9px; padding: 7px 9px; color: #8f5144; background: #faefeb; border: 1px solid #ecd3cc; border-radius: 7px; font-size: calc(9px * var(--text-scale)); }
+  .attachment-error { margin: 0 0 9px; padding: 7px 9px; color: #d03a5c; background: color-mix(in srgb, #d03a5c 10%, var(--sui-bg)); border: 0; border-radius: var(--sui-radius-sm); box-shadow: var(--sui-shadow-inset-sm); font-size: calc(9px * var(--text-scale)); }
 
-  .upload-progress { margin: 1px 0 11px; padding: 10px 11px 9px; color: #49665a; background: linear-gradient(135deg, #edf6f1, #f7faf8); border: 1px solid #cfe2d9; border-radius: 9px; }
+  .upload-progress { margin: 1px 0 11px; padding: 10px 11px 9px; color: var(--sui-text-muted); background: var(--sui-bg); border: 0; border-radius: var(--sui-radius-sm); box-shadow: var(--sui-shadow-inset-sm); }
   .upload-copy { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .upload-copy span { min-width: 0; overflow: hidden; font-size: calc(9px * var(--text-scale)); font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
-  .upload-copy small { color: #82948b; font-size: calc(7px * var(--text-scale)); font-weight: 600; }
-  .upload-copy strong { color: #34735f; font-size: calc(9px * var(--text-scale)); font-variant-numeric: tabular-nums; }
-  .upload-track { height: 5px; margin-top: 8px; overflow: hidden; background: #dbe8e1; border-radius: 99px; }
-  .upload-track i { display: block; min-width: 2px; height: 100%; background: linear-gradient(90deg, #65ae92, #3d846d); border-radius: inherit; box-shadow: 0 0 9px rgb(61 132 109 / 22%); transition: width 140ms linear; }
-  .upload-progress p { margin-top: 6px; color: #829088; font-size: calc(7px * var(--text-scale)); font-variant-numeric: tabular-nums; }
-
-  .composer-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    padding-top: 10px;
-    border-top: 1px solid #e7ebe8;
-  }
-
-  .composer-tools {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-  }
-
-  .media-input { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
-  .attach-button { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; color: #3c7866; background: #edf5f1; border: 1px solid #d2e3dc; border-radius: 7px; cursor: pointer; font: inherit; font-size: calc(9px * var(--text-scale)); font-weight: 670; }
-  .attach-button:hover:not(:disabled) { color: #2d6958; background: #e4f0eb; border-color: #bcd5ca; }
-  .attach-button:disabled { opacity: .48; cursor: default; }
-  .attach-button svg {
-    width: 15px;
-    height: 15px;
-    fill: none;
-    stroke: currentColor;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-width: 1.35;
-  }
-
-  .media-limits { overflow: hidden; color: #919c95; font-size: calc(8px * var(--text-scale)); text-overflow: ellipsis; white-space: nowrap; }
-
-  .composer-actions { display: flex; align-items: center; gap: 11px; }
-  .composer-actions > span { color: #9aa39d; font-size: calc(9px * var(--text-scale)); font-variant-numeric: tabular-nums; }
-  .composer-actions .character-count--near { color: #a36d42; }
-
-  .post-button {
-    height: 30px;
-    padding: 0 15px;
-    color: #fff;
-    background: #367765;
-    border: 1px solid #2d6959;
-    border-radius: 8px;
-    box-shadow: 0 4px 10px rgb(45 105 89 / 18%);
-    cursor: pointer;
-    font-size: calc(10px * var(--text-scale));
-    font-weight: 690;
-  }
-
-  .post-button:hover:not(:disabled) { background: #2d6959; }
-  .post-button:disabled { opacity: 0.42; cursor: default; box-shadow: none; }
-  .post-button:focus-visible { outline: 2px solid rgb(62 128 109 / 36%); outline-offset: 2px; }
+  .upload-copy span { min-width: 0; overflow: hidden; color: var(--sui-text); font-size: calc(9px * var(--text-scale)); font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
+  .upload-copy small { color: var(--sui-text-muted); font-size: calc(7px * var(--text-scale)); font-weight: 600; }
+  .upload-copy strong { color: var(--sui-primary); font-size: calc(9px * var(--text-scale)); font-variant-numeric: tabular-nums; }
+  .upload-track { height: 5px; margin-top: 8px; overflow: hidden; background: var(--sui-bg-dark); border-radius: 99px; box-shadow: var(--sui-shadow-inset-sm); }
+  .upload-track i { display: block; min-width: 2px; height: 100%; background: var(--sui-primary); border-radius: inherit; transition: width 140ms linear; }
+  .upload-progress p { margin-top: 6px; color: var(--sui-text-muted); font-size: calc(7px * var(--text-scale)); font-variant-numeric: tabular-nums; }
 
   .storage-error {
     margin-top: 10px;
@@ -719,10 +957,11 @@
   @media (max-width: 1120px) {
     .fluo-layout { grid-template-columns: minmax(520px, 700px); }
     .feed-aside { display: none; }
-  }
-
-  @media (max-width: 720px) {
-    .media-limits { display: none; }
+    .fluo-create-trigger {
+      right: max(28px, calc((100% - 700px) / 2));
+      width: 254px;
+      min-width: 254px;
+    }
   }
 
 </style>
