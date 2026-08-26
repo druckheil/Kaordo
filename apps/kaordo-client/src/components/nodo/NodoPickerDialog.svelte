@@ -162,24 +162,24 @@
     --sui-bg: #e4e9f0;
     --sui-bg-light: #edf1f7;
     --sui-bg-dark: #d1d9e6;
-    --sui-shadow-light: #fff;
-    --sui-shadow-dark: #b8c0cc;
+    --sui-shadow-light: transparent;
+    --sui-shadow-dark: rgb(39 51 67 / 20%);
     --sui-primary: #5b54e0;
     --sui-text: #2d3748;
     --sui-muted: #5a6a7e;
-    --sui-raised: 6px 6px 14px var(--sui-shadow-dark), -6px -6px 14px var(--sui-shadow-light);
-    --sui-raised-sm: 3px 3px 8px var(--sui-shadow-dark), -3px -3px 8px var(--sui-shadow-light);
-    --sui-raised-lg: 10px 10px 20px var(--sui-shadow-dark), -10px -10px 20px var(--sui-shadow-light);
-    --sui-inset: inset 3px 3px 8px var(--sui-shadow-dark), inset -3px -3px 8px var(--sui-shadow-light);
-    --sui-inset-sm: inset 2px 2px 5px var(--sui-shadow-dark), inset -2px -2px 5px var(--sui-shadow-light);
+    --sui-raised: 0 6px 16px var(--sui-shadow-dark);
+    --sui-raised-sm: 0 3px 8px var(--sui-shadow-dark);
+    --sui-raised-lg: 0 16px 36px var(--sui-shadow-dark);
+    --sui-inset: inset 2px 2px 6px var(--sui-shadow-dark);
+    --sui-inset-sm: inset 1px 1px 4px var(--sui-shadow-dark);
   }
 
   :global(html[data-theme='dark']) .storage-modal {
     --sui-bg: #2a2d35;
     --sui-bg-light: #31343c;
     --sui-bg-dark: #23262d;
-    --sui-shadow-light: #33363f;
-    --sui-shadow-dark: #1e2027;
+    --sui-shadow-light: transparent;
+    --sui-shadow-dark: rgb(0 0 0 / 42%);
     --sui-primary: var(--accent, #69a993);
     --sui-text: #e2e8f0;
     --sui-muted: #9ba5b8;

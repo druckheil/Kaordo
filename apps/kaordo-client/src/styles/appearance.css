@@ -113,19 +113,22 @@ html[data-theme='dark'] :is(.answer-panel, .tool-icon, .theme, .stage-index) {
 /* Fluo is a long accelerated scroll surface. Keep it opaque so WKWebView can
    raster and reuse tiles without blending every post against a gradient. */
 html[data-theme='dark'] .fluo-shell {
-  background: #171e1a !important;
+  background: var(--sui-bg, #2a2d35) !important;
 }
 
 html[data-theme='dark'] :is(
   .profile-heading,
-  .feed-header,
   .regado-heading,
   .settings-heading,
   .section-heading
 ) :is(h1, h2),
-html[data-theme='dark'] :is(.section-placeholder, .empty-feed) h2,
+html[data-theme='dark'] .section-placeholder h2,
 html[data-theme='dark'] :is(.card-heading, .detail-card, .logout-card) h2 {
   color: #e5eee9 !important;
+}
+
+html[data-theme='dark'] :is(.feed-header h1, .empty-feed h2) {
+  color: var(--sui-text, #e2e8f0) !important;
 }
 
 html[data-theme='dark'] :is(
@@ -145,8 +148,6 @@ html[data-theme='dark'] :is(
   .detail-card,
   .logout-card,
   .composer-card,
-  .post-card,
-  .aside-card,
   .loading-card,
   .error-card,
   .node-list,
@@ -161,11 +162,6 @@ html[data-theme='dark'] :is(
   background: rgb(32 41 36 / 94%) !important;
   border-color: #354139 !important;
   box-shadow: 0 14px 34px rgb(0 0 0 / 18%) !important;
-}
-
-html[data-theme='dark'] .post-card {
-  background: #202924 !important;
-  box-shadow: none !important;
 }
 
 html[data-theme='dark'] :is(
@@ -277,14 +273,15 @@ html[data-theme='dark'] :is(
 }
 
 html[data-theme='dark'] :is(.draft-media figure, .post-media figure) {
-  background: #18201c !important;
-  border-color: #3a473f !important;
+  background: var(--sui-bg-dark, #23262d) !important;
+  border-color: color-mix(in srgb, var(--sui-shadow-dark, #1e2027) 64%, transparent) !important;
 }
 
 html[data-theme='dark'] .carousel-nav {
-  color: #c9e1d5 !important;
-  background: rgb(25 38 32 / 92%) !important;
-  border-color: #486357 !important;
+  color: var(--sui-primary, #69a993) !important;
+  background: var(--sui-bg, #2a2d35) !important;
+  border-color: transparent !important;
+  box-shadow: var(--sui-shadow-raised-sm) !important;
 }
 
 html[data-theme='dark'] .attach-button {
@@ -371,9 +368,7 @@ html[data-theme='dark'] :is(
   .mini-metrics strong,
   .stat-row strong,
   .option-copy strong,
-  .card-heading h2,
-  .post-content > header strong,
-  .aside-card strong
+  .card-heading h2
 ) {
   color: #dce6e0 !important;
 }

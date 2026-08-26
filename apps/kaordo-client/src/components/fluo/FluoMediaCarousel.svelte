@@ -160,21 +160,32 @@
     width: 32px;
     height: 32px;
     padding: 0;
-    color: #36594b;
-    background: rgb(255 255 255 / 92%);
-    border: 1px solid rgb(197 214 204 / 90%);
+    color: var(--sui-primary);
+    background: var(--sui-bg);
+    border: 0;
     border-radius: 50%;
-    box-shadow: 0 5px 16px rgb(26 56 44 / 16%);
+    box-shadow: 0 3px 8px var(--fluo-shadow-color, rgb(39 51 67 / 20%));
     cursor: pointer;
     place-items: center;
     transform: translateY(-50%);
-    transition: opacity 180ms ease, transform 180ms ease, background 140ms ease;
-    backdrop-filter: blur(8px);
+    transition: opacity 180ms ease, transform 180ms ease, background 140ms ease,
+      box-shadow 140ms ease;
   }
 
   .carousel-nav:hover:not(:disabled) {
-    background: #fff;
+    background: var(--sui-bg-light);
+    box-shadow: inset 1px 1px 4px var(--fluo-shadow-color, rgb(39 51 67 / 18%));
     transform: translateY(-50%) scale(1.05);
+  }
+
+  .carousel-nav:active:not(:disabled) {
+    box-shadow: inset 1px 1px 4px var(--fluo-shadow-color, rgb(39 51 67 / 18%));
+    transform: translateY(-50%) scale(.98);
+  }
+
+  .carousel-nav:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--sui-primary) 48%, transparent);
+    outline-offset: 2px;
   }
 
   .carousel-nav--left { left: 8px; }

@@ -418,15 +418,15 @@
     justify-content: center;
     gap: 8px;
     min-height: 48px;
-    color: #839088;
+    color: var(--sui-text-muted);
     font-size: calc(9px * var(--text-scale));
   }
 
   .feed-page-loader i {
     width: 14px;
     height: 14px;
-    border: 2px solid #d6e0da;
-    border-top-color: #4c8a76;
+    border: 2px solid color-mix(in srgb, var(--sui-shadow-dark) 60%, transparent);
+    border-top-color: var(--sui-primary);
     border-radius: 50%;
     animation: feed-spin .7s linear infinite;
   }
