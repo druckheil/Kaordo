@@ -431,6 +431,7 @@
       const userId = snapshot.user?.id ?? null;
       const accountJustAuthenticated = authenticatedUserId !== userId;
       authenticatedUserId = userId;
+      editor.fluoState.configureCacheOwner(userId);
       editor.start();
       if (activeSection === 'fluo') editor.startFluo();
       if (activeSection === 'mi') {
@@ -458,6 +459,7 @@
     } else {
       authenticatedUserId = null;
       editor.stop();
+      editor.fluoState.configureCacheOwner(null);
       regado.stop();
       nodo.stop();
       nodo.state.reset();

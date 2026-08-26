@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NodoAccess, NodoNode, NodoPolicy } from '../domain/nodo';
-import type { FluoGateway, RemoteFluoPost } from '../gateways/FluoGateway';
+import type { FluoFeedPage, FluoGateway, RemoteFluoPost } from '../gateways/FluoGateway';
 import { PUBLIC_FLUO_DESTINATION } from '../gateways/FluoGateway';
 import type { NodoGateway } from '../gateways/NodoGateway';
 import { FluoGState, type FluoDraftAttachment } from './FluoGState';
@@ -51,6 +51,53 @@ describe('FluoGState', () => {
     expect(state.snapshot.posts.map(({ id }) => id)).toEqual(['cached-post']);
   });
 
+  it('restores persisted post metadata before revalidating the live feed', async () => {
+    const storage = new MapStorage();
+    const firstGateway = new MemoryFluoGateway();
+    firstGateway.posts = [{
+      attachments: [],
+      author: 'cached',
+      body: 'Available immediately after restart',
+      createdAt: 10,
+      id: 'persisted-post',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    const first = new FluoGState(firstGateway, new MemoryNodoGateway(), {
+      cacheOwnerId: 'user-1',
+      cacheStorage: storage,
+    });
+
+    first.enter();
+    await first.refreshNodes();
+    // The first metadata response is committed before the optional state
+    // probe resolves. Let that probe persist its hash as well.
+    await Promise.resolve();
+    await Promise.resolve();
+    first.exit();
+
+    const secondGateway = new MemoryFluoGateway();
+    secondGateway.posts = [...firstGateway.posts];
+    const secondNodes = new MemoryNodoGateway();
+    let releaseBootstrap!: () => void;
+    secondNodes.bootstrapGate = new Promise<void>((resolve) => { releaseBootstrap = resolve; });
+    const second = new FluoGState(secondGateway, secondNodes, {
+      cacheOwnerId: 'user-1',
+      cacheStorage: storage,
+    });
+
+    second.enter();
+    await Promise.resolve();
+    expect(second.snapshot.posts.map(({ id }) => id)).toEqual(['persisted-post']);
+    expect(second.snapshot.isLoading).toBe(false);
+    releaseBootstrap();
+    await second.refreshNodes();
+
+    expect(secondGateway.feedPageCalls).toBe(0);
+    expect(second.snapshot.posts.map(({ id }) => id)).toEqual(['persisted-post']);
+    second.exit();
+  });
+
   it('reloads metadata and removes cached posts when a Nodo hash changes', async () => {
     const fluo = new MemoryFluoGateway();
     fluo.posts = [{
@@ -71,6 +118,21 @@ describe('FluoGState', () => {
 
     expect(fluo.feedPageCalls).toBe(2);
     expect(state.snapshot.posts).toEqual([]);
+  });
+
+  it('keeps older cached posts while reconciling a changed feed page', async () => {
+    const fluo = new ReconcileFluoGateway();
+    const state = createState(fluo);
+
+    await state.refreshNodes();
+    await state.loadMore();
+    expect(state.snapshot.posts.map(({ id }) => id)).toEqual(['post-3', 'post-2', 'post-1']);
+
+    fluo.phase = 'changed';
+    fluo.stateHash = 'state-2';
+    await state.refreshNodes();
+
+    expect(state.snapshot.posts.map(({ id }) => id)).toEqual(['post-4', 'post-3', 'post-1']);
   });
 
   it('builds one date-ordered feed that does not change with the publishing destination', async () => {
@@ -286,7 +348,7 @@ class MemoryFluoGateway implements FluoGateway {
   stateHash = 'memory-1';
   readonly publishedOn: string[] = [];
 
-  async listFeedPage(): Promise<{ cursor: null; hasMore: false; posts: RemoteFluoPost[] }> {
+  async listFeedPage(_nodeIds: readonly string[] = [], _cursor: string | null = null, _limit = 50): Promise<FluoFeedPage> {
     this.feedPageCalls += 1;
     if (this.failure) throw this.failure;
     return { cursor: null, hasMore: false, posts: this.posts };
@@ -327,6 +389,45 @@ class MemoryFluoGateway implements FluoGateway {
   async deletePost(_nodeId: string, postId: string): Promise<void> {
     if (this.failure) throw this.failure;
     this.posts = this.posts.filter(({ id }) => id !== postId);
+  }
+}
+
+class ReconcileFluoGateway extends MemoryFluoGateway {
+  phase: 'initial' | 'changed' = 'initial';
+  stateHash = 'state-1';
+
+  override async listFeedPage(
+    _nodeIds: readonly string[] = [],
+    cursor: string | null = null,
+    _limit = 50,
+  ): Promise<FluoFeedPage> {
+    const post = (id: string, createdAt: number): RemoteFluoPost => ({
+      attachments: [],
+      author: 'cached',
+      body: id,
+      createdAt,
+      id,
+      nodeId: NODE.id,
+      space: 'private',
+    });
+    if (this.phase === 'initial') {
+      return cursor
+        ? { cursor: null, hasMore: false, posts: [post('post-1', 10)] }
+        : { cursor: 'initial-next', hasMore: true, posts: [post('post-3', 30), post('post-2', 20)] };
+    }
+    return cursor
+      ? { cursor: null, hasMore: false, posts: [post('post-1', 10)] }
+      : { cursor: 'changed-next', hasMore: true, posts: [post('post-4', 40), post('post-3', 30)] };
+  }
+
+  override listFeedStates(nodeIds: readonly string[]) {
+    return Promise.resolve(nodeIds.map((nodeId) => ({
+      nodeId,
+      spaces: {
+        private: { postCount: 3, stateHash: this.stateHash },
+        public: { postCount: 0, stateHash: this.stateHash },
+      },
+    })));
   }
 }
 
@@ -541,6 +642,17 @@ class MemoryNodoGateway implements NodoGateway {
     return Promise.resolve({ ...policy, ownerOnly: true });
   }
   updateSpaces() { return Promise.resolve(NODE.spaces); }
+}
+
+class MapStorage implements Storage {
+  readonly #values = new Map<string, string>();
+
+  get length(): number { return this.#values.size; }
+  clear(): void { this.#values.clear(); }
+  getItem(key: string): string | null { return this.#values.get(key) ?? null; }
+  key(index: number): string | null { return [...this.#values.keys()][index] ?? null; }
+  removeItem(key: string): void { this.#values.delete(key); }
+  setItem(key: string, value: string): void { this.#values.set(key, value); }
 }
 
 const PUBLIC_STORAGE = {

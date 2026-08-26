@@ -10,6 +10,7 @@ import {
 import type { NodoGateway } from '../gateways/NodoGateway';
 import type { PublicNodoStorage } from '../domain/nodo';
 import { GState } from '../state/GState';
+import { FluoFeedCache } from '../services/FluoFeedCache';
 import { NodoRegistry } from '../services/NodoRegistry';
 
 export const FLUO_MAX_POST_LENGTH = 500;
@@ -61,6 +62,8 @@ export type FluoSnapshot = {
 };
 
 export type FluoGStateOptions = {
+  cacheOwnerId?: string | null;
+  cacheStorage?: Storage;
   createId?: () => string;
   createObjectUrl?: (blob: Blob) => string;
   onStorageChanged?: (nodeId: string, space: 'private' | 'public') => void | Promise<void>;
@@ -68,8 +71,9 @@ export type FluoGStateOptions = {
   registry?: NodoRegistry;
 };
 
-/** Owns the global node-backed Fluo timeline. No post or media is persisted locally. */
+/** Owns the global node-backed Fluo timeline and its small metadata snapshot. */
 export class FluoGState extends GState<FluoSnapshot> {
+  readonly #feedCache: FluoFeedCache;
   readonly #createId: () => string;
   readonly #createObjectUrl: (blob: Blob) => string;
   readonly #gateway: FluoGateway;
@@ -80,6 +84,7 @@ export class FluoGState extends GState<FluoSnapshot> {
   #lifecycleId = 0;
   #requestId = 0;
   #feedCursor: string | null = null;
+  #feedWarmupPending = false;
   #feedNodeIds: string[] = [];
   #feedStates = new Map<string, FluoNodeFeedState>();
   #mediaCache = new Map<string, CachedFluoMedia>();
@@ -90,6 +95,8 @@ export class FluoGState extends GState<FluoSnapshot> {
   #mediaCacheClock = 0;
   #mediaDimensions = new Map<string, { height: number; width: number }>();
   #pageSize = INITIAL_FEED_PAGE_SIZE;
+  #cacheOwnerId: string | null;
+  #cacheRestorePromise: Promise<void> | null = null;
   #unsubscribeRegistry: (() => void) | null = null;
   #refreshInFlight: { lifecycleId: number; promise: Promise<void> } | null = null;
 
@@ -112,6 +119,8 @@ export class FluoGState extends GState<FluoSnapshot> {
     });
     this.#gateway = gateway;
     this.#nodes = nodes;
+    this.#cacheOwnerId = normalizeCacheOwner(options.cacheOwnerId ?? null);
+    this.#feedCache = new FluoFeedCache({ storage: options.cacheStorage });
     this.#onStorageChanged = options.onStorageChanged ?? null;
     this.#registry = options.registry ?? new NodoRegistry();
     this.#createId = options.createId ?? createLocalId;
@@ -121,6 +130,10 @@ export class FluoGState extends GState<FluoSnapshot> {
 
   override enter(): void {
     this.#unsubscribeRegistry = this.#registry.subscribe((nodes) => this.applyNodes(nodes));
+    const lifecycleId = this.#lifecycleId;
+    this.#cacheRestorePromise = Promise.resolve().then(() => {
+      if (lifecycleId === this.#lifecycleId) this.restoreFeedCache();
+    });
     void this.refreshNodes();
   }
 
@@ -129,6 +142,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#requestId += 1;
     this.#unsubscribeRegistry?.();
     this.#unsubscribeRegistry = null;
+    this.#cacheRestorePromise = null;
     this.revokeUrls(this.snapshot.draftAttachments, false);
     this.publish({
       ...this.snapshot,
@@ -146,13 +160,19 @@ export class FluoGState extends GState<FluoSnapshot> {
 
   /** Drops the in-memory feed cache when the authenticated application stops. */
   clearCache(): void {
+    this.resetInMemoryFeed();
+  }
+
+  private resetInMemoryFeed(): void {
     this.#lifecycleId += 1;
     this.#requestId += 1;
     this.#gateway.resetSession?.();
     this.#feedCursor = null;
+    this.#feedWarmupPending = false;
     this.#feedNodeIds = [];
     this.#feedStates.clear();
     this.#pageSize = INITIAL_FEED_PAGE_SIZE;
+    this.#cacheRestorePromise = null;
     this.#mediaGeneration += 1;
     this.#nodes.resetSession?.();
     this.#mediaRequests.clear();
@@ -179,6 +199,14 @@ export class FluoGState extends GState<FluoSnapshot> {
     });
   }
 
+  /** Selects the account namespace used by the persistent feed metadata. */
+  configureCacheOwner(ownerId: string | null): void {
+    const normalized = normalizeCacheOwner(ownerId);
+    if (normalized === this.#cacheOwnerId) return;
+    this.#cacheOwnerId = normalized;
+    this.resetInMemoryFeed();
+  }
+
   async refreshFeed(): Promise<void> {
     await this.refreshNodes(true);
   }
@@ -188,7 +216,12 @@ export class FluoGState extends GState<FluoSnapshot> {
     if (existing?.lifecycleId === this.#lifecycleId) return existing.promise;
 
     const lifecycleId = this.#lifecycleId;
-    const request = this.refreshNodesInternal(forceReload);
+    const restore = this.#cacheRestorePromise;
+    const request = (async () => {
+      await restore;
+      if (lifecycleId !== this.#lifecycleId) return;
+      await this.refreshNodesInternal(forceReload);
+    })();
     let sharedRequest: Promise<void>;
     sharedRequest = request.finally(() => {
       if (this.#refreshInFlight?.promise === sharedRequest) this.#refreshInFlight = null;
@@ -241,6 +274,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         const page = await initialPage;
         if (requestId !== this.#requestId) return;
         this.#feedCursor = page.cursor;
+        this.#feedWarmupPending = false;
         this.#feedNodeIds = [...feedNodeIds];
         this.#pageSize = INITIAL_FEED_PAGE_SIZE;
         this.publish({
@@ -254,6 +288,7 @@ export class FluoGState extends GState<FluoSnapshot> {
           publicStorage,
           storageError: null,
         });
+        this.persistFeedCache();
         // State hashes are only needed to reconcile a later refresh. Do not
         // keep the refresh promise pending after metadata is visible; a slow
         // legacy Nodo state endpoint must not make the Refresh button appear
@@ -261,6 +296,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         void statesPromise.then((states) => {
           if (requestId === this.#requestId) {
             this.#feedStates = new Map(states.map((state) => [state.nodeId, state]));
+            this.persistFeedCache();
           }
         });
         return;
@@ -283,23 +319,57 @@ export class FluoGState extends GState<FluoSnapshot> {
           publicStorage,
           storageError: null,
         });
+        this.persistFeedCache();
         return;
       }
 
       this.#gateway.resetSession?.();
       this.#feedCursor = null;
+      this.#feedWarmupPending = false;
       this.#pageSize = INITIAL_FEED_PAGE_SIZE;
-      const page = await this.#gateway.listFeedPage(
+      let page = await this.#gateway.listFeedPage(
         feedNodeIds,
         null,
         this.#pageSize,
       );
       if (requestId !== this.#requestId) return;
-      const removed = this.snapshot.posts.filter(({ nodeId }) => changedNodeIds.has(nodeId));
+      // Keep the cached rows visible while the changed portion is reconciled.
+      // A single first page is not enough to decide whether an older cached
+      // post was deleted: dropping the rest here would make a new post hide
+      // perfectly valid older posts until the user paged back through them.
+      const cachedChangedPosts = this.snapshot.posts.filter(({ nodeId }) => changedNodeIds.has(nodeId));
+      const oldestCachedCreatedAt = cachedChangedPosts.length
+        ? Math.min(...cachedChangedPosts.map(({ createdAt }) => createdAt))
+        : null;
+      const fetched = page.posts.map((post) => this.hydrate(post));
+      let lastFetchedCreatedAt = fetched.at(-1)?.createdAt ?? null;
+      let reconciliationComplete = oldestCachedCreatedAt === null || !page.hasMore ||
+        (lastFetchedCreatedAt !== null && lastFetchedCreatedAt < oldestCachedCreatedAt);
+      while (!reconciliationComplete && page.hasMore && page.cursor &&
+          oldestCachedCreatedAt !== null &&
+          (lastFetchedCreatedAt === null || lastFetchedCreatedAt >= oldestCachedCreatedAt)) {
+        const previousCursor = page.cursor;
+        const nextPage = await this.#gateway.listFeedPage(feedNodeIds, previousCursor, this.#pageSize);
+        if (requestId !== this.#requestId) return;
+        const nextPosts = nextPage.posts.map((post) => this.hydrate(post));
+        fetched.push(...nextPosts);
+        page = nextPage;
+        if (!nextPosts.length && page.cursor === previousCursor) break;
+        lastFetchedCreatedAt = nextPosts.at(-1)?.createdAt ?? lastFetchedCreatedAt;
+        reconciliationComplete = !page.hasMore ||
+          (oldestCachedCreatedAt !== null && lastFetchedCreatedAt !== null &&
+            lastFetchedCreatedAt < oldestCachedCreatedAt);
+      }
+      if (requestId !== this.#requestId) return;
+      const fetchedKeys = new Set(fetched.map(postKey));
+      const removed = reconciliationComplete
+        ? cachedChangedPosts.filter((post) => !fetchedKeys.has(postKey(post)))
+        : [];
       this.revokeUrls(removed.flatMap((post) => post.attachments));
       removed.forEach((post) => this.clearMediaCacheForPost(postKey(post)));
-      const retained = this.snapshot.posts.filter(({ nodeId }) => !changedNodeIds.has(nodeId));
-      const posts = mergePosts(retained, page.posts.map((post) => this.hydrate(post)));
+      const retained = this.snapshot.posts.filter((post) =>
+        !changedNodeIds.has(post.nodeId) || !reconciliationComplete || fetchedKeys.has(postKey(post)));
+      const posts = mergePosts(retained, fetched);
       this.#feedCursor = page.cursor;
       this.#feedNodeIds = [...feedNodeIds];
       this.#feedStates = nextStates;
@@ -313,6 +383,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         publicStorage,
         storageError: null,
       });
+      this.persistFeedCache();
     } catch (error) {
       if (requestId !== this.#requestId) return;
       this.publish({
@@ -324,32 +395,86 @@ export class FluoGState extends GState<FluoSnapshot> {
     }
   }
 
+  private restoreFeedCache(): void {
+    // Tab switches keep the live in-memory session and its cursor. Only a
+    // freshly constructed state (after an application restart) needs a
+    // durable snapshot.
+    if (this.#feedNodeIds.length || this.#feedStates.size || this.snapshot.posts.length) return;
+    const cached = this.#feedCache.read(this.#cacheOwnerId);
+    if (!cached) return;
+
+    // Feed cursors are opaque, process-local session IDs in NodeFluoGateway;
+    // never reuse one after a restart. loadMore() will open a new session and
+    // skip cached pages until it reaches an unseen post.
+    this.#feedCursor = null;
+    this.#feedWarmupPending = cached.hasMore;
+    this.#feedNodeIds = [...cached.feedNodeIds];
+    this.#feedStates = new Map(cached.feedStates.map((state) => [state.nodeId, state]));
+    this.#pageSize = cached.pageSize;
+    const posts = cached.posts.map((post) => this.hydrateCached(post));
+    if (!posts.length && !this.#feedNodeIds.length && !this.#feedStates.size) return;
+    this.publish({
+      ...this.snapshot,
+      hasMore: cached.hasMore,
+      isLoading: false,
+      isLoadingMore: false,
+      isRefreshing: false,
+      posts: mergePosts(posts),
+      storageError: null,
+    });
+  }
+
+  private persistFeedCache(): void {
+    if (!this.#cacheOwnerId) return;
+    this.#feedCache.write(this.#cacheOwnerId, {
+      feedCursor: this.#feedCursor,
+      feedNodeIds: this.#feedNodeIds,
+      feedStates: [...this.#feedStates.values()],
+      hasMore: this.snapshot.hasMore,
+      pageSize: this.#pageSize,
+      posts: this.snapshot.posts,
+    });
+  }
+
   async loadMore(): Promise<void> {
     if (this.snapshot.isLoading || this.snapshot.isRefreshing || this.snapshot.isLoadingMore || !this.snapshot.hasMore ||
-        !this.#feedCursor) return;
+        (!this.#feedCursor && !this.#feedWarmupPending)) return;
     const requestId = this.#requestId;
     this.publish({ ...this.snapshot, isLoadingMore: true });
     try {
       const startedAt = performance.now();
-      const page = await this.#gateway.listFeedPage(
-        this.#feedNodeIds,
-        this.#feedCursor,
-        this.#pageSize,
-      );
+      let cursor = this.#feedCursor;
+      let page = await this.#gateway.listFeedPage(this.#feedNodeIds, cursor, this.#pageSize);
+      const known = new Set(this.snapshot.posts.map(postKey));
+      let additions = page.posts.map((post) => this.hydrate(post)).filter((post) => !known.has(postKey(post)));
+      additions.forEach((post) => known.add(postKey(post)));
+      let hasMore = page.hasMore;
+      while (this.#feedWarmupPending && !additions.length && page.hasMore && page.cursor) {
+        const previousCursor = page.cursor;
+        page = await this.#gateway.listFeedPage(this.#feedNodeIds, previousCursor, this.#pageSize);
+        if (!page.posts.length && page.cursor === previousCursor) {
+          hasMore = page.hasMore;
+          break;
+        }
+        const next = page.posts.map((post) => this.hydrate(post)).filter((post) => !known.has(postKey(post)));
+        next.forEach((post) => known.add(postKey(post)));
+        additions = [...additions, ...next];
+        hasMore = page.hasMore;
+      }
       if (requestId !== this.#requestId) return;
       this.#feedCursor = page.cursor;
+      this.#feedWarmupPending = false;
       const elapsed = performance.now() - startedAt;
       this.#pageSize = elapsed < 600
         ? Math.min(50, this.#pageSize + 8)
         : elapsed > 2_500 ? Math.max(12, this.#pageSize - 8) : this.#pageSize;
-      const known = new Set(this.snapshot.posts.map(postKey));
-      const additions = page.posts.map((post) => this.hydrate(post)).filter((post) => !known.has(postKey(post)));
       this.publish({
         ...this.snapshot,
-        hasMore: page.hasMore,
+        hasMore,
         isLoadingMore: false,
         posts: [...this.snapshot.posts, ...additions],
       });
+      this.persistFeedCache();
     } catch (error) {
       if (requestId !== this.#requestId) return;
       this.publish({
@@ -551,6 +676,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         publicStorage,
         uploadProgress: null,
       });
+      this.persistFeedCache();
       void this.#onStorageChanged?.(remote.nodeId, remote.space);
       return true;
     } catch (error) {
@@ -598,6 +724,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         publicStorage,
         storageError: null,
       });
+      this.persistFeedCache();
       void this.#onStorageChanged?.(post.nodeId, post.space);
       return true;
     } catch (error) {
@@ -625,6 +752,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         post.nodeId !== nodeId || (space !== undefined && post.space !== space)),
       storageError: null,
     });
+    this.persistFeedCache();
   }
 
   private applyNodes(nodes: readonly NodoNode[]): void {
@@ -651,6 +779,17 @@ export class FluoGState extends GState<FluoSnapshot> {
           url: this.#createObjectUrl(blob),
         } : { ...attachment, loadState: 'idle' };
       }),
+      liked: false,
+    };
+  }
+
+  private hydrateCached(post: FluoPost): FluoPost {
+    return {
+      ...post,
+      attachments: post.attachments.map(({ loadState: _loadState, objectUrl: _objectUrl, url: _url, ...attachment }) => ({
+        ...attachment,
+        loadState: 'idle',
+      })),
       liked: false,
     };
   }
@@ -880,6 +1019,7 @@ function feedStateChanged(previous: FluoNodeFeedState, next: FluoNodeFeedState):
   return (['private', 'public'] as const).some((space: FluoSpace) => {
     const before = previous.spaces[space];
     const after = next.spaces[space];
+    if (before.postCount !== after.postCount) return true;
     // A missing hash means an older Nodo or a transient state-endpoint
     // failure. Reloading is safer than silently serving stale posts.
     if (!before.stateHash || !after.stateHash) return true;
@@ -889,4 +1029,9 @@ function feedStateChanged(previous: FluoNodeFeedState, next: FluoNodeFeedState):
 
 function createLocalId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `fluo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeCacheOwner(ownerId: string | null): string | null {
+  const normalized = ownerId?.trim();
+  return normalized || null;
 }
