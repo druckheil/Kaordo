@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 const DEFAULT_UPDATE_MANIFEST_URL: &str =
-    "https://kaordo.pages.dev/downloads/nodo-linux-0.1.7.json";
+    "https://kaordo.pages.dev/downloads/nodo-linux-0.2.json";
 const STATUS_FILENAME: &str = ".update-status.json";
 
 #[derive(Debug, Clone, Deserialize)]
