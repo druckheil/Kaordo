@@ -340,18 +340,16 @@ describe('workspace navigation and objects', () => {
     const navigation = screen.getByRole('navigation', {
       name: 'Kaordo sections',
     });
-    expect(within(navigation).getByRole('button', { name: 'Klaro' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    expect(within(navigation).getByRole('radio', { name: 'Klaro' })).toBeChecked();
 
-    await fireEvent.click(within(navigation).getByRole('button', { name: 'Fluo' }));
+    await fireEvent.click(within(navigation).getByRole('radio', { name: 'Fluo' }));
     expect(screen.getByRole('heading', { name: 'Global timeline' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Files' }).closest('main')).toHaveClass(
       'app-section--hidden',
     );
     mockFluoViewportSize(screen.getByRole('heading', { name: 'Global timeline' }).closest('main')!);
 
+    await fireEvent.click(screen.getByRole('button', { name: 'Create a post' }));
     const composer = screen.getByRole('textbox', { name: 'Post text' });
     await fireEvent.input(composer, { target: { value: 'Hello from this device.' } });
     expect(screen.getByRole('button', { name: /Choose storage Nodo, currently Public Nodo/ })).toBeInTheDocument();
@@ -371,14 +369,14 @@ describe('workspace navigation and objects', () => {
     expect(screen.queryByText('Hello from this device.')).not.toBeInTheDocument();
 
     await fireEvent.click(
-      within(navigation).getByRole('button', { name: 'Ligo' }),
+      within(navigation).getByRole('radio', { name: 'Ligo' }),
     );
     expect(screen.getByRole('heading', { name: 'Ligo' })).toBeInTheDocument();
 
-    await fireEvent.click(within(navigation).getByRole('button', { name: 'Rondo' }));
+    await fireEvent.click(within(navigation).getByRole('radio', { name: 'Rondo' }));
     expect(screen.getByRole('heading', { name: 'Rondo' })).toBeInTheDocument();
 
-    await fireEvent.click(within(navigation).getByRole('button', { name: 'Klaro' }));
+    await fireEvent.click(within(navigation).getByRole('radio', { name: 'Klaro' }));
     expect(screen.getByRole('heading', { name: 'Files' })).toBeInTheDocument();
   });
 
@@ -622,7 +620,7 @@ describe('workspace navigation and objects', () => {
       workspaceGateway: new TauriWorkspaceGateway(),
     });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Nodo' }));
+    await fireEvent.click(screen.getByRole('radio', { name: 'Nodo' }));
     expect(await screen.findByRole('heading', { name: 'Samsung Tablet' })).toBeInTheDocument();
     expect(screen.getAllByText('30.0 GB').length).toBeGreaterThan(0);
     expect(screen.getByText('82% · charging')).toBeInTheDocument();
@@ -671,7 +669,7 @@ describe('workspace navigation and objects', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Remove…' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Remove node' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Fluo' }));
+    await fireEvent.click(screen.getByRole('radio', { name: 'Fluo' }));
     expect(screen.queryByRole('option', { name: /Samsung Tablet/ })).not.toBeInTheDocument();
   });
 
@@ -775,7 +773,7 @@ describe('workspace navigation and objects', () => {
       workspaceGateway: new TauriWorkspaceGateway(),
     });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Agordoj' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Open application settings' }));
     expect(screen.getByRole('heading', { name: 'Theme' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Display' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Audio & Video' })).toBeInTheDocument();
