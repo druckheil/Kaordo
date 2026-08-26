@@ -8,11 +8,12 @@
     active?: boolean;
     attachments: readonly FluoAttachment[];
     fluoState: FluoGState;
+    postIdentity?: string;
     postId: string;
     registerMedia: (load: () => Promise<void>) => () => void;
   };
 
-  let { active = true, attachments, fluoState, postId, registerMedia }: Props = $props();
+  let { active = true, attachments, fluoState, postIdentity, postId, registerMedia }: Props = $props();
   let scroller = $state<HTMLDivElement>();
   let track = $state<HTMLDivElement>();
   let canScrollLeft = $state(false);
@@ -73,11 +74,12 @@
     role="region"
   >
     <div bind:this={track} class="media-carousel-track">
-      {#each attachments as attachment (attachment.id)}
+      {#each attachments as attachment (`${postIdentity ?? postId}:${attachment.id}`)}
         <FluoMedia
           {attachment}
           {active}
           {fluoState}
+          mediaIdentity={`${postIdentity ?? postId}:${attachment.id}`}
           maxWidth={FLUO_CAROUSEL_MEDIA_WIDTH}
           {postId}
           register={registerMedia}

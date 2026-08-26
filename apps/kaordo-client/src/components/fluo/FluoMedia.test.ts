@@ -4,6 +4,69 @@ import type { FluoGState } from '../../lib/states/FluoGState';
 import FluoMedia from './FluoMedia.svelte';
 
 describe('FluoMedia', () => {
+  it('does not reuse a resolved source when a virtualized row receives another attachment', async () => {
+    let load!: () => Promise<void>;
+    const register = vi.fn((callback: () => Promise<void>) => {
+      load = callback;
+      return () => undefined;
+    });
+    const fluoState = {
+      loadMedia: vi.fn(async (_postId: string, attachmentId: string) => `blob:${attachmentId}`),
+    } as unknown as FluoGState;
+    const first = {
+      height: 300,
+      id: 'first',
+      kind: 'image' as const,
+      mimeType: 'image/png',
+      name: 'first.png',
+      size: 1,
+      width: 400,
+    };
+    const second = { ...first, id: 'second', name: 'second.png' };
+    const view = render(FluoMedia, { attachment: first, fluoState, postId: 'post-1', register });
+
+    await load();
+    expect(view.container.querySelector('img')?.getAttribute('src')).toBe('blob:first');
+
+    await view.rerender({ attachment: second, fluoState, postId: 'post-1', register });
+    expect(view.container.querySelector('img')).toBeNull();
+    await load();
+    expect(view.container.querySelector('img')?.getAttribute('src')).toBe('blob:second');
+  });
+
+  it('ignores a late response from the previous attachment', async () => {
+    let resolveFirst!: (url: string) => void;
+    let load!: () => Promise<void>;
+    const register = vi.fn((callback: () => Promise<void>) => {
+      load = callback;
+      return () => undefined;
+    });
+    const fluoState = {
+      loadMedia: vi.fn((_postId: string, attachmentId: string) => attachmentId === 'first'
+        ? new Promise<string>((resolve) => { resolveFirst = resolve; })
+        : Promise.resolve('blob:second')),
+    } as unknown as FluoGState;
+    const first = {
+      height: 300,
+      id: 'first',
+      kind: 'image' as const,
+      mimeType: 'image/png',
+      name: 'first.png',
+      size: 1,
+      width: 400,
+    };
+    const second = { ...first, id: 'second', name: 'second.png' };
+    const view = render(FluoMedia, { attachment: first, fluoState, postId: 'post-1', register });
+
+    const firstRequest = load();
+    await view.rerender({ attachment: second, fluoState, postId: 'post-1', register });
+    await load();
+    resolveFirst('blob:first');
+    await firstRequest;
+
+    expect(view.container.querySelector('img')?.getAttribute('src')).toBe('blob:second');
+  });
+
   it('sets a bounded intrinsic-width box instead of stretching a portrait media shell', () => {
     const register = vi.fn(() => () => undefined);
     const fluoState = {

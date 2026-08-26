@@ -296,7 +296,7 @@ export class FluoGState extends GState<FluoSnapshot> {
           // Metadata is ready. Do not hold the feed's scroll/prefetch path
           // hostage to the optional state-hash probe below.
           isRefreshing: false,
-          posts: mergePosts(page.posts.map((post) => this.hydrate(post))),
+          posts: mergePosts(page.posts.map((post) => this.hydrateFeedPost(post))),
           publicStorage,
           storageError: null,
         });
@@ -353,7 +353,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       const oldestCachedCreatedAt = cachedChangedPosts.length
         ? Math.min(...cachedChangedPosts.map(({ createdAt }) => createdAt))
         : null;
-      const fetched = page.posts.map((post) => this.hydrate(post));
+      const fetched = page.posts.map((post) => this.hydrateFeedPost(post));
       let lastFetchedCreatedAt = fetched.at(-1)?.createdAt ?? null;
       let reconciliationComplete = oldestCachedCreatedAt === null || !page.hasMore ||
         (lastFetchedCreatedAt !== null && lastFetchedCreatedAt < oldestCachedCreatedAt);
@@ -363,7 +363,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         const previousCursor = page.cursor;
         const nextPage = await this.#gateway.listFeedPage(feedNodeIds, previousCursor, this.#pageSize);
         if (requestId !== this.#requestId) return;
-        const nextPosts = nextPage.posts.map((post) => this.hydrate(post));
+        const nextPosts = nextPage.posts.map((post) => this.hydrateFeedPost(post));
         fetched.push(...nextPosts);
         page = nextPage;
         if (!nextPosts.length && page.cursor === previousCursor) break;
@@ -491,7 +491,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       let cursor = this.#feedCursor;
       let page = await this.#gateway.listFeedPage(this.#feedNodeIds, cursor, this.#pageSize);
       const known = new Set(this.snapshot.posts.map(postKey));
-      let additions = page.posts.map((post) => this.hydrate(post)).filter((post) => !known.has(postKey(post)));
+      let additions = page.posts.map((post) => this.hydrateFeedPost(post)).filter((post) => !known.has(postKey(post)));
       additions.forEach((post) => known.add(postKey(post)));
       let hasMore = page.hasMore;
       while (this.#feedWarmupPending && !additions.length && page.hasMore && page.cursor) {
@@ -501,7 +501,7 @@ export class FluoGState extends GState<FluoSnapshot> {
           hasMore = page.hasMore;
           break;
         }
-        const next = page.posts.map((post) => this.hydrate(post)).filter((post) => !known.has(postKey(post)));
+        const next = page.posts.map((post) => this.hydrateFeedPost(post)).filter((post) => !known.has(postKey(post)));
         next.forEach((post) => known.add(postKey(post)));
         additions = [...additions, ...next];
         hasMore = page.hasMore;
@@ -530,8 +530,8 @@ export class FluoGState extends GState<FluoSnapshot> {
     }
   }
 
-  async loadMedia(postId: string, attachmentId: string): Promise<string | null> {
-    const target = this.findMediaTarget(postId, attachmentId);
+  async loadMedia(postId: string, attachmentId: string, postIdentity?: string): Promise<string | null> {
+    const target = this.findMediaTarget(postId, attachmentId, postIdentity);
     return target ? this.startMediaLoad(target) : null;
   }
 
@@ -540,13 +540,19 @@ export class FluoGState extends GState<FluoSnapshot> {
    * later mount of a legacy attachment without replacing `posts` or
    * invalidating the virtualizer's measurements for every row.
    */
-  setMediaDimensions(postId: string, attachmentId: string, width: number, height: number): void {
+  setMediaDimensions(
+    postId: string,
+    attachmentId: string,
+    width: number,
+    height: number,
+    postIdentity?: string,
+  ): void {
     const normalizedWidth = Math.round(width);
     const normalizedHeight = Math.round(height);
     if (!Number.isSafeInteger(normalizedWidth) || !Number.isSafeInteger(normalizedHeight) ||
         normalizedWidth < 1 || normalizedHeight < 1 ||
         normalizedWidth > MAX_MEDIA_DIMENSION || normalizedHeight > MAX_MEDIA_DIMENSION) return;
-    const target = this.findMediaTarget(postId, attachmentId);
+    const target = this.findMediaTarget(postId, attachmentId, postIdentity);
     if (!target) return;
     const mediaKey = `${target.key}:${attachmentId}`;
     if (target.attachment.width === normalizedWidth && target.attachment.height === normalizedHeight) return;
@@ -555,13 +561,17 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#mediaDimensions.set(mediaKey, { height: normalizedHeight, width: normalizedWidth });
   }
 
-  getMediaDimensions(postId: string, attachmentId: string): { height: number; width: number } | undefined {
-    const target = this.findMediaTarget(postId, attachmentId);
+  getMediaDimensions(
+    postId: string,
+    attachmentId: string,
+    postIdentity?: string,
+  ): { height: number; width: number } | undefined {
+    const target = this.findMediaTarget(postId, attachmentId, postIdentity);
     return target ? this.#mediaDimensions.get(`${target.key}:${attachmentId}`) : undefined;
   }
 
-  async retryMedia(postId: string, attachmentId: string): Promise<string | null> {
-    const target = this.findMediaTarget(postId, attachmentId);
+  async retryMedia(postId: string, attachmentId: string, postIdentity?: string): Promise<string | null> {
+    const target = this.findMediaTarget(postId, attachmentId, postIdentity);
     if (!target) return null;
     const mediaKey = `${target.key}:${attachmentId}`;
     this.removeResolvedMedia(mediaKey);
@@ -572,8 +582,8 @@ export class FluoGState extends GState<FluoSnapshot> {
     return this.startMediaLoad(target, true);
   }
 
-  markMediaUnavailable(postId: string, attachmentId: string): void {
-    const target = this.findMediaTarget(postId, attachmentId);
+  markMediaUnavailable(postId: string, attachmentId: string, postIdentity?: string): void {
+    const target = this.findMediaTarget(postId, attachmentId, postIdentity);
     if (!target) return;
     const mediaKey = `${target.key}:${attachmentId}`;
     this.removeResolvedMedia(mediaKey);
@@ -816,16 +826,58 @@ export class FluoGState extends GState<FluoSnapshot> {
   private hydrate(post: RemoteFluoPost): FluoPost {
     return {
       ...post,
-      attachments: post.attachments.map(({ blob, ...attachment }) => {
-        return blob ? {
-          ...attachment,
-          loadState: 'ready',
-          objectUrl: true,
-          url: this.#createObjectUrl(blob),
-        } : { ...attachment, loadState: 'idle' };
-      }),
+      attachments: post.attachments.map((attachment) => this.hydrateAttachment(attachment)),
       liked: false,
     };
+  }
+
+  /**
+   * Reconciles a remote metadata row without throwing away the live media
+   * objects owned by the current timeline. Hash refreshes replace post
+   * manifests, but an unchanged attachment must keep its URL/player so a
+   * video does not restart (or enter an endless loading state) after a post
+   * is published elsewhere.
+   */
+  private hydrateFeedPost(post: RemoteFluoPost): FluoPost {
+    const key = postKey(post);
+    const previous = this.snapshot.posts.find((candidate) => postKey(candidate) === key);
+    if (!previous) return this.hydrate(post);
+
+    const previousById = new Map(previous.attachments.map((attachment) => [attachment.id, attachment]));
+    const attachments = post.attachments.map((attachment) => {
+      const existing = previousById.get(attachment.id);
+      return existing && sameAttachmentMetadata(existing, attachment)
+        ? existing
+        : this.hydrateAttachment(attachment);
+    });
+
+    for (const existing of previous.attachments) {
+      const replacement = post.attachments.find((attachment) => attachment.id === existing.id);
+      if (replacement && sameAttachmentMetadata(existing, replacement)) continue;
+      this.clearMediaCacheForAttachment(key, existing.id);
+      if (existing.objectUrl && existing.url) this.#revokeObjectUrl(existing.url);
+    }
+
+    const sameAttachments = attachments.length === previous.attachments.length &&
+      attachments.every((attachment, index) => attachment === previous.attachments[index]);
+    if (sameAttachments && previous.body === post.body && previous.author === post.author &&
+        previous.createdAt === post.createdAt) return previous;
+
+    return {
+      ...post,
+      attachments,
+      liked: previous.liked,
+    };
+  }
+
+  private hydrateAttachment(attachment: RemoteFluoPost['attachments'][number]): FluoAttachment {
+    const { blob, ...metadata } = attachment;
+    return blob ? {
+      ...metadata,
+      loadState: 'ready',
+      objectUrl: true,
+      url: this.#createObjectUrl(blob),
+    } : { ...metadata, loadState: 'idle' };
   }
 
   private hydrateCached(post: FluoPost): FluoPost {
@@ -839,8 +891,14 @@ export class FluoGState extends GState<FluoSnapshot> {
     };
   }
 
-  private findMediaTarget(postId: string, attachmentId: string): FluoMediaTarget | null {
-    const matches = this.snapshot.posts.filter(({ id }) => id === postId);
+  private findMediaTarget(
+    postId: string,
+    attachmentId: string,
+    postIdentity?: string,
+  ): FluoMediaTarget | null {
+    const matches = postIdentity
+      ? this.snapshot.posts.filter((post) => postKey(post) === postIdentity)
+      : this.snapshot.posts.filter(({ id }) => id === postId);
     if (matches.length !== 1) return null;
     const post = matches[0]!;
     const attachment = post.attachments.find(({ id }) => id === attachmentId);
@@ -870,6 +928,12 @@ export class FluoGState extends GState<FluoSnapshot> {
 
     const request = this.resolveMediaLoad(target, this.#mediaGeneration, mediaKey);
     this.#mediaRequests.set(mediaKey, request);
+    void request.finally(() => {
+      // A changed attachment may start a new request under the same key
+      // before this one settles. Never let the old request delete the new
+      // entry and accidentally re-enable duplicate transfers.
+      if (this.#mediaRequests.get(mediaKey) === request) this.#mediaRequests.delete(mediaKey);
+    });
     return request;
   }
 
@@ -883,18 +947,16 @@ export class FluoGState extends GState<FluoSnapshot> {
       const source = await this.#gateway.loadMedia(post.nodeId, post.space, attachment);
       const objectUrl = 'blob' in source;
       const url = source.blob ? this.#createObjectUrl(source.blob) : source.streamUrl;
-      if (mediaGeneration !== this.#mediaGeneration ||
-          !this.snapshot.posts.some((candidate) => postKey(candidate) === key)) {
+      const current = this.findMediaTarget(post.id, attachment.id, key);
+      if (mediaGeneration !== this.#mediaGeneration || !current ||
+          !sameAttachmentMetadata(current.attachment, attachment)) {
         if (objectUrl) this.#revokeObjectUrl(url);
-        if (mediaGeneration === this.#mediaGeneration) this.#mediaRequests.delete(mediaKey);
         return null;
       }
       if (source.blob) this.cacheMedia(mediaKey, source.blob, attachment.size);
       this.#mediaSources.set(mediaKey, { objectUrl, url });
-      this.#mediaRequests.delete(mediaKey);
       return url;
     } catch {
-      if (mediaGeneration === this.#mediaGeneration) this.#mediaRequests.delete(mediaKey);
       return null;
     }
   }
@@ -945,6 +1007,13 @@ export class FluoGState extends GState<FluoSnapshot> {
     for (const mediaKey of this.#mediaSources.keys()) {
       if (mediaKey.startsWith(prefix)) this.removeResolvedMedia(mediaKey);
     }
+  }
+
+  private clearMediaCacheForAttachment(key: string, attachmentId: string): void {
+    const mediaKey = `${key}:${attachmentId}`;
+    this.#mediaRequests.delete(mediaKey);
+    this.removeCachedMedia(mediaKey);
+    this.removeResolvedMedia(mediaKey);
   }
 
   private forgetMediaDimensionsForPost(key: string): void {
@@ -1033,6 +1102,15 @@ const RESERVED_MEDIA_HEIGHT = 900;
 
 function postKey(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
   return `${post.space}:${post.nodeId}:${post.id}`;
+}
+
+function sameAttachmentMetadata(
+  left: FluoAttachment,
+  right: Pick<FluoAttachment, 'id' | 'kind' | 'mimeType' | 'name' | 'size' | 'width' | 'height'>,
+): boolean {
+  return left.id === right.id && left.kind === right.kind && left.mimeType === right.mimeType &&
+    left.name === right.name && left.size === right.size && left.width === right.width &&
+    left.height === right.height;
 }
 
 function mergePosts(...groups: readonly FluoPost[][]): FluoPost[] {

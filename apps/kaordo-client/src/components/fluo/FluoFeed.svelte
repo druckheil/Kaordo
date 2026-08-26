@@ -135,12 +135,55 @@
     const input = event.currentTarget as HTMLInputElement;
     const files = input.files ? [...input.files] : [];
     input.value = '';
+    addAttachmentFiles(files);
+  }
+
+  function handleComposerPaste(event: ClipboardEvent) {
+    const clipboard = event.clipboardData;
+    if (!clipboard) return;
+    const files: File[] = [];
+    for (let index = 0; index < clipboard.items.length; index += 1) {
+      const item = clipboard.items[index];
+      if (item?.kind !== 'file') continue;
+      const file = item.getAsFile();
+      if (file) files.push(normalizeClipboardFile(file, files.length));
+    }
+    if (!files.length) {
+      files.push(...Array.from(clipboard.files).map((file, index) =>
+        normalizeClipboardFile(file, index)));
+    }
+    if (!files.length) return;
+    event.preventDefault();
+    addAttachmentFiles(files);
+  }
+
+  function addAttachmentFiles(files: readonly File[]) {
     if (!files.length || !fluoState.addAttachments(files)) return;
     const preparation = Promise.all(files.map(async (file) => {
       const dimensions = await readMediaDimensions(file);
       if (dimensions) fluoState.setDraftAttachmentDimensions(file, dimensions.width, dimensions.height);
     })).then(() => undefined);
     mediaPreparation = Promise.all([mediaPreparation, preparation]).then(() => undefined);
+  }
+
+  function normalizeClipboardFile(file: File, index: number): File {
+    if (file.name.trim()) return file;
+    const mimeType = file.type.toLowerCase();
+    const extension = mimeType === 'image/gif'
+      ? 'gif'
+      : mimeType.startsWith('image/')
+        ? mimeType.slice('image/'.length).split('+', 1)[0] || 'png'
+        : mimeType.startsWith('video/')
+          ? mimeType.slice('video/'.length).split('+', 1)[0] || 'mp4'
+          : 'bin';
+    try {
+      return new File([file], `pasted-media-${Date.now()}-${index + 1}.${extension}`, {
+        lastModified: file.lastModified,
+        type: file.type,
+      });
+    } catch {
+      return file;
+    }
   }
 
   async function readMediaDimensions(file: File): Promise<{ height: number; width: number } | null> {
@@ -337,9 +380,6 @@
     <section bind:this={composerModal} class="sui-modal sui-modal-lg fluo-compose-modal" tabindex="-1">
       <header class="sui-modal-header">
         <div class="fluo-compose-heading">
-          <span class="fluo-compose-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M5 5h14v10H9l-4 4V5Zm4 5h6m-6 3h4" /></svg>
-          </span>
           <div>
             <span class="fluo-compose-eyebrow">FLUO</span>
             <h2 id="fluo-compose-title">Create a post</h2>
@@ -392,6 +432,7 @@
             bind:value={() => snapshot.draft, (draft) => fluoState.setDraft(draft)}
             oninput={resizeComposer}
             onkeydown={handleComposerKeydown}
+            onpaste={handleComposerPaste}
           ></textarea>
           <div class="fluo-compose-meta">
             <span>{mediaCount}/{FLUO_MAX_ATTACHMENTS} media</span>
@@ -458,7 +499,7 @@
               type="button"
               disabled={snapshot.isPublishing}
               aria-label="Attach media"
-              title="Attach images, GIFs, or videos"
+              title="Attach images, GIFs, or videos, or paste them from the clipboard"
               onclick={() => attachmentInput?.click()}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"/><circle cx="9" cy="9" r="1.5"/><path d="m6 17 4.2-4.2 2.7 2.4 2.1-2.1L18 17" /></svg>
@@ -803,9 +844,7 @@
     border-bottom: 1px solid color-mix(in srgb, var(--sui-shadow-dark) 22%, transparent);
   }
 
-  .fluo-compose-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .fluo-compose-mark { display: grid; flex: none; width: 42px; height: 42px; color: var(--sui-primary); background: var(--sui-bg); border-radius: 12px; box-shadow: var(--sui-shadow-inset-sm); place-items: center; }
-  .fluo-compose-mark svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.55; }
+  .fluo-compose-heading { display: flex; align-items: center; min-width: 0; }
   .fluo-compose-heading > div { min-width: 0; }
   .fluo-compose-eyebrow { display: block; color: var(--sui-primary); font-size: calc(7px * var(--text-scale)); font-weight: 780; letter-spacing: .16em; line-height: 1; }
   .fluo-compose-heading h2 { margin-top: 3px; color: var(--sui-text); font-size: calc(15px * var(--text-scale)); font-weight: 720; letter-spacing: -.03em; }

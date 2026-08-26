@@ -145,6 +145,51 @@ describe('FluoGState', () => {
     expect(state.snapshot.posts).toEqual([]);
   });
 
+  it('preserves resolved media when a changed hash reconciles an existing post', async () => {
+    const fluo = new MemoryFluoGateway();
+    const attachment = {
+      height: 900,
+      id: 'stable-media',
+      kind: 'video' as const,
+      mimeType: 'video/mp4',
+      name: 'stable.mp4',
+      size: 10,
+      width: 1_600,
+    };
+    fluo.posts = [{
+      attachments: [attachment],
+      author: 'cached',
+      body: 'Keep the player alive',
+      createdAt: 10,
+      id: 'stable-post',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    const state = createState(fluo);
+
+    await state.refreshNodes();
+    const previous = state.snapshot.posts[0]!;
+    expect(await state.loadMedia(previous.id, attachment.id)).toBe('blob:remote');
+    expect(fluo.mediaLoads).toBe(1);
+
+    fluo.posts = [{
+      attachments: [],
+      author: 'cached',
+      body: 'A new post',
+      createdAt: 20,
+      id: 'new-post',
+      nodeId: NODE.id,
+      space: 'private',
+    }, ...fluo.posts];
+    fluo.stateHash = 'memory-2';
+    await state.refreshNodes();
+
+    const reconciled = state.snapshot.posts.find(({ id }) => id === previous.id);
+    expect(reconciled?.attachments[0]).toBe(previous.attachments[0]);
+    expect(await state.loadMedia(previous.id, attachment.id)).toBe('blob:remote');
+    expect(fluo.mediaLoads).toBe(1);
+  });
+
   it('keeps older cached posts while reconciling a changed feed page', async () => {
     const fluo = new ReconcileFluoGateway();
     const state = createState(fluo);
@@ -370,6 +415,7 @@ class MemoryFluoGateway implements FluoGateway {
   failure: Error | null = null;
   posts: RemoteFluoPost[] = [];
   feedPageCalls = 0;
+  mediaLoads = 0;
   stateHash = 'memory-1';
   readonly publishedOn: string[] = [];
 
@@ -389,7 +435,10 @@ class MemoryFluoGateway implements FluoGateway {
     })));
   }
 
-  loadMedia(): Promise<{ blob: Blob }> { return Promise.resolve({ blob: new Blob(['media']) }); }
+  loadMedia(): Promise<{ blob: Blob }> {
+    this.mediaLoads += 1;
+    return Promise.resolve({ blob: new Blob(['media']) });
+  }
 
   async publishPost(
     nodeId: string,

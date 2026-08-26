@@ -12,6 +12,7 @@
   };
 
   let { active = true, fluoState, post, registerMedia }: Props = $props();
+  let postIdentity = $derived(`${post.space}:${post.nodeId}:${post.id}`);
 
   function postDate(value: number): string {
     const date = new Date(value);
@@ -56,22 +57,28 @@
     {#if post.attachments.length}
       {#if post.attachments.length === 1}
         <div class="post-media post-media--single">
-          <FluoMedia
-            attachment={post.attachments[0]!}
-            {active}
-            {fluoState}
-            postId={post.id}
-            register={registerMedia}
-          />
+          {#key `${postIdentity}:${post.attachments[0]!.id}`}
+            <FluoMedia
+              attachment={post.attachments[0]!}
+              {active}
+              {fluoState}
+              mediaIdentity={`${postIdentity}:${post.attachments[0]!.id}`}
+              postId={post.id}
+              register={registerMedia}
+            />
+          {/key}
         </div>
       {:else}
-        <FluoMediaCarousel
-          attachments={post.attachments}
-          {active}
-          {fluoState}
-          postId={post.id}
-          registerMedia={registerMedia}
-        />
+        {#key postIdentity}
+          <FluoMediaCarousel
+            attachments={post.attachments}
+            {active}
+            {fluoState}
+            postIdentity={postIdentity}
+            postId={post.id}
+            registerMedia={registerMedia}
+          />
+        {/key}
       {/if}
     {/if}
     <footer class="post-actions">
