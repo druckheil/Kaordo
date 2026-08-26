@@ -39,6 +39,7 @@ export class FluoFeedCache {
   readonly #maxPosts: number;
   readonly #providedStorage?: Storage;
   readonly #keyPrefix: string;
+  readonly #lastContentByKey = new Map<string, string>();
 
   constructor(options: FluoFeedCacheOptions = {}) {
     this.#maxPosts = clampInteger(options.maxPosts ?? MAX_CACHED_POSTS, 1, MAX_CACHED_POSTS);
@@ -63,6 +64,7 @@ export class FluoFeedCache {
       const parsed: unknown = JSON.parse(serialized);
       const record = parseStoredFeed(parsed);
       if (!record) {
+        this.#lastContentByKey.delete(key);
         storage.removeItem(key);
         return null;
       }
@@ -70,6 +72,7 @@ export class FluoFeedCache {
     } catch {
       // A truncated or incompatible cache must never prevent the live feed
       // from opening. Remove it so the next launch does not repeat the error.
+      this.#lastContentByKey.delete(key);
       try { storage.removeItem(key); } catch { /* storage may be unavailable */ }
       return null;
     }
@@ -93,7 +96,10 @@ export class FluoFeedCache {
       hasMore: record.hasMore === true,
       pageSize: clampInteger(record.pageSize, 1, 50),
       posts,
-      savedAt: Date.now(),
+      // A stable timestamp keeps the content signature independent from the
+      // moment of the write. Otherwise every reconciliation would defeat the
+      // duplicate-write guard below even when no feed data changed.
+      savedAt: 0,
       version: CACHE_VERSION as typeof CACHE_VERSION,
     } satisfies StoredFluoFeed;
 
@@ -111,8 +117,16 @@ export class FluoFeedCache {
       serialized = JSON.stringify(candidate);
     }
 
+    // State updates can arrive in quick succession while the feed reconciles
+    // metadata. Avoid rewriting the same (potentially large) localStorage
+    // value when nothing persisted actually changed. The timestamp is added
+    // only for a real write, after this stable content comparison.
+    if (this.#lastContentByKey.get(key) === serialized) return;
+    const persisted = { ...candidate, savedAt: Date.now() } satisfies StoredFluoFeed;
+    serialized = JSON.stringify(persisted);
     try {
       storage.setItem(key, serialized);
+      this.#lastContentByKey.set(key, JSON.stringify(candidate));
     } catch {
       // Quota/security failures are non-fatal. The network path remains the
       // source of truth and will try again on the next successful update.
@@ -121,8 +135,10 @@ export class FluoFeedCache {
 
   remove(ownerId: string | null): void {
     const key = this.key(ownerId);
+    if (!key) return;
+    this.#lastContentByKey.delete(key);
     const storage = this.storage();
-    if (!key || !storage) return;
+    if (!storage) return;
     try { storage.removeItem(key); } catch { /* storage may be unavailable */ }
   }
 
@@ -149,7 +165,7 @@ function parseStoredFeed(value: unknown): FluoFeedCacheRecord | null {
   const feedNodeIds = value.feedNodeIds.filter(isBoundedString);
   const feedCursor = value.feedCursor === null || typeof value.feedCursor === 'string' ? value.feedCursor : null;
   const pageSize = clampInteger(value.pageSize, 1, 50);
-  if (!Number.isFinite(value.savedAt) || value.savedAt < 0) return null;
+  if (!isFiniteNumber(value.savedAt) || value.savedAt < 0) return null;
   return {
     feedCursor,
     feedNodeIds,
@@ -173,7 +189,7 @@ function parsePost(value: unknown): FluoPost | null {
     attachments,
     author: value.author.slice(0, MAX_AUTHOR_LENGTH),
     body: value.body.slice(0, MAX_BODY_LENGTH),
-    createdAt: Math.max(0, value.createdAt),
+    createdAt: Math.max(0, value.createdAt as number),
     id: value.id,
     liked: false,
     nodeId: value.nodeId,
@@ -185,7 +201,7 @@ function parseAttachment(value: unknown): FluoAttachment | null {
   if (!isRecord(value) || !isBoundedString(value.id) ||
       (value.kind !== 'gif' && value.kind !== 'image' && value.kind !== 'video') ||
       !isBoundedString(value.mimeType) || typeof value.name !== 'string' ||
-      !Number.isFinite(value.size) || value.size < 0) return null;
+      !isFiniteNumber(value.size) || value.size < 0) return null;
   const dimensions = validDimensions(value.width, value.height)
     ? { height: Math.round(value.height as number), width: Math.round(value.width as number) }
     : {};
@@ -195,14 +211,15 @@ function parseAttachment(value: unknown): FluoAttachment | null {
     kind: value.kind,
     mimeType: value.mimeType,
     name: value.name.slice(0, MAX_ATTACHMENT_NAME_LENGTH),
-    size: Math.max(0, value.size),
+    size: Math.max(0, value.size as number),
   };
 }
 
 function parseFeedState(value: unknown): FluoNodeFeedState | null {
   if (!isRecord(value) || !isBoundedString(value.nodeId) || !isRecord(value.spaces)) return null;
+  const spaces = value.spaces;
   const parseSpace = (space: 'private' | 'public') => {
-    const candidate = value.spaces[space];
+    const candidate = spaces[space];
     if (!isRecord(candidate)) return null;
     const postCount = Number.isFinite(candidate.postCount) ? Math.max(0, Math.floor(candidate.postCount as number)) : 0;
     const stateHash = candidate.stateHash === null || typeof candidate.stateHash === 'string'
@@ -264,7 +281,11 @@ function isBoundedString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH;
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 

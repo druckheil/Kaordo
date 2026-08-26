@@ -51,6 +51,31 @@ describe('FluoGState', () => {
     expect(state.snapshot.posts.map(({ id }) => id)).toEqual(['cached-post']);
   });
 
+  it('does not rewrite an unchanged persisted feed snapshot', async () => {
+    const storage = new MapStorage();
+    const fluo = new MemoryFluoGateway();
+    fluo.posts = [{
+      attachments: [],
+      author: 'cached',
+      body: 'Keep the storage write bounded',
+      createdAt: 10,
+      id: 'stable-post',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    const state = createState(fluo, { cacheOwnerId: 'user-1', cacheStorage: storage });
+
+    await state.refreshNodes();
+    await Promise.resolve();
+    await Promise.resolve();
+    const writesAfterInitialSnapshot = storage.writes;
+    await state.refreshNodes();
+    await Promise.resolve();
+
+    expect(writesAfterInitialSnapshot).toBeGreaterThan(0);
+    expect(storage.writes).toBe(writesAfterInitialSnapshot);
+  });
+
   it('restores persisted post metadata before revalidating the live feed', async () => {
     const storage = new MapStorage();
     const firstGateway = new MemoryFluoGateway();
@@ -646,13 +671,14 @@ class MemoryNodoGateway implements NodoGateway {
 
 class MapStorage implements Storage {
   readonly #values = new Map<string, string>();
+  writes = 0;
 
   get length(): number { return this.#values.size; }
   clear(): void { this.#values.clear(); }
   getItem(key: string): string | null { return this.#values.get(key) ?? null; }
   key(index: number): string | null { return [...this.#values.keys()][index] ?? null; }
   removeItem(key: string): void { this.#values.delete(key); }
-  setItem(key: string, value: string): void { this.#values.set(key, value); }
+  setItem(key: string, value: string): void { this.writes += 1; this.#values.set(key, value); }
 }
 
 const PUBLIC_STORAGE = {

@@ -28,6 +28,7 @@
   let segmentedElement = $state<HTMLElement>();
   let indicatorElement = $state<HTMLDivElement>();
   let indicatorFrame = 0;
+  let appWindow: ReturnType<typeof getCurrentWindow> | null = null;
 
   const INTERACTIVE_SELECTOR = [
     'a',
@@ -57,6 +58,7 @@
     if (indicatorFrame) cancelAnimationFrame(indicatorFrame);
 
     indicatorFrame = requestAnimationFrame(() => {
+      indicatorFrame = 0;
       if (!segmentedElement || !indicatorElement) return;
 
       const checkedInput = segmentedElement.querySelector<HTMLInputElement>('input:checked');
@@ -77,7 +79,8 @@
     if (platform !== 'desktop') return;
 
     try {
-      await getCurrentWindow()[action]();
+      appWindow ??= getCurrentWindow();
+      await appWindow[action]();
     } catch (error) {
       // Keep the control responsive in browser mode while retaining a useful
       // diagnostic when a bundled Tauri capability is misconfigured.
@@ -119,10 +122,17 @@
 
     appBarElement.addEventListener('mousedown', blockNativeDoubleClick, true);
     appBarElement.addEventListener('mouseup', blockNativeDoubleClick, true);
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => syncSegmentedIndicator());
+    resizeObserver?.observe(segmentedElement ?? appBarElement);
+    window.addEventListener('resize', syncSegmentedIndicator);
 
     return () => {
       appBarElement?.removeEventListener('mousedown', blockNativeDoubleClick, true);
       appBarElement?.removeEventListener('mouseup', blockNativeDoubleClick, true);
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', syncSegmentedIndicator);
     };
   });
 

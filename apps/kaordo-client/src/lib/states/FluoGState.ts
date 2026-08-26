@@ -97,7 +97,14 @@ export class FluoGState extends GState<FluoSnapshot> {
   #pageSize = INITIAL_FEED_PAGE_SIZE;
   #cacheOwnerId: string | null;
   #cacheRestorePromise: Promise<void> | null = null;
+  #persistScheduled = false;
+  #persistGeneration = 0;
   #unsubscribeRegistry: (() => void) | null = null;
+  #feedStatesInFlight: {
+    key: string;
+    lifecycleId: number;
+    promise: Promise<FluoNodeFeedState[]>;
+  } | null = null;
   #refreshInFlight: { lifecycleId: number; promise: Promise<void> } | null = null;
 
   constructor(gateway: FluoGateway, nodes: NodoGateway, options: FluoGStateOptions = {}) {
@@ -166,6 +173,7 @@ export class FluoGState extends GState<FluoSnapshot> {
   private resetInMemoryFeed(): void {
     this.#lifecycleId += 1;
     this.#requestId += 1;
+    this.#persistGeneration += 1;
     this.#gateway.resetSession?.();
     this.#feedCursor = null;
     this.#feedWarmupPending = false;
@@ -173,6 +181,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#feedStates.clear();
     this.#pageSize = INITIAL_FEED_PAGE_SIZE;
     this.#cacheRestorePromise = null;
+    this.#feedStatesInFlight = null;
     this.#mediaGeneration += 1;
     this.#nodes.resetSession?.();
     this.#mediaRequests.clear();
@@ -232,8 +241,11 @@ export class FluoGState extends GState<FluoSnapshot> {
 
   private async refreshNodesInternal(forceReload: boolean): Promise<void> {
     const requestId = ++this.#requestId;
-    const hasCachedFeed = this.#feedNodeIds.length > 0 || this.#feedStates.size > 0 ||
-      this.snapshot.posts.length > 0;
+    // Node IDs and state hashes can survive even when the bounded cache had
+    // to evict all post rows. Only actual post metadata is enough to render a
+    // cached feed; otherwise fetch the first page again instead of treating
+    // an empty cache as a loaded timeline.
+    const hasCachedFeed = this.snapshot.posts.length > 0;
     this.publish({
       ...this.snapshot,
       isLoading: !hasCachedFeed,
@@ -268,7 +280,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       // the first metadata page. Older Nodo versions can answer this endpoint
       // slowly (or not expose it at all), while the post list is enough to
       // render the timeline immediately.
-      const statesPromise = this.#gateway.listFeedStates(feedNodeIds).catch(() => []);
+      const statesPromise = this.loadFeedStates(feedNodeIds);
 
       if (!hasCachedFeed && initialPage) {
         const page = await initialPage;
@@ -424,9 +436,42 @@ export class FluoGState extends GState<FluoSnapshot> {
     });
   }
 
+  /** Shares a state-hash probe across overlapping refreshes in one lifecycle. */
+  private loadFeedStates(nodeIds: readonly string[]): Promise<FluoNodeFeedState[]> {
+    const key = nodeIds.join('\u001f');
+    const existing = this.#feedStatesInFlight;
+    if (existing?.lifecycleId === this.#lifecycleId && existing.key === key) return existing.promise;
+
+    const lifecycleId = this.#lifecycleId;
+    let shared: Promise<FluoNodeFeedState[]>;
+    shared = Promise.resolve()
+      .then(() => this.#gateway.listFeedStates(nodeIds))
+      .catch(() => [])
+      .finally(() => {
+        if (this.#feedStatesInFlight?.promise === shared) this.#feedStatesInFlight = null;
+      });
+    this.#feedStatesInFlight = { key, lifecycleId, promise: shared };
+    return shared;
+  }
+
   private persistFeedCache(): void {
     if (!this.#cacheOwnerId) return;
-    this.#feedCache.write(this.#cacheOwnerId, {
+    if (this.#persistScheduled) return;
+    const ownerId = this.#cacheOwnerId;
+    const generation = this.#persistGeneration;
+    this.#persistScheduled = true;
+    // Feed reconciliation can publish several state updates in one turn.
+    // Coalesce them so localStorage is serialized and written once with the
+    // latest snapshot instead of blocking the UI repeatedly.
+    queueMicrotask(() => {
+      this.#persistScheduled = false;
+      if (this.#cacheOwnerId !== ownerId || this.#persistGeneration !== generation) return;
+      this.persistFeedCacheNow(ownerId);
+    });
+  }
+
+  private persistFeedCacheNow(ownerId: string): void {
+    this.#feedCache.write(ownerId, {
       feedCursor: this.#feedCursor,
       feedNodeIds: this.#feedNodeIds,
       feedStates: [...this.#feedStates.values()],

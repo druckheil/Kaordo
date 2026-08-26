@@ -13,7 +13,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@kaordo/softui": "workspace:*",
     "@tanstack/svelte-virtual": "^3.13.36",
     "@tauri-apps/api": "2.11.1",
     "photoswipe": "^5.4.4",

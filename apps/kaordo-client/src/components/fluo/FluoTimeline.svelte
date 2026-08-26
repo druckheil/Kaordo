@@ -293,7 +293,10 @@
       task.started = true;
       activeMediaLoads += 1;
       startedThisFrame += 1;
-      void task.load().finally(() => {
+      // A failed media transfer must release the scheduler slot without
+      // creating an unhandled rejection in the WebView. The card owns the
+      // visible error state; the timeline only coordinates concurrency.
+      void task.load().catch(() => undefined).finally(() => {
         activeMediaLoads = Math.max(0, activeMediaLoads - 1);
         scheduleMediaPump();
       });
