@@ -36,8 +36,9 @@ jobs:
             $version = (Get-Content apps/kaordo-client/src-tauri/tauri.conf.json | ConvertFrom-Json).version
           }
           if ($version -match '^\d+\.\d+$') { $tauriVersion = "$version.0" } else { $tauriVersion = $version }
-          $config = @{ version = $tauriVersion } | ConvertTo-Json -Compress
-          pnpm --filter @kaordo/client exec tauri build --bundles nsis,msi --config $config
+          $configPath = Join-Path $env:RUNNER_TEMP 'kaordo-tauri-release-config.json'
+          @{ version = $tauriVersion } | ConvertTo-Json -Compress | Set-Content -Path $configPath -Encoding utf8
+          pnpm --filter @kaordo/client exec tauri build --bundles nsis,msi --config $configPath
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Collect stable artifact names
         shell: pwsh
