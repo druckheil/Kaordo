@@ -6,18 +6,20 @@ English, even when the request is written in another language.
 
 ## Current baseline and version vocabulary
 
-- Kaordo is currently working from the scope-0.1.10 branch. This is the
-  transition scope leading into 0.2; keep compatibility with the 0.1.x
-  wire/data formats until the 0.2 migration is explicitly planned.
-- Scope 0.1.2 is complete and was fast-forward merged into main; main was
-  pushed to origin/main at commit 4a18465. Keep the completed scope-0.1.2
-  and scope-0.1.1 branches for history.
-- 0.1.0 is the current product/runtime version in the app manifests.
-- 0.1.2 is the completed scope and current Open Beta download/site version.
-- 0.1.3 and 0.1.7 are completed scopes. 0.1.10 is the active transition
-  scope. Do not bump all manifests or
-  release URLs merely because a scope branch changed; do that only when the
-  requested release actually changes.
+- Kaordo 0.2 is released and tagged as `v0.2`; its release commit is
+  `62a704b` and `main` also contains the post-release CI/release fixes. The
+  active development branch is `scope-0.2.1`, the first follow-up scope after
+  the 0.2 release. Keep compatibility with the existing 0.1.x wire/data
+  formats until a protocol migration is explicitly planned.
+- Scope 0.1.2 was the first completed fast-forward release (historical
+  `main` commit `4a18465`); keep the completed scope-0.1.2 and scope-0.1.1
+  branches for history. The current 0.2 release is tagged `v0.2` as noted
+  above.
+- 0.2 is the current Open Beta release/download/site version. Scopes 0.1.3,
+  0.1.7 and 0.1.10 are historical completed scopes; 0.2.1 is active
+  development. Do not bump all manifests or release URLs merely because a
+  scope branch changes; do that only when the requested release actually
+  changes.
 - Nodo development builds carry a short scope build suffix in the Android
   `versionName`, such as `0.1.3-1a` (the first build of scope 0.1.3). A
   release build uses only `0.1.3`; reset the build counter to `1a` when the
@@ -285,10 +287,10 @@ waiting for another request.
   service; no desktop build is required unless client/Rust code also changed.
 - Overwrite stable artifact names. Never create p2, fixed, timestamped, or
   other duplicate artifacts.
-- For the active transition scope 0.1.10, release/scope-0.1.10 may contain at most:
-  - Kaordo_scope-0.1.10_windows_x64-setup.exe
-  - Kaordo-Nodo_scope-0.1.10_android.apk
-  - Kaordo_scope-0.1.10_macos_universal.dmg
+- For the active scope 0.2.1, release/scope-0.2.1 may contain at most:
+  - Kaordo_scope-0.2.1_windows_x64-setup.exe
+  - Kaordo-Nodo_scope-0.2.1_android.apk
+  - Kaordo_scope-0.2.1_macos_universal.dmg
 - Linux Nodo artifacts remain ignored build output, but the current Linux
   development binary and its manifest are always published to Pages/R2 after
   a Linux Nodo change so installed nodes can self-update immediately. Never
@@ -304,13 +306,13 @@ Run from apps/kaordo-client:
 PATH=/opt/homebrew/opt/llvm/bin:/Users/druckheil/.cargo/bin:$PATH \
 XWIN_CACHE_DIR=/Users/druckheil/Projects/Kaordo/target/xwin-cache \
 pnpm tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc \
-  --bundles nsis --config '{"version":"0.1.10"}'
+  --bundles nsis --config '{"version":"0.2.1"}'
 ~~~
 
 Copy/overwrite:
 
 ~~~text
-release/scope-0.1.10/Kaordo_scope-0.1.10_windows_x64-setup.exe
+release/scope-0.2.1/Kaordo_scope-0.2.1_windows_x64-setup.exe
 ~~~
 
 Cross-linker PDB warnings and the expected unsigned-on-macOS installer warning
@@ -338,7 +340,7 @@ unset SIGNING_SECRET KAORDO_ANDROID_KEYSTORE_PASSWORD KAORDO_ANDROID_KEY_PASSWOR
 Copy/overwrite:
 
 ~~~text
-release/scope-0.1.10/Kaordo-Nodo_scope-0.1.10_android.apk
+release/scope-0.2.1/Kaordo-Nodo_scope-0.2.1_android.apk
 ~~~
 
 Always use the same signing key so an APK updates the installed Nodo without
