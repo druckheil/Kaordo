@@ -1,5 +1,5 @@
 import type { FluoNodeFeedState } from '../gateways/FluoGateway';
-import type { FluoAttachment, FluoPost } from '../states/FluoGState';
+import type { FluoAttachment, FluoPost, FluoQuote } from '../states/FluoGState';
 
 const CACHE_VERSION = 1;
 const CACHE_KEY_PREFIX = 'kaordo.fluo-feed.v1.';
@@ -7,7 +7,7 @@ const MAX_CACHED_POSTS = 300;
 const MAX_CACHE_JSON_BYTES = 1_750_000;
 const MAX_ID_LENGTH = 200;
 const MAX_AUTHOR_LENGTH = 200;
-const MAX_BODY_LENGTH = 500;
+const MAX_BODY_LENGTH = 5_000;
 const MAX_ATTACHMENT_NAME_LENGTH = 240;
 
 export type FluoFeedCacheRecord = {
@@ -185,6 +185,7 @@ function parsePost(value: unknown): FluoPost | null {
   const attachments = value.attachments
     .map(parseAttachment)
     .filter((attachment): attachment is FluoAttachment => attachment !== null);
+  const quote = parseQuote(value.quote);
   return {
     attachments,
     author: value.author.slice(0, MAX_AUTHOR_LENGTH),
@@ -193,6 +194,27 @@ function parsePost(value: unknown): FluoPost | null {
     id: value.id,
     liked: value.liked === true,
     likeCount: normalizeLikeCount(value.likeCount),
+    nodeId: value.nodeId,
+    ...(quote ? { quote } : {}),
+    space: value.space,
+  };
+}
+
+function parseQuote(value: unknown): FluoQuote | null {
+  if (!isRecord(value) || !isBoundedString(value.id) || !isBoundedString(value.nodeId) ||
+      (value.space !== 'private' && value.space !== 'public') || !Number.isFinite(value.createdAt) ||
+      typeof value.body !== 'string' || typeof value.author !== 'string' || !Array.isArray(value.attachments)) {
+    return null;
+  }
+  const attachments = value.attachments
+    .map(parseAttachment)
+    .filter((attachment): attachment is FluoAttachment => attachment !== null);
+  return {
+    attachments,
+    author: value.author.slice(0, MAX_AUTHOR_LENGTH),
+    body: value.body.slice(0, MAX_BODY_LENGTH),
+    createdAt: Math.max(0, value.createdAt as number),
+    id: value.id,
     nodeId: value.nodeId,
     space: value.space,
   };
@@ -245,7 +267,20 @@ function serializePost(post: FluoPost): FluoPost {
     liked: post.liked === true,
     likeCount: normalizeLikeCount(post.likeCount),
     nodeId: post.nodeId.slice(0, MAX_ID_LENGTH),
+    ...(post.quote ? { quote: serializeQuote(post.quote) } : {}),
     space: post.space,
+  };
+}
+
+function serializeQuote(quote: FluoQuote): FluoQuote {
+  return {
+    attachments: quote.attachments.map(serializeAttachment),
+    author: quote.author.slice(0, MAX_AUTHOR_LENGTH),
+    body: quote.body.slice(0, MAX_BODY_LENGTH),
+    createdAt: Math.max(0, quote.createdAt),
+    id: quote.id.slice(0, MAX_ID_LENGTH),
+    nodeId: quote.nodeId.slice(0, MAX_ID_LENGTH),
+    space: quote.space,
   };
 }
 

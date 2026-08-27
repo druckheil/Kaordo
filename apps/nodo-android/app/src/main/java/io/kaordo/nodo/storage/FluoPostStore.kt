@@ -76,13 +76,15 @@ class FluoPostStore(
         body: String,
         attachments: List<Attachment>,
         publicReservationId: String? = null,
+        quote: QuotedPost? = null,
     ): Post {
         require(author.length in 1..32 && !hasControls(author))
         val normalizedBody = body.trim()
         require(normalizedBody.length <= MAX_BODY_LENGTH)
-        require(normalizedBody.isNotEmpty() || attachments.isNotEmpty())
+        require(normalizedBody.isNotEmpty() || attachments.isNotEmpty() || quote != null)
         require(attachments.size <= MAX_ATTACHMENTS)
         require(attachments.map { it.id }.distinct().size == attachments.size)
+        quote?.let(::validateQuote)
         if (publicReservationId != null && hasPublicReservation(publicReservationId)) {
             throw PublicReservationUsed()
         }
@@ -111,6 +113,7 @@ class FluoPostStore(
             createdAt = System.currentTimeMillis(),
             id = UUID.randomUUID().toString(),
             publicReservationId = publicReservationId,
+            quote = quote,
         )
         write(post)
         try {
@@ -283,7 +286,19 @@ class FluoPostStore(
         .put("body", post.body)
         .put("createdAt", post.createdAt)
         .put("id", post.id)
-        .apply { post.publicReservationId?.let { put("publicReservationId", it) } }
+        .apply {
+            post.publicReservationId?.let { put("publicReservationId", it) }
+            post.quote?.let { put("quote", json(it)) }
+        }
+
+    private fun json(quote: QuotedPost) = JSONObject()
+        .put("attachments", JSONArray(quote.attachments.map(::json)))
+        .put("author", quote.author)
+        .put("body", quote.body)
+        .put("createdAt", quote.createdAt)
+        .put("id", quote.id)
+        .put("nodeId", quote.nodeId)
+        .put("space", quote.space)
 
     private fun json(attachment: Attachment) = JSONObject()
         .put("id", attachment.id)
@@ -317,6 +332,7 @@ class FluoPostStore(
             createdAt = value.getLong("createdAt"),
             id = value.getString("id"),
             publicReservationId = value.optString("publicReservationId").takeIf { it.isNotBlank() },
+            quote = value.optJSONObject("quote")?.let(::parseQuote),
         ).also {
             require(ID.matches(it.id) && it.body.length <= MAX_BODY_LENGTH)
             require(it.author.length in 1..32 && !hasControls(it.author))
@@ -325,6 +341,60 @@ class FluoPostStore(
                     (attachment.width == null || attachment.width in 1..MAX_MEDIA_DIMENSION) &&
                     (attachment.height == null || attachment.height in 1..MAX_MEDIA_DIMENSION)
             })
+        }
+    }
+
+    private fun parseQuote(value: JSONObject): QuotedPost {
+        val items = value.optJSONArray("attachments") ?: JSONArray()
+        require(items.length() <= MAX_ATTACHMENTS)
+        val quote = QuotedPost(
+            attachments = List(items.length()) { index -> parseAttachment(items.getJSONObject(index)) },
+            author = value.getString("author"),
+            body = value.optString("body", ""),
+            createdAt = value.getLong("createdAt"),
+            id = value.getString("id"),
+            nodeId = value.getString("nodeId"),
+            space = value.getString("space"),
+        )
+        validateQuote(quote)
+        return quote
+    }
+
+    private fun parseAttachment(item: JSONObject) = Attachment(
+        id = item.getString("id"),
+        kind = item.getString("kind"),
+        mimeType = item.getString("mimeType"),
+        name = item.getString("name"),
+        size = item.getLong("size"),
+        width = item.optInt("width", 0).takeIf { it > 0 },
+        height = item.optInt("height", 0).takeIf { it > 0 },
+    ).also { attachment ->
+        require(ID.matches(attachment.id))
+        require(attachment.kind in KINDS)
+        require(attachment.mimeType.length in 1..120 && !hasControls(attachment.mimeType))
+        require(attachment.name.length in 1..180 && !hasControls(attachment.name))
+        require(attachment.size >= 0)
+        require((attachment.width == null) == (attachment.height == null))
+        require(attachment.width == null || attachment.width in 1..MAX_MEDIA_DIMENSION)
+        require(attachment.height == null || attachment.height in 1..MAX_MEDIA_DIMENSION)
+    }
+
+    private fun validateQuote(quote: QuotedPost) {
+        require(ID.matches(quote.id))
+        require(quote.nodeId.length in 1..120 && !hasControls(quote.nodeId))
+        require(quote.space == "private" || quote.space == "public")
+        require(quote.author.length in 1..32 && !hasControls(quote.author))
+        require(quote.body.length <= MAX_BODY_LENGTH)
+        require(quote.attachments.size <= MAX_ATTACHMENTS)
+        quote.attachments.forEach { attachment ->
+            require(ID.matches(attachment.id))
+            require(attachment.kind in KINDS)
+            require(attachment.mimeType.length in 1..120 && !hasControls(attachment.mimeType))
+            require(attachment.name.length in 1..180 && !hasControls(attachment.name))
+            require(attachment.size >= 0)
+            require((attachment.width == null) == (attachment.height == null))
+            require(attachment.width == null || attachment.width in 1..MAX_MEDIA_DIMENSION)
+            require(attachment.height == null || attachment.height in 1..MAX_MEDIA_DIMENSION)
         }
     }
 
@@ -347,6 +417,17 @@ class FluoPostStore(
         val createdAt: Long,
         val id: String,
         val publicReservationId: String?,
+        val quote: QuotedPost? = null,
+    )
+
+    data class QuotedPost(
+        val attachments: List<Attachment>,
+        val author: String,
+        val body: String,
+        val createdAt: Long,
+        val id: String,
+        val nodeId: String,
+        val space: String,
     )
 
     data class Page(val posts: List<Post>, val nextCursor: Long?)
@@ -369,7 +450,7 @@ class FluoPostStore(
     companion object {
         const val MAX_ATTACHMENTS = 4
         private const val MAX_MEDIA_DIMENSION = 100_000
-        const val MAX_BODY_LENGTH = 500
+        const val MAX_BODY_LENGTH = 5_000
         private const val MAX_POST_FILE_BYTES = 32 * 1_024L
         private const val MAX_POSTS = 2_000
         const val MAX_PAGE_SIZE = 50

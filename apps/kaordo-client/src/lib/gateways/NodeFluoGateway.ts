@@ -1,5 +1,5 @@
 import type { NodoAccess } from '../domain/nodo';
-import type { FluoAttachment, FluoDraftAttachment } from '../states/FluoGState';
+import type { FluoAttachment, FluoDraftAttachment, FluoQuote } from '../states/FluoGState';
 import {
   PUBLIC_FLUO_DESTINATION,
   type FluoFeedPage,
@@ -167,9 +167,10 @@ export class NodeFluoGateway implements FluoGateway {
     body: string,
     attachments: readonly FluoDraftAttachment[],
     onProgress?: (progress: FluoUploadProgress) => void,
+    quote?: FluoQuote,
   ): Promise<RemoteFluoPost> {
     if (nodeId === PUBLIC_FLUO_DESTINATION) {
-      return this.publishPublic(body, attachments, onProgress);
+      return this.publishPublic(body, attachments, onProgress, quote);
     }
     return this.withNode(nodeId, (connection) => publishToNode(
       connection,
@@ -179,6 +180,7 @@ export class NodeFluoGateway implements FluoGateway {
       attachments,
       onProgress,
       undefined,
+      quote,
     ), false);
   }
 
@@ -198,8 +200,10 @@ export class NodeFluoGateway implements FluoGateway {
     body: string,
     attachments: readonly FluoDraftAttachment[],
     onProgress?: (progress: FluoUploadProgress) => void,
+    quote?: FluoQuote,
   ): Promise<RemoteFluoPost> {
     const bytes = Math.max(1, new TextEncoder().encode(body).byteLength +
+      (quote ? new TextEncoder().encode(JSON.stringify(quote)).byteLength : 0) +
       attachments.reduce((total, attachment) => total + attachment.size, 0));
     const status = await this.nodes.publicStorage();
     if (status.usedBytes + status.reservedBytes + bytes > status.limitBytes) {
@@ -226,6 +230,7 @@ export class NodeFluoGateway implements FluoGateway {
             attachments,
             onProgress,
             reservationId,
+            quote,
           );
         } finally {
           await stopRenewing();
@@ -352,6 +357,7 @@ async function publishToNode(
   attachments: readonly FluoDraftAttachment[],
   onProgress?: (progress: FluoUploadProgress) => void,
   reservationId?: string,
+  quote?: FluoQuote,
 ): Promise<RemoteFluoPost> {
   const paths = SPACE_PATHS[space];
   const uploaded: Array<FluoAttachment & { blob: Blob }> = [];
@@ -385,6 +391,7 @@ async function publishToNode(
       body: JSON.stringify({
         attachments: uploaded.map(({ blob: _blob, ...attachment }) => attachment),
         body,
+        ...(quote ? { quote } : {}),
       }),
       headers: {
         'content-type': 'application/json',
@@ -512,6 +519,7 @@ type NodePost = {
   body: string;
   createdAt: number;
   id: string;
+  quote?: FluoQuote;
 };
 
 type NodeFeedStateWire = {

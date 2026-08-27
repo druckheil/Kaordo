@@ -15,7 +15,7 @@ import { GState } from '../state/GState';
 import { FluoFeedCache } from '../services/FluoFeedCache';
 import { NodoRegistry } from '../services/NodoRegistry';
 
-export const FLUO_MAX_POST_LENGTH = 500;
+export const FLUO_MAX_POST_LENGTH = 5_000;
 export const FLUO_MAX_ATTACHMENTS = 4;
 
 export type FluoAttachmentKind = 'gif' | 'image' | 'video';
@@ -35,6 +35,21 @@ export type FluoAttachment = {
 
 export type FluoDraftAttachment = FluoAttachment & { blob: Blob; url: string };
 
+/**
+ * The compact, immutable snapshot stored with a quoted post.  It deliberately
+ * excludes local object URLs and interaction state so a quote remains a small
+ * piece of Nodo metadata instead of duplicating the original payload.
+ */
+export type FluoQuote = {
+  attachments: FluoAttachment[];
+  author: string;
+  body: string;
+  createdAt: number;
+  id: string;
+  nodeId: string;
+  space: 'private' | 'public';
+};
+
 export type FluoPost = {
   attachments: FluoAttachment[];
   author: string;
@@ -45,8 +60,30 @@ export type FluoPost = {
   likeCount?: number;
   likePending?: boolean;
   nodeId: string;
+  quote?: FluoQuote;
   space: 'private' | 'public';
 };
+
+/**
+ * Minimal post identity used by media rendered outside the main timeline
+ * (for example, an attachment inside a quoted post).
+ */
+export type FluoMediaOwner = Pick<FluoPost, 'id' | 'nodeId' | 'space'>;
+
+/** Creates a wire-safe quote snapshot from a hydrated feed post. */
+export function createFluoQuote(post: FluoPost): FluoQuote {
+  return {
+    attachments: post.attachments.map(({ loadState: _loadState, objectUrl: _objectUrl, url: _url, ...attachment }) => ({
+      ...attachment,
+    })),
+    author: post.author,
+    body: post.body,
+    createdAt: post.createdAt,
+    id: post.id,
+    nodeId: post.nodeId,
+    space: post.space,
+  };
+}
 
 export type FluoSnapshot = {
   attachmentError: string | null;
@@ -556,6 +593,22 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   /**
+   * Resolves an attachment when its parent post is not currently present in
+   * the paginated feed. Quotes keep the original post identity and attachment
+   * manifest, so they can still load their media without forcing that old post
+   * into the timeline or replacing the feed snapshot.
+   */
+  async loadMediaForPost(owner: FluoMediaOwner, attachment: FluoAttachment): Promise<string | null> {
+    const identity = postKey(owner);
+    const existing = this.findMediaTarget(owner.id, attachment.id, identity);
+    return this.startMediaLoad(
+      existing ?? detachedMediaTarget(owner, attachment),
+      false,
+      !existing,
+    );
+  }
+
+  /**
    * Keeps intrinsic dimensions outside the feed snapshot. They can improve a
    * later mount of a legacy attachment without replacing `posts` or
    * invalidating the virtualizer's measurements for every row.
@@ -573,9 +626,10 @@ export class FluoGState extends GState<FluoSnapshot> {
         normalizedWidth < 1 || normalizedHeight < 1 ||
         normalizedWidth > MAX_MEDIA_DIMENSION || normalizedHeight > MAX_MEDIA_DIMENSION) return;
     const target = this.findMediaTarget(postId, attachmentId, postIdentity);
-    if (!target) return;
-    const mediaKey = `${target.key}:${attachmentId}`;
-    if (target.attachment.width === normalizedWidth && target.attachment.height === normalizedHeight) return;
+    const key = target?.key ?? postIdentity;
+    if (!key) return;
+    const mediaKey = `${key}:${attachmentId}`;
+    if (target?.attachment.width === normalizedWidth && target.attachment.height === normalizedHeight) return;
     const previous = this.#mediaDimensions.get(mediaKey);
     if (previous?.width === normalizedWidth && previous.height === normalizedHeight) return;
     this.#mediaDimensions.set(mediaKey, { height: normalizedHeight, width: normalizedWidth });
@@ -587,7 +641,8 @@ export class FluoGState extends GState<FluoSnapshot> {
     postIdentity?: string,
   ): { height: number; width: number } | undefined {
     const target = this.findMediaTarget(postId, attachmentId, postIdentity);
-    return target ? this.#mediaDimensions.get(`${target.key}:${attachmentId}`) : undefined;
+    const key = target?.key ?? postIdentity;
+    return key ? this.#mediaDimensions.get(`${key}:${attachmentId}`) : undefined;
   }
 
   async retryMedia(postId: string, attachmentId: string, postIdentity?: string): Promise<string | null> {
@@ -600,6 +655,17 @@ export class FluoGState extends GState<FluoSnapshot> {
       this.#revokeObjectUrl(target.attachment.url);
     }
     return this.startMediaLoad(target, true);
+  }
+
+  /** Retries a detached attachment using the same bounded media cache. */
+  async retryMediaForPost(owner: FluoMediaOwner, attachment: FluoAttachment): Promise<string | null> {
+    const identity = postKey(owner);
+    const existing = this.findMediaTarget(owner.id, attachment.id, identity);
+    const target = existing ?? detachedMediaTarget(owner, attachment);
+    const mediaKey = `${identity}:${attachment.id}`;
+    this.removeResolvedMedia(mediaKey);
+    this.removeCachedMedia(mediaKey);
+    return this.startMediaLoad(target, true, !existing);
   }
 
   markMediaUnavailable(postId: string, attachmentId: string, postIdentity?: string): void {
@@ -685,7 +751,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     if (changed) this.publish({ ...this.snapshot, draftAttachments });
   }
 
-  async publishPost(): Promise<boolean> {
+  async publishPost(quote?: FluoQuote): Promise<boolean> {
     const body = this.snapshot.draft.trim();
     // The layout is based on the post manifest, not on a later media decode.
     // The composer normally resolves these dimensions before publishing; a
@@ -694,7 +760,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     const attachments = this.snapshot.draftAttachments.map((attachment) =>
       withReservedDimensions(attachment));
     const nodeId = this.snapshot.selectedNodeId;
-    if (!nodeId || (!body && !attachments.length) || this.snapshot.isPublishing) return false;
+    if (!nodeId || (!body && !attachments.length && !quote) || this.snapshot.isPublishing) return false;
     // A metadata refresh can still be awaiting a page while the composer is
     // being used. Invalidate that stale request before the upload starts so a
     // late empty page cannot overwrite the newly published post.
@@ -717,7 +783,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         if (lifecycleId === this.#lifecycleId && this.snapshot.isPublishing) {
           this.publish({ ...this.snapshot, uploadProgress });
         }
-      });
+      }, quote);
       if (lifecycleId !== this.#lifecycleId) return true;
       this.revokeUrls(attachments, false);
       const preparedById = new Map(attachments.map((attachment) => [attachment.id, attachment]));
@@ -729,6 +795,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         }),
       });
       const publishedBytes = Math.max(1, new TextEncoder().encode(body).byteLength +
+        (quote ? new TextEncoder().encode(JSON.stringify(quote)).byteLength : 0) +
         attachments.reduce((total, attachment) => total + attachment.size, 0));
       const publicStorage = nodeId === PUBLIC_FLUO_DESTINATION && this.snapshot.publicStorage
         ? {
@@ -1027,7 +1094,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     const sameAttachments = attachments.length === previous.attachments.length &&
       attachments.every((attachment, index) => attachment === previous.attachments[index]);
     if (sameAttachments && previous.body === post.body && previous.author === post.author &&
-        previous.createdAt === post.createdAt) return previous;
+        previous.createdAt === post.createdAt && sameQuote(previous.quote, post.quote)) return previous;
 
     return {
       ...post,
@@ -1075,7 +1142,11 @@ export class FluoGState extends GState<FluoSnapshot> {
     return attachment ? { attachment, key: postKey(post), post } : null;
   }
 
-  private startMediaLoad(target: FluoMediaTarget, forceRemote = false): Promise<string | null> {
+  private startMediaLoad(
+    target: FluoMediaTarget,
+    forceRemote = false,
+    detached = false,
+  ): Promise<string | null> {
     const { attachment, key, post } = target;
     const mediaKey = `${key}:${attachment.id}`;
     if (!forceRemote && attachment.url) return Promise.resolve(attachment.url);
@@ -1096,7 +1167,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       }
     }
 
-    const request = this.resolveMediaLoad(target, this.#mediaGeneration, mediaKey);
+    const request = this.resolveMediaLoad(target, this.#mediaGeneration, mediaKey, detached);
     this.#mediaRequests.set(mediaKey, request);
     void request.finally(() => {
       // A changed attachment may start a new request under the same key
@@ -1111,13 +1182,16 @@ export class FluoGState extends GState<FluoSnapshot> {
     target: FluoMediaTarget,
     mediaGeneration: number,
     mediaKey: string,
+    detached = false,
   ): Promise<string | null> {
     const { attachment, key, post } = target;
     try {
       const source = await this.#gateway.loadMedia(post.nodeId, post.space, attachment);
       const objectUrl = 'blob' in source;
       const url = source.blob ? this.#createObjectUrl(source.blob) : source.streamUrl;
-      const current = this.findMediaTarget(post.id, attachment.id, key);
+      const current = detached
+        ? target
+        : this.findMediaTarget(post.id, attachment.id, key);
       if (mediaGeneration !== this.#mediaGeneration || !current ||
           !sameAttachmentMetadata(current.attachment, attachment)) {
         if (objectUrl) this.#revokeObjectUrl(url);
@@ -1209,7 +1283,7 @@ type CachedFluoMedia = {
 type FluoMediaTarget = {
   attachment: FluoAttachment;
   key: string;
-  post: FluoPost;
+  post: FluoMediaOwner;
 };
 
 type ResolvedFluoMedia = {
@@ -1275,6 +1349,14 @@ function postKey(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
   return `${post.space}:${post.nodeId}:${post.id}`;
 }
 
+function detachedMediaTarget(owner: FluoMediaOwner, attachment: FluoAttachment): FluoMediaTarget {
+  return {
+    attachment,
+    key: postKey(owner),
+    post: owner,
+  };
+}
+
 function sameAttachmentMetadata(
   left: FluoAttachment,
   right: Pick<FluoAttachment, 'id' | 'kind' | 'mimeType' | 'name' | 'size' | 'width' | 'height'>,
@@ -1282,6 +1364,15 @@ function sameAttachmentMetadata(
   return left.id === right.id && left.kind === right.kind && left.mimeType === right.mimeType &&
     left.name === right.name && left.size === right.size && left.width === right.width &&
     left.height === right.height;
+}
+
+function sameQuote(left: FluoQuote | undefined, right: FluoQuote | undefined): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.id !== right.id || left.nodeId !== right.nodeId ||
+      left.space !== right.space || left.author !== right.author || left.body !== right.body ||
+      left.createdAt !== right.createdAt || left.attachments.length !== right.attachments.length) return false;
+  return left.attachments.every((attachment, index) =>
+    sameAttachmentMetadata(attachment, right.attachments[index]!));
 }
 
 function mergePosts(...groups: readonly FluoPost[][]): FluoPost[] {

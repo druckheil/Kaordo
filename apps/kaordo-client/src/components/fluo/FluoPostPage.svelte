@@ -1,15 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { FluoGState, FluoPost } from '../../lib/states/FluoGState';
+  import type { FluoGState, FluoPost, FluoQuote } from '../../lib/states/FluoGState';
   import FluoPostCard from './FluoPostCard.svelte';
 
   type Props = {
+    backLabel?: string;
     fluoState: FluoGState;
     onClose: () => void;
+    onOpenQuotedPost?: (quote: FluoQuote) => void;
+    onQuote?: (post: FluoPost) => void;
     post: FluoPost;
   };
 
-  let { fluoState, onClose, post }: Props = $props();
+  let { backLabel = 'Back to timeline', fluoState, onClose, onOpenQuotedPost, onQuote, post }: Props = $props();
   let backButton = $state<HTMLButtonElement>();
 
   onMount(() => {
@@ -23,11 +26,11 @@
       bind:this={backButton}
       class="fluo-post-page__back"
       type="button"
-      aria-label="Back to timeline"
+      aria-label={backLabel}
       onclick={onClose}
     >
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m11.5 4.5-5.5 5.5 5.5 5.5M6.5 10h8" /></svg>
-      <span>Back to timeline</span>
+      <span>{backLabel}</span>
     </button>
     <h1 id="fluo-post-page-title">Post</h1>
     <span class="fluo-post-page__spacer" aria-hidden="true"></span>
@@ -40,6 +43,8 @@
           active
           expanded
           {fluoState}
+          onOpenQuote={onOpenQuotedPost}
+          onQuote={onQuote ? () => onQuote(post) : undefined}
           {post}
           registerMedia={(load) => {
             void load();

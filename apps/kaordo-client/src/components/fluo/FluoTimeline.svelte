@@ -6,7 +6,7 @@
   import type { Virtualizer } from '@tanstack/svelte-virtual';
   import { get } from 'svelte/store';
   import { onMount, tick } from 'svelte';
-  import type { FluoGState, FluoPost } from '../../lib/states/FluoGState';
+  import type { FluoGState, FluoPost, FluoQuote } from '../../lib/states/FluoGState';
   import FluoPostCard from './FluoPostCard.svelte';
   import {
     FLUO_CAROUSEL_MEDIA_WIDTH,
@@ -25,6 +25,8 @@
     scrollElement?: HTMLElement;
     fluoState: FluoGState;
     onOpenPost?: (post: FluoPost) => void;
+    onOpenQuotedPost?: (quote: FluoQuote) => void;
+    onQuote?: (post: FluoPost) => void;
   };
 
   type MediaLoadTask = {
@@ -52,6 +54,8 @@
     scrollElement,
     fluoState,
     onOpenPost,
+    onOpenQuotedPost,
+    onQuote,
   }: Props = $props();
   let list = $state<HTMLDivElement>();
   let destroyed = false;
@@ -386,6 +390,8 @@
           {post}
           {fluoState}
           onOpen={onOpenPost ? () => onOpenPost(post) : undefined}
+          onOpenQuote={onOpenQuotedPost}
+          onQuote={onQuote ? () => onQuote(post) : undefined}
           registerMedia={(load) => registerMedia(postKey(post), load)}
         />
       </div>

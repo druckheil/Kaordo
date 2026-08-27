@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { FluoGState, FluoPost } from '../../lib/states/FluoGState';
+  import type { FluoGState, FluoPost, FluoQuote } from '../../lib/states/FluoGState';
   import { openContextMenu } from '../../lib/ui/contextMenu';
   import FluoMedia from './FluoMedia.svelte';
   import FluoMediaCarousel from './FluoMediaCarousel.svelte';
+  import FluoQuotedPost from './FluoQuotedPost.svelte';
   import { FLUO_POST_PREVIEW_LINES, shouldExpandFluoText } from './fluoText';
 
   type Props = {
@@ -10,6 +11,8 @@
     expanded?: boolean;
     fluoState: FluoGState;
     onOpen?: () => void;
+    onOpenQuote?: (quote: FluoQuote) => void;
+    onQuote?: () => void;
     post: FluoPost;
     registerMedia: (load: () => Promise<void>) => () => void;
   };
@@ -19,6 +22,8 @@
     expanded = false,
     fluoState,
     onOpen,
+    onOpenQuote,
+    onQuote,
     post,
     registerMedia,
   }: Props = $props();
@@ -113,12 +118,30 @@
         {/key}
       {/if}
     {/if}
+    {#if post.quote}
+      <FluoQuotedPost
+        {fluoState}
+        onOpen={onOpenQuote ? () => onOpenQuote(post.quote!) : undefined}
+        quote={post.quote}
+        registerMedia={registerMedia}
+      />
+    {/if}
     <footer class="post-actions">
       <button type="button" disabled aria-label="Reply, coming later" title="Replies are coming later">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12v8H9l-3.5 3v-3H4z" /></svg>
       </button>
       <button type="button" disabled aria-label="Reflow, coming later" title="Reflow is coming later">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 5-2 2 2 2M4 7h9a3 3 0 0 1 3 3m-2 5 2-2-2-2m2 2H7a3 3 0 0 1-3-3" /></svg>
+      </button>
+      <button
+        class="post-action--quote"
+        type="button"
+        aria-label="Quote post"
+        title="Quote post"
+        disabled={!onQuote}
+        onclick={() => onQuote?.()}
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5h3v3H5.5A1.5 1.5 0 0 1 4 12v-1.5c0-2.2 1.1-3.6 3.2-4.3M12 10.5h3v3h-1.5A1.5 1.5 0 0 1 12 12v-1.5c0-2.2 1.1-3.6 3.2-4.3" /></svg>
       </button>
       <button
         class="post-action--like"
@@ -131,9 +154,6 @@
       >
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16S4 12.6 4 8.2C4 5 8 4 10 6.7 12 4 16 5 16 8.2 16 12.6 10 16 10 16Z" /></svg>
         <span class="post-like-count">{likeCount}</span>
-      </button>
-      <button type="button" disabled aria-label="Share, coming later" title="Sharing is coming later">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 10.5 13 5m0 0H9.5M13 5v3.5M12 9h3v7H5V6h4" /></svg>
       </button>
     </footer>
   </div>
@@ -259,7 +279,7 @@
 
   .post-actions {
     display: grid;
-    grid-template-columns: repeat(2, 32px) max-content 32px;
+    grid-template-columns: repeat(3, 32px) max-content;
     gap: 15px;
     margin-top: 10px;
   }

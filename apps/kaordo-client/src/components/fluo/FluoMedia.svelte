@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import type { FluoAttachment, FluoGState } from '../../lib/states/FluoGState';
+  import type { FluoAttachment, FluoGState, FluoMediaOwner } from '../../lib/states/FluoGState';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
   import PhotoViewer from '../ui/PhotoViewer.svelte';
   import {
@@ -13,6 +13,7 @@
     active?: boolean;
     attachment: FluoAttachment;
     fluoState: FluoGState;
+    mediaOwner?: FluoMediaOwner;
     maxWidth?: number;
     mediaIdentity?: string;
     postIdentity?: string;
@@ -24,6 +25,7 @@
     active = true,
     attachment,
     fluoState,
+    mediaOwner,
     maxWidth = FLUO_MAX_MEDIA_WIDTH,
     mediaIdentity,
     postIdentity,
@@ -119,7 +121,10 @@
     const targetAttachmentId = attachment.id;
     loadState = 'loading';
     let request: Promise<void>;
-    request = fluoState.loadMedia(targetPostId, targetAttachmentId, postIdentity).then(async (url) => {
+    const load = mediaOwner
+      ? fluoState.loadMediaForPost(mediaOwner, attachment)
+      : fluoState.loadMedia(targetPostId, targetAttachmentId, postIdentity);
+    request = load.then(async (url) => {
       if (generation !== requestGeneration || !isCurrentIdentity()) return;
       if (url) {
         if (attachment.kind !== 'video' && (!attachment.width || !attachment.height)) {
@@ -154,7 +159,10 @@
     const targetPostId = postId;
     const targetAttachmentId = attachment.id;
     let request: Promise<void>;
-    request = fluoState.retryMedia(targetPostId, targetAttachmentId, postIdentity).then(async (url) => {
+    const load = mediaOwner
+      ? fluoState.retryMediaForPost(mediaOwner, attachment)
+      : fluoState.retryMedia(targetPostId, targetAttachmentId, postIdentity);
+    request = load.then(async (url) => {
       if (generation !== requestGeneration || !isCurrentIdentity()) return;
       if (url) {
         if (attachment.kind !== 'video') {

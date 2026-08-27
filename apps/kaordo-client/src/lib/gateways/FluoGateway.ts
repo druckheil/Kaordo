@@ -1,6 +1,7 @@
 import type {
   FluoAttachment,
   FluoDraftAttachment,
+  FluoQuote,
   FluoPost,
 } from '../states/FluoGState';
 
@@ -73,5 +74,6 @@ export interface FluoGateway {
     body: string,
     attachments: readonly FluoDraftAttachment[],
     onProgress?: (progress: FluoUploadProgress) => void,
+    quote?: FluoQuote,
   ): Promise<RemoteFluoPost>;
 }

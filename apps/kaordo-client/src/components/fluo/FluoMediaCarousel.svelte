@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { FluoAttachment, FluoGState } from '../../lib/states/FluoGState';
+  import type { FluoAttachment, FluoGState, FluoMediaOwner } from '../../lib/states/FluoGState';
   import { FLUO_CAROUSEL_MEDIA_WIDTH } from './fluoMediaLayout';
   import FluoMedia from './FluoMedia.svelte';
 
@@ -8,12 +8,23 @@
     active?: boolean;
     attachments: readonly FluoAttachment[];
     fluoState: FluoGState;
+    mediaOwner?: FluoMediaOwner;
+    maxWidth?: number;
     postIdentity?: string;
     postId: string;
     registerMedia: (load: () => Promise<void>) => () => void;
   };
 
-  let { active = true, attachments, fluoState, postIdentity, postId, registerMedia }: Props = $props();
+  let {
+    active = true,
+    attachments,
+    fluoState,
+    mediaOwner,
+    maxWidth = FLUO_CAROUSEL_MEDIA_WIDTH,
+    postIdentity,
+    postId,
+    registerMedia,
+  }: Props = $props();
   let scroller = $state<HTMLDivElement>();
   let track = $state<HTMLDivElement>();
   let canScrollLeft = $state(false);
@@ -79,8 +90,10 @@
           {attachment}
           {active}
           {fluoState}
+          {mediaOwner}
           mediaIdentity={`${postIdentity ?? postId}:${attachment.id}`}
-          maxWidth={FLUO_CAROUSEL_MEDIA_WIDTH}
+          {maxWidth}
+          {postIdentity}
           {postId}
           register={registerMedia}
         />

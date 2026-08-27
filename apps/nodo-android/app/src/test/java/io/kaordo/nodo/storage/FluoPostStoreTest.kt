@@ -69,6 +69,46 @@ class FluoPostStoreTest {
     }
 
     @Test
+    fun `post body supports up to five thousand characters`() {
+        val uploads = TusUploadStore(temporary.root, 64 * 1_024)
+        val posts = FluoPostStore(temporary.root, uploads, "owner")
+        val maximumBody = "a".repeat(FluoPostStore.MAX_BODY_LENGTH)
+
+        assertEquals(maximumBody, posts.create("owner", maximumBody, emptyList()).body)
+        assertThrows(IllegalArgumentException::class.java) {
+            posts.create("owner", "a".repeat(FluoPostStore.MAX_BODY_LENGTH + 1), emptyList())
+        }
+    }
+
+    @Test
+    fun `quoted post metadata survives a store restart`() {
+        val root = temporary.root
+        val uploads = TusUploadStore(root, 64 * 1_024)
+        val posts = FluoPostStore(root, uploads, "owner")
+        val originalId = "123e4567-e89b-42d3-a456-426614174000"
+
+        val created = posts.create(
+            author = "owner",
+            body = "Adding context",
+            attachments = emptyList(),
+            quote = FluoPostStore.QuotedPost(
+                attachments = emptyList(),
+                author = "someone",
+                body = "The original",
+                createdAt = 1_720_000_000_000,
+                id = originalId,
+                nodeId = "node-1",
+                space = "public",
+            ),
+        )
+        assertEquals("The original", created.quote?.body)
+
+        val reopened = FluoPostStore(root, uploads, "owner")
+        assertEquals(originalId, reopened.list().single().quote?.id)
+        assertEquals("public", reopened.list().single().quote?.space)
+    }
+
+    @Test
     fun `cursor pages remain stable and skip deleted posts`() {
         val uploads = TusUploadStore(temporary.root, 64 * 1_024)
         val posts = FluoPostStore(temporary.root, uploads, "owner")

@@ -10,7 +10,7 @@ use uuid::Uuid;
 pub const TUS_VERSION: &str = "1.0.0";
 pub const MAX_FLUO_ATTACHMENTS: usize = 4;
 pub const MAX_LIGO_ATTACHMENTS: usize = 12;
-pub const MAX_POST_BODY: usize = 500;
+pub const MAX_POST_BODY: usize = 5_000;
 pub const MAX_LIGO_BODY: usize = 16_000;
 pub const MAX_RONDO_BODY: usize = 4_000;
 
@@ -81,8 +81,24 @@ pub struct Post {
     pub created_at: i64,
     #[serde(default)]
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote: Option<QuotedPost>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_reservation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotedPost {
+    pub attachments: Vec<Attachment>,
+    pub author: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub created_at: i64,
+    pub id: String,
+    pub node_id: String,
+    pub space: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -508,11 +524,14 @@ impl SpaceStorage {
         if post.author != owner || post.id.is_empty() || !valid_id(&post.id) {
             return Err(StorageError::Invalid("Post payload is invalid."));
         }
-        if post.body.len() > MAX_POST_BODY
-            || (post.body.trim().is_empty() && post.attachments.is_empty())
+        if post.body.chars().count() > MAX_POST_BODY
+            || (post.body.trim().is_empty() && post.attachments.is_empty() && post.quote.is_none())
             || post.attachments.len() > MAX_FLUO_ATTACHMENTS
         {
             return Err(StorageError::Invalid("Post payload is invalid."));
+        }
+        if let Some(quote) = &post.quote {
+            self.validate_quote(quote)?;
         }
         self.validate_post_attachments(
             &post.attachments,
@@ -523,7 +542,14 @@ impl SpaceStorage {
             .map_err(|_| StorageError::Invalid("Post payload is invalid."))?
             .len() as u64;
         if let Some(limit) = reservation_bytes {
-            if post.body.len() as u64 + post.attachments.iter().map(|item| item.size).sum::<u64>()
+            let metadata_bytes = post
+                .quote
+                .as_ref()
+                .and_then(|quote| serde_json::to_vec(quote).ok())
+                .map_or(0, |bytes| bytes.len() as u64);
+            if post.body.len() as u64
+                + metadata_bytes
+                + post.attachments.iter().map(|item| item.size).sum::<u64>()
                 > limit
             {
                 return Err(StorageError::Quota);
@@ -904,6 +930,54 @@ impl SpaceStorage {
         Ok(())
     }
 
+    fn validate_quote(&self, quote: &QuotedPost) -> Result<(), StorageError> {
+        if !valid_id(&quote.id)
+            || quote.author.is_empty()
+            || quote.author.len() > 32
+            || quote.author.chars().any(|character| character.is_control())
+            || quote.node_id.is_empty()
+            || quote.node_id.len() > 120
+            || quote
+                .node_id
+                .chars()
+                .any(|character| character.is_control())
+            || !matches!(quote.space.as_str(), "private" | "public")
+            || quote.body.chars().count() > MAX_POST_BODY
+            || quote.attachments.len() > MAX_FLUO_ATTACHMENTS
+        {
+            return Err(StorageError::Invalid("Post quote is invalid."));
+        }
+        for attachment in &quote.attachments {
+            if !valid_id(&attachment.id)
+                || attachment.kind != "gif"
+                    && attachment.kind != "image"
+                    && attachment.kind != "video"
+                || attachment.mime_type.is_empty()
+                || attachment.mime_type.len() > 120
+                || attachment
+                    .mime_type
+                    .chars()
+                    .any(|character| character.is_control())
+                || attachment.name.is_empty()
+                || attachment.name.len() > 180
+                || attachment
+                    .name
+                    .chars()
+                    .any(|character| character.is_control())
+                || attachment
+                    .width
+                    .zip(attachment.height)
+                    .is_some_and(|(width, height)| {
+                        width == 0 || height == 0 || width > 100_000 || height > 100_000
+                    })
+                || attachment.width.is_some() != attachment.height.is_some()
+            {
+                return Err(StorageError::Invalid("Post quote is invalid."));
+            }
+        }
+        Ok(())
+    }
+
     fn records_path(&self) -> PathBuf {
         self.root.join("records")
     }
@@ -1277,7 +1351,7 @@ pub fn media_type(filename: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{NodeStorage, Space};
+    use super::{NodeStorage, Post, Space, MAX_POST_BODY};
     use std::fs;
     use std::io::Cursor;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1319,6 +1393,41 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(fs::read(path).unwrap(), b"hello world");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fluo_post_accepts_five_thousand_characters() {
+        let root = temporary_root();
+        let storage = NodeStorage::open(&root, 0, 1024 * 1024).unwrap();
+        let body = "Ж".repeat(MAX_POST_BODY);
+        let post = Post {
+            attachments: vec![],
+            author: "alice".to_owned(),
+            body: body.clone(),
+            created_at: 1,
+            id: "123e4567-e89b-42d3-a456-426614174000".to_owned(),
+            quote: None,
+            public_reservation_id: None,
+        };
+
+        storage
+            .space(Space::Private)
+            .create_post(&post, "alice", None)
+            .unwrap();
+        let stored = storage.space(Space::Private).posts().unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].body, body);
+
+        let too_long = Post {
+            body: "Ж".repeat(MAX_POST_BODY + 1),
+            id: "123e4567-e89b-42d3-a456-426614174001".to_owned(),
+            ..post
+        };
+        assert!(storage
+            .space(Space::Private)
+            .create_post(&too_long, "alice", None)
+            .is_err());
         fs::remove_dir_all(root).unwrap();
     }
 }

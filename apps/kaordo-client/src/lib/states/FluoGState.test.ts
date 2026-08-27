@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { NodoAccess, NodoNode, NodoPolicy } from '../domain/nodo';
-import type { FluoFeedPage, FluoGateway, FluoLikeState, FluoLikeTarget, RemoteFluoPost } from '../gateways/FluoGateway';
+import type { FluoFeedPage, FluoGateway, FluoLikeState, FluoLikeTarget, FluoUploadProgress, RemoteFluoPost } from '../gateways/FluoGateway';
 import { PUBLIC_FLUO_DESTINATION } from '../gateways/FluoGateway';
 import type { NodoGateway } from '../gateways/NodoGateway';
-import { FluoGState, type FluoDraftAttachment } from './FluoGState';
+import { createFluoQuote, FLUO_MAX_POST_LENGTH, FluoGState, type FluoDraftAttachment, type FluoQuote } from './FluoGState';
 
 describe('FluoGState', () => {
   it('loads the Cloudflare coordination snapshot with one bootstrap request', async () => {
@@ -29,6 +29,14 @@ describe('FluoGState', () => {
     expect(nodes.bootstrapCalls).toBe(1);
     release();
     await Promise.all([first, second]);
+  });
+
+  it('accepts a five-thousand-character post draft', () => {
+    const state = createState(new MemoryFluoGateway());
+
+    state.setDraft('a'.repeat(FLUO_MAX_POST_LENGTH + 1));
+
+    expect(state.snapshot.draft).toHaveLength(FLUO_MAX_POST_LENGTH);
   });
 
   it('reuses cached post metadata when every Nodo state hash is unchanged', async () => {
@@ -321,6 +329,34 @@ describe('FluoGState', () => {
     expect(state.snapshot.posts[1]).toMatchObject({ body: 'A node-backed beginning.', space: 'public' });
   });
 
+  it('publishes a quote without duplicating the original media payload', async () => {
+    const fluo = new MemoryFluoGateway();
+    fluo.posts = [{
+      attachments: [],
+      author: 'Original',
+      body: 'The original post',
+      createdAt: 1_719_000_000_000,
+      id: 'original-post',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    const state = createState(fluo);
+    await state.refreshNodes();
+    const original = state.snapshot.posts[0]!;
+    state.setDraft('My context');
+
+    expect(await state.publishPost(createFluoQuote(original))).toBe(true);
+    expect(state.snapshot.posts[0]?.body).toBe('My context');
+    expect(state.snapshot.posts[0]?.quote).toMatchObject({
+      author: 'Original',
+      body: 'The original post',
+      id: 'original-post',
+      nodeId: NODE.id,
+      space: 'private',
+    });
+    expect(state.snapshot.posts[0]?.quote?.attachments).toEqual([]);
+  });
+
   it('uploads at most four mixed media files and deletes the remote post', async () => {
     const fluo = new MemoryFluoGateway();
     let id = 0;
@@ -526,6 +562,8 @@ class MemoryFluoGateway implements FluoGateway {
     nodeId: string,
     body: string,
     attachments: readonly FluoDraftAttachment[],
+    _onProgress?: (progress: FluoUploadProgress) => void,
+    quote?: FluoQuote,
   ): Promise<RemoteFluoPost> {
     if (this.failure) throw this.failure;
     this.publishedOn.push(nodeId);
@@ -536,6 +574,7 @@ class MemoryFluoGateway implements FluoGateway {
       createdAt: 1_720_000_000_000,
       id: `post-${this.posts.length + 1}`,
       nodeId,
+      ...(quote ? { quote } : {}),
       space: nodeId === PUBLIC_FLUO_DESTINATION ? 'public' : 'private',
     };
     this.posts = [post, ...this.posts];

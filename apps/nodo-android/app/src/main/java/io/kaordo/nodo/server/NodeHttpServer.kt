@@ -933,6 +933,30 @@ class NodeHttpServer(
                     height = item.optInt("height", 0).takeIf { it > 0 },
                 )
             }
+            val quote = value.optJSONObject("quote")?.let { quoted ->
+                val quoteAttachments = quoted.optJSONArray("attachments") ?: org.json.JSONArray()
+                if (quoteAttachments.length() > FluoPostStore.MAX_ATTACHMENTS) throw IllegalArgumentException()
+                FluoPostStore.QuotedPost(
+                    attachments = List(quoteAttachments.length()) { index ->
+                        val item = quoteAttachments.getJSONObject(index)
+                        FluoPostStore.Attachment(
+                            id = item.getString("id"),
+                            kind = item.getString("kind"),
+                            mimeType = item.getString("mimeType"),
+                            name = item.getString("name"),
+                            size = item.getLong("size"),
+                            width = item.optInt("width", 0).takeIf { it > 0 },
+                            height = item.optInt("height", 0).takeIf { it > 0 },
+                        )
+                    },
+                    author = quoted.getString("author"),
+                    body = quoted.optString("body", ""),
+                    createdAt = quoted.getLong("createdAt"),
+                    id = quoted.getString("id"),
+                    nodeId = quoted.getString("nodeId"),
+                    space = quoted.getString("space"),
+                )
+            }
             val reservation = grant.publicReservation.takeIf { space == NodeSpace.PUBLIC }
             if (space == NodeSpace.PUBLIC && reservation == null) return writeForbidden(output)
             if (reservation != null) {
@@ -941,6 +965,7 @@ class NodeHttpServer(
                     return
                 }
                 val payloadBytes = body.toByteArray(Charsets.UTF_8).size.toLong() +
+                    (quote?.let { quotedPostJson(it).toString().toByteArray(Charsets.UTF_8).size.toLong() } ?: 0L) +
                     parsedAttachments.sumOf { it.size }
                 if (payloadBytes <= 0 || payloadBytes > reservation.bytes) {
                     writeJson(output, 413, "Content Too Large", JSONObject().put("error", "Public reservation is too small."))
@@ -952,6 +977,7 @@ class NodeHttpServer(
                 body = body,
                 attachments = parsedAttachments,
                 publicReservationId = reservation?.id,
+                quote = quote,
             )
             writeJson(output, 201, "Created", JSONObject().put("post", postJson(post)))
         } catch (_: FluoPostStore.MissingMedia) {
@@ -1002,6 +1028,26 @@ class NodeHttpServer(
         .put("body", post.body)
         .put("createdAt", post.createdAt)
         .put("id", post.id)
+        .apply { post.quote?.let { put("quote", quotedPostJson(it)) } }
+
+    private fun quotedPostJson(post: FluoPostStore.QuotedPost) = JSONObject()
+        .put("attachments", org.json.JSONArray(post.attachments.map { attachment -> JSONObject()
+            .put("id", attachment.id)
+            .put("kind", attachment.kind)
+            .put("mimeType", attachment.mimeType)
+            .put("name", attachment.name)
+            .put("size", attachment.size)
+            .apply {
+                attachment.width?.let { put("width", it) }
+                attachment.height?.let { put("height", it) }
+            }
+        }))
+        .put("author", post.author)
+        .put("body", post.body)
+        .put("createdAt", post.createdAt)
+        .put("id", post.id)
+        .put("nodeId", post.nodeId)
+        .put("space", post.space)
 
     private fun fluoStateJson(posts: FluoPostStore): JSONObject {
         val state = posts.state()

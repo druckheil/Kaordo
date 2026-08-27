@@ -299,6 +299,13 @@
     --header-control: #edf1f7;
     --header-control-border: #d1d9e6;
     --header-primary: #5b54e0;
+    position: relative;
+    /* Keep the global navigation usable while a section-owned modal is open.
+       Section overlays stay below this chrome so switching sections also
+       dismisses their local UI instead of trapping the user in it. */
+    z-index: 1000;
+    isolation: isolate;
+    pointer-events: auto;
     display: grid;
     grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
     align-items: center;

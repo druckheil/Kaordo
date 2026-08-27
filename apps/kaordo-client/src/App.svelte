@@ -768,8 +768,6 @@
 <div
   class="app-shell"
   class:app-shell--desktop={platform === 'desktop'}
-  inert={isModalOpen}
-  aria-hidden={isModalOpen ? 'true' : undefined}
 >
   <AppHeader
     bind:this={header}
@@ -781,7 +779,11 @@
     sections={appSectionsFor(authSnapshot.user?.role ?? 'user')}
   />
 
-  <div class="app-content">
+  <div
+    class="app-content"
+    inert={isModalOpen}
+    aria-hidden={isModalOpen ? 'true' : undefined}
+  >
     <main
       class="workspace-shell"
       class:workspace-shell--with-objects={activeFile !== null}
@@ -974,8 +976,12 @@
 
 <style>
   .app-shell {
+    --app-header-height: 32px;
+    --app-status-height: 28px;
+    position: relative;
+    isolation: isolate;
     display: grid;
-    grid-template-rows: 32px minmax(0, 1fr) 28px;
+    grid-template-rows: var(--app-header-height) minmax(0, 1fr) var(--app-status-height);
     width: 100%;
     height: 100%;
     background: var(--canvas);

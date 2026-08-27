@@ -3,13 +3,16 @@
   import {
     FLUO_MAX_POST_LENGTH,
     FLUO_MAX_ATTACHMENTS,
+    createFluoQuote,
     type FluoGState,
     type FluoPost,
+    type FluoQuote,
     type FluoSnapshot,
   } from '../../lib/states/FluoGState';
   import { PUBLIC_FLUO_DESTINATION } from '../../lib/gateways/FluoGateway';
   import NodoPickerDialog from '../nodo/NodoPickerDialog.svelte';
   import FluoPostPage from './FluoPostPage.svelte';
+  import FluoQuotedPost from './FluoQuotedPost.svelte';
   import FluoTimeline from './FluoTimeline.svelte';
 
   type Props = {
@@ -26,7 +29,9 @@
   let emojiWrap = $state<HTMLDivElement>();
   let shell = $state<HTMLElement>();
   let openPostKey = $state<string | null>(null);
+  let postHistory = $state<string[]>([]);
   let composerOpen = $state(false);
+  let composerQuote = $state<FluoPost | null>(null);
   let emojiOpen = $state(false);
   let nodePickerOpen = $state(false);
   let mediaPreparation = Promise.resolve();
@@ -54,18 +59,41 @@
         Math.max(1, snapshot.uploadProgress.totalBytes) * 100))
     : 0);
   let openPost = $derived(snapshot.posts.find((post) => postIdentity(post) === openPostKey) ?? null);
+  let postBackLabel = $derived(postHistory.length > 1 ? 'Back to quoted post' : 'Back to timeline');
 
   $effect(() => {
-    if (!active) openPostKey = null;
-    if (openPostKey && !openPost) openPostKey = null;
+    if (!active) {
+      openPostKey = null;
+      postHistory = [];
+      nodePickerOpen = false;
+      emojiOpen = false;
+      if (!snapshot.isPublishing) {
+        composerOpen = false;
+        composerQuote = null;
+      }
+      return;
+    }
+    if (openPostKey && !openPost) {
+      const fallback = [...postHistory].reverse().find((key) =>
+        snapshot.posts.some((post) => postIdentity(post) === key));
+      if (fallback) {
+        const index = postHistory.lastIndexOf(fallback);
+        postHistory = postHistory.slice(0, index + 1);
+        openPostKey = fallback;
+      } else {
+        postHistory = [];
+        openPostKey = null;
+      }
+    }
   });
 
   onDestroy(() => {
     composerShakeAnimation?.cancel();
   });
 
-  function openComposer() {
+  function openComposer(quote: FluoPost | null = null) {
     if (snapshot.isPublishing || openPostKey) return;
+    composerQuote = quote;
     composerOpen = true;
     emojiOpen = false;
     void tick().then(() => composer?.focus({ preventScroll: true }));
@@ -74,6 +102,7 @@
   function closeComposer() {
     if (snapshot.isPublishing) return;
     composerOpen = false;
+    composerQuote = null;
     emojiOpen = false;
     void tick().then(() => composerTrigger?.focus({ preventScroll: true }));
   }
@@ -87,7 +116,7 @@
   function handleWindowKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape' && openPostKey) {
       event.preventDefault();
-      openPostKey = null;
+      closePostPage();
     }
   }
 
@@ -95,8 +124,35 @@
     return `${post.space}:${post.nodeId}:${post.id}`;
   }
 
-  function openPostPage(post: FluoPost) {
-    openPostKey = postIdentity(post);
+  function openPostPage(post: FluoPost, fromQuote = false) {
+    const key = postIdentity(post);
+    if (fromQuote && postHistory.length) {
+      if (postHistory.at(-1) !== key) postHistory = [...postHistory, key];
+    } else {
+      postHistory = [key];
+    }
+    openPostKey = key;
+  }
+
+  function closePostPage() {
+    if (postHistory.length > 1) {
+      postHistory = postHistory.slice(0, -1);
+      openPostKey = postHistory.at(-1) ?? null;
+      return;
+    }
+    postHistory = [];
+    openPostKey = null;
+  }
+
+  function openQuoteComposer(post: FluoPost) {
+    postHistory = [];
+    openPostKey = null;
+    openComposer(post);
+  }
+
+  function openQuotedPost(quote: FluoQuote) {
+    const target = snapshot.posts.find((post) => postIdentity(post) === postIdentity(quote));
+    if (target) openPostPage(target, true);
   }
 
   function handleWindowPointerdown(event: PointerEvent) {
@@ -142,9 +198,10 @@
 
   async function publish() {
     await mediaPreparation;
-    if (await fluoState.publishPost()) {
+    if (await fluoState.publishPost(composerQuote ? createFluoQuote(composerQuote) : undefined)) {
       if (composer) composer.style.height = '';
       composerOpen = false;
+      composerQuote = null;
       emojiOpen = false;
       void tick().then(() => composerTrigger?.focus({ preventScroll: true }));
     }
@@ -188,6 +245,11 @@
       if (dimensions) fluoState.setDraftAttachmentDimensions(file, dimensions.width, dimensions.height);
     })).then(() => undefined);
     mediaPreparation = Promise.all([mediaPreparation, preparation]).then(() => undefined);
+  }
+
+  function registerComposerMedia(load: () => Promise<void>): () => void {
+    void load().catch(() => undefined);
+    return () => undefined;
   }
 
   function normalizeClipboardFile(file: File, index: number): File {
@@ -328,7 +390,7 @@
         class="sui-btn fluo-create-trigger"
         type="button"
         aria-label="Create a post"
-        onclick={openComposer}
+        onclick={() => openComposer()}
       >
         <svg class="fluo-create-trigger__icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M4.75 19.25h4.1L19 9.1a2.12 2.12 0 0 0-3-3L5.85 16.25z" />
@@ -355,6 +417,8 @@
         {active}
         {fluoState}
         onOpenPost={openPostPage}
+        onOpenQuotedPost={openQuotedPost}
+        onQuote={openQuoteComposer}
         posts={snapshot.posts}
         scrollElement={shell}
       />
@@ -366,7 +430,7 @@
           <h2>The global feed is quiet</h2>
           <p>Posts from every available Nodo will appear here in publication order. Choosing a Nodo above only decides where your next post is stored.</p>
           {#if snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION ? publicAvailable : selectedNode}
-            <button type="button" onclick={openComposer}>Write a post</button>
+            <button type="button" onclick={() => openComposer()}>Write a post</button>
           {/if}
         </div>
       {/if}
@@ -395,7 +459,10 @@
 {#if openPost}
   <FluoPostPage
     {fluoState}
-    onClose={() => { openPostKey = null; }}
+    backLabel={postBackLabel}
+    onClose={closePostPage}
+    onOpenQuotedPost={openQuotedPost}
+    onQuote={openQuoteComposer}
     post={openPost}
   />
 {/if}
@@ -415,7 +482,7 @@
         <div class="fluo-compose-heading">
           <div>
             <span class="fluo-compose-eyebrow">FLUO</span>
-            <h2 id="fluo-compose-title">Create a post</h2>
+            <h2 id="fluo-compose-title">{composerQuote ? 'Quote post' : 'Create a post'}</h2>
           </div>
         </div>
         <button class="sui-modal-close" type="button" aria-label="Close post composer" disabled={snapshot.isPublishing} onclick={closeComposer}></button>
@@ -494,6 +561,13 @@
             {/each}
           </div>
         {/if}
+        {#if composerQuote}
+          <FluoQuotedPost
+            fluoState={fluoState}
+            quote={createFluoQuote(composerQuote)}
+            registerMedia={registerComposerMedia}
+          />
+        {/if}
         {#if snapshot.attachmentError}
           <p class="attachment-error" role="alert">{snapshot.attachmentError}</p>
         {/if}
@@ -562,8 +636,8 @@
           <button
             class="sui-btn sui-btn-primary fluo-compose-post-button"
             type="submit"
-            disabled={snapshot.isPublishing || !destinationAvailable || (!snapshot.draft.trim() && !snapshot.draftAttachments.length)}
-          >{snapshot.uploadProgress ? 'Uploading…' : snapshot.isPublishing ? 'Saving…' : 'Post'}</button>
+            disabled={snapshot.isPublishing || !destinationAvailable || (!snapshot.draft.trim() && !snapshot.draftAttachments.length && !composerQuote)}
+          >{snapshot.uploadProgress ? 'Uploading…' : snapshot.isPublishing ? 'Saving…' : composerQuote ? 'Quote' : 'Post'}</button>
         </footer>
       </form>
     </section>
@@ -838,25 +912,37 @@
      global reset never changes the rest of the application. */
   .sui-modal-backdrop {
     position: fixed;
-    top: var(--app-header-height, 32px);
-    right: 0;
-    bottom: 0;
-    left: 0;
-    width: auto;
-    height: auto;
+    /* Section modals must not cover the global app chrome. Keeping the
+       backdrop inside the content band leaves navigation and window controls
+       visible and interactive while the composer is open. */
+    inset: var(--app-header-height, 32px) 0 var(--app-status-height, 28px);
     z-index: 110;
     display: flex;
     align-items: center;
     justify-content: center;
+    min-height: 0;
+    width: auto;
+    height: auto;
+    box-sizing: border-box;
     padding: 24px;
     background: color-mix(in srgb, var(--chrome, #1c2825) 34%, transparent);
     animation: fluo-modal-fade 160ms ease-out both;
+    overflow: hidden;
+    overscroll-behavior: contain;
   }
 
   .sui-modal {
     width: min(720px, calc(100vw - 34px));
-    max-height: min(790px, calc(100vh - 34px));
-    overflow: auto;
+    max-width: 100%;
+    /* Keep a second, explicit breathing room inside the safe area. The
+       percentage is resolved against the fixed backdrop's content box, so it
+       remains correct when the native window is resized or CSS-scaled. */
+    max-height: min(790px, calc(100% - 24px));
+    margin-block: 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
     color: var(--sui-text);
     background: var(--sui-bg);
     border: 0;
@@ -871,6 +957,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+    flex: 0 0 auto;
     min-height: 48px;
     padding: 2px 18px;
     background: var(--sui-bg);
@@ -889,7 +976,7 @@
   .sui-modal-close:hover:not(:disabled) { color: var(--sui-primary); box-shadow: var(--sui-shadow-inset-sm); }
   .sui-modal-close:disabled { cursor: default; opacity: .45; }
 
-  .sui-modal-body { padding: 18px 20px 0; }
+  .sui-modal-body { display: block; flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; padding: 18px 20px 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
   .fluo-compose-form { display: block; }
   .sui-form-group { margin-bottom: 0; }
   .sui-label { display: block; margin: 0 0 8px; color: var(--sui-text); font-size: calc(10px * var(--text-scale)); font-weight: 720; letter-spacing: .02em; }
