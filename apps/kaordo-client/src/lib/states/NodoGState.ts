@@ -21,6 +21,9 @@ export type NodoTelemetryTest = {
 
 const NODE_LIST_CACHE_MS = 15_000;
 const NODE_USAGE_CACHE_MS = 15_000;
+const NODE_REFRESH_DEADLINE_MS = 9_000;
+const NODE_LIST_DEADLINE_MS = 5_000;
+const NODE_USAGE_DEADLINE_MS = 3_500;
 
 export type NodoSnapshot = {
   error: string | null;
@@ -107,7 +110,12 @@ export class NodoGState extends GState<NodoSnapshot> {
   private async refreshInternal(requestId: number, background: boolean, force: boolean): Promise<void> {
     if (!background) this.publish({ ...this.snapshot, error: null, phase: 'loading' });
     try {
-      const nodes = await this.#gateway.listNodes();
+      const refreshDeadline = Date.now() + NODE_REFRESH_DEADLINE_MS;
+      const nodes = await bounded(
+        this.#gateway.listNodes(),
+        Math.min(NODE_LIST_DEADLINE_MS, remaining(refreshDeadline)),
+        'Nodo list refresh timed out after 10 seconds.',
+      );
       if (requestId !== this.#requestId) return;
       this.#lastRefreshAt = Date.now();
       // D1 heartbeats are intentionally sparse. A foreground refresh also
@@ -119,7 +127,11 @@ export class NodoGState extends GState<NodoSnapshot> {
           const refreshedAt = this.#lastUsageRefreshAt.get(node.id) ?? 0;
           if (!force && Date.now() - refreshedAt < NODE_USAGE_CACHE_MS) return node;
           try {
-            const usage = await this.#gateway.refreshUsage(node.id);
+            const usage = await bounded(
+              this.#gateway.refreshUsage(node.id),
+              Math.min(NODE_USAGE_DEADLINE_MS, remaining(refreshDeadline)),
+              'Nodo usage refresh timed out.',
+            );
             this.#lastUsageRefreshAt.set(node.id, Date.now());
             return { ...node, spaces: usage.spaces, usedBytes: usage.usedBytes };
           } catch {
@@ -139,7 +151,11 @@ export class NodoGState extends GState<NodoSnapshot> {
   async refreshNodeUsage(nodeId: string): Promise<void> {
     const lifecycleId = this.#lifecycleId;
     try {
-      const usage = await this.#gateway.refreshUsage(nodeId);
+      const usage = await bounded(
+        this.#gateway.refreshUsage(nodeId),
+        NODE_USAGE_DEADLINE_MS,
+        'Nodo usage refresh timed out.',
+      );
       if (lifecycleId !== this.#lifecycleId) return;
       this.#lastUsageRefreshAt.set(nodeId, Date.now());
       this.#registry.update(nodeId, (node) => ({ ...node, spaces: usage.spaces, usedBytes: usage.usedBytes }));
@@ -411,4 +427,15 @@ function readableError(error: unknown): string {
   return error instanceof Error && error.message.trim()
     ? error.message
     : 'Nodo service is unavailable.';
+}
+
+function remaining(deadline: number): number {
+  return Math.max(1, deadline - Date.now());
+}
+
+function bounded<T>(promise: Promise<T>, timeoutMilliseconds: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMilliseconds);
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
 }

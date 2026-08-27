@@ -27,7 +27,9 @@ import {
 } from './NodeStorageGateway';
 import { InFlightRequests } from './InFlightRequests';
 import { NodoAccessCache } from './NodoAccessCache';
-import { updateNode } from './NodeUpdateGateway';
+import { updateNode, withTimeout } from './NodeUpdateGateway';
+
+const NODE_UPDATE_TIMEOUT_MS = 9_000;
 
 export class TauriNodoGateway implements NodoGateway {
   readonly #inFlight = new InFlightRequests();
@@ -126,7 +128,11 @@ export class TauriNodoGateway implements NodoGateway {
     // Updating is a privileged, one-shot operation. Refresh the capability
     // ticket first so a ticket issued before a session revocation or node
     // restart cannot turn into a misleading authentication failure.
-    return updateNode(await this.accessNode(nodeId, { forceRefresh: true }));
+    return withTimeout(
+      this.accessNode(nodeId, { forceRefresh: true }).then(updateNode),
+      NODE_UPDATE_TIMEOUT_MS,
+      'Nodo update timed out after 10 seconds. The host may still finish the update in the background.',
+    );
   }
 
   updatePolicy(nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy> {

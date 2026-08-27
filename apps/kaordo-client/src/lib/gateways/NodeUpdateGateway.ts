@@ -1,12 +1,13 @@
 import type { NodoAccess, NodoUpdateResult } from '../domain/nodo';
 import { nodoOrigin, orderedNodoCandidates, type NodoRouteCandidate } from './NodoRoute';
 
-const UPDATE_REQUEST_TIMEOUT_MS = 10_000;
-const UPDATE_STATUS_TIMEOUT_MS = 3_000;
-// A status request is normally local/direct. If the relay is needed, the
-// bounded backoff keeps a slow self-update from consuming the free Worker
-// request budget while still surfacing the result within a few seconds.
-const UPDATE_POLL_DELAYS_MS = [500, 1_000, 1_500, 2_500, 4_000, 6_000, 8_000] as const;
+const UPDATE_TOTAL_TIMEOUT_MS = 8_500;
+const UPDATE_REQUEST_TIMEOUT_MS = 4_000;
+const UPDATE_STATUS_TIMEOUT_MS = 1_000;
+// The child update process downloads and installs independently. Only sample
+// its status briefly; never keep the UI waiting for a potentially large
+// binary or a service restart.
+const UPDATE_POLL_DELAYS_MS = [250, 750, 1_250] as const;
 
 /**
  * Requests a Linux Nodo self-update over the same direct/relay capability
@@ -15,14 +16,23 @@ const UPDATE_POLL_DELAYS_MS = [500, 1_000, 1_500, 2_500, 4_000, 6_000, 8_000] as
  * keeping a Worker request open while a binary is downloaded.
  */
 export async function updateNode(access: NodoAccess): Promise<NodoUpdateResult> {
+  const deadline = Date.now() + UPDATE_TOTAL_TIMEOUT_MS;
   let lastError: unknown = null;
   for (const candidate of orderedNodoCandidates(access)) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     try {
-      const result = await requestCandidate(access, candidate, '/v1/update', 'POST');
+      const result = await requestCandidate(
+        access,
+        candidate,
+        '/v1/update',
+        'POST',
+        Math.min(UPDATE_REQUEST_TIMEOUT_MS, remaining),
+      );
       const parsed = parseUpdateResult(result);
       if (!parsed) throw new Error('Nodo returned an invalid update result.');
       if (parsed.status !== 'started' || !parsed.jobId) return parsed;
-      return await waitForUpdate(access, candidate, parsed);
+      return await waitForUpdate(access, candidate, parsed, deadline);
     } catch (error) {
       lastError = error;
     }
@@ -36,20 +46,26 @@ async function waitForUpdate(
   access: NodoAccess,
   preferred: NodoRouteCandidate,
   started: NodoUpdateResult,
+  deadline: number,
 ): Promise<NodoUpdateResult> {
   let lastError: unknown = null;
   let preferredCandidate = preferred;
   for (const delayMs of UPDATE_POLL_DELAYS_MS) {
-    await delay(delayMs);
-    for (const candidate of orderedNodoCandidates(access).sort((left, right) =>
-      Number(right === preferredCandidate) - Number(left === preferredCandidate))) {
+    const delayBudget = deadline - Date.now();
+    if (delayBudget <= 0) break;
+    await delay(Math.min(delayMs, delayBudget));
+    const candidates = orderedNodoCandidates(access).sort((left, right) =>
+      Number(right === preferredCandidate) - Number(left === preferredCandidate));
+    for (const candidate of candidates) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
       try {
         const result = await requestCandidate(
           access,
           candidate,
           `/v1/update/status?jobId=${encodeURIComponent(started.jobId!)}`,
           'GET',
-          UPDATE_STATUS_TIMEOUT_MS,
+          Math.min(UPDATE_STATUS_TIMEOUT_MS, remaining),
         );
         const parsed = parseUpdateResult(result);
         if (!parsed) throw new Error('Nodo returned an invalid update status.');
@@ -65,8 +81,8 @@ async function waitForUpdate(
   return {
     ...started,
     message: lastError instanceof Error
-      ? `Update is still running. ${lastError.message}`
-      : 'Update is still running. The new version will appear after the Nodo reconnects.',
+      ? `Update started in the background. ${lastError.message}`
+      : 'Update started in the background. The new version will appear after the Nodo reconnects.',
   };
 }
 
@@ -122,4 +138,12 @@ function errorMessage(value: unknown, status: number): string {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/** Resolves or rejects within a strict UI budget without leaving a spinner behind. */
+export function withTimeout<T>(promise: Promise<T>, timeoutMilliseconds: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMilliseconds);
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
 }

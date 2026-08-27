@@ -10,7 +10,8 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-const DEFAULT_UPDATE_MANIFEST_URL: &str = "https://kaordo.pages.dev/downloads/nodo-linux-0.2.json";
+const DEFAULT_UPDATE_MANIFEST_URL: &str = "https://kaordo.pages.dev/downloads/nodo-linux.json";
+const UPDATE_MANIFEST_TIMEOUT_SECONDS: u64 = 8;
 const STATUS_FILENAME: &str = ".update-status.json";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -55,7 +56,7 @@ pub fn check(config: &Config) -> Result<UpdateCheck, Box<dyn std::error::Error>>
     if !url.starts_with("https://") {
         return Err("Update manifest must use HTTPS.".into());
     }
-    let manifest: Manifest = auth::client(20)?
+    let manifest: Manifest = auth::client(UPDATE_MANIFEST_TIMEOUT_SECONDS)?
         .get(url)
         .send()?
         .error_for_status()?

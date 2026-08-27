@@ -9,9 +9,14 @@ interface PagesContext {
 }
 
 const RELEASE_VERSIONS = ['0.2', '0.1.7', '0.1.6', '0.1.5', '0.1.4', '0.1.3', '0.1.2', '0.1.1', '0.1.0'] as const;
+const LINUX_MANIFEST = /^nodo-linux(?:-[^/]+)?\.json$/u;
+const LINUX_MANIFEST_KEY = 'nodo-linux.json';
 
 const asObjectKey = (path: string | string[] | undefined): string => {
   const pathname = Array.isArray(path) ? path.join('/') : (path ?? '');
+  // There is one mutable manifest for Linux. Versioned/legacy filenames are
+  // compatibility aliases only; nodes never need to walk old releases.
+  if (LINUX_MANIFEST.test(pathname.split('/').at(-1) ?? '')) return LINUX_MANIFEST_KEY;
   const version = RELEASE_VERSIONS.find((candidate) => pathname.includes(candidate));
   const release = version ? `v${version}` : 'v0.1.3';
   return `${release}/${pathname}`;

@@ -11,6 +11,7 @@ import { nodoOrigin, orderedNodoCandidates } from './NodoRoute';
 const REQUEST_TIMEOUT_MS = 6_000;
 const DIRECT_REQUEST_TIMEOUT_MS = 2_000;
 const CLEAR_REQUEST_TIMEOUT_MS = 30_000;
+const USAGE_REQUEST_DEADLINE_MS = 4_000;
 
 export async function clearNodeStorage(access: NodoAccess): Promise<NodoStorageClearResult> {
   return clearStorageAt(access, '/v1/storage');
@@ -21,7 +22,7 @@ export async function clearPrivateNodeStorage(access: NodoAccess): Promise<NodoS
 }
 
 export async function readNodeUsage(access: NodoAccess): Promise<NodoNodeUsage> {
-  const value = await requestAt(access, '/v1/status');
+  const value = await requestAt(access, '/v1/status', {}, USAGE_REQUEST_DEADLINE_MS);
   if (!isNodeUsage(value)) throw new Error('Nodo returned invalid storage usage.');
   return value;
 }
@@ -83,19 +84,30 @@ async function clearStorageAt(access: NodoAccess, path: string): Promise<NodoSto
     : new Error('Nodo storage could not be cleared. Keep the host online and use the same network.');
 }
 
-async function requestAt(access: NodoAccess, path: string, init: RequestInit = {}): Promise<unknown> {
+async function requestAt(
+  access: NodoAccess,
+  path: string,
+  init: RequestInit = {},
+  totalDeadlineMilliseconds?: number,
+): Promise<unknown> {
   const candidates = orderedNodoCandidates(access);
   const readOnly = !init.method || init.method === 'GET' || init.method === 'HEAD';
+  const deadline = totalDeadlineMilliseconds === undefined
+    ? null
+    : Date.now() + totalDeadlineMilliseconds;
   let lastError: unknown = null;
   for (const candidate of candidates) {
+    const remaining = deadline === null ? null : deadline - Date.now();
+    if (remaining !== null && remaining <= 0) break;
     try {
       // Keep a read ordered and cancellable instead of racing every route.
       // The old Promise.any path sent the same request to LAN, public IPv6,
       // and the Worker relay at once, multiplying traffic on the free tier.
       // Direct routes get a short probe; the relay gets its normal budget.
-      const timeout = readOnly && candidate.kind !== 'relay'
+      const routeTimeout = readOnly && candidate.kind !== 'relay'
         ? DIRECT_REQUEST_TIMEOUT_MS
         : REQUEST_TIMEOUT_MS;
+      const timeout = remaining === null ? routeTimeout : Math.min(routeTimeout, remaining);
       return await requestCandidate(access, candidate, path, init, new AbortController(), timeout);
     } catch (error) {
       lastError = error;

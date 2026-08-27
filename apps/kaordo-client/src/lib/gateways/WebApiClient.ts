@@ -3,13 +3,44 @@ export async function requestJson<T>(
   path: string,
   init: RequestInit = {},
   fallback: string,
+  timeoutMilliseconds?: number,
 ): Promise<T> {
-  const response = await browserFetch(path, init);
+  const response = await browserFetch(path, init, timeoutMilliseconds);
   return decodeJsonResponse<T>(response, fallback);
 }
 
-export function browserFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(path, browserRequest(init));
+export function browserFetch(
+  path: string,
+  init: RequestInit = {},
+  timeoutMilliseconds?: number,
+): Promise<Response> {
+  if (!timeoutMilliseconds || timeoutMilliseconds <= 0) {
+    return fetch(path, browserRequest(init));
+  }
+
+  const controller = new AbortController();
+  const sourceSignal = init.signal;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMilliseconds);
+  const abortFromSource = () => controller.abort();
+
+  if (sourceSignal) {
+    if (sourceSignal.aborted) controller.abort();
+    else sourceSignal.addEventListener('abort', abortFromSource, { once: true });
+  }
+
+  return fetch(path, browserRequest({ ...init, signal: controller.signal }))
+    .catch((error: unknown) => {
+      if (timedOut) throw new Error(`Request timed out after ${timeoutMilliseconds} ms.`);
+      throw error;
+    })
+    .finally(() => {
+      clearTimeout(timer);
+      sourceSignal?.removeEventListener('abort', abortFromSource);
+    });
 }
 
 export async function decodeJsonResponse<T>(

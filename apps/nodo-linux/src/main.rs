@@ -15,7 +15,7 @@ use service::{NodeService, ServiceOptions};
 use std::env;
 use std::path::PathBuf;
 
-pub const VERSION: &str = "0.2";
+pub const VERSION: &str = "0.2.1-2a";
 
 fn main() {
     if let Err(error) = dispatch(env::args().skip(1).collect()) {

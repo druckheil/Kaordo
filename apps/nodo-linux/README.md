@@ -100,12 +100,15 @@ update                   check the HTTPS manifest
 update --apply           download, SHA-256 verify and atomically replace the binary
 ```
 
-Updates require an HTTPS manifest containing `version`, `linuxX86_64Url` (or
-`linux_x86_64_url`) and `linuxX86_64Sha256` (or `linux_x86_64_sha256`). A
-custom manifest can be selected with `updateManifestUrl` in the config. The
-artifact is streamed to a temporary file, verified, then installed with a
-rollback file. The service is intentionally not restarted automatically;
-run `kaordo-nodo restart` after applying an update.
+The built-in updater reads the single HTTPS manifest at
+`https://kaordo.pages.dev/downloads/nodo-linux.json`. It contains `version`,
+`linuxX86_64Url` (or `linux_x86_64_url`) and `linuxX86_64Sha256` (or
+`linux_x86_64_sha256`). A custom manifest can be selected with
+`updateManifestUrl` in the config. Older versioned manifest URLs are only
+compatibility aliases to this current manifest; nodes never walk historical
+releases. The artifact is streamed to a temporary file, verified, then
+installed with a rollback file. The service is intentionally not restarted
+automatically; run `kaordo-nodo restart` after applying an update.
 
 ## Building locally
 

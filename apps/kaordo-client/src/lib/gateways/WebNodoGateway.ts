@@ -26,7 +26,10 @@ import {
 import { requestJson } from './WebApiClient';
 import { InFlightRequests } from './InFlightRequests';
 import { NodoAccessCache } from './NodoAccessCache';
-import { updateNode } from './NodeUpdateGateway';
+import { updateNode, withTimeout } from './NodeUpdateGateway';
+
+const NODE_COORDINATOR_TIMEOUT_MS = 5_000;
+const NODE_UPDATE_TIMEOUT_MS = 9_000;
 
 export class WebNodoGateway implements NodoGateway {
   /** Share concurrent reads without introducing stale time-based caching. */
@@ -45,6 +48,7 @@ export class WebNodoGateway implements NodoGateway {
         `/api/nodes/${encodeURIComponent(nodeId)}/access`,
         { method: 'POST' },
         NODO_UNAVAILABLE,
+        NODE_COORDINATOR_TIMEOUT_MS,
       ),
       options.forceRefresh === true,
     );
@@ -72,7 +76,7 @@ export class WebNodoGateway implements NodoGateway {
 
   async listNodes(): Promise<NodoNode[]> {
     return this.shared('nodes', async () =>
-      (await requestJson<{ nodes: NodoNode[] }>('/api/nodes', { cache: 'no-store' }, NODO_UNAVAILABLE)).nodes,
+      (await requestJson<{ nodes: NodoNode[] }>('/api/nodes', { cache: 'no-store' }, NODO_UNAVAILABLE, NODE_COORDINATOR_TIMEOUT_MS)).nodes,
     );
   }
 
@@ -162,7 +166,11 @@ export class WebNodoGateway implements NodoGateway {
     // Updating is a privileged, one-shot operation. Refresh the capability
     // ticket first so a ticket issued before a session revocation or node
     // restart cannot turn into a misleading authentication failure.
-    return updateNode(await this.accessNode(nodeId, { forceRefresh: true }));
+    return withTimeout(
+      this.accessNode(nodeId, { forceRefresh: true }).then(updateNode),
+      NODE_UPDATE_TIMEOUT_MS,
+      'Nodo update timed out after 10 seconds. The host may still finish the update in the background.',
+    );
   }
 
   async updatePolicy(

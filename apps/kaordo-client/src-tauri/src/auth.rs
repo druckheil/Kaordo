@@ -571,9 +571,21 @@ impl AuthClient {
         path: &str,
         token: &str,
     ) -> Result<reqwest::Response, String> {
+        self.authorized_with_timeout(method, path, token, Duration::from_secs(30))
+            .await
+    }
+
+    async fn authorized_with_timeout(
+        &self,
+        method: Method,
+        path: &str,
+        token: &str,
+        timeout: Duration,
+    ) -> Result<reqwest::Response, String> {
         self.http
             .request(method, format!("{API_ORIGIN}{path}"))
             .bearer_auth(token)
+            .timeout(timeout)
             .send()
             .await
             .map_err(|_| "The authentication service could not be reached.".to_owned())
@@ -839,7 +851,13 @@ fn user_id_path(value: &str) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn nodo_list(client: State<'_, AuthClient>) -> Result<Vec<Value>, String> {
-    let response = authenticated_request(&client, Method::GET, "/api/nodes").await?;
+    let response = authenticated_request_with_timeout(
+        &client,
+        Method::GET,
+        "/api/nodes",
+        Duration::from_secs(5),
+    )
+    .await?;
     Ok(decode_response::<NodesResponse>(response).await?.nodes)
 }
 
@@ -1833,10 +1851,11 @@ pub async fn profile_cancel(
 #[tauri::command]
 pub async fn nodo_access(client: State<'_, AuthClient>, node_id: String) -> Result<Value, String> {
     let node_id = node_id_path(&node_id)?;
-    let response = authenticated_request(
+    let response = authenticated_request_with_timeout(
         &client,
         Method::POST,
         &format!("/api/nodes/{node_id}/access"),
+        Duration::from_secs(5),
     )
     .await?;
     decode_response(response).await
@@ -1945,12 +1964,23 @@ async fn authenticated_request(
     method: Method,
     path: &str,
 ) -> Result<reqwest::Response, String> {
+    authenticated_request_with_timeout(client, method, path, Duration::from_secs(30)).await
+}
+
+async fn authenticated_request_with_timeout(
+    client: &AuthClient,
+    method: Method,
+    path: &str,
+    timeout: Duration,
+) -> Result<reqwest::Response, String> {
     client.require_authenticated()?;
     let Some(mut token) = load_session_token().await? else {
         client.set_authenticated(false);
         return Err("Authentication is required.".to_owned());
     };
-    let response = client.authorized(method, path, &token).await;
+    let response = client
+        .authorized_with_timeout(method, path, &token, timeout)
+        .await;
     token.zeroize();
     let response = response?;
     if response.status() == StatusCode::UNAUTHORIZED {
