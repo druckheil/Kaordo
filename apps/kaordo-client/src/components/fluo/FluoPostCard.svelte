@@ -3,18 +3,29 @@
   import { openContextMenu } from '../../lib/ui/contextMenu';
   import FluoMedia from './FluoMedia.svelte';
   import FluoMediaCarousel from './FluoMediaCarousel.svelte';
+  import { FLUO_POST_PREVIEW_LINES, shouldExpandFluoText } from './fluoText';
 
   type Props = {
     active?: boolean;
+    expanded?: boolean;
     fluoState: FluoGState;
+    onOpen?: () => void;
     post: FluoPost;
     registerMedia: (load: () => Promise<void>) => () => void;
   };
 
-  let { active = true, fluoState, post, registerMedia }: Props = $props();
+  let {
+    active = true,
+    expanded = false,
+    fluoState,
+    onOpen,
+    post,
+    registerMedia,
+  }: Props = $props();
   let postIdentity = $derived(`${post.space}:${post.nodeId}:${post.id}`);
   let likePending = $derived(fluoState.isLikePending?.(post.id, postIdentity) ?? post.likePending === true);
   let likeCount = $derived(post.likeCount ?? 0);
+  let canExpand = $derived(shouldExpandFluoText(post.body));
 
   function postDate(value: number): string {
     const date = new Date(value);
@@ -59,7 +70,22 @@
         {post.space === 'public' ? 'Public Nodo' : 'Private Nodo'}
       </span>
     </header>
-    {#if post.body}<p>{post.body}</p>{/if}
+    {#if post.body}
+      <p
+        class:post-body--collapsed={canExpand && !expanded}
+        class="post-body"
+        style={`--post-preview-lines:${FLUO_POST_PREVIEW_LINES}`}
+      >{post.body}</p>
+      {#if canExpand && !expanded}
+        <button
+          class="post-expand"
+          type="button"
+          aria-label="Show full post"
+          aria-expanded="false"
+          onclick={() => onOpen?.()}
+        >Show full post</button>
+      {/if}
+    {/if}
     {#if post.attachments.length}
       {#if post.attachments.length === 1}
         <div class="post-media post-media--single">
@@ -162,13 +188,56 @@
     font-weight: 650;
   }
 
-  .post-content > p {
+  .post-content > .post-body {
     margin-top: 7px;
     color: var(--sui-text);
     font-size: calc(12px * var(--text-scale));
     line-height: 1.62;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
+  }
+
+  .post-content > .post-body--collapsed {
+    display: -webkit-box;
+    max-height: calc(var(--post-preview-lines) * 1.62em);
+    overflow: hidden;
+    line-clamp: var(--post-preview-lines);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--post-preview-lines);
+  }
+
+  .post-expand {
+    display: inline-flex;
+    align-items: center;
+    min-height: 27px;
+    margin-top: 8px;
+    padding: 0 10px;
+    color: var(--sui-primary);
+    background: var(--sui-bg);
+    border: 0;
+    border-radius: 9px;
+    box-shadow: var(--sui-shadow-raised-sm);
+    cursor: pointer;
+    font: inherit;
+    font-size: calc(9px * var(--text-scale));
+    font-weight: 680;
+    transition: color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  }
+
+  .post-expand:hover {
+    color: var(--sui-primary-hover);
+    box-shadow: var(--sui-shadow-raised-sm);
+    transform: translateY(-1px);
+  }
+
+  .post-expand:active {
+    box-shadow: var(--sui-shadow-inset-sm);
+    transform: translateY(1px);
+  }
+
+  .post-expand:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--sui-primary) 48%, transparent);
+    outline-offset: 3px;
   }
 
   .post-media {

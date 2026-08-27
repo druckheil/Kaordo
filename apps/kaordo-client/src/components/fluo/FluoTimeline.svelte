@@ -13,6 +13,7 @@
     FLUO_MAX_MEDIA_WIDTH,
     getFluoMediaLayout,
   } from './fluoMediaLayout';
+  import { countFluoTextLines, FLUO_POST_PREVIEW_LINES, shouldExpandFluoText } from './fluoText';
 
   type Props = {
     active?: boolean;
@@ -23,6 +24,7 @@
     posts: readonly FluoPost[];
     scrollElement?: HTMLElement;
     fluoState: FluoGState;
+    onOpenPost?: (post: FluoPost) => void;
   };
 
   type MediaLoadTask = {
@@ -49,6 +51,7 @@
     posts,
     scrollElement,
     fluoState,
+    onOpenPost,
   }: Props = $props();
   let list = $state<HTMLDivElement>();
   let destroyed = false;
@@ -170,8 +173,11 @@
   function estimatePostHeight(index: number): number {
     const post = posts[index];
     if (!post) return 220;
-    const textLines = post.body ? Math.min(8, Math.max(1, Math.ceil(post.body.length / 58))) : 0;
-    if (!post.attachments.length) return 91 + textLines * 20;
+    const textLines = post.body
+      ? Math.min(FLUO_POST_PREVIEW_LINES, Math.max(1, countFluoTextLines(post.body)))
+      : 0;
+    const expandControl = shouldExpandFluoText(post.body) ? 35 : 0;
+    if (!post.attachments.length) return 91 + textLines * 20 + expandControl;
     const mediaWidth = post.attachments.length === 1
       ? FLUO_MAX_MEDIA_WIDTH
       : FLUO_CAROUSEL_MEDIA_WIDTH;
@@ -181,7 +187,7 @@
         : fluoState.getMediaDimensions?.(post.id, attachment.id);
       return Math.max(maximum, getFluoMediaLayout(measured?.width, measured?.height, mediaWidth).height);
     }, 0);
-    return 113 + textLines * 20 + mediaHeight;
+    return 113 + textLines * 20 + expandControl + mediaHeight;
   }
 
   function measurePostElement(
@@ -379,6 +385,7 @@
           {active}
           {post}
           {fluoState}
+          onOpen={onOpenPost ? () => onOpenPost(post) : undefined}
           registerMedia={(load) => registerMedia(postKey(post), load)}
         />
       </div>

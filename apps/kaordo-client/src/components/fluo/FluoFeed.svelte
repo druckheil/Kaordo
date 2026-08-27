@@ -4,10 +4,12 @@
     FLUO_MAX_POST_LENGTH,
     FLUO_MAX_ATTACHMENTS,
     type FluoGState,
+    type FluoPost,
     type FluoSnapshot,
   } from '../../lib/states/FluoGState';
   import { PUBLIC_FLUO_DESTINATION } from '../../lib/gateways/FluoGateway';
   import NodoPickerDialog from '../nodo/NodoPickerDialog.svelte';
+  import FluoPostPage from './FluoPostPage.svelte';
   import FluoTimeline from './FluoTimeline.svelte';
 
   type Props = {
@@ -23,6 +25,7 @@
   let composerModal = $state<HTMLElement>();
   let emojiWrap = $state<HTMLDivElement>();
   let shell = $state<HTMLElement>();
+  let openPostKey = $state<string | null>(null);
   let composerOpen = $state(false);
   let emojiOpen = $state(false);
   let nodePickerOpen = $state(false);
@@ -50,13 +53,19 @@
     ? Math.min(100, Math.round(snapshot.uploadProgress.uploadedBytes /
         Math.max(1, snapshot.uploadProgress.totalBytes) * 100))
     : 0);
+  let openPost = $derived(snapshot.posts.find((post) => postIdentity(post) === openPostKey) ?? null);
+
+  $effect(() => {
+    if (!active) openPostKey = null;
+    if (openPostKey && !openPost) openPostKey = null;
+  });
 
   onDestroy(() => {
     composerShakeAnimation?.cancel();
   });
 
   function openComposer() {
-    if (snapshot.isPublishing) return;
+    if (snapshot.isPublishing || openPostKey) return;
     composerOpen = true;
     emojiOpen = false;
     void tick().then(() => composer?.focus({ preventScroll: true }));
@@ -73,6 +82,21 @@
     if (event.key !== 'Escape') return;
     event.preventDefault();
     closeComposer();
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && openPostKey) {
+      event.preventDefault();
+      openPostKey = null;
+    }
+  }
+
+  function postIdentity(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
+    return `${post.space}:${post.nodeId}:${post.id}`;
+  }
+
+  function openPostPage(post: FluoPost) {
+    openPostKey = postIdentity(post);
   }
 
   function handleWindowPointerdown(event: PointerEvent) {
@@ -268,7 +292,7 @@
 
 </script>
 
-<svelte:window onpointerdown={handleWindowPointerdown} />
+<svelte:window onkeydown={handleWindowKeydown} onpointerdown={handleWindowPointerdown} />
 
 <main bind:this={shell} class="fluo-shell" aria-labelledby="fluo-title">
   <div class="fluo-layout">
@@ -327,11 +351,12 @@
           hasMore={snapshot.hasMore}
           isLoading={snapshot.isLoading}
           isLoadingMore={snapshot.isLoadingMore}
-          isRefreshing={snapshot.isRefreshing}
-        posts={snapshot.posts}
-        scrollElement={shell}
+        isRefreshing={snapshot.isRefreshing}
         {active}
         {fluoState}
+        onOpenPost={openPostPage}
+        posts={snapshot.posts}
+        scrollElement={shell}
       />
       {:else}
         <div class="empty-feed">
@@ -366,6 +391,14 @@
     </aside>
   </div>
 </main>
+
+{#if openPost}
+  <FluoPostPage
+    {fluoState}
+    onClose={() => { openPostKey = null; }}
+    post={openPost}
+  />
+{/if}
 
 {#if composerOpen}
   <div
