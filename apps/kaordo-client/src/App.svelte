@@ -55,6 +55,7 @@
   import type { ProfileGateway } from './lib/gateways/ProfileGateway';
   import type { IloGateway } from './lib/gateways/IloGateway';
   import { NodeFluoGateway } from './lib/gateways/NodeFluoGateway';
+  import { createFluoLikesGateway } from './lib/gateways/createFluoLikesGateway';
   import { NodoRegistry } from './lib/services/NodoRegistry';
   import { closeContextMenu } from './lib/ui/contextMenu';
 
@@ -213,7 +214,10 @@
   ));
   const profile = untrack(() => new ProfileController(profileGateway));
   const ilo = untrack(() => new IloController(iloGateway));
-  const effectiveFluoGateway = untrack(() => fluoGateway ?? new NodeFluoGateway(nodoGateway));
+  const effectiveFluoGateway = untrack(() => fluoGateway ?? new NodeFluoGateway(
+    nodoGateway,
+    createFluoLikesGateway(),
+  ));
   // App construction is intentionally one-shot. Runtime changes flow through
   // the state managers instead of rebuilding the composition root.
   const editor = untrack(

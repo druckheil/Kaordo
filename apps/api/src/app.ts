@@ -15,6 +15,7 @@ import {
 import { json } from './http/json';
 import { health } from './routes/health';
 import { fluoBootstrap } from './fluo/bootstrap';
+import { fluoLikeStates, setFluoLike } from './fluo/likes';
 import { adminDashboard } from './admin/dashboard';
 import { adminCloudflareTelemetry } from './admin/telemetry';
 import {
@@ -151,6 +152,12 @@ export function handleRequest(
   }
   if (request.method === 'GET' && pathname === '/api/fluo/bootstrap') {
     return fluoBootstrap(request, env);
+  }
+  if (request.method === 'POST' && pathname === '/api/fluo/likes/query') {
+    return fluoLikeStates(request, env);
+  }
+  if (request.method === 'PUT' && pathname === '/api/fluo/likes') {
+    return setFluoLike(request, env);
   }
   if (request.method === 'GET' && pathname === '/api/rondo/bootstrap') {
     return rondoBootstrap(request, env);

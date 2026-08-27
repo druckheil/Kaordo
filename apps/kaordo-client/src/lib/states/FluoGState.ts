@@ -1,6 +1,8 @@
 import type { NodoNode } from '../domain/nodo';
 import {
   PUBLIC_FLUO_DESTINATION,
+  type FluoLikeState,
+  type FluoLikeTarget,
   type FluoNodeFeedState,
   type FluoSpace,
   type FluoGateway,
@@ -40,6 +42,8 @@ export type FluoPost = {
   createdAt: number;
   id: string;
   liked: boolean;
+  likeCount?: number;
+  likePending?: boolean;
   nodeId: string;
   space: 'private' | 'public';
 };
@@ -94,6 +98,10 @@ export class FluoGState extends GState<FluoSnapshot> {
   #mediaCacheBytes = 0;
   #mediaCacheClock = 0;
   #mediaDimensions = new Map<string, { height: number; width: number }>();
+  #likeRequests = new Map<string, Promise<boolean>>();
+  #likeDesiredStates = new Map<string, boolean>();
+  #likeStateRequests = new Map<string, Promise<void>>();
+  #likeMutationEpochs = new Map<string, number>();
   #pageSize = INITIAL_FEED_PAGE_SIZE;
   #cacheOwnerId: string | null;
   #cacheRestorePromise: Promise<void> | null = null;
@@ -147,6 +155,10 @@ export class FluoGState extends GState<FluoSnapshot> {
   override exit(): void {
     this.#lifecycleId += 1;
     this.#requestId += 1;
+    this.#likeRequests.clear();
+    this.#likeDesiredStates.clear();
+    this.#likeStateRequests.clear();
+    this.#likeMutationEpochs.clear();
     this.#unsubscribeRegistry?.();
     this.#unsubscribeRegistry = null;
     this.#cacheRestorePromise = null;
@@ -182,6 +194,10 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#pageSize = INITIAL_FEED_PAGE_SIZE;
     this.#cacheRestorePromise = null;
     this.#feedStatesInFlight = null;
+    this.#likeRequests.clear();
+    this.#likeDesiredStates.clear();
+    this.#likeStateRequests.clear();
+    this.#likeMutationEpochs.clear();
     this.#mediaGeneration += 1;
     this.#nodes.resetSession?.();
     this.#mediaRequests.clear();
@@ -301,6 +317,7 @@ export class FluoGState extends GState<FluoSnapshot> {
           storageError: null,
         });
         this.persistFeedCache();
+        this.hydrateLikeStates(this.snapshot.posts.slice(0, LIKE_BATCH_SIZE), this.#lifecycleId);
         // State hashes are only needed to reconcile a later refresh. Do not
         // keep the refresh promise pending after metadata is visible; a slow
         // legacy Nodo state endpoint must not make the Refresh button appear
@@ -332,6 +349,7 @@ export class FluoGState extends GState<FluoSnapshot> {
           storageError: null,
         });
         this.persistFeedCache();
+        this.hydrateLikeStates(this.snapshot.posts.slice(0, LIKE_BATCH_SIZE), this.#lifecycleId);
         return;
       }
 
@@ -396,6 +414,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         storageError: null,
       });
       this.persistFeedCache();
+      this.hydrateLikeStates(this.snapshot.posts.slice(0, LIKE_BATCH_SIZE), this.#lifecycleId);
     } catch (error) {
       if (requestId !== this.#requestId) return;
       this.publish({
@@ -520,6 +539,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         posts: [...this.snapshot.posts, ...additions],
       });
       this.persistFeedCache();
+      this.hydrateLikeStates(additions, this.#lifecycleId);
     } catch (error) {
       if (requestId !== this.#requestId) return;
       this.publish({
@@ -746,16 +766,160 @@ export class FluoGState extends GState<FluoSnapshot> {
     }
   }
 
-  toggleLike(postId: string): void {
-    const matches = this.snapshot.posts.filter(({ id }) => id === postId);
-    if (matches.length !== 1) return;
-    const key = postKey(matches[0]!);
+  /** Returns whether a like mutation is still waiting for the coordinator. */
+  isLikePending(postId: string, postIdentity?: string): boolean {
+    const target = this.findLikeTarget(postId, postIdentity);
+    return target ? this.#likeRequests.has(postKey(target)) : false;
+  }
+
+  /** Optimistically toggles a like and persists it without blocking the feed. */
+  async toggleLike(postId: string, postIdentity?: string): Promise<boolean> {
+    const target = this.findLikeTarget(postId, postIdentity);
+    if (!target) return false;
+    const key = postKey(target);
+
+    const previousLiked = target.liked === true;
+    const previousLikeCount = normalizeLikeCount(target.likeCount);
+    const liked = !previousLiked;
+    const mutationEpoch = (this.#likeMutationEpochs.get(key) ?? 0) + 1;
+    this.#likeMutationEpochs.set(key, mutationEpoch);
+    this.#likeDesiredStates.set(key, liked);
     this.publish({
       ...this.snapshot,
       posts: this.snapshot.posts.map((post) => postKey(post) === key
-        ? { ...post, liked: !post.liked }
+        ? {
+            ...post,
+            liked,
+            likeCount: Math.max(0, previousLikeCount + (liked ? 1 : -1)),
+            likePending: true,
+          }
         : post),
     });
+
+    const existing = this.#likeRequests.get(key);
+    if (existing) return existing;
+
+    const lifecycleId = this.#lifecycleId;
+    const request = this.persistLike(target, key, lifecycleId, previousLiked, previousLikeCount);
+    this.#likeRequests.set(key, request);
+    // Use a rejection handler instead of an unhandled `finally` promise. A
+    // transport failure must never leave the per-post queue permanently busy.
+    void request.then(() => {
+      if (this.#likeRequests.get(key) === request) this.#likeRequests.delete(key);
+    }, () => {
+      if (this.#likeRequests.get(key) === request) this.#likeRequests.delete(key);
+    });
+    return request;
+  }
+
+  private findLikeTarget(postId: string, postIdentity?: string): FluoPost | null {
+    const matches = postIdentity
+      ? this.snapshot.posts.filter((post) => postKey(post) === postIdentity)
+      : this.snapshot.posts.filter(({ id }) => id === postId);
+    if (matches.length !== 1) return null;
+    return matches[0]!;
+  }
+
+  private async persistLike(
+    target: FluoLikeTarget,
+    key: string,
+    lifecycleId: number,
+    initialLiked: boolean,
+    initialLikeCount: number,
+  ): Promise<boolean> {
+    let authoritativeLiked = initialLiked;
+    let authoritativeLikeCount = initialLikeCount;
+
+    while (lifecycleId === this.#lifecycleId) {
+      const liked = this.#likeDesiredStates.get(key);
+      if (liked === undefined) return true;
+      try {
+        const result = await this.#gateway.setLike?.(target, liked);
+        if (lifecycleId !== this.#lifecycleId) return true;
+
+        const current = this.snapshot.posts.find((post) => postKey(post) === key);
+        authoritativeLiked = result?.liked ?? liked;
+        authoritativeLikeCount = result
+          ? normalizeLikeCount(result.likeCount)
+          : normalizeLikeCount(current?.likeCount);
+
+        // A second click may have happened while the first request was in
+        // flight. Keep that optimistic state and send only the latest desired
+        // value after the current request settles.
+        if (this.#likeDesiredStates.get(key) !== authoritativeLiked) continue;
+
+        this.#likeDesiredStates.delete(key);
+        if (!current || current.likePending !== true) return true;
+        this.publish({
+          ...this.snapshot,
+          posts: this.snapshot.posts.map((post) => postKey(post) === key
+            ? { ...post, liked: authoritativeLiked, likeCount: authoritativeLikeCount, likePending: false }
+            : post),
+          storageError: null,
+        });
+        this.persistFeedCache();
+        return true;
+      } catch (error) {
+        if (lifecycleId !== this.#lifecycleId) return false;
+        const current = this.snapshot.posts.find((post) => postKey(post) === key);
+        // The coordinator did not accept this mutation. Return to the last
+        // known server state immediately; a later click can retry normally.
+        this.#likeDesiredStates.delete(key);
+        if (!current || current.likePending !== true) return false;
+        this.publish({
+          ...this.snapshot,
+          posts: this.snapshot.posts.map((post) => postKey(post) === key
+            ? { ...post, liked: authoritativeLiked, likeCount: authoritativeLikeCount, likePending: false }
+            : post),
+          storageError: readableError(error),
+        });
+        this.persistFeedCache();
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /** Hydrates like state in one bounded coordinator query per metadata batch. */
+  private hydrateLikeStates(posts: readonly FluoPost[], lifecycleId: number): void {
+    const listLikeStates = this.#gateway.listLikeStates;
+    if (!listLikeStates || lifecycleId !== this.#lifecycleId) return;
+    const targets = [...new Map(posts.map((post) => [postKey(post), {
+      id: post.id,
+      nodeId: post.nodeId,
+      space: post.space,
+    } satisfies FluoLikeTarget])).values()];
+    if (!targets.length) return;
+    const requestKey = targets.map(postKey).sort().join('\u001f');
+    if (this.#likeStateRequests.has(requestKey)) return;
+    const epochs = new Map(targets.map((target) => [postKey(target), this.#likeMutationEpochs.get(postKey(target)) ?? 0]));
+    const request = Promise.resolve()
+      .then(() => listLikeStates.call(this.#gateway, targets.slice(0, LIKE_BATCH_SIZE)))
+      .then((states) => {
+        if (lifecycleId !== this.#lifecycleId) return;
+        const byKey = new Map(states.map((state) => [postKey(state), state]));
+        let changed = false;
+        const posts = this.snapshot.posts.map((post) => {
+          const key = postKey(post);
+          const state = byKey.get(key);
+          if (!state || post.likePending === true || epochs.get(key) !== (this.#likeMutationEpochs.get(key) ?? 0)) {
+            return post;
+          }
+          const likeCount = normalizeLikeCount(state.likeCount);
+          if (post.liked === state.liked && normalizeLikeCount(post.likeCount) === likeCount) return post;
+          changed = true;
+          return { ...post, liked: state.liked, likeCount, likePending: false };
+        });
+        if (changed) {
+          this.publish({ ...this.snapshot, posts });
+          this.persistFeedCache();
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.#likeStateRequests.get(requestKey) === request) this.#likeStateRequests.delete(requestKey);
+      });
+    this.#likeStateRequests.set(requestKey, request);
   }
 
   async deletePost(postId: string): Promise<boolean> {
@@ -828,6 +992,8 @@ export class FluoGState extends GState<FluoSnapshot> {
       ...post,
       attachments: post.attachments.map((attachment) => this.hydrateAttachment(attachment)),
       liked: false,
+      likeCount: normalizeLikeCount(post.likeCount),
+      likePending: false,
     };
   }
 
@@ -867,6 +1033,8 @@ export class FluoGState extends GState<FluoSnapshot> {
       ...post,
       attachments,
       liked: previous.liked,
+      likeCount: previous.likeCount ?? normalizeLikeCount(post.likeCount),
+      likePending: previous.likePending,
     };
   }
 
@@ -887,7 +1055,9 @@ export class FluoGState extends GState<FluoSnapshot> {
         ...attachment,
         loadState: 'idle',
       })),
-      liked: false,
+      liked: post.liked === true,
+      likeCount: normalizeLikeCount(post.likeCount),
+      likePending: false,
     };
   }
 
@@ -1099,6 +1269,7 @@ const MAX_MEDIA_CACHE_BYTES = 96 * 1_024 * 1_024;
 const MAX_MEDIA_DIMENSION = 100_000;
 const RESERVED_MEDIA_WIDTH = 1_600;
 const RESERVED_MEDIA_HEIGHT = 900;
+const LIKE_BATCH_SIZE = 100;
 
 function postKey(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
   return `${post.space}:${post.nodeId}:${post.id}`;
@@ -1157,4 +1328,10 @@ function createLocalId(): string {
 function normalizeCacheOwner(ownerId: string | null): string | null {
   const normalized = ownerId?.trim();
   return normalized || null;
+}
+
+function normalizeLikeCount(value: unknown): number {
+  return Number.isSafeInteger(value) && (value as number) >= 0
+    ? value as number
+    : 0;
 }

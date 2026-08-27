@@ -13,6 +13,8 @@
 
   let { active = true, fluoState, post, registerMedia }: Props = $props();
   let postIdentity = $derived(`${post.space}:${post.nodeId}:${post.id}`);
+  let likePending = $derived(fluoState.isLikePending?.(post.id, postIdentity) ?? post.likePending === true);
+  let likeCount = $derived(post.likeCount ?? 0);
 
   function postDate(value: number): string {
     const date = new Date(value);
@@ -26,6 +28,10 @@
     const body = post.body.trim();
     if (body) return body.length > 34 ? `${body.slice(0, 34)}…` : body;
     return `Post with ${post.attachments.length} media`;
+  }
+
+  function likeLabel(count: number): string {
+    return `${count} ${count === 1 ? 'like' : 'likes'}`;
   }
 </script>
 
@@ -89,13 +95,16 @@
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 5-2 2 2 2M4 7h9a3 3 0 0 1 3 3m-2 5 2-2-2-2m2 2H7a3 3 0 0 1-3-3" /></svg>
       </button>
       <button
+        class="post-action--like"
         class:post-action--active={post.liked}
         type="button"
-        aria-label={post.liked ? 'Unlike post' : 'Like post'}
+        aria-label={post.liked ? `Unlike post (${likeLabel(likeCount)})` : `Like post (${likeLabel(likeCount)})`}
         aria-pressed={post.liked}
-        onclick={() => fluoState.toggleLike(post.id)}
+        aria-busy={likePending}
+        onclick={() => void fluoState.toggleLike(post.id, postIdentity)}
       >
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16S4 12.6 4 8.2C4 5 8 4 10 6.7 12 4 16 5 16 8.2 16 12.6 10 16 10 16Z" /></svg>
+        <span class="post-like-count">{likeCount}</span>
       </button>
       <button type="button" disabled aria-label="Share, coming later" title="Sharing is coming later">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 10.5 13 5m0 0H9.5M13 5v3.5M12 9h3v7H5V6h4" /></svg>
@@ -181,7 +190,7 @@
 
   .post-actions {
     display: grid;
-    grid-template-columns: repeat(4, 32px);
+    grid-template-columns: repeat(2, 32px) max-content 32px;
     gap: 15px;
     margin-top: 10px;
   }
@@ -205,6 +214,8 @@
   .post-actions button:active:not(:disabled) { box-shadow: var(--sui-shadow-inset-sm); transform: translateY(1px); }
   .post-actions button:disabled { opacity: 0.42; cursor: default; box-shadow: none; }
   .post-actions .post-action--active { color: var(--sui-danger); background: color-mix(in srgb, var(--sui-danger) 10%, var(--sui-bg)); box-shadow: var(--sui-shadow-inset-sm); }
+  .post-actions .post-action--like { display: flex; width: auto; min-width: 29px; gap: 3px; align-items: center; justify-content: center; padding-inline: 5px; }
+  .post-actions .post-like-count { min-width: 1ch; color: currentColor; font-size: calc(8px * var(--text-scale)); font-variant-numeric: tabular-nums; line-height: 1; }
   .post-actions svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.45; }
   .post-actions .post-action--active svg { fill: currentColor; }
 

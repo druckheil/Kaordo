@@ -191,7 +191,8 @@ function parsePost(value: unknown): FluoPost | null {
     body: value.body.slice(0, MAX_BODY_LENGTH),
     createdAt: Math.max(0, value.createdAt as number),
     id: value.id,
-    liked: false,
+    liked: value.liked === true,
+    likeCount: normalizeLikeCount(value.likeCount),
     nodeId: value.nodeId,
     space: value.space,
   };
@@ -241,7 +242,8 @@ function serializePost(post: FluoPost): FluoPost {
     body: post.body.slice(0, MAX_BODY_LENGTH),
     createdAt: Math.max(0, post.createdAt),
     id: post.id.slice(0, MAX_ID_LENGTH),
-    liked: false,
+    liked: post.liked === true,
+    likeCount: normalizeLikeCount(post.likeCount),
     nodeId: post.nodeId.slice(0, MAX_ID_LENGTH),
     space: post.space,
   };
@@ -275,6 +277,12 @@ function validDimensions(width: unknown, height: unknown): boolean {
   return Number.isFinite(width) && Number.isFinite(height) &&
     (width as number) >= 1 && (height as number) >= 1 &&
     (width as number) <= 100_000 && (height as number) <= 100_000;
+}
+
+function normalizeLikeCount(value: unknown): number {
+  return Number.isSafeInteger(value) && (value as number) >= 0
+    ? value as number
+    : 0;
 }
 
 function isBoundedString(value: unknown): value is string {

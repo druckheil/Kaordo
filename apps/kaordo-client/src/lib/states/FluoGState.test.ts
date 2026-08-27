@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NodoAccess, NodoNode, NodoPolicy } from '../domain/nodo';
-import type { FluoFeedPage, FluoGateway, RemoteFluoPost } from '../gateways/FluoGateway';
+import type { FluoFeedPage, FluoGateway, FluoLikeState, FluoLikeTarget, RemoteFluoPost } from '../gateways/FluoGateway';
 import { PUBLIC_FLUO_DESTINATION } from '../gateways/FluoGateway';
 import type { NodoGateway } from '../gateways/NodoGateway';
 import { FluoGState, type FluoDraftAttachment } from './FluoGState';
@@ -220,6 +220,84 @@ describe('FluoGState', () => {
     expect(state.snapshot.posts.map(({ id }) => id)).toEqual(['new', 'old']);
   });
 
+  it('hydrates persisted like state without blocking the first metadata page', async () => {
+    const fluo = new LikeFluoGateway();
+    fluo.posts = [{
+      attachments: [],
+      author: 'liked',
+      body: 'A post with a server reaction',
+      createdAt: 20,
+      id: '123e4567-e89b-42d3-a456-426614174001',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    fluo.likeStates.set(fluo.posts[0]!.id, { liked: true, likeCount: 3 });
+    const state = createState(fluo);
+
+    await state.refreshNodes();
+    expect(state.snapshot.posts[0]?.body).toBe('A post with a server reaction');
+    await flushTasks();
+
+    expect(state.snapshot.posts[0]).toMatchObject({ likeCount: 3, liked: true });
+    expect(fluo.likeQueryCalls).toBe(1);
+  });
+
+  it('updates a like optimistically and rolls back when persistence fails', async () => {
+    const fluo = new LikeFluoGateway();
+    fluo.posts = [{
+      attachments: [],
+      author: 'optimistic',
+      body: 'Tap without waiting',
+      createdAt: 20,
+      id: '123e4567-e89b-42d3-a456-426614174002',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    const state = createState(fluo);
+    await state.refreshNodes();
+    await flushTasks();
+
+    fluo.setLikeFailure = new Error('Likes are temporarily unavailable.');
+    const pending = state.toggleLike(fluo.posts[0]!.id);
+    expect(state.snapshot.posts[0]).toMatchObject({ likeCount: 1, likePending: true, liked: true });
+    expect(await pending).toBe(false);
+    expect(state.snapshot.posts[0]).toMatchObject({ likeCount: 0, likePending: false, liked: false });
+    expect(state.snapshot.storageError).toBe('Likes are temporarily unavailable.');
+  });
+
+  it('keeps toggling responsive while a previous like request is slow', async () => {
+    const fluo = new LikeFluoGateway();
+    fluo.posts = [{
+      attachments: [],
+      author: 'responsive',
+      body: 'A slow coordinator must not lock the button',
+      createdAt: 20,
+      id: '123e4567-e89b-42d3-a456-426614174003',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    let release!: () => void;
+    fluo.setLikeGate = new Promise<void>((resolve) => { release = resolve; });
+    const state = createState(fluo);
+    await state.refreshNodes();
+    await flushTasks();
+
+    const first = state.toggleLike(fluo.posts[0]!.id);
+    expect(state.snapshot.posts[0]).toMatchObject({ liked: true, likeCount: 1, likePending: true });
+    // The second click is accepted immediately and is queued as the latest
+    // desired state instead of being ignored while the first request waits.
+    const second = state.toggleLike(fluo.posts[0]!.id);
+    expect(state.snapshot.posts[0]).toMatchObject({ liked: false, likeCount: 0, likePending: true });
+    expect(fluo.setLikeCalls).toBe(1);
+
+    release();
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(fluo.setLikeCalls).toBe(2);
+    expect(fluo.likeStates.get(fluo.posts[0]!.id)).toEqual({ liked: false, likeCount: 0 });
+    expect(state.snapshot.posts[0]).toMatchObject({ liked: false, likeCount: 0, likePending: false });
+  });
+
   it('publishes to the Public Nodo pool by default and still allows a private destination', async () => {
     const fluo = new MemoryFluoGateway();
     const state = createState(fluo);
@@ -411,6 +489,10 @@ function createState(
   });
 }
 
+async function flushTasks(): Promise<void> {
+  for (let index = 0; index < 8; index += 1) await Promise.resolve();
+}
+
 class MemoryFluoGateway implements FluoGateway {
   failure: Error | null = null;
   posts: RemoteFluoPost[] = [];
@@ -463,6 +545,35 @@ class MemoryFluoGateway implements FluoGateway {
   async deletePost(_nodeId: string, postId: string): Promise<void> {
     if (this.failure) throw this.failure;
     this.posts = this.posts.filter(({ id }) => id !== postId);
+  }
+}
+
+class LikeFluoGateway extends MemoryFluoGateway {
+  readonly likeStates = new Map<string, { liked: boolean; likeCount: number }>();
+  likeQueryCalls = 0;
+  setLikeCalls = 0;
+  setLikeGate: Promise<void> | null = null;
+  setLikeFailure: Error | null = null;
+
+  listLikeStates(targets: readonly FluoLikeTarget[]): Promise<FluoLikeState[]> {
+    this.likeQueryCalls += 1;
+    return Promise.resolve(targets.map((target) => {
+      const state = this.likeStates.get(target.id) ?? { liked: false, likeCount: 0 };
+      return { ...target, ...state };
+    }));
+  }
+
+  async setLike(target: FluoLikeTarget, liked: boolean): Promise<FluoLikeState> {
+    this.setLikeCalls += 1;
+    if (this.setLikeGate) await this.setLikeGate;
+    if (this.setLikeFailure) throw this.setLikeFailure;
+    const previous = this.likeStates.get(target.id) ?? { liked: false, likeCount: 0 };
+    const state = {
+      liked,
+      likeCount: Math.max(0, previous.likeCount + (liked === previous.liked ? 0 : liked ? 1 : -1)),
+    };
+    this.likeStates.set(target.id, state);
+    return { ...target, ...state };
   }
 }
 

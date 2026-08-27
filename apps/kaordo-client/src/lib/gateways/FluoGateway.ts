@@ -12,6 +12,20 @@ export type RemoteFluoPost = Omit<FluoPost, 'attachments' | 'liked'> & {
   attachments: RemoteFluoAttachment[];
 };
 
+/** The compact identity used by the coordinator to address a post. */
+export type FluoLikeTarget = Pick<FluoPost, 'id' | 'nodeId' | 'space'>;
+
+export type FluoLikeState = FluoLikeTarget & {
+  liked: boolean;
+  likeCount: number;
+};
+
+/** Coordinator-backed likes are optional for custom/test gateways. */
+export interface FluoLikesGateway {
+  listLikeStates(targets: readonly FluoLikeTarget[]): Promise<FluoLikeState[]>;
+  setLike(target: FluoLikeTarget, liked: boolean): Promise<FluoLikeState>;
+}
+
 export type FluoUploadProgress = {
   attachmentIndex: number;
   attachmentName: string;
@@ -41,6 +55,7 @@ export type FluoMediaSource = { blob: Blob; streamUrl?: never } | { blob?: never
 export interface FluoGateway {
   resetSession?(): void;
   deletePost(nodeId: string, postId: string, space: 'private' | 'public'): Promise<void>;
+  listLikeStates?(targets: readonly FluoLikeTarget[]): Promise<FluoLikeState[]>;
   listFeedPage(
     nodeIds: readonly string[],
     cursor: string | null,
@@ -52,6 +67,7 @@ export interface FluoGateway {
     space: 'private' | 'public',
     attachment: FluoAttachment,
   ): Promise<FluoMediaSource>;
+  setLike?(target: FluoLikeTarget, liked: boolean): Promise<FluoLikeState>;
   publishPost(
     nodeId: string,
     body: string,

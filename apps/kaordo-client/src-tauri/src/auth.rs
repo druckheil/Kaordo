@@ -237,6 +237,29 @@ struct FluoNodesResponse {
     node_ids: Vec<String>,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FluoLikeTargetInput {
+    node_id: String,
+    post_id: String,
+    space: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FluoLikeStatesInput {
+    posts: Vec<FluoLikeTargetInput>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FluoSetLikeInput {
+    liked: bool,
+    node_id: String,
+    post_id: String,
+    space: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PublicStorageReservationInput {
@@ -837,6 +860,52 @@ pub async fn fluo_bootstrap(client: State<'_, AuthClient>) -> Result<Value, Stri
 #[tauri::command]
 pub async fn fluo_public_storage(client: State<'_, AuthClient>) -> Result<Value, String> {
     let response = authenticated_request(&client, Method::GET, "/api/fluo/public-storage").await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn fluo_like_states(
+    client: State<'_, AuthClient>,
+    posts: Vec<FluoLikeTargetInput>,
+) -> Result<Value, String> {
+    if posts.len() > 100 {
+        return Err("Too many Fluo posts were requested.".to_owned());
+    }
+    let posts = posts
+        .into_iter()
+        .map(normalize_fluo_like_target)
+        .collect::<Result<Vec<_>, _>>()?;
+    let response = authenticated_json_request(
+        &client,
+        Method::POST,
+        "/api/fluo/likes/query",
+        &FluoLikeStatesInput { posts },
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn fluo_set_like(
+    client: State<'_, AuthClient>,
+    node_id: String,
+    post_id: String,
+    space: String,
+    liked: bool,
+) -> Result<Value, String> {
+    let input = FluoSetLikeInput {
+        liked,
+        node_id: node_id_path(&node_id)?,
+        post_id: node_id_path(&post_id)?,
+        space: normalize_fluo_like_space(&space)?,
+    };
+    let response = authenticated_json_request(
+        &client,
+        Method::PUT,
+        "/api/fluo/likes",
+        &input,
+    )
+    .await?;
     decode_response(response).await
 }
 
@@ -2034,6 +2103,24 @@ fn node_id_path(value: &str) -> Result<String, String> {
     uuid::Uuid::parse_str(value)
         .map(|id| id.to_string())
         .map_err(|_| "The node identifier is invalid.".to_owned())
+}
+
+fn normalize_fluo_like_target(
+    target: FluoLikeTargetInput,
+) -> Result<FluoLikeTargetInput, String> {
+    Ok(FluoLikeTargetInput {
+        node_id: node_id_path(&target.node_id)?,
+        post_id: node_id_path(&target.post_id)?,
+        space: normalize_fluo_like_space(&target.space)?,
+    })
+}
+
+fn normalize_fluo_like_space(value: &str) -> Result<String, String> {
+    if value == "private" || value == "public" {
+        Ok(value.to_owned())
+    } else {
+        Err("The Fluo post space is invalid.".to_owned())
+    }
 }
 
 fn session_id_path(value: &str) -> Result<String, String> {

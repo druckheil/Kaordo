@@ -4,6 +4,9 @@ import {
   PUBLIC_FLUO_DESTINATION,
   type FluoFeedPage,
   type FluoGateway,
+  type FluoLikeState,
+  type FluoLikeTarget,
+  type FluoLikesGateway,
   type FluoMediaSource,
   type FluoNodeFeedState,
   type FluoSpace,
@@ -35,11 +38,19 @@ const SPACE_PATHS = {
   },
 } as const;
 
+const EMPTY_FLUO_LIKES_GATEWAY: FluoLikesGateway = {
+  listLikeStates: async () => [],
+  setLike: async (target, liked) => ({ ...target, liked, likeCount: 0 }),
+};
+
 export class NodeFluoGateway implements FluoGateway {
   private readonly connections = new Map<string, Promise<NodeConnection>>();
   private feedSession: FeedSession | null = null;
 
-  constructor(private readonly nodes: NodoGateway) {}
+  constructor(
+    private readonly nodes: NodoGateway,
+    private readonly likes: FluoLikesGateway = EMPTY_FLUO_LIKES_GATEWAY,
+  ) {}
 
   resetSession(): void {
     this.feedSession = null;
@@ -90,6 +101,10 @@ export class NodeFluoGateway implements FluoGateway {
     }));
   }
 
+  listLikeStates(targets: readonly FluoLikeTarget[]): Promise<FluoLikeState[]> {
+    return this.likes.listLikeStates(targets);
+  }
+
   async loadMedia(
     nodeId: string,
     space: FluoSpace,
@@ -102,6 +117,10 @@ export class NodeFluoGateway implements FluoGateway {
       // and avoids buffering the entire image into a Blob first.
       return { streamUrl: await connection.streamUrl(path) };
     });
+  }
+
+  setLike(target: FluoLikeTarget, liked: boolean): Promise<FluoLikeState> {
+    return this.likes.setLike(target, liked);
   }
 
   /** Stores small non-feed payloads on the selected Nodo using the same

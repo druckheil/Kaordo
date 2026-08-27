@@ -217,6 +217,18 @@ export async function releasePublicPost(
   }
   await env.DB.batch([
     env.DB.prepare(
+      `DELETE FROM fluo_post_likes
+        WHERE node_id = ?1 AND space = 'public' AND post_id = ?2
+          AND EXISTS (
+            SELECT 1 FROM fluo_public_allocations AS allocations
+             WHERE allocations.node_id = ?1 AND allocations.post_id = ?2
+               AND allocations.committed = 1
+               AND (allocations.user_id = ?3 OR EXISTS (
+                 SELECT 1 FROM nodes WHERE nodes.id = ?1 AND nodes.user_id = ?3
+               ))
+          )`,
+    ).bind(nodeId, postId, session.userId),
+    env.DB.prepare(
       `DELETE FROM fluo_public_allocations
       WHERE node_id = ?1 AND post_id = ?2 AND committed = 1
         AND (user_id = ?3 OR EXISTS (
@@ -287,6 +299,11 @@ export async function retireOfflinePublicNodes(env: Env, now: number): Promise<v
           AND nodes.last_seen_at <= ?2`,
     ).bind(now, cutoff),
     env.DB.prepare(
+      `DELETE FROM fluo_post_likes
+        WHERE node_id IN (SELECT id FROM nodes WHERE last_seen_at <= ?1)
+          AND space = 'public'`,
+    ).bind(cutoff),
+    env.DB.prepare(
       `DELETE FROM fluo_public_allocations
         WHERE committed = 1 AND node_id IN (
           SELECT id FROM nodes WHERE last_seen_at <= ?1
@@ -312,6 +329,9 @@ export async function retireNodePublicPosts(
        SELECT node_id, post_id, ?1 FROM fluo_public_allocations
         WHERE node_id = ?2 AND committed = 1 AND post_id IS NOT NULL`,
     ).bind(now, nodeId),
+    env.DB.prepare(
+      `DELETE FROM fluo_post_likes WHERE node_id = ?1 AND space = 'public'`,
+    ).bind(nodeId),
     env.DB.prepare(
       'DELETE FROM fluo_public_allocations WHERE node_id = ?1 AND committed = 1',
     ).bind(nodeId),

@@ -18,6 +18,7 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM rondo_space_nodes'),
     env.DB.prepare('DELETE FROM rondo_spaces'),
     env.DB.prepare('DELETE FROM fluo_public_tombstones'),
+    env.DB.prepare('DELETE FROM fluo_post_likes'),
     env.DB.prepare('DELETE FROM fluo_public_allocations'),
     env.DB.prepare('DELETE FROM node_access_tickets'),
     env.DB.prepare('DELETE FROM nodes'),
@@ -492,6 +493,122 @@ describe('authentication API', () => {
 
     expect(response.status).toBe(200);
     expect(user?.last_seen_at).toBeGreaterThan(0);
+  });
+
+  it('persists Fluo likes idempotently and scopes private/public posts', async () => {
+    const owner = await post('/api/auth/desktop/register', {
+      password: PASSWORD,
+      username: 'like_owner',
+    });
+    const ownerBody = await owner.json<{ sessionToken: string; user: { id: string } }>();
+    const ownerAuthorization = { authorization: `Bearer ${ownerBody.sessionToken}` };
+    const heartbeat = await api('/api/nodes/heartbeat', {
+      body: JSON.stringify({
+        deviceKey: 'd'.repeat(64),
+        deviceName: 'Like test node',
+        localAddresses: ['192.168.1.80'],
+        nodeId: null,
+        port: 49_321,
+        protocol: 'tus/1.0.0',
+        quotaBytes: 1_073_741_824,
+        slotKey: 'primary',
+        usedBytes: 0,
+      }),
+      headers: { ...ownerAuthorization, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    const nodeId = (await heartbeat.json<{ nodeId: string }>()).nodeId;
+    const privateTarget = {
+      nodeId,
+      postId: '123e4567-e89b-42d3-a456-426614174001',
+      space: 'private',
+    } as const;
+
+    const firstLike = await api('/api/fluo/likes', {
+      body: JSON.stringify({ ...privateTarget, liked: true }),
+      headers: { ...ownerAuthorization, 'content-type': 'application/json' },
+      method: 'PUT',
+    });
+    expect(firstLike.status).toBe(200);
+    await expect(firstLike.json()).resolves.toMatchObject({
+      ...privateTarget,
+      liked: true,
+      likeCount: 1,
+    });
+
+    const repeatedLike = await api('/api/fluo/likes', {
+      body: JSON.stringify({ ...privateTarget, liked: true }),
+      headers: { ...ownerAuthorization, 'content-type': 'application/json' },
+      method: 'PUT',
+    });
+    await expect(repeatedLike.json()).resolves.toMatchObject({ likeCount: 1, liked: true });
+
+    const privateStates = await api('/api/fluo/likes/query', {
+      body: JSON.stringify({ posts: [privateTarget] }),
+      headers: { ...ownerAuthorization, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    await expect(privateStates.json()).resolves.toMatchObject({
+      likes: [{ ...privateTarget, liked: true, likeCount: 1 }],
+    });
+
+    const reader = await post('/api/auth/desktop/register', {
+      password: PASSWORD,
+      username: 'like_reader',
+    });
+    const readerToken = (await reader.json<{ sessionToken: string }>()).sessionToken;
+    const readerAuthorization = { authorization: `Bearer ${readerToken}` };
+    const privateReaderLike = await api('/api/fluo/likes', {
+      body: JSON.stringify({ ...privateTarget, liked: true }),
+      headers: { ...readerAuthorization, 'content-type': 'application/json' },
+      method: 'PUT',
+    });
+    expect(privateReaderLike.status).toBe(404);
+
+    const publicTarget = {
+      nodeId,
+      postId: '223e4567-e89b-42d3-a456-426614174002',
+      space: 'public',
+    } as const;
+    await env.DB.prepare(
+      `INSERT INTO fluo_public_allocations
+        (id, user_id, node_id, post_id, bytes, committed, created_at, expires_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, 0)`,
+    ).bind(
+      '323e4567-e89b-42d3-a456-426614174003',
+      arrayBuffer(base64UrlBytes(ownerBody.user.id)),
+      nodeId,
+      publicTarget.postId,
+      1,
+      Math.floor(Date.now() / 1_000),
+    ).run();
+
+    const publicLike = await api('/api/fluo/likes', {
+      body: JSON.stringify({ ...publicTarget, liked: true }),
+      headers: { ...readerAuthorization, 'content-type': 'application/json' },
+      method: 'PUT',
+    });
+    await expect(publicLike.json()).resolves.toMatchObject({
+      ...publicTarget,
+      liked: true,
+      likeCount: 1,
+    });
+
+    const ownerPublicStates = await api('/api/fluo/likes/query', {
+      body: JSON.stringify({ posts: [publicTarget] }),
+      headers: { ...ownerAuthorization, 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    await expect(ownerPublicStates.json()).resolves.toMatchObject({
+      likes: [{ ...publicTarget, liked: false, likeCount: 1 }],
+    });
+
+    const unlike = await api('/api/fluo/likes', {
+      body: JSON.stringify({ ...publicTarget, liked: false }),
+      headers: { ...readerAuthorization, 'content-type': 'application/json' },
+      method: 'PUT',
+    });
+    await expect(unlike.json()).resolves.toMatchObject({ likeCount: 0, liked: false });
   });
 
   it('registers an Android node and returns ordered direct connection candidates', async () => {

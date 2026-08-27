@@ -99,6 +99,20 @@ export async function adminEraseUser(
         )`,
     ).bind(target.id),
     env.DB.prepare('DELETE FROM profile_public_allocations WHERE user_id = ?1').bind(target.id),
+    env.DB.prepare(
+      `DELETE FROM fluo_post_likes
+        WHERE user_id = ?1
+           OR node_id IN (SELECT id FROM nodes WHERE user_id = ?1)
+           OR (space = 'public' AND EXISTS (
+                SELECT 1 FROM fluo_public_allocations AS allocations
+                 WHERE allocations.user_id = ?1
+                   AND allocations.node_id = fluo_post_likes.node_id
+                   AND allocations.post_id = fluo_post_likes.post_id
+              ))`,
+    ).bind(target.id),
+    // Remove reactions before deleting the owner's public allocations. Public
+    // posts can live on another user's physical Nodo, so the allocation owner
+    // is the only reliable way to find every reaction to an erased post.
     env.DB.prepare('DELETE FROM fluo_public_allocations WHERE user_id = ?1').bind(target.id),
     env.DB.prepare('DELETE FROM ligo_message_deletions WHERE recipient_id = ?1 OR sender_id = ?1').bind(target.id),
     // Keep rows addressed to other participants so their next Ligo sync

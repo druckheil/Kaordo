@@ -1022,6 +1022,10 @@ async function applyPublicReconciliationAcks(
     const placeholders = postIds.map((_, index) => `?${index + 2}`).join(', ');
     statements.push(
       env.DB.prepare(
+        `DELETE FROM fluo_post_likes
+          WHERE node_id = ?1 AND space = 'public' AND post_id IN (${placeholders})`,
+      ).bind(nodeId, ...postIds),
+      env.DB.prepare(
         `DELETE FROM fluo_public_allocations
           WHERE node_id = ?1 AND committed = 1 AND post_id IN (${placeholders})`,
       ).bind(nodeId, ...postIds),
