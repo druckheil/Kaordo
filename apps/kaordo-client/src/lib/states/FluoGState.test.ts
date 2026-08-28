@@ -395,7 +395,7 @@ describe('FluoGState', () => {
       new File(['image'], 'four.jpg', { type: 'image/jpeg' }),
       new File(['video'], 'extra.webm', { type: 'video/webm' }),
     ])).toBe(4);
-    expect(state.snapshot.attachmentError).toBe('A post can contain up to 4 media files.');
+    expect(state.snapshot.attachmentError).toBe('A post can contain up to 4 images, GIFs, or videos and 5 audio files.');
 
     expect(await state.publishPost()).toBe(true);
     expect(state.snapshot.posts[0]?.attachments.map(({ kind }) => kind)).toEqual([
@@ -408,6 +408,31 @@ describe('FluoGState', () => {
     expect(await state.deletePost(postId!)).toBe(true);
     expect(fluo.posts).toEqual([]);
     expect(state.snapshot.posts).toEqual([]);
+  });
+
+  it('allows five audio files independently from the four visual media limit', () => {
+    const state = createState(new MemoryFluoGateway(), {
+      createId: (() => {
+        let id = 0;
+        return () => `audio-${++id}`;
+      })(),
+      createObjectUrl: (blob) => `blob:${blob.size}`,
+      revokeObjectUrl: () => undefined,
+    });
+
+    expect(state.addAudioAttachments([
+      new File(['1'], 'one.mp3', { type: 'audio/mpeg' }),
+      new File(['2'], 'two.ogg', { type: 'audio/ogg' }),
+      new File(['3'], 'three.wav', { type: 'audio/wav' }),
+      new File(['4'], 'four.m4a', { type: 'audio/mp4' }),
+      new File(['5'], 'five.flac', { type: 'audio/flac' }),
+      new File(['6'], 'six.mp3', { type: 'audio/mpeg' }),
+    ])).toBe(5);
+    expect(state.snapshot.draftAttachments.map(({ kind }) => kind)).toEqual([
+      'audio', 'audio', 'audio', 'audio', 'audio',
+    ]);
+    expect(state.snapshot.draftAttachments.every(({ width, height }) => width === undefined && height === undefined)).toBe(true);
+    expect(state.snapshot.attachmentError).toBe('A post can contain up to 4 images, GIFs, or videos and 5 audio files.');
   });
 
   it('surfaces an unreachable Nodo without falling back to local storage', async () => {
@@ -880,7 +905,6 @@ class MemoryNodoGateway implements NodoGateway {
     reservationId: '123e4567-e89b-42d3-a456-426614174099',
   }); }
   requestQuickTest() { return Promise.resolve({ batteryPercent: null, charging: null, completedAt: 0, coordinatorLatencyMs: 0, diskReadBps: 1, diskWriteBps: 1, memoryAvailableBytes: 0, memoryTotalBytes: 0, networkDownBps: null, networkMetered: null, networkType: 'offline' as const, networkUpBps: null, storageAvailableBytes: 0 }); }
-  updateNode() { return Promise.resolve({ currentVersion: 'test', status: 'up-to-date' as const }); }
   refreshUsage() { return Promise.resolve({ spaces: NODE.spaces, usedBytes: NODE.usedBytes }); }
   updatePolicy(_nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy> {
     return Promise.resolve({ ...policy, ownerOnly: true });

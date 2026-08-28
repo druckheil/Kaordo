@@ -1,6 +1,7 @@
 export const FLUO_MIN_MEDIA_HEIGHT = 148;
 export const FLUO_MAX_MEDIA_HEIGHT = 430;
 export const FLUO_MAX_MEDIA_WIDTH = 620;
+export const FLUO_AUDIO_MEDIA_HEIGHT = 76;
 /** Maximum width of one item in the multi-media carousel. */
 export const FLUO_CAROUSEL_MEDIA_WIDTH = 320;
 
@@ -9,6 +10,16 @@ export type FluoMediaLayout = {
   ratio: number;
   width: number;
 };
+
+/** Returns a compact, stable player box for audio attachments. */
+export function getFluoAudioLayout(availableWidth = FLUO_MAX_MEDIA_WIDTH): FluoMediaLayout {
+  const width = Math.max(1, Math.min(FLUO_MAX_MEDIA_WIDTH, availableWidth));
+  return {
+    height: FLUO_AUDIO_MEDIA_HEIGHT,
+    ratio: width / FLUO_AUDIO_MEDIA_HEIGHT,
+    width,
+  };
+}
 
 /**
  * Calculates one stable display box from the media metadata.

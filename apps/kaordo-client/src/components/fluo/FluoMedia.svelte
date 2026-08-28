@@ -3,7 +3,9 @@
   import type { FluoAttachment, FluoGState, FluoMediaOwner } from '../../lib/states/FluoGState';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
   import PhotoViewer from '../ui/PhotoViewer.svelte';
+  import FluoAudioPlayer from './FluoAudioPlayer.svelte';
   import {
+    getFluoAudioLayout,
     FLUO_MAX_MEDIA_WIDTH,
     getFluoMediaLayout,
     normalizeFluoMediaRatio,
@@ -55,11 +57,13 @@
   // without them use the same bounded fallback for both skeleton and content.
   // Intrinsic decode events are still recorded for future mounts/viewers, but
   // they must never change a row's height after it entered the timeline.
-  const reservedLayout = $derived(getFluoMediaLayout(
-    initialDimensions.width,
-    initialDimensions.height,
-    maxWidth,
-  ));
+  const reservedLayout = $derived(attachment.kind === 'audio'
+    ? getFluoAudioLayout(maxWidth)
+    : getFluoMediaLayout(
+        initialDimensions.width,
+        initialDimensions.height,
+        maxWidth,
+      ));
   // Keep the reserved height stable, but once intrinsic dimensions are known
   // let the box narrow/widen to the real ratio. This removes the old fallback
   // background beside portrait media without causing a vertical reflow.
@@ -104,7 +108,7 @@
     if (!directUrl || directUrl === mediaUrl) return;
     mediaUrl = directUrl;
     loadState = 'ready';
-    if (attachment.kind !== 'video' && (!attachment.width || !attachment.height)) {
+    if (isVisualAttachment() && (!attachment.width || !attachment.height)) {
       const generation = requestGeneration;
       void discoverImageDimensions(directUrl).then((dimensions) => {
         if (generation !== requestGeneration || !isCurrentIdentity()) return;
@@ -127,7 +131,7 @@
     request = load.then(async (url) => {
       if (generation !== requestGeneration || !isCurrentIdentity()) return;
       if (url) {
-        if (attachment.kind !== 'video' && (!attachment.width || !attachment.height)) {
+        if (isVisualAttachment() && (!attachment.width || !attachment.height)) {
           const dimensions = await discoverImageDimensions(url);
           if (generation !== requestGeneration || !isCurrentIdentity()) return;
           if (dimensions) applyMediaDimensions(dimensions.width, dimensions.height);
@@ -165,7 +169,7 @@
     request = load.then(async (url) => {
       if (generation !== requestGeneration || !isCurrentIdentity()) return;
       if (url) {
-        if (attachment.kind !== 'video') {
+        if (isVisualAttachment()) {
           const dimensions = await discoverImageDimensions(url);
           if (generation !== requestGeneration || !isCurrentIdentity()) return;
           if (dimensions) applyMediaDimensions(dimensions.width, dimensions.height);
@@ -217,6 +221,14 @@
     void retry();
   }
 
+  function handleMediaError(): void {
+    handleImageError();
+  }
+
+  function isVisualAttachment(): boolean {
+    return attachment.kind === 'image' || attachment.kind === 'gif';
+  }
+
   function handleImageLoad(event: Event): void {
     const image = event.currentTarget as HTMLImageElement;
     if (image.naturalWidth > 0 && image.naturalHeight > 0) {
@@ -261,6 +273,7 @@
 </script>
 
 <figure
+  class:media-audio={attachment.kind === 'audio'}
   class:media-unavailable={loadState === 'error'}
   style={`--media-ratio:${mediaLayout.ratio};--media-width:${mediaLayout.width}px;--media-height:${mediaLayout.height}px;width:${mediaLayout.width}px;height:${mediaLayout.height}px`}
 >
@@ -277,7 +290,9 @@
       src={mediaUrl}
       title={attachment.name}
     />
-  {:else if attachment.kind !== 'video' && mediaUrl}
+  {:else if attachment.kind === 'audio' && mediaUrl}
+    <FluoAudioPlayer name={attachment.name} onError={handleMediaError} src={mediaUrl} />
+  {:else if isVisualAttachment() && mediaUrl}
     <button
       class="image-trigger"
       type="button"
@@ -295,7 +310,7 @@
   {#if attachment.kind === 'gif'}<span class="media-kind">GIF</span>{/if}
 </figure>
 
-{#if showPhotoViewer && mediaUrl && attachment.kind !== 'video'}
+{#if showPhotoViewer && mediaUrl && isVisualAttachment()}
   <PhotoViewer
     alt={attachment.name}
     height={discoveredDimensions?.height ?? attachment.height ?? mediaLayout.height}
@@ -312,8 +327,10 @@
     display: block;
     min-width: 0;
     width: var(--media-width);
+    inline-size: min(var(--media-width), 100%);
     height: var(--media-height);
     max-width: 100%;
+    max-inline-size: 100%;
     aspect-ratio: var(--media-ratio);
     margin: 0;
     overflow: hidden;
@@ -323,6 +340,11 @@
     box-shadow: var(--sui-shadow-inset-sm);
     justify-self: start;
     align-self: start;
+  }
+
+  figure.media-audio {
+    background: var(--sui-bg-light);
+    box-shadow: var(--sui-shadow-inset-sm);
   }
 
   img {

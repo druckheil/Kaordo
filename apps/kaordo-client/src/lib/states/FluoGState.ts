@@ -17,8 +17,10 @@ import { NodoRegistry } from '../services/NodoRegistry';
 
 export const FLUO_MAX_POST_LENGTH = 5_000;
 export const FLUO_MAX_ATTACHMENTS = 4;
+export const FLUO_MAX_AUDIO_ATTACHMENTS = 5;
+export const FLUO_MAX_TOTAL_ATTACHMENTS = FLUO_MAX_ATTACHMENTS + FLUO_MAX_AUDIO_ATTACHMENTS;
 
-export type FluoAttachmentKind = 'gif' | 'image' | 'video';
+export type FluoAttachmentKind = 'audio' | 'gif' | 'image' | 'video';
 
 export type FluoAttachment = {
   height?: number;
@@ -704,14 +706,26 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   addAttachments(files: readonly File[]): number {
+    return this.addAttachmentFiles(files);
+  }
+
+  addAudioAttachments(files: readonly File[]): number {
+    return this.addAttachmentFiles(files, true);
+  }
+
+  private addAttachmentFiles(files: readonly File[], audioOnly = false): number {
     if (this.snapshot.isPublishing) return 0;
     const added: FluoDraftAttachment[] = [];
     let limitExceeded = false;
     let unsupported = false;
+    let visualCount = this.snapshot.draftAttachments.filter(({ kind }) => kind !== 'audio').length;
+    let audioCount = this.snapshot.draftAttachments.filter(({ kind }) => kind === 'audio').length;
     for (const file of files) {
       const kind = attachmentKind(file);
-      if (!kind) { unsupported = true; continue; }
-      if (this.snapshot.draftAttachments.length + added.length >= FLUO_MAX_ATTACHMENTS) {
+      if (!kind || (audioOnly && kind !== 'audio')) { unsupported = true; continue; }
+      const count = kind === 'audio' ? audioCount : visualCount;
+      const limit = kind === 'audio' ? FLUO_MAX_AUDIO_ATTACHMENTS : FLUO_MAX_ATTACHMENTS;
+      if (count >= limit) {
         limitExceeded = true;
         continue;
       }
@@ -725,6 +739,8 @@ export class FluoGState extends GState<FluoSnapshot> {
           size: file.size,
           url: this.#createObjectUrl(file),
         });
+        if (kind === 'audio') audioCount += 1;
+        else visualCount += 1;
       } catch { unsupported = true; }
     }
     this.publish({
@@ -1319,6 +1335,7 @@ type ResolvedFluoMedia = {
 function attachmentKind(file: File): FluoAttachmentKind | null {
   const mimeType = file.type.toLowerCase();
   const name = file.name.toLowerCase();
+  if (mimeType.startsWith('audio/') || /\.(?:aac|flac|m4a|mp3|oga|ogg|opus|wav|weba)$/i.test(name)) return 'audio';
   if (mimeType === 'image/gif' || name.endsWith('.gif')) return 'gif';
   if (mimeType.startsWith('image/')) return 'image';
   if (mimeType.startsWith('video/')) return 'video';
@@ -1327,12 +1344,13 @@ function attachmentKind(file: File): FluoAttachmentKind | null {
 
 function attachmentMessage(limitExceeded: boolean, unsupported: boolean): string | null {
   const messages: string[] = [];
-  if (limitExceeded) messages.push('A post can contain up to 4 media files');
-  if (unsupported) messages.push('Only images, GIFs, and videos are supported');
+  if (limitExceeded) messages.push('A post can contain up to 4 images, GIFs, or videos and 5 audio files');
+  if (unsupported) messages.push('Only images, GIFs, videos, and audio files are supported');
   return messages.length ? `${messages.join('. ')}.` : null;
 }
 
 function fallbackMimeType(kind: FluoAttachmentKind): string {
+  if (kind === 'audio') return 'audio/mpeg';
   return kind === 'gif' ? 'image/gif' : kind === 'video' ? 'video/mp4' : 'image/jpeg';
 }
 
@@ -1340,6 +1358,7 @@ function withReservedDimensions<T extends FluoAttachment>(
   attachment: T,
   fallback?: FluoAttachment,
 ): T {
+  if (attachment.kind === 'audio') return attachment;
   if (validMediaDimensions(attachment.width, attachment.height)) return attachment;
   const width = validMediaDimensions(fallback?.width, fallback?.height)
     ? fallback!.width!

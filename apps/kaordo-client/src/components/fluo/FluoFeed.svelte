@@ -3,6 +3,7 @@
   import {
     FLUO_MAX_POST_LENGTH,
     FLUO_MAX_ATTACHMENTS,
+    FLUO_MAX_AUDIO_ATTACHMENTS,
     createFluoQuote,
     type FluoGState,
     type FluoPost,
@@ -13,6 +14,7 @@
   import NodoPickerDialog from '../nodo/NodoPickerDialog.svelte';
   import FluoPostPage from './FluoPostPage.svelte';
   import FluoQuotedPost from './FluoQuotedPost.svelte';
+  import FluoAudioPlayer from './FluoAudioPlayer.svelte';
   import FluoTimeline from './FluoTimeline.svelte';
 
   type Props = {
@@ -23,6 +25,7 @@
 
   let { active = true, snapshot, fluoState }: Props = $props();
   let attachmentInput = $state<HTMLInputElement>();
+  let audioInput = $state<HTMLInputElement>();
   let composer = $state<HTMLTextAreaElement>();
   let composerTrigger = $state<HTMLButtonElement>();
   let composerModal = $state<HTMLElement>();
@@ -38,7 +41,8 @@
   let composerShakeAnimation: Animation | null = null;
   const EMOJI_OPTIONS = ['🙂', '😀', '😂', '😍', '😮', '😢', '🔥', '🎉', '👍', '💡', '🌿', '✨'];
   let remaining = $derived(FLUO_MAX_POST_LENGTH - snapshot.draft.length);
-  let mediaCount = $derived(snapshot.draftAttachments.length);
+  let mediaCount = $derived(snapshot.draftAttachments.filter(({ kind }) => kind !== 'audio').length);
+  let audioCount = $derived(snapshot.draftAttachments.filter(({ kind }) => kind === 'audio').length);
   let selectedNode = $derived(snapshot.nodes.find(({ id }) => id === snapshot.selectedNodeId));
   let publicAvailable = $derived(Boolean(snapshot.publicStorage?.nodeCandidates.length));
   let destinationAvailable = $derived(snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION
@@ -219,6 +223,13 @@
     addAttachmentFiles(files);
   }
 
+  function attachAudioFiles(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const files = input.files ? [...input.files] : [];
+    input.value = '';
+    addAttachmentFiles(files, true);
+  }
+
   function handleComposerPaste(event: ClipboardEvent) {
     const clipboard = event.clipboardData;
     if (!clipboard) return;
@@ -238,9 +249,13 @@
     addAttachmentFiles(files);
   }
 
-  function addAttachmentFiles(files: readonly File[]) {
-    if (!files.length || !fluoState.addAttachments(files)) return;
-    const preparation = Promise.all(files.map(async (file) => {
+  function addAttachmentFiles(files: readonly File[], audioOnly = false) {
+    if (!files.length) return;
+    const added = audioOnly
+      ? fluoState.addAudioAttachments(files)
+      : fluoState.addAttachments(files);
+    if (!added) return;
+    const preparation = Promise.all(files.filter((file) => !isAudioFile(file)).map(async (file) => {
       const dimensions = await readMediaDimensions(file);
       if (dimensions) fluoState.setDraftAttachmentDimensions(file, dimensions.width, dimensions.height);
     })).then(() => undefined);
@@ -261,6 +276,8 @@
         ? mimeType.slice('image/'.length).split('+', 1)[0] || 'png'
         : mimeType.startsWith('video/')
           ? mimeType.slice('video/'.length).split('+', 1)[0] || 'mp4'
+          : mimeType.startsWith('audio/')
+            ? mimeType.slice('audio/'.length).split('+', 1)[0] || 'mp3'
           : 'bin';
     try {
       return new File([file], `pasted-media-${Date.now()}-${index + 1}.${extension}`, {
@@ -273,6 +290,7 @@
   }
 
   async function readMediaDimensions(file: File): Promise<{ height: number; width: number } | null> {
+    if (isAudioFile(file)) return null;
     const source = URL.createObjectURL(file);
     try {
       return isVideoFile(file)
@@ -329,6 +347,11 @@
   function isVideoFile(file: File): boolean {
     return file.type.toLowerCase().startsWith('video/') ||
       /\.(?:3gp|avi|m4v|mkv|mov|mp4|mpeg|mpg|ogv|webm)$/i.test(file.name);
+  }
+
+  function isAudioFile(file: File): boolean {
+    return file.type.toLowerCase().startsWith('audio/') ||
+      /\.(?:aac|flac|m4a|mp3|oga|ogg|opus|wav|weba)$/i.test(file.name);
   }
 
   function resizeComposer(event: Event) {
@@ -536,7 +559,7 @@
             onpaste={handleComposerPaste}
           ></textarea>
           <div class="fluo-compose-meta">
-            <span>{mediaCount}/{FLUO_MAX_ATTACHMENTS} media</span>
+            <span>{mediaCount}/{FLUO_MAX_ATTACHMENTS} media · {audioCount}/{FLUO_MAX_AUDIO_ATTACHMENTS} audio</span>
             <span class:character-count--near={remaining < 80}>{remaining} characters left</span>
           </div>
         </div>
@@ -544,13 +567,15 @@
         {#if snapshot.draftAttachments.length}
           <div class="draft-media" aria-label="Attached media">
             {#each snapshot.draftAttachments as attachment (attachment.id)}
-              <figure class:media-video={attachment.kind === 'video'}>
+              <figure class:media-video={attachment.kind === 'video'} class:media-audio={attachment.kind === 'audio'}>
                 {#if attachment.kind === 'video'}
                   <video src={attachment.url} muted preload="metadata" aria-label={attachment.name}></video>
+                {:else if attachment.kind === 'audio'}
+                  <FluoAudioPlayer compact name={attachment.name} src={attachment.url} />
                 {:else}
                   <img src={attachment.url} alt={attachment.name} />
                 {/if}
-                {#if attachment.kind !== 'image'}<span>{attachment.kind === 'gif' ? 'GIF' : 'VIDEO'}</span>{/if}
+                {#if attachment.kind === 'gif'}<span>GIF</span>{/if}
                 <button
                   type="button"
                   disabled={snapshot.isPublishing}
@@ -600,6 +625,14 @@
           multiple
           onchange={attachFiles}
         />
+        <input
+          bind:this={audioInput}
+          class="media-input"
+          type="file"
+          accept="audio/*"
+          multiple
+          onchange={attachAudioFiles}
+        />
         <footer class="sui-modal-footer fluo-compose-footer">
           <div class="fluo-compose-tools">
             <button
@@ -611,6 +644,16 @@
               onclick={() => attachmentInput?.click()}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"/><circle cx="9" cy="9" r="1.5"/><path d="m6 17 4.2-4.2 2.7 2.4 2.1-2.1L18 17" /></svg>
+            </button>
+            <button
+              class="sui-btn sui-btn-icon fluo-compose-icon-button"
+              type="button"
+              disabled={snapshot.isPublishing}
+              aria-label="Attach audio"
+              title="Attach up to 5 audio files"
+              onclick={() => audioInput?.click()}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l10-2v12M9 18a3 3 0 1 1-3-3 3 3 0 0 1 3 3Zm10-2a3 3 0 1 1-3-3 3 3 0 0 1 3 3Z" /></svg>
             </button>
             <div bind:this={emojiWrap} class="fluo-emoji-wrap">
               <button
@@ -632,7 +675,7 @@
                 </div>
               {/if}
             </div>
-            <span class="fluo-compose-media-count">{mediaCount}/{FLUO_MAX_ATTACHMENTS} media</span>
+            <span class="fluo-compose-media-count">{mediaCount}/{FLUO_MAX_ATTACHMENTS} media · {audioCount}/{FLUO_MAX_AUDIO_ATTACHMENTS} audio</span>
           </div>
           <button
             class="sui-btn sui-btn-primary fluo-compose-post-button"
@@ -1034,7 +1077,9 @@
 
   .draft-media {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(92px, 100%), 1fr));
+    min-width: 0;
+    max-width: 100%;
     gap: 7px;
     padding: 2px 0 11px;
   }
@@ -1048,6 +1093,20 @@
     background: var(--sui-bg);
     border: 0;
     border-radius: 10px;
+    box-shadow: var(--sui-shadow-inset-sm);
+  }
+
+  .draft-media figure.media-audio {
+    grid-column: 1 / -1;
+    display: flex;
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+    min-height: 64px;
+    min-width: 0;
+    padding: 8px 10px;
+    align-items: center;
+    background: var(--sui-bg-light);
     box-shadow: var(--sui-shadow-inset-sm);
   }
 

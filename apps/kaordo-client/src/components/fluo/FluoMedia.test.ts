@@ -34,6 +34,35 @@ describe('FluoMedia', () => {
     expect(view.container.querySelector('img')?.getAttribute('src')).toBe('blob:second');
   });
 
+  it('renders the audio player for an audio attachment', async () => {
+    let load!: () => Promise<void>;
+    const register = vi.fn((callback: () => Promise<void>) => {
+      load = callback;
+      return () => undefined;
+    });
+    const fluoState = {
+      loadMedia: vi.fn(() => Promise.resolve('blob:audio')),
+    } as unknown as FluoGState;
+    const view = render(FluoMedia, {
+      attachment: {
+        id: 'audio-1',
+        kind: 'audio',
+        mimeType: 'audio/mpeg',
+        name: 'lesson.mp3',
+        size: 12,
+      },
+      fluoState,
+      postId: 'post-1',
+      register,
+    });
+
+    await load();
+
+    expect(view.container.querySelector('audio')?.getAttribute('src')).toBe('blob:audio');
+    expect(view.container.querySelector('.audio-player__heading')?.textContent).toContain('lesson.mp3');
+    expect(view.container.querySelector('img')).toBeNull();
+  });
+
   it('ignores a late response from the previous attachment', async () => {
     let resolveFirst!: (url: string) => void;
     let load!: () => Promise<void>;
