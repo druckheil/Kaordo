@@ -57,7 +57,7 @@
   import { NodeFluoGateway } from './lib/gateways/NodeFluoGateway';
   import { createFluoLikesGateway } from './lib/gateways/createFluoLikesGateway';
   import { NodoRegistry } from './lib/services/NodoRegistry';
-  import { closeContextMenu } from './lib/ui/contextMenu';
+  import { closeContextMenu, shouldUseNativeContextMenu } from './lib/ui/contextMenu';
 
   const EMPTY_NODO_GATEWAY: NodoGateway = {
     accessNode: async () => { throw new Error('Nodo access is unavailable.'); },
@@ -728,6 +728,11 @@
     appearance.state.setTextScale(textScale);
   }
 
+  function handleGlobalContextMenu(event: MouseEvent) {
+    if (shouldUseNativeContextMenu(event)) return;
+    event.preventDefault();
+  }
+
   function openCreatePanelDialog() {
     if (!workspaceSnapshot.active) return;
     editor.workspaceState.clearCreateObjectError();
@@ -761,7 +766,7 @@
 <svelte:window
   onblur={() => editor.canvas.clearInteractions()}
   onkeydown={handleGlobalKeydown}
-  oncontextmenu={(event) => event.preventDefault()}
+  oncontextmenu={handleGlobalContextMenu}
 />
 
 {#if authSnapshot.phase === 'authenticated'}

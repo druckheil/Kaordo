@@ -525,6 +525,7 @@
             id="fluo-post-text"
             class="sui-input sui-textarea"
             aria-label="Post text"
+            spellcheck="true"
             maxlength={FLUO_MAX_POST_LENGTH}
             placeholder="What is worth sharing?"
             rows="4"

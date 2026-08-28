@@ -224,7 +224,9 @@
     font-size: calc(10px * var(--text-scale));
     line-height: 1.48;
     overflow-wrap: anywhere;
+    user-select: text;
     white-space: pre-wrap;
+    -webkit-user-select: text;
   }
 
   .quoted-post__empty { color: var(--sui-text-muted); font-style: italic; }

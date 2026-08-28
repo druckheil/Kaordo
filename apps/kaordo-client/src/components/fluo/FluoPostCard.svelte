@@ -214,7 +214,9 @@
     font-size: calc(12px * var(--text-scale));
     line-height: 1.62;
     overflow-wrap: anywhere;
+    user-select: text;
     white-space: pre-wrap;
+    -webkit-user-select: text;
   }
 
   .post-content > .post-body--collapsed {

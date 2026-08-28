@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
   import type { RondoMessage } from '../../lib/domain/rondo';
+  import { shouldUseNativeContextMenu } from '../../lib/ui/contextMenu';
 
   type Props = {
     atLatest: boolean;
@@ -79,6 +80,7 @@
 
   function openMenu(event: MouseEvent, message: RondoMessage): void {
     if (!owner && message.author !== currentUsername) return;
+    if (shouldUseNativeContextMenu(event)) return;
     event.preventDefault();
     menu = { id: message.id, x: Math.min(event.clientX, innerWidth - 130), y: Math.min(event.clientY, innerHeight - 56) };
   }
