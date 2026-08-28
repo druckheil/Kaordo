@@ -94,6 +94,7 @@
   title={title}
   aria-label={title}
   src={source}
+  storage="kaordo.video.v1"
   viewType="video"
   playsinline
   preload={preload}

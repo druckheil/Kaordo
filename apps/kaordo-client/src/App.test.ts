@@ -255,6 +255,10 @@ class MemoryFluoGateway implements FluoGateway {
 }
 
 async function openResearchFile() {
+  const klaro = screen.getByRole('radio', { name: 'Klaro' });
+  if (!(klaro as HTMLInputElement).checked) {
+    await fireEvent.click(klaro);
+  }
   await fireEvent.click(screen.getByRole('button', { name: /Research\.vdw/ }));
   const createObjectButton = await screen.findByRole('button', { name: 'New Panel' });
   const canvas = screen.getByRole('region', { name: 'Knowledge canvas' });
@@ -262,6 +266,13 @@ async function openResearchFile() {
     expect(canvas).not.toHaveClass('canvas-viewport--camera-pending');
   });
   return createObjectButton;
+}
+
+async function openKlaroSection() {
+  const klaro = screen.getByRole('radio', { name: 'Klaro' });
+  if (!(klaro as HTMLInputElement).checked) {
+    await fireEvent.click(klaro);
+  }
 }
 
 function mockCanvasViewportSize(width: number, height: number) {
@@ -323,6 +334,7 @@ function mockFluoViewportSize(element: HTMLElement, width = 680, height = 900) {
 describe('workspace navigation and objects', () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
+    localStorage.clear();
   });
 
   it('shows Files without Objects or Inspector before a file is opened', () => {
@@ -340,7 +352,7 @@ describe('workspace navigation and objects', () => {
     const navigation = screen.getByRole('navigation', {
       name: 'Kaordo sections',
     });
-    expect(within(navigation).getByRole('radio', { name: 'Klaro' })).toBeChecked();
+    expect(within(navigation).getByRole('radio', { name: 'Fluo' })).toBeChecked();
 
     await fireEvent.click(within(navigation).getByRole('radio', { name: 'Fluo' }));
     expect(screen.getByRole('heading', { name: 'Global timeline' })).toBeInTheDocument();
@@ -683,6 +695,8 @@ describe('workspace navigation and objects', () => {
       workspaceGateway: new WebWorkspaceGateway(),
     });
 
+    await openKlaroSection();
+
     expect(
       screen.getByRole('heading', { name: 'Create a browser workspace' }),
     ).toBeInTheDocument();
@@ -857,6 +871,7 @@ describe('workspace navigation and objects', () => {
 
   it('keeps the custom workspace dialog keyboard-contained and restores focus', async () => {
     renderApp({ autoloadWorkspaceLibrary: false });
+    await openKlaroSection();
     const trigger = screen.getByRole('button', { name: 'Create Workspace' });
 
     await fireEvent.click(trigger);
@@ -894,6 +909,8 @@ describe('workspace navigation and objects', () => {
       },
     });
     renderApp({ autoloadWorkspaceLibrary: false });
+
+    await openKlaroSection();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Create Workspace' }));
     const dialog = screen.getByRole('dialog', { name: 'Create workspace' });
@@ -2041,6 +2058,7 @@ describe('workspace navigation and objects', () => {
 describe('authentication gate', () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
+    localStorage.clear();
   });
 
   it('keeps the workspace unmounted until a valid login succeeds', async () => {

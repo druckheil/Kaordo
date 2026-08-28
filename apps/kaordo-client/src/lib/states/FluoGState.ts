@@ -110,6 +110,7 @@ export type FluoGStateOptions = {
   onStorageChanged?: (nodeId: string, space: 'private' | 'public') => void | Promise<void>;
   revokeObjectUrl?: (url: string) => void;
   registry?: NodoRegistry;
+  selectionStorage?: Storage | null;
 };
 
 /** Owns the global node-backed Fluo timeline and its small metadata snapshot. */
@@ -122,6 +123,7 @@ export class FluoGState extends GState<FluoSnapshot> {
   readonly #onStorageChanged: ((nodeId: string, space: 'private' | 'public') => void | Promise<void>) | null;
   readonly #registry: NodoRegistry;
   readonly #revokeObjectUrl: (url: string) => void;
+  readonly #selectionStorage: Storage | null;
   #lifecycleId = 0;
   #requestId = 0;
   #feedCursor: string | null = null;
@@ -151,8 +153,13 @@ export class FluoGState extends GState<FluoSnapshot> {
     promise: Promise<FluoNodeFeedState[]>;
   } | null = null;
   #refreshInFlight: { lifecycleId: number; promise: Promise<void> } | null = null;
+  #nodesResolved = false;
 
   constructor(gateway: FluoGateway, nodes: NodoGateway, options: FluoGStateOptions = {}) {
+    const cacheOwnerId = normalizeCacheOwner(options.cacheOwnerId ?? null);
+    const selectionStorage = options.selectionStorage !== undefined
+      ? options.selectionStorage
+      : options.cacheStorage ?? browserStorage();
     super({
       attachmentError: null,
       draft: '',
@@ -165,13 +172,14 @@ export class FluoGState extends GState<FluoSnapshot> {
       nodes: [],
       posts: [],
       publicStorage: null,
-      selectedNodeId: PUBLIC_FLUO_DESTINATION,
+      selectedNodeId: readSelectedNode(selectionStorage, cacheOwnerId),
       storageError: null,
       uploadProgress: null,
     });
     this.#gateway = gateway;
     this.#nodes = nodes;
-    this.#cacheOwnerId = normalizeCacheOwner(options.cacheOwnerId ?? null);
+    this.#cacheOwnerId = cacheOwnerId;
+    this.#selectionStorage = selectionStorage;
     this.#feedCache = new FluoFeedCache({ storage: options.cacheStorage });
     this.#onStorageChanged = options.onStorageChanged ?? null;
     this.#registry = options.registry ?? new NodoRegistry();
@@ -231,6 +239,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#pageSize = INITIAL_FEED_PAGE_SIZE;
     this.#cacheRestorePromise = null;
     this.#feedStatesInFlight = null;
+    this.#nodesResolved = false;
     this.#likeRequests.clear();
     this.#likeDesiredStates.clear();
     this.#likeStateRequests.clear();
@@ -255,7 +264,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       nodes: [],
       posts: [],
       publicStorage: null,
-      selectedNodeId: PUBLIC_FLUO_DESTINATION,
+      selectedNodeId: readSelectedNode(this.#selectionStorage, this.#cacheOwnerId),
       storageError: null,
       uploadProgress: null,
     });
@@ -318,6 +327,7 @@ export class FluoGState extends GState<FluoSnapshot> {
             this.#nodes.publicStorage(),
           ]);
       if (requestId !== this.#requestId) return;
+      this.#nodesResolved = true;
       this.#registry.replace(nodes);
       // replace() synchronously notifies the subscription created in enter().
       // Direct state consumers do not have that subscription, so only apply
@@ -680,10 +690,12 @@ export class FluoGState extends GState<FluoSnapshot> {
     if (nodeId === this.snapshot.selectedNodeId) return;
     if (nodeId !== PUBLIC_FLUO_DESTINATION &&
         !this.snapshot.nodes.some(({ id }) => id === nodeId)) return;
+    const selectedNodeId = nodeId || PUBLIC_FLUO_DESTINATION;
     this.publish({
       ...this.snapshot,
-      selectedNodeId: nodeId || PUBLIC_FLUO_DESTINATION,
+      selectedNodeId,
     });
+    this.persistSelectedNode(selectedNodeId);
   }
 
   setDraft(draft: string): void {
@@ -1042,16 +1054,29 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   private applyNodes(nodes: readonly NodoNode[]): void {
-    const selectedNodeId = this.snapshot.selectedNodeId === PUBLIC_FLUO_DESTINATION ||
-      nodes.some(({ id }) => id === this.snapshot.selectedNodeId)
-      ? this.snapshot.selectedNodeId
+    const currentNodeId = this.snapshot.selectedNodeId ?? PUBLIC_FLUO_DESTINATION;
+    const selectedNodeId = !this.#nodesResolved || currentNodeId === PUBLIC_FLUO_DESTINATION ||
+      nodes.some(({ id }) => id === currentNodeId)
+      ? currentNodeId
       : PUBLIC_FLUO_DESTINATION;
+    if (selectedNodeId !== this.snapshot.selectedNodeId) this.persistSelectedNode(selectedNodeId);
     this.publish({
       ...this.snapshot,
       nodes: [...nodes],
       posts: this.snapshot.posts,
       selectedNodeId,
     });
+  }
+
+  private persistSelectedNode(nodeId: string): void {
+    const ownerId = this.#cacheOwnerId;
+    const storage = this.#selectionStorage;
+    if (!ownerId || !storage) return;
+    try {
+      storage.setItem(selectedNodeKey(ownerId), nodeId || PUBLIC_FLUO_DESTINATION);
+    } catch {
+      // A disabled or full local storage must not block selecting a Nodo.
+    }
   }
 
   private hydrate(post: RemoteFluoPost): FluoPost {
@@ -1344,6 +1369,7 @@ const MAX_MEDIA_DIMENSION = 100_000;
 const RESERVED_MEDIA_WIDTH = 1_600;
 const RESERVED_MEDIA_HEIGHT = 900;
 const LIKE_BATCH_SIZE = 100;
+const NODE_SELECTION_KEY_PREFIX = 'kaordo.fluo-node.v1.';
 
 function postKey(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
   return `${post.space}:${post.nodeId}:${post.id}`;
@@ -1419,6 +1445,28 @@ function createLocalId(): string {
 function normalizeCacheOwner(ownerId: string | null): string | null {
   const normalized = ownerId?.trim();
   return normalized || null;
+}
+
+function readSelectedNode(storage: Storage | null, ownerId: string | null): string {
+  if (!storage || !ownerId) return PUBLIC_FLUO_DESTINATION;
+  try {
+    const selected = storage.getItem(selectedNodeKey(ownerId))?.trim();
+    return selected || PUBLIC_FLUO_DESTINATION;
+  } catch {
+    return PUBLIC_FLUO_DESTINATION;
+  }
+}
+
+function selectedNodeKey(ownerId: string): string {
+  return `${NODE_SELECTION_KEY_PREFIX}${encodeURIComponent(ownerId)}`;
+}
+
+function browserStorage(): Storage | null {
+  try {
+    return typeof globalThis.localStorage === 'undefined' ? null : globalThis.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeLikeCount(value: unknown): number {

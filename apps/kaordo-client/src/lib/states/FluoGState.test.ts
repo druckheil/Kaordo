@@ -329,6 +329,26 @@ describe('FluoGState', () => {
     expect(state.snapshot.posts[1]).toMatchObject({ body: 'A node-backed beginning.', space: 'public' });
   });
 
+  it('restores the selected Nodo for the account after restart', async () => {
+    const storage = new MapStorage();
+    const first = createState(new MemoryFluoGateway(), {
+      cacheOwnerId: 'user-1',
+      selectionStorage: storage,
+    });
+
+    await first.refreshNodes();
+    await first.selectNode(NODE.id);
+
+    const second = createState(new MemoryFluoGateway(), {
+      cacheOwnerId: 'user-1',
+      selectionStorage: storage,
+    });
+
+    expect(second.snapshot.selectedNodeId).toBe(NODE.id);
+    await second.refreshNodes();
+    expect(second.snapshot.selectedNodeId).toBe(NODE.id);
+  });
+
   it('publishes a quote without duplicating the original media payload', async () => {
     const fluo = new MemoryFluoGateway();
     fluo.posts = [{

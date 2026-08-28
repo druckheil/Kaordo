@@ -56,6 +56,11 @@
   import type { IloGateway } from './lib/gateways/IloGateway';
   import { NodeFluoGateway } from './lib/gateways/NodeFluoGateway';
   import { createFluoLikesGateway } from './lib/gateways/createFluoLikesGateway';
+  import {
+    loadLastSection,
+    saveLastSection,
+    sectionForRole,
+  } from './lib/services/AppPreferences';
   import { NodoRegistry } from './lib/services/NodoRegistry';
   import { closeContextMenu, shouldUseNativeContextMenu } from './lib/ui/contextMenu';
 
@@ -257,7 +262,7 @@
   let ligoSnapshot = $state(ligo.state.snapshot);
   let profileSnapshot = $state(profile.state.snapshot);
   let iloSnapshot = $state(ilo.state.snapshot);
-  let activeSection = $state<AppSection>('klaro');
+  let activeSection = $state<AppSection>(loadLastSection());
   type StorageBrowserTarget =
     | { kind: 'public'; title: string; subtitle: string }
     | { kind: 'node'; nodeId: string; nodeName: string; space: NodoStorageSpace };
@@ -432,12 +437,19 @@
     if (!snapshot) return;
     authSnapshot = snapshot;
     if (snapshot.phase === 'authenticated') {
+      const allowedSection = sectionForRole(activeSection, snapshot.user?.role ?? 'user');
+      if (allowedSection !== activeSection) {
+        activeSection = allowedSection;
+        saveLastSection(activeSection);
+      }
       const userId = snapshot.user?.id ?? null;
       const accountJustAuthenticated = authenticatedUserId !== userId;
       authenticatedUserId = userId;
       editor.fluoState.configureCacheOwner(userId);
       editor.start();
       if (activeSection === 'fluo') editor.startFluo();
+      if (activeSection === 'nodo') nodo.start();
+      if (activeSection === 'regado') regado.start();
       if (activeSection === 'mi') {
         profile.start();
         publicStorage.start();
@@ -456,10 +468,6 @@
       // Ligo's hibernatable socket is also the app-level presence signal, so
       // it remains connected while the authenticated application is open.
       ligo.start();
-      if (snapshot.user?.role !== 'superadmin' && activeSection === 'regado') {
-        activeSection = 'klaro';
-        regado.stop();
-      }
     } else {
       authenticatedUserId = null;
       editor.stop();
@@ -688,6 +696,7 @@
     isCreatePanelOpen = false;
     closeStorageBrowser();
     activeSection = section;
+    saveLastSection(section);
     if (section === 'regado') regado.start();
     else regado.stop();
     if (section === 'nodo') nodo.start();
