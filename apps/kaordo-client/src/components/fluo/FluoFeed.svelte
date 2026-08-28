@@ -959,7 +959,7 @@
     /* Section modals must not cover the global app chrome. Keeping the
        backdrop inside the content band leaves navigation and window controls
        visible and interactive while the composer is open. */
-    inset: var(--app-header-height, 32px) 0 var(--app-status-height, 28px);
+    inset: var(--app-header-height, 32px) 0 0;
     z-index: 110;
     display: flex;
     align-items: center;

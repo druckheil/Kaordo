@@ -700,7 +700,6 @@ describe('workspace navigation and objects', () => {
     expect(
       screen.getByRole('heading', { name: 'Create a browser workspace' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Browser workspace')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Create Workspace' }));
     expect(screen.getByText('Browser storage')).toBeInTheDocument();
     expect(

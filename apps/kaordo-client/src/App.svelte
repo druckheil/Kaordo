@@ -7,7 +7,6 @@
   import EditorPanel from './components/EditorPanel.svelte';
   import FilesPanel from './components/FilesPanel.svelte';
   import ContentsPanel from './components/ContentsPanel.svelte';
-  import StatusBar from './components/StatusBar.svelte';
   import FloatingDragCard from './components/canvas/FloatingDragCard.svelte';
   import FluoFeed from './components/fluo/FluoFeed.svelte';
   import ProfileSection from './components/sections/ProfileSection.svelte';
@@ -930,7 +929,6 @@
     {/if}
   </div>
 
-  <StatusBar {platform} section={activeSection} />
   {#if storageBrowser}
     <StorageItemsPanel
       error={storageItemsError}
@@ -991,11 +989,10 @@
 <style>
   .app-shell {
     --app-header-height: 32px;
-    --app-status-height: 28px;
     position: relative;
     isolation: isolate;
     display: grid;
-    grid-template-rows: var(--app-header-height) minmax(0, 1fr) var(--app-status-height);
+    grid-template-rows: var(--app-header-height) minmax(0, 1fr);
     width: 100%;
     height: 100%;
     background: var(--canvas);
