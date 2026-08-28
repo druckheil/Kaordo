@@ -29,7 +29,7 @@ import { InFlightRequests } from './InFlightRequests';
 import { NodoAccessCache } from './NodoAccessCache';
 import { updateNode, withTimeout } from './NodeUpdateGateway';
 
-const NODE_UPDATE_TIMEOUT_MS = 9_000;
+const NODE_UPDATE_TIMEOUT_MS = 7_500;
 
 export class TauriNodoGateway implements NodoGateway {
   readonly #inFlight = new InFlightRequests();
@@ -131,7 +131,7 @@ export class TauriNodoGateway implements NodoGateway {
     return withTimeout(
       this.accessNode(nodeId, { forceRefresh: true }).then(updateNode),
       NODE_UPDATE_TIMEOUT_MS,
-      'Nodo update timed out after 10 seconds. The host may still finish the update in the background.',
+      'Nodo did not acknowledge the update within 8 seconds. Keep the host online and retry.',
     );
   }
 

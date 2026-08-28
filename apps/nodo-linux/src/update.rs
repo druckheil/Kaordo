@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::ui;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -13,6 +13,8 @@ use uuid::Uuid;
 const DEFAULT_UPDATE_MANIFEST_URL: &str = "https://kaordo.pages.dev/downloads/nodo-linux.json";
 const UPDATE_MANIFEST_TIMEOUT_SECONDS: u64 = 8;
 const STATUS_FILENAME: &str = ".update-status.json";
+const LOCK_FILENAME: &str = ".update.lock";
+const STALE_LOCK_SECONDS: u64 = 20;
 
 #[derive(Debug, Clone, Deserialize)]
 struct Manifest {
@@ -78,6 +80,7 @@ pub fn run(
     restart: bool,
     job_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let _lock_guard = job_id.map(|job_id| UpdateLockGuard { config, job_id });
     let check = check(config);
     let check = match check {
         Ok(check) => check,
@@ -190,47 +193,139 @@ pub fn run(
     Ok(())
 }
 
-pub fn start_background(
-    config: &Config,
-    check: &UpdateCheck,
-) -> Result<UpdateStatus, Box<dyn std::error::Error>> {
-    if let Some(existing) = read_status(config, None)?
-        && matches!(existing.status.as_str(), "started" | "installing")
-    {
-        return Ok(existing);
+pub fn start_background(config: &Config) -> Result<UpdateStatus, Box<dyn std::error::Error>> {
+    if !acquire_update_lock(config)? {
+        if let Some(existing) = read_status(config, None)?
+            && matches!(existing.status.as_str(), "started" | "installing")
+        {
+            return Ok(existing);
+        }
+        return Err("Another Nodo update is already starting. Try again shortly.".into());
     }
-    let target_version = check
-        .target_version
-        .clone()
-        .ok_or("Nodo is already up to date.")?;
     let job_id = Uuid::new_v4().to_string();
     let status = status_for(
         &job_id,
         "started",
-        &check.current_version,
-        Some(target_version),
-        Some("Update accepted. The Linux Nodo will reconnect with the new version.".to_owned()),
+        crate::VERSION,
+        None,
+        Some("Update command accepted. Nodo will check the verified release and restart if an update is available.".to_owned()),
     );
-    write_status_at_path(config, &status)?;
-    let executable = std::env::current_exe()?;
+    if let Err(error) = write_status_at_path(config, &status) {
+        release_update_lock(config, &job_id);
+        return Err(error.into());
+    }
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => {
+            release_update_lock(config, &job_id);
+            return Err(error.into());
+        }
+    };
     let result = Command::new(executable)
         .args(["update", "--apply", "--restart", "--job-id", &job_id])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
-    if let Err(error) = result {
-        let failed = status_for(
-            &job_id,
-            "failed",
-            &check.current_version,
-            check.target_version.clone(),
-            Some(format!("Could not start the update process: {error}")),
-        );
-        write_status_at_path(config, &failed)?;
-        return Err(error.into());
+    let child = match result {
+        Ok(child) => child,
+        Err(error) => {
+            release_update_lock(config, &job_id);
+            let failed = status_for(
+                &job_id,
+                "failed",
+                crate::VERSION,
+                None,
+                Some(format!("Could not start the update process: {error}")),
+            );
+            write_status_at_path(config, &failed)?;
+            return Err(error.into());
+        }
+    };
+    if let Err(error) = write_update_lock(config, &job_id, child.id()) {
+        // The updater is already running. Keep it alive; the lock is only a
+        // duplicate-click guard and will be cleaned up by the child.
+        crate::ui::warning(&format!("Could not record update lock: {error}"));
     }
     Ok(status)
+}
+
+fn acquire_update_lock(config: &Config) -> io::Result<bool> {
+    let path = lock_path(config);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    loop {
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                let contents = fs::read_to_string(&path).unwrap_or_default();
+                let pid = contents
+                    .lines()
+                    .nth(1)
+                    .and_then(|value| value.trim().parse::<u32>().ok())
+                    .unwrap_or_default();
+                let fresh = fs::metadata(&path)
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+                    .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+                    .is_some_and(|age| age.as_secs() < STALE_LOCK_SECONDS);
+                if (pid != 0 && process_is_alive(pid)) || (pid == 0 && fresh) {
+                    return Ok(false);
+                }
+                let _ = fs::remove_file(&path);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn write_update_lock(config: &Config, job_id: &str, pid: u32) -> io::Result<()> {
+    let path = lock_path(config);
+    if !path.exists() {
+        return Ok(());
+    }
+    fs::write(path, format!("{job_id}\n{pid}"))
+}
+
+fn release_update_lock(config: &Config, job_id: &str) {
+    let path = lock_path(config);
+    let matches = fs::read_to_string(&path)
+        .ok()
+        .and_then(|contents| contents.lines().next().map(|value| value == job_id))
+        .unwrap_or(false);
+    if matches {
+        let _ = fs::remove_file(path);
+    }
+}
+
+struct UpdateLockGuard<'a> {
+    config: &'a Config,
+    job_id: &'a str,
+}
+
+impl Drop for UpdateLockGuard<'_> {
+    fn drop(&mut self) {
+        release_update_lock(self.config, self.job_id);
+    }
+}
+
+fn process_is_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return fs::metadata(format!("/proc/{pid}")).is_ok();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+fn lock_path(config: &Config) -> PathBuf {
+    config.data_dir.join(LOCK_FILENAME)
 }
 
 pub fn read_status(config: &Config, job_id: Option<&str>) -> io::Result<Option<UpdateStatus>> {

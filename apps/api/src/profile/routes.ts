@@ -308,7 +308,7 @@ function isFileId(value: unknown): value is string {
 }
 
 function supportsPublicReservations(version: string | null): boolean {
-  const match = version?.match(/^(\d+)\.(\d+)(?:\.(\d+))?(?:\.|$)/u);
+  const match = version?.match(/^(\d+)\.(\d+)(?:\.\d+)?(?:-[\w.-]+)?$/u);
   if (!match) return false;
   return Number(match[1]) > 0 || Number(match[2]) >= 1;
 }

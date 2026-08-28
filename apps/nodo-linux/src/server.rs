@@ -384,39 +384,27 @@ fn handle_connection(stream: TcpStream, runtime: &Arc<NodeRuntime>) -> io::Resul
         if !grant.is_owner {
             return forbidden(&mut output);
         }
-        return match crate::update::check(&policy) {
-            Ok(check) if !check.available => response_json(
+        // A button click must only acknowledge the command. Checking the
+        // release and downloading the verified binary in this request made
+        // the client wait for the network and then race the service restart.
+        // The detached updater performs those steps and reports the result
+        // through the existing status endpoint for diagnostics.
+        return match crate::update::start_background(&policy) {
+            Ok(status) => response_json_with_status(
                 &mut output,
-                200,
+                202,
                 json!({
-                    "status": "up-to-date",
-                    "currentVersion": check.current_version,
-                    "targetVersion": check.target_version,
-                    "notes": check.notes,
+                    "status": status.status,
+                    "currentVersion": status.current_version,
+                    "targetVersion": status.target_version,
+                    "jobId": status.job_id,
+                    "message": status.message,
                 }),
             ),
-            Ok(check) => match crate::update::start_background(&policy, &check) {
-                Ok(status) => response_json_with_status(
-                    &mut output,
-                    202,
-                    json!({
-                        "status": status.status,
-                        "currentVersion": status.current_version,
-                        "targetVersion": status.target_version,
-                        "jobId": status.job_id,
-                        "message": status.message,
-                    }),
-                ),
-                Err(error) => response_json_with_status(
-                    &mut output,
-                    500,
-                    json!({ "error": format!("Nodo update could not be started. {error}") }),
-                ),
-            },
             Err(error) => response_json_with_status(
                 &mut output,
-                502,
-                json!({ "error": format!("Update manifest could not be checked. {error}") }),
+                500,
+                json!({ "error": format!("Nodo update could not be started. {error}") }),
             ),
         };
     }

@@ -342,7 +342,7 @@ export async function retireNodePublicPosts(
 }
 
 function supportsPublicReservations(version: string | null): boolean {
-  const match = version?.match(/^(\d+)\.(\d+)(?:\.(\d+))?(?:\.|$)/u);
+  const match = version?.match(/^(\d+)\.(\d+)(?:\.\d+)?(?:-[\w.-]+)?$/u);
   if (!match) return false;
   const major = Number(match[1]);
   const minor = Number(match[2]);

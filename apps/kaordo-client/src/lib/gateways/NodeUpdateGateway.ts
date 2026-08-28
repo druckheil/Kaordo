@@ -1,19 +1,14 @@
 import type { NodoAccess, NodoUpdateResult } from '../domain/nodo';
 import { nodoOrigin, orderedNodoCandidates, type NodoRouteCandidate } from './NodoRoute';
 
-const UPDATE_TOTAL_TIMEOUT_MS = 8_500;
-const UPDATE_REQUEST_TIMEOUT_MS = 4_000;
-const UPDATE_STATUS_TIMEOUT_MS = 1_000;
-// The child update process downloads and installs independently. Only sample
-// its status briefly; never keep the UI waiting for a potentially large
-// binary or a service restart.
-const UPDATE_POLL_DELAYS_MS = [250, 750, 1_250] as const;
+const UPDATE_TOTAL_TIMEOUT_MS = 6_000;
+const UPDATE_REQUEST_TIMEOUT_MS = 4_500;
 
 /**
  * Requests a Linux Nodo self-update over the same direct/relay capability
- * route used by storage. The update process restarts the host itself, so a
- * short, bounded status poll gives the desktop a useful final result without
- * keeping a Worker request open while a binary is downloaded.
+ * route used by storage. The host acknowledges the command immediately and
+ * performs the verified replacement/restart in its own helper process. The
+ * client therefore never waits for a binary download or a service restart.
  */
 export async function updateNode(access: NodoAccess): Promise<NodoUpdateResult> {
   const deadline = Date.now() + UPDATE_TOTAL_TIMEOUT_MS;
@@ -31,8 +26,7 @@ export async function updateNode(access: NodoAccess): Promise<NodoUpdateResult> 
       );
       const parsed = parseUpdateResult(result);
       if (!parsed) throw new Error('Nodo returned an invalid update result.');
-      if (parsed.status !== 'started' || !parsed.jobId) return parsed;
-      return await waitForUpdate(access, candidate, parsed, deadline);
+      return parsed;
     } catch (error) {
       lastError = error;
     }
@@ -40,50 +34,6 @@ export async function updateNode(access: NodoAccess): Promise<NodoUpdateResult> 
   throw lastError instanceof Error
     ? new Error(`Nodo update could not be reached. ${lastError.message}`)
     : new Error('Nodo update could not be reached. Keep the Linux host online.');
-}
-
-async function waitForUpdate(
-  access: NodoAccess,
-  preferred: NodoRouteCandidate,
-  started: NodoUpdateResult,
-  deadline: number,
-): Promise<NodoUpdateResult> {
-  let lastError: unknown = null;
-  let preferredCandidate = preferred;
-  for (const delayMs of UPDATE_POLL_DELAYS_MS) {
-    const delayBudget = deadline - Date.now();
-    if (delayBudget <= 0) break;
-    await delay(Math.min(delayMs, delayBudget));
-    const candidates = orderedNodoCandidates(access).sort((left, right) =>
-      Number(right === preferredCandidate) - Number(left === preferredCandidate));
-    for (const candidate of candidates) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      try {
-        const result = await requestCandidate(
-          access,
-          candidate,
-          `/v1/update/status?jobId=${encodeURIComponent(started.jobId!)}`,
-          'GET',
-          Math.min(UPDATE_STATUS_TIMEOUT_MS, remaining),
-        );
-        const parsed = parseUpdateResult(result);
-        if (!parsed) throw new Error('Nodo returned an invalid update status.');
-        if (parsed.status !== 'started') return parsed;
-        preferredCandidate = candidate;
-        lastError = null;
-        break;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-  }
-  return {
-    ...started,
-    message: lastError instanceof Error
-      ? `Update started in the background. ${lastError.message}`
-      : 'Update started in the background. The new version will appear after the Nodo reconnects.',
-  };
 }
 
 async function requestCandidate(
@@ -134,10 +84,6 @@ function errorMessage(value: unknown, status: number): string {
     typeof value.error === 'string'
     ? value.error
     : `Nodo request failed (${status}).`;
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 /** Resolves or rejects within a strict UI budget without leaving a spinner behind. */

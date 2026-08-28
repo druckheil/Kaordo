@@ -380,7 +380,7 @@
                   <button
                     class="update-button"
                     type="button"
-                    disabled={!selected.online || snapshot.operation !== null || (snapshot.updateResult?.nodeId === selected.id && snapshot.updateResult.status === 'started')}
+                    disabled={!selected.online || snapshot.operation !== null}
                     aria-label={`Update ${selected.deviceName}`}
                     onclick={() => onUpdate(selected.id)}
                   >
@@ -388,7 +388,7 @@
                   </button>
                   {#if snapshot.updateResult?.nodeId === selected.id}
                     <small class:status-success={snapshot.updateResult.status === 'installed' || snapshot.updateResult.status === 'up-to-date'} class:status-error={snapshot.updateResult.status === 'failed'} class="update-result">
-                      {#if snapshot.updateResult.status === 'installed'}Updated to {snapshot.updateResult.currentVersion}. {:else if snapshot.updateResult.status === 'up-to-date'}Already up to date. {:else if snapshot.updateResult.status === 'failed'}Update failed. {:else}Update started. {/if}
+                      {#if snapshot.updateResult.status === 'installed'}Updated to {snapshot.updateResult.currentVersion}. {:else if snapshot.updateResult.status === 'up-to-date'}Already up to date. {:else if snapshot.updateResult.status === 'failed'}Update failed. {:else}Update command accepted. {/if}
                       {snapshot.updateResult.message ?? ''}
                     </small>
                   {/if}

@@ -29,7 +29,7 @@ import { NodoAccessCache } from './NodoAccessCache';
 import { updateNode, withTimeout } from './NodeUpdateGateway';
 
 const NODE_COORDINATOR_TIMEOUT_MS = 5_000;
-const NODE_UPDATE_TIMEOUT_MS = 9_000;
+const NODE_UPDATE_TIMEOUT_MS = 7_500;
 
 export class WebNodoGateway implements NodoGateway {
   /** Share concurrent reads without introducing stale time-based caching. */
@@ -169,7 +169,7 @@ export class WebNodoGateway implements NodoGateway {
     return withTimeout(
       this.accessNode(nodeId, { forceRefresh: true }).then(updateNode),
       NODE_UPDATE_TIMEOUT_MS,
-      'Nodo update timed out after 10 seconds. The host may still finish the update in the background.',
+      'Nodo did not acknowledge the update within 8 seconds. Keep the host online and retry.',
     );
   }
 
