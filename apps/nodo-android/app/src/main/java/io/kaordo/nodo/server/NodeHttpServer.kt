@@ -922,32 +922,14 @@ class NodeHttpServer(
             if (attachments.length() > FluoPostStore.MAX_ATTACHMENTS) throw IllegalArgumentException()
             val body = value.optString("body", "")
             val parsedAttachments = List(attachments.length()) { index ->
-                val item = attachments.getJSONObject(index)
-                FluoPostStore.Attachment(
-                    id = item.getString("id"),
-                    kind = item.getString("kind"),
-                    mimeType = item.getString("mimeType"),
-                    name = item.getString("name"),
-                    size = item.getLong("size"),
-                    width = item.optInt("width", 0).takeIf { it > 0 },
-                    height = item.optInt("height", 0).takeIf { it > 0 },
-                )
+                parseFluoAttachment(attachments.getJSONObject(index))
             }
             val quote = value.optJSONObject("quote")?.let { quoted ->
                 val quoteAttachments = quoted.optJSONArray("attachments") ?: org.json.JSONArray()
                 if (quoteAttachments.length() > FluoPostStore.MAX_ATTACHMENTS) throw IllegalArgumentException()
                 FluoPostStore.QuotedPost(
                     attachments = List(quoteAttachments.length()) { index ->
-                        val item = quoteAttachments.getJSONObject(index)
-                        FluoPostStore.Attachment(
-                            id = item.getString("id"),
-                            kind = item.getString("kind"),
-                            mimeType = item.getString("mimeType"),
-                            name = item.getString("name"),
-                            size = item.getLong("size"),
-                            width = item.optInt("width", 0).takeIf { it > 0 },
-                            height = item.optInt("height", 0).takeIf { it > 0 },
-                        )
+                        parseFluoAttachment(quoteAttachments.getJSONObject(index))
                     },
                     author = quoted.getString("author"),
                     body = quoted.optString("body", ""),
@@ -1013,17 +995,7 @@ class NodeHttpServer(
     }
 
     private fun postJson(post: FluoPostStore.Post) = JSONObject()
-        .put("attachments", org.json.JSONArray(post.attachments.map { attachment -> JSONObject()
-            .put("id", attachment.id)
-            .put("kind", attachment.kind)
-            .put("mimeType", attachment.mimeType)
-            .put("name", attachment.name)
-            .put("size", attachment.size)
-            .apply {
-                attachment.width?.let { put("width", it) }
-                attachment.height?.let { put("height", it) }
-            }
-        }))
+        .put("attachments", org.json.JSONArray(post.attachments.map(::fluoAttachmentJson)))
         .put("author", post.author)
         .put("body", post.body)
         .put("createdAt", post.createdAt)
@@ -1031,23 +1003,34 @@ class NodeHttpServer(
         .apply { post.quote?.let { put("quote", quotedPostJson(it)) } }
 
     private fun quotedPostJson(post: FluoPostStore.QuotedPost) = JSONObject()
-        .put("attachments", org.json.JSONArray(post.attachments.map { attachment -> JSONObject()
-            .put("id", attachment.id)
-            .put("kind", attachment.kind)
-            .put("mimeType", attachment.mimeType)
-            .put("name", attachment.name)
-            .put("size", attachment.size)
-            .apply {
-                attachment.width?.let { put("width", it) }
-                attachment.height?.let { put("height", it) }
-            }
-        }))
+        .put("attachments", org.json.JSONArray(post.attachments.map(::fluoAttachmentJson)))
         .put("author", post.author)
         .put("body", post.body)
         .put("createdAt", post.createdAt)
         .put("id", post.id)
         .put("nodeId", post.nodeId)
         .put("space", post.space)
+
+    private fun parseFluoAttachment(item: JSONObject) = FluoPostStore.Attachment(
+        id = item.getString("id"),
+        kind = item.getString("kind"),
+        mimeType = item.getString("mimeType"),
+        name = item.getString("name"),
+        size = item.getLong("size"),
+        width = item.optInt("width", 0).takeIf { it > 0 },
+        height = item.optInt("height", 0).takeIf { it > 0 },
+    )
+
+    private fun fluoAttachmentJson(attachment: FluoPostStore.Attachment) = JSONObject()
+        .put("id", attachment.id)
+        .put("kind", attachment.kind)
+        .put("mimeType", attachment.mimeType)
+        .put("name", attachment.name)
+        .put("size", attachment.size)
+        .apply {
+            attachment.width?.let { put("width", it) }
+            attachment.height?.let { put("height", it) }
+        }
 
     private fun fluoStateJson(posts: FluoPostStore): JSONObject {
         val state = posts.state()
@@ -1411,7 +1394,7 @@ class NodeHttpServer(
         ?.let { runCatching { java.util.Base64.getDecoder().decode(it).toString(Charsets.UTF_8) }.getOrNull() }
         ?.lowercase()
         ?.takeIf { value ->
-            value.length <= 120 && (value.startsWith("image/") || value.startsWith("video/")) &&
+            value.length <= 120 && (value.startsWith("image/") || value.startsWith("video/") || value.startsWith("audio/")) &&
                 value.all { it.code in 33..126 }
         }
 
@@ -1443,6 +1426,14 @@ class NodeHttpServer(
         "png" -> "image/png"
         "webp" -> "image/webp"
         "avif" -> "image/avif"
+        "aac" -> "audio/aac"
+        "flac" -> "audio/flac"
+        "m4a" -> "audio/mp4"
+        "mp3" -> "audio/mpeg"
+        "oga", "ogg" -> "audio/ogg"
+        "opus" -> "audio/opus"
+        "wav" -> "audio/wav"
+        "weba" -> "audio/webm"
         "mp4", "m4v" -> "video/mp4"
         "webm" -> "video/webm"
         "mov" -> "video/quicktime"

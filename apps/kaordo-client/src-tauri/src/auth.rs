@@ -591,20 +591,22 @@ impl AuthClient {
             .map_err(|_| "The authentication service could not be reached.".to_owned())
     }
 
-    async fn authorized_json<T: Serialize + ?Sized>(
+    async fn authorized_json_with_timeout<T: Serialize + ?Sized>(
         &self,
         method: Method,
         path: &str,
         token: &str,
         body: &T,
+        timeout: Duration,
     ) -> Result<reqwest::Response, String> {
         self.http
             .request(method, format!("{API_ORIGIN}{path}"))
             .bearer_auth(token)
             .json(body)
+            .timeout(timeout)
             .send()
             .await
-            .map_err(|_| "The Nodo service could not be reached.".to_owned())
+            .map_err(|_| "The Kaordo service could not be reached.".to_owned())
     }
 }
 
@@ -893,11 +895,12 @@ pub async fn fluo_like_states(
         .into_iter()
         .map(normalize_fluo_like_target)
         .collect::<Result<Vec<_>, _>>()?;
-    let response = authenticated_json_request(
+    let response = authenticated_json_request_with_timeout(
         &client,
         Method::POST,
         "/api/fluo/likes/query",
         &FluoLikeStatesInput { posts },
+        Duration::from_secs(8),
     )
     .await?;
     decode_response(response).await
@@ -917,11 +920,12 @@ pub async fn fluo_set_like(
         post_id: node_id_path(&post_id)?,
         space: normalize_fluo_like_space(&space)?,
     };
-    let response = authenticated_json_request(
+    let response = authenticated_json_request_with_timeout(
         &client,
         Method::PUT,
         "/api/fluo/likes",
         &input,
+        Duration::from_secs(8),
     )
     .await?;
     decode_response(response).await
@@ -2020,12 +2024,25 @@ async fn authenticated_json_request<T: Serialize + ?Sized>(
     path: &str,
     body: &T,
 ) -> Result<reqwest::Response, String> {
+    authenticated_json_request_with_timeout(client, method, path, body, Duration::from_secs(30))
+        .await
+}
+
+async fn authenticated_json_request_with_timeout<T: Serialize + ?Sized>(
+    client: &AuthClient,
+    method: Method,
+    path: &str,
+    body: &T,
+    timeout: Duration,
+) -> Result<reqwest::Response, String> {
     client.require_authenticated()?;
     let Some(mut token) = load_session_token().await? else {
         client.set_authenticated(false);
         return Err("Authentication is required.".to_owned());
     };
-    let response = client.authorized_json(method, path, &token, body).await;
+    let response = client
+        .authorized_json_with_timeout(method, path, &token, body, timeout)
+        .await;
     token.zeroize();
     let response = response?;
     if response.status() == StatusCode::UNAUTHORIZED {
@@ -2135,9 +2152,7 @@ fn node_id_path(value: &str) -> Result<String, String> {
         .map_err(|_| "The node identifier is invalid.".to_owned())
 }
 
-fn normalize_fluo_like_target(
-    target: FluoLikeTargetInput,
-) -> Result<FluoLikeTargetInput, String> {
+fn normalize_fluo_like_target(target: FluoLikeTargetInput) -> Result<FluoLikeTargetInput, String> {
     Ok(FluoLikeTargetInput {
         node_id: node_id_path(&target.node_id)?,
         post_id: node_id_path(&target.post_id)?,

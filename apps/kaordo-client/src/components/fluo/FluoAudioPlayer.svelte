@@ -36,17 +36,19 @@
     if (!element || !nextSource || loadedSource === nextSource) return;
     const sourceChanged = Boolean(loadedSource);
     loadedSource = nextSource;
-    element.pause();
+    if (!sourceChanged) return;
+    if (!element.paused) element.pause();
     playing = false;
     currentTime = 0;
     duration = 0;
-    if (sourceChanged) {
-      element.src = nextSource;
-      element.load();
-    }
+    element.src = nextSource;
+    element.load();
   });
 
-  onDestroy(() => audio?.pause());
+  onDestroy(() => {
+    if (audio && !audio.paused) audio.pause();
+    persistVolume();
+  });
 
   async function togglePlayback(): Promise<void> {
     const element = audio;
@@ -75,10 +77,13 @@
     if (Number.isFinite(value)) element.currentTime = clamp(value, 0, duration);
   }
 
-  function setVolume(event: Event): void {
+  function updateVolume(event: Event): void {
     const value = Number((event.currentTarget as HTMLInputElement).value);
     if (!Number.isFinite(value)) return;
     volume = clamp(value, 0, 1);
+  }
+
+  function persistVolume(): void {
     try {
       localStorage.setItem(VOLUME_STORAGE_KEY, String(volume));
     } catch {
@@ -111,7 +116,9 @@
 
   function readStoredVolume(): number {
     try {
-      const stored = Number(localStorage.getItem(VOLUME_STORAGE_KEY));
+      const raw = localStorage.getItem(VOLUME_STORAGE_KEY);
+      if (raw === null) return 1;
+      const stored = Number(raw);
       return Number.isFinite(stored) ? clamp(stored, 0, 1) : 1;
     } catch {
       return 1;
@@ -147,7 +154,8 @@
         step="0.01"
         value={volume}
         aria-label="Volume"
-        oninput={setVolume}
+        onchange={persistVolume}
+        oninput={updateVolume}
       />
     </label>
   </div>
@@ -384,5 +392,9 @@
     .audio-player__volume input { width: 48px; }
     .audio-player__controls { grid-template-columns: 26px 28px 26px minmax(32px, max-content) minmax(0, 1fr) minmax(32px, max-content); gap: 3px; }
     .audio-player__controls button { width: 26px; height: 26px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .audio-player__controls button { transition: none; }
   }
 </style>

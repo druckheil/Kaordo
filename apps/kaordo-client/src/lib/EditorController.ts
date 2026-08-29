@@ -193,7 +193,6 @@ const EMPTY_NODO_GATEWAY: NodoGateway = {
   reservePublicStorage: async () => { throw new Error('Public Nodo storage is unavailable.'); },
   requestQuickTest: async () => ({ batteryPercent: null, charging: null, completedAt: 0, coordinatorLatencyMs: 0, diskReadBps: 1, diskWriteBps: 1, memoryAvailableBytes: 0, memoryTotalBytes: 0, networkDownBps: null, networkMetered: null, networkType: 'offline' as const, networkUpBps: null, storageAvailableBytes: 0 }),
   refreshUsage: async () => ({ spaces: { private: { quotaBytes: 0, usedBytes: 0 }, public: { quotaBytes: 0, usedBytes: 0 } }, usedBytes: 0 }),
-  updateNode: async () => ({ currentVersion: 'unknown', status: 'failed' as const, message: 'Nodo update is unavailable.' }),
   updatePolicy: async (_nodeId, policy) => ({ ...policy, ownerOnly: true }),
   updateSpaces: async () => { throw new Error('Nodo allocation is unavailable.'); },
 };

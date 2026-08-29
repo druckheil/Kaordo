@@ -25,10 +25,10 @@ android {
         applicationId = "io." + "veri" + "dimensio.nodo"
         minSdk = 31
         targetSdk = 36
-        // First development build of scope 0.2.1. Keep a greater versionCode
-        // so it upgrades the released 0.2 APK in place.
-        versionCode = 20101
-        versionName = "0.2.1-1a"
+        // Reconciliation and attachment validation build of scope 0.2.1. Keep
+        // increasing the code so an installed Nodo upgrades with the same key.
+        versionCode = 20106
+        versionName = "0.2.1-6a"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(

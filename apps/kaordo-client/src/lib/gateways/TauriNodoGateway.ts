@@ -11,7 +11,6 @@ import type {
   NodoStorageItemKind,
   NodoStorageSpace,
   NodoTelemetryProgress,
-  NodoUpdateResult,
   PublicNodoReservation,
   PublicNodoStorage,
 } from '../domain/nodo';
@@ -27,9 +26,6 @@ import {
 } from './NodeStorageGateway';
 import { InFlightRequests } from './InFlightRequests';
 import { NodoAccessCache } from './NodoAccessCache';
-import { updateNode, withTimeout } from './NodeUpdateGateway';
-
-const NODE_UPDATE_TIMEOUT_MS = 7_500;
 
 export class TauriNodoGateway implements NodoGateway {
   readonly #inFlight = new InFlightRequests();
@@ -122,17 +118,6 @@ export class TauriNodoGateway implements NodoGateway {
   async requestQuickTest(nodeId: string, onUpdate?: NodoTelemetryProgress): Promise<NodoQuickTest> {
     const result = await runNodeQuickTest(await this.accessNode(nodeId), onUpdate);
     return this.invoke<NodoQuickTest>('nodo_complete_quick_test', { nodeId, result });
-  }
-
-  async updateNode(nodeId: string): Promise<NodoUpdateResult> {
-    // Updating is a privileged, one-shot operation. Refresh the capability
-    // ticket first so a ticket issued before a session revocation or node
-    // restart cannot turn into a misleading authentication failure.
-    return withTimeout(
-      this.accessNode(nodeId, { forceRefresh: true }).then(updateNode),
-      NODE_UPDATE_TIMEOUT_MS,
-      'Nodo did not acknowledge the update within 8 seconds. Keep the host online and retry.',
-    );
   }
 
   updatePolicy(nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy> {

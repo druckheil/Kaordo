@@ -6,10 +6,16 @@
   import type { Virtualizer } from '@tanstack/svelte-virtual';
   import { get } from 'svelte/store';
   import { onMount, tick } from 'svelte';
-  import type { FluoGState, FluoPost, FluoQuote } from '../../lib/states/FluoGState';
+  import {
+    fluoPostKey as postKey,
+    type FluoPost,
+    type FluoQuote,
+  } from '../../lib/domain/fluo';
+  import type { FluoGState } from '../../lib/states/FluoGState';
   import FluoPostCard from './FluoPostCard.svelte';
   import {
     FLUO_CAROUSEL_MEDIA_WIDTH,
+    FLUO_AUDIO_MEDIA_HEIGHT,
     FLUO_MAX_MEDIA_WIDTH,
     getFluoMediaLayout,
   } from './fluoMediaLayout';
@@ -144,6 +150,7 @@
   // Metadata remains cheap and is fetched ahead of the renderer. This gives
   // the 50-row overscan real post shells instead of a network-bound blank end.
   $effect(() => {
+    if (!active) return;
     const lastRendered = virtualRows.at(-1)?.index ?? -1;
     posts.length;
     hasMore;
@@ -159,7 +166,14 @@
   // Media prefetch follows the real visible range, not the much larger DOM
   // overscan. Visible attachments always jump ahead of stale prefetch work.
   $effect(() => {
+    active;
     posts.length;
+    if (!active) {
+      mediaWindowStart = 0;
+      mediaWindowEnd = -1;
+      refreshMediaQueue();
+      return;
+    }
     const range = $virtualizer.range;
     if (!range) return;
     visibleStart = range.startIndex;
@@ -186,6 +200,7 @@
       ? FLUO_MAX_MEDIA_WIDTH
       : FLUO_CAROUSEL_MEDIA_WIDTH;
     const mediaHeight = post.attachments.reduce((maximum, attachment) => {
+      if (attachment.kind === 'audio') return Math.max(maximum, FLUO_AUDIO_MEDIA_HEIGHT);
       const measured = attachment.width && attachment.height
         ? attachment
         : fluoState.getMediaDimensions?.(post.id, attachment.id);
@@ -273,7 +288,7 @@
 
   function isMediaTaskWanted(task: MediaLoadTask): boolean {
     const index = postIndices.get(task.postKey);
-    return index !== undefined && index >= mediaWindowStart && index <= mediaWindowEnd;
+    return active && index !== undefined && index >= mediaWindowStart && index <= mediaWindowEnd;
   }
 
   function enqueueMedia(task: MediaLoadTask): void {
@@ -293,7 +308,7 @@
 
   function pumpMediaQueue(): void {
     let startedThisFrame = 0;
-    while (!destroyed && activeMediaLoads < MAX_CONCURRENT_MEDIA_LOADS && mediaQueue.size &&
+    while (!destroyed && active && activeMediaLoads < MAX_CONCURRENT_MEDIA_LOADS && mediaQueue.size &&
         startedThisFrame < MEDIA_STARTS_PER_FRAME) {
       const task = nextMediaTask();
       if (!task) break;
@@ -337,7 +352,7 @@
   }
 
   function requestNextPage(): void {
-    if (destroyed || pageRequestInFlight || !hasMore ||
+    if (destroyed || !active || pageRequestInFlight || !hasMore ||
         isLoading || isRefreshing || isLoadingMore) return;
     const countBeforeRequest = posts.length;
     pageRequestInFlight = true;
@@ -348,7 +363,7 @@
         // FluoGState owns the user-facing network error.
       }
       await tick();
-      const shouldContinue = !destroyed && posts.length > countBeforeRequest && hasMore &&
+      const shouldContinue = !destroyed && active && posts.length > countBeforeRequest && hasMore &&
         posts.length < INITIAL_METADATA_BUFFER;
       if (!shouldContinue) {
         pageRequestInFlight = false;
@@ -360,10 +375,6 @@
         requestNextPage();
       });
     })();
-  }
-
-  function postKey(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
-    return `${post.space}:${post.nodeId}:${post.id}`;
   }
 
 </script>

@@ -1,6 +1,6 @@
 import type { Env } from '../env';
 import { authenticate, unixNow } from '../auth/session';
-import { json } from '../http/json';
+import { JsonRequestError, json, readJsonObject } from '../http/json';
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_TARGETS = 100;
@@ -23,7 +23,7 @@ export async function fluoLikeStates(request: Request, env: Env): Promise<Respon
   const session = await authenticate(request, env);
   if (!session) return json({ error: 'Authentication required.' }, 401);
   try {
-    const input = await readJson(request);
+    const input = await readLikesJson(request);
     const targets = parseTargets(input.posts);
     if (targets.length === 0) return json({ likes: [] });
 
@@ -38,7 +38,7 @@ export async function fluoLikeStates(request: Request, env: Env): Promise<Respon
          SELECT requested.node_id, requested.space, requested.post_id
            FROM requested
            JOIN nodes ON nodes.id = requested.node_id
-          WHERE requested.space = 'private' AND nodes.user_id = ?2
+          WHERE requested.space = 'private'
          UNION ALL
          SELECT requested.node_id, requested.space, requested.post_id
            FROM requested
@@ -66,7 +66,11 @@ export async function fluoLikeStates(request: Request, env: Env): Promise<Respon
     ).bind(JSON.stringify(targets), session.userId).all<LikeRow>();
     return json({ likes: rows.results.map(likeState) });
   } catch (error) {
-    return json({ error: error instanceof InputError ? error.message : 'Fluo likes request is invalid.' }, 400);
+    if (error instanceof InputError || error instanceof JsonRequestError) {
+      return json({ error: error.message }, 400);
+    }
+    logFailure('query', error);
+    return json({ error: 'Fluo likes could not be loaded.' }, 500);
   }
 }
 
@@ -75,35 +79,31 @@ export async function setFluoLike(request: Request, env: Env): Promise<Response>
   const session = await authenticate(request, env);
   if (!session) return json({ error: 'Authentication required.' }, 401);
   try {
-    const input = await readJson(request);
+    const input = await readLikesJson(request);
     const target = parseTarget(input);
     if (typeof input.liked !== 'boolean') throw new InputError('Like state is invalid.');
-
-    const accessible = target.space === 'private'
-      ? await env.DB.prepare(
-          `SELECT 1 FROM nodes WHERE id = ?1 AND user_id = ?2 LIMIT 1`,
-        ).bind(target.nodeId, session.userId).first()
-      : await env.DB.prepare(
-          `SELECT 1
-             FROM fluo_public_allocations AS allocations
-             JOIN nodes ON nodes.id = allocations.node_id
-            WHERE allocations.node_id = ?1 AND allocations.post_id = ?2
-              AND allocations.committed = 1
-              AND NOT EXISTS (
-                SELECT 1 FROM fluo_public_tombstones AS tombstones
-                 WHERE tombstones.node_id = allocations.node_id
-                   AND tombstones.post_id = allocations.post_id
-              )
-            LIMIT 1`,
-        ).bind(target.nodeId, target.postId).first();
-    if (!accessible) return json({ error: 'The Fluo post was not found.' }, 404);
 
     const now = unixNow();
     const write = input.liked
       ? env.DB.prepare(
           `INSERT OR IGNORE INTO fluo_post_likes
             (node_id, space, post_id, user_id, created_at)
-           VALUES (?1, ?2, ?3, ?4, ?5)`,
+           SELECT ?1, ?2, ?3, ?4, ?5
+            WHERE (?2 = 'private' AND EXISTS(
+                    SELECT 1 FROM nodes WHERE id = ?1
+                  ))
+               OR (?2 = 'public' AND EXISTS(
+                    SELECT 1
+                      FROM fluo_public_allocations AS allocations
+                     WHERE allocations.node_id = ?1
+                       AND allocations.post_id = ?3
+                       AND allocations.committed = 1
+                       AND NOT EXISTS (
+                         SELECT 1 FROM fluo_public_tombstones AS tombstones
+                          WHERE tombstones.node_id = allocations.node_id
+                            AND tombstones.post_id = allocations.post_id
+                       )
+                  ))`,
         ).bind(target.nodeId, target.space, target.postId, session.userId, now)
       : env.DB.prepare(
           `DELETE FROM fluo_post_likes
@@ -112,7 +112,24 @@ export async function setFluoLike(request: Request, env: Env): Promise<Response>
     const [, stateResult] = await env.DB.batch([
       write,
       env.DB.prepare(
-        `SELECT COUNT(*) AS like_count,
+        `SELECT CASE
+                  WHEN ?2 = 'private' THEN EXISTS(
+                    SELECT 1 FROM nodes WHERE id = ?1
+                  )
+                  ELSE EXISTS(
+                    SELECT 1
+                      FROM fluo_public_allocations AS allocations
+                     WHERE allocations.node_id = ?1
+                       AND allocations.post_id = ?3
+                       AND allocations.committed = 1
+                       AND NOT EXISTS (
+                         SELECT 1 FROM fluo_public_tombstones AS tombstones
+                          WHERE tombstones.node_id = allocations.node_id
+                            AND tombstones.post_id = allocations.post_id
+                       )
+                  )
+                END AS accessible,
+                COUNT(*) AS like_count,
                 EXISTS(
                   SELECT 1 FROM fluo_post_likes
                    WHERE node_id = ?1 AND space = ?2 AND post_id = ?3 AND user_id = ?4
@@ -122,17 +139,23 @@ export async function setFluoLike(request: Request, env: Env): Promise<Response>
       ).bind(target.nodeId, target.space, target.postId, session.userId),
     ]);
     const state = stateResult?.results?.[0] as LikeRow | undefined;
+    if (!state?.accessible) return json({ error: 'The Fluo post was not found.' }, 404);
     return json({
       ...target,
       liked: Boolean(Number(state?.liked ?? (input.liked ? 1 : 0))),
       likeCount: Math.max(0, Number(state?.like_count ?? 0)),
     });
   } catch (error) {
-    return json({ error: error instanceof InputError ? error.message : 'Fluo like could not be saved.' }, 400);
+    if (error instanceof InputError || error instanceof JsonRequestError) {
+      return json({ error: error.message }, 400);
+    }
+    logFailure('set', error);
+    return json({ error: 'Fluo like could not be saved.' }, 500);
   }
 }
 
 type LikeRow = {
+  accessible?: number;
   liked: number;
   like_count: number;
   node_id: string;
@@ -179,23 +202,20 @@ function parseTarget(value: unknown): LikeTarget {
   };
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown>> {
-  const contentLength = Number(request.headers.get('content-length') ?? '0');
-  if (contentLength > MAX_BODY_BYTES) throw new InputError('Fluo likes request is too large.');
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
-    throw new InputError('Fluo likes request is too large.');
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    throw new InputError('Fluo likes request is invalid.');
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new InputError('Fluo likes request is invalid.');
-  }
-  return value as Record<string, unknown>;
+function readLikesJson(request: Request): Promise<Record<string, unknown>> {
+  return readJsonObject(request, {
+    invalidMessage: 'Fluo likes request is invalid.',
+    maxBytes: MAX_BODY_BYTES,
+    tooLargeMessage: 'Fluo likes request is too large.',
+  });
+}
+
+function logFailure(operation: 'query' | 'set', error: unknown): void {
+  console.error(JSON.stringify({
+    error: error instanceof Error ? error.name : 'UnknownError',
+    event: 'fluo_likes_failed',
+    operation,
+  }));
 }
 
 class InputError extends Error {}

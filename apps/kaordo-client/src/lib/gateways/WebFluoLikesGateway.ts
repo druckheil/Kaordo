@@ -6,6 +6,7 @@ import type {
 import { requestJson } from './WebApiClient';
 
 const LIKES_UNAVAILABLE = 'Fluo likes are unavailable.';
+const LIKES_TIMEOUT_MILLISECONDS = 8_000;
 type ApiFluoLikeState = Omit<FluoLikeState, 'id'> & { postId: string };
 type ApiLikeStatesResponse = { likes: ApiFluoLikeState[] };
 
@@ -21,6 +22,7 @@ export class WebFluoLikesGateway implements FluoLikesGateway {
         method: 'POST',
       },
       LIKES_UNAVAILABLE,
+      LIKES_TIMEOUT_MILLISECONDS,
     );
     return response.likes.map(fromApiState);
   }
@@ -34,6 +36,7 @@ export class WebFluoLikesGateway implements FluoLikesGateway {
         method: 'PUT',
       },
       LIKES_UNAVAILABLE,
+      LIKES_TIMEOUT_MILLISECONDS,
     ).then(fromApiState);
   }
 }

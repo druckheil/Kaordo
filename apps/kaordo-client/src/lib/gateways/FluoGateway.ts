@@ -3,10 +3,11 @@ import type {
   FluoDraftAttachment,
   FluoQuote,
   FluoPost,
-} from '../states/FluoGState';
+  FluoSpace,
+} from '../domain/fluo';
 
 export const PUBLIC_FLUO_DESTINATION = 'public';
-export type FluoSpace = 'private' | 'public';
+export type { FluoSpace } from '../domain/fluo';
 
 export type RemoteFluoAttachment = FluoAttachment & { blob?: Blob };
 export type RemoteFluoPost = Omit<FluoPost, 'attachments' | 'liked'> & {

@@ -1,5 +1,5 @@
 import type { FluoNodeFeedState } from '../gateways/FluoGateway';
-import type { FluoAttachment, FluoPost, FluoQuote } from '../states/FluoGState';
+import type { FluoAttachment, FluoPost, FluoQuote } from '../domain/fluo';
 
 const CACHE_VERSION = 1;
 const CACHE_KEY_PREFIX = 'kaordo.fluo-feed.v1.';
@@ -68,6 +68,10 @@ export class FluoFeedCache {
         storage.removeItem(key);
         return null;
       }
+      // Prime the duplicate-write guard from the durable snapshot. Without
+      // this, the first unchanged refresh after every app restart rewrites a
+      // large localStorage value for no reason.
+      this.#lastContentByKey.set(key, stableContent(record, this.#maxPosts));
       return record;
     } catch {
       // A truncated or incompatible cache must never prevent the live feed
@@ -84,49 +88,21 @@ export class FluoFeedCache {
     const storage = this.storage();
     if (!storage) return;
 
-    const posts = record.posts
-      .slice()
-      .sort((left, right) => right.createdAt - left.createdAt)
-      .slice(0, this.#maxPosts)
-      .map(serializePost);
-    const base = {
-      feedCursor: typeof record.feedCursor === 'string' ? record.feedCursor : null,
-      feedNodeIds: record.feedNodeIds.filter(isBoundedString),
-      feedStates: record.feedStates.map(serializeFeedState),
-      hasMore: record.hasMore === true,
-      pageSize: clampInteger(record.pageSize, 1, 50),
-      posts,
-      // A stable timestamp keeps the content signature independent from the
-      // moment of the write. Otherwise every reconciliation would defeat the
-      // duplicate-write guard below even when no feed data changed.
-      savedAt: 0,
-      version: CACHE_VERSION as typeof CACHE_VERSION,
-    } satisfies StoredFluoFeed;
-
     // Keep localStorage writes bounded even if post text or attachment
     // metadata grows in a future protocol version. Prefer a smaller cache to
     // dropping persistence altogether after a quota error.
-    let candidate = base;
-    let serialized = JSON.stringify(candidate);
-    while (serialized.length * 2 > MAX_CACHE_JSON_BYTES && candidate.posts.length > 1) {
-      candidate = { ...candidate, posts: candidate.posts.slice(0, Math.ceil(candidate.posts.length * 0.75)) };
-      serialized = JSON.stringify(candidate);
-    }
-    if (serialized.length * 2 > MAX_CACHE_JSON_BYTES) {
-      candidate = { ...candidate, posts: [] };
-      serialized = JSON.stringify(candidate);
-    }
+    const candidate = compactStoredFeed(record, this.#maxPosts);
+    const content = JSON.stringify(candidate);
 
     // State updates can arrive in quick succession while the feed reconciles
     // metadata. Avoid rewriting the same (potentially large) localStorage
     // value when nothing persisted actually changed. The timestamp is added
     // only for a real write, after this stable content comparison.
-    if (this.#lastContentByKey.get(key) === serialized) return;
+    if (this.#lastContentByKey.get(key) === content) return;
     const persisted = { ...candidate, savedAt: Date.now() } satisfies StoredFluoFeed;
-    serialized = JSON.stringify(persisted);
     try {
-      storage.setItem(key, serialized);
-      this.#lastContentByKey.set(key, JSON.stringify(candidate));
+      storage.setItem(key, JSON.stringify(persisted));
+      this.#lastContentByKey.set(key, content);
     } catch {
       // Quota/security failures are non-fatal. The network path remains the
       // source of truth and will try again on the next successful update.
@@ -155,6 +131,36 @@ export class FluoFeedCache {
       return null;
     }
   }
+}
+
+function stableContent(record: FluoFeedCacheRecord, maxPosts: number): string {
+  return JSON.stringify(compactStoredFeed(record, maxPosts));
+}
+
+function compactStoredFeed(record: FluoFeedCacheRecord, maxPosts: number): StoredFluoFeed {
+  let candidate: StoredFluoFeed = {
+    feedCursor: typeof record.feedCursor === 'string' ? record.feedCursor : null,
+    feedNodeIds: record.feedNodeIds.filter(isBoundedString),
+    feedStates: record.feedStates.map(serializeFeedState),
+    hasMore: record.hasMore === true,
+    pageSize: clampInteger(record.pageSize, 1, 50),
+    posts: record.posts
+      .slice()
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, maxPosts)
+      .map(serializePost),
+    // savedAt is deliberately excluded from the logical content signature.
+    savedAt: 0,
+    version: CACHE_VERSION,
+  };
+  let content = JSON.stringify(candidate);
+  while (content.length * 2 > MAX_CACHE_JSON_BYTES && candidate.posts.length > 1) {
+    candidate = { ...candidate, posts: candidate.posts.slice(0, Math.ceil(candidate.posts.length * 0.75)) };
+    content = JSON.stringify(candidate);
+  }
+  return content.length * 2 <= MAX_CACHE_JSON_BYTES
+    ? candidate
+    : { ...candidate, posts: [] };
 }
 
 function parseStoredFeed(value: unknown): FluoFeedCacheRecord | null {
@@ -222,7 +228,7 @@ function parseQuote(value: unknown): FluoQuote | null {
 
 function parseAttachment(value: unknown): FluoAttachment | null {
   if (!isRecord(value) || !isBoundedString(value.id) ||
-      (value.kind !== 'gif' && value.kind !== 'image' && value.kind !== 'video') ||
+      (value.kind !== 'audio' && value.kind !== 'gif' && value.kind !== 'image' && value.kind !== 'video') ||
       !isBoundedString(value.mimeType) || typeof value.name !== 'string' ||
       !isFiniteNumber(value.size) || value.size < 0) return null;
   const dimensions = validDimensions(value.width, value.height)

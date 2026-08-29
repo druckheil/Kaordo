@@ -1,7 +1,8 @@
 import { render, waitFor } from '@testing-library/svelte';
 import type { ComponentProps } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { FluoGState, FluoPost } from '../../lib/states/FluoGState';
+import type { FluoPost } from '../../lib/domain/fluo';
+import type { FluoGState } from '../../lib/states/FluoGState';
 import FluoTimeline from './FluoTimeline.svelte';
 
 type TimelineProps = ComponentProps<typeof FluoTimeline>;

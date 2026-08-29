@@ -11,13 +11,12 @@
     onRename: (nodeId: string, name: string) => void | Promise<boolean>;
     onPolicy: (nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>) => void | Promise<boolean>;
     onQuickTest: (nodeId: string) => void | Promise<boolean>;
-    onUpdate: (nodeId: string) => void | Promise<boolean>;
     onRefresh: () => void | Promise<void>;
     onSpaces: (nodeId: string, publicQuotaBytes: number) => void | Promise<boolean>;
     snapshot: Readonly<NodoSnapshot>;
   };
 
-  let { onClear, onClearPrivate, onDelete, onList, onRename, onPolicy, onQuickTest, onUpdate, onRefresh, onSpaces, snapshot }: Props = $props();
+  let { onClear, onClearPrivate, onDelete, onList, onRename, onPolicy, onQuickTest, onRefresh, onSpaces, snapshot }: Props = $props();
   let selectedId = $state<string | null>(null);
   let confirmingDelete = $state(false);
   let confirmingClear = $state(false);
@@ -376,23 +375,6 @@
               <div class="host-version">
                 <strong>{selected.metrics.appVersion ? `${isLinuxHost(selected) ? 'Linux Nodo' : 'Nodo'} ${selected.metrics.appVersion}` : 'Legacy host'}</strong>
                 <span>{nodeMode(selected)} node · {isLinuxHost(selected) ? 'Linux host · server telemetry' : selected.metrics.androidSdk ? `Android API ${selected.metrics.androidSdk}` : 'Basic telemetry'}</span>
-                {#if isLinuxHost(selected)}
-                  <button
-                    class="update-button"
-                    type="button"
-                    disabled={!selected.online || snapshot.operation !== null}
-                    aria-label={`Update ${selected.deviceName}`}
-                    onclick={() => onUpdate(selected.id)}
-                  >
-                    {#if snapshot.operation?.nodeId === selected.id && snapshot.operation.type === 'update'}<LoadingSpinner compact /> Updating…{:else}Update Nodo{/if}
-                  </button>
-                  {#if snapshot.updateResult?.nodeId === selected.id}
-                    <small class:status-success={snapshot.updateResult.status === 'installed' || snapshot.updateResult.status === 'up-to-date'} class:status-error={snapshot.updateResult.status === 'failed'} class="update-result">
-                      {#if snapshot.updateResult.status === 'installed'}Updated to {snapshot.updateResult.currentVersion}. {:else if snapshot.updateResult.status === 'up-to-date'}Already up to date. {:else if snapshot.updateResult.status === 'failed'}Update failed. {:else}Update command accepted. {/if}
-                      {snapshot.updateResult.message ?? ''}
-                    </small>
-                  {/if}
-                {/if}
               </div>
             </header>
 
@@ -602,11 +584,6 @@
   .host-version { text-align: right; }
   .host-version strong, .host-version span { display: block; }
   .host-version strong { color: #52655a; font-size: calc(8px * var(--text-scale)); }
-  .update-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 25px; margin-top: 7px; padding: 0 8px; color: #35634f; background: #eaf3ee; border: 1px solid #cfe1d7; border-radius: 6px; cursor: pointer; font-size: calc(7px * var(--text-scale)); font-weight: 680; }
-  .update-button:disabled { cursor: default; opacity: .55; }
-  .update-result { display: block; max-width: 220px; margin-top: 5px; color: #718078; font-size: calc(6.5px * var(--text-scale)); line-height: 1.35; }
-  .update-result.status-success { color: #3e7d64; }
-  .update-result.status-error { color: #a25b50; }
   .upgrade-note { display: flex; align-items: center; gap: 10px; margin-top: 13px; padding: 10px 12px; color: #66776e; background: #eef5f1; border: 1px solid #d6e5dc; border-radius: 10px; font-size: calc(8px * var(--text-scale)); line-height: 1.45; }
   .upgrade-note > span { display: grid; width: 23px; height: 23px; flex: none; color: #3f8067; background: #fff; border-radius: 7px; place-items: center; }
   .upgrade-note strong { color: #365b4b; }

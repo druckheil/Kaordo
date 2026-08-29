@@ -1,5 +1,17 @@
 import type { NodoNode } from '../domain/nodo';
 import {
+  FLUO_MAX_ATTACHMENTS,
+  FLUO_MAX_AUDIO_ATTACHMENTS,
+  FLUO_MAX_POST_LENGTH,
+  fluoPostKey as postKey,
+  type FluoAttachment,
+  type FluoAttachmentKind,
+  type FluoDraftAttachment,
+  type FluoMediaOwner,
+  type FluoPost,
+  type FluoQuote,
+} from '../domain/fluo';
+import {
   PUBLIC_FLUO_DESTINATION,
   type FluoLikeState,
   type FluoLikeTarget,
@@ -15,77 +27,23 @@ import { GState } from '../state/GState';
 import { FluoFeedCache } from '../services/FluoFeedCache';
 import { NodoRegistry } from '../services/NodoRegistry';
 
-export const FLUO_MAX_POST_LENGTH = 5_000;
-export const FLUO_MAX_ATTACHMENTS = 4;
-export const FLUO_MAX_AUDIO_ATTACHMENTS = 5;
-export const FLUO_MAX_TOTAL_ATTACHMENTS = FLUO_MAX_ATTACHMENTS + FLUO_MAX_AUDIO_ATTACHMENTS;
-
-export type FluoAttachmentKind = 'audio' | 'gif' | 'image' | 'video';
-
-export type FluoAttachment = {
-  height?: number;
-  id: string;
-  kind: FluoAttachmentKind;
-  mimeType: string;
-  name: string;
-  size: number;
-  loadState?: 'error' | 'idle' | 'loading' | 'ready';
-  objectUrl?: boolean;
-  url?: string;
-  width?: number;
-};
-
-export type FluoDraftAttachment = FluoAttachment & { blob: Blob; url: string };
-
-/**
- * The compact, immutable snapshot stored with a quoted post.  It deliberately
- * excludes local object URLs and interaction state so a quote remains a small
- * piece of Nodo metadata instead of duplicating the original payload.
- */
-export type FluoQuote = {
-  attachments: FluoAttachment[];
-  author: string;
-  body: string;
-  createdAt: number;
-  id: string;
-  nodeId: string;
-  space: 'private' | 'public';
-};
-
-export type FluoPost = {
-  attachments: FluoAttachment[];
-  author: string;
-  body: string;
-  createdAt: number;
-  id: string;
-  liked: boolean;
-  likeCount?: number;
-  likePending?: boolean;
-  nodeId: string;
-  quote?: FluoQuote;
-  space: 'private' | 'public';
-};
-
-/**
- * Minimal post identity used by media rendered outside the main timeline
- * (for example, an attachment inside a quoted post).
- */
-export type FluoMediaOwner = Pick<FluoPost, 'id' | 'nodeId' | 'space'>;
-
-/** Creates a wire-safe quote snapshot from a hydrated feed post. */
-export function createFluoQuote(post: FluoPost): FluoQuote {
-  return {
-    attachments: post.attachments.map(({ loadState: _loadState, objectUrl: _objectUrl, url: _url, ...attachment }) => ({
-      ...attachment,
-    })),
-    author: post.author,
-    body: post.body,
-    createdAt: post.createdAt,
-    id: post.id,
-    nodeId: post.nodeId,
-    space: post.space,
-  };
-}
+// Compatibility exports keep existing callers stable while the domain model
+// itself lives outside the state implementation.
+export {
+  FLUO_MAX_ATTACHMENTS,
+  FLUO_MAX_AUDIO_ATTACHMENTS,
+  FLUO_MAX_POST_LENGTH,
+  FLUO_MAX_TOTAL_ATTACHMENTS,
+  createFluoQuote,
+} from '../domain/fluo';
+export type {
+  FluoAttachment,
+  FluoAttachmentKind,
+  FluoDraftAttachment,
+  FluoMediaOwner,
+  FluoPost,
+  FluoQuote,
+} from '../domain/fluo';
 
 export type FluoSnapshot = {
   attachmentError: string | null;
@@ -112,6 +70,7 @@ export type FluoGStateOptions = {
   onStorageChanged?: (nodeId: string, space: 'private' | 'public') => void | Promise<void>;
   revokeObjectUrl?: (url: string) => void;
   registry?: NodoRegistry;
+  scheduleCacheWrite?: (callback: () => void) => () => void;
   selectionStorage?: Storage | null;
 };
 
@@ -125,6 +84,7 @@ export class FluoGState extends GState<FluoSnapshot> {
   readonly #onStorageChanged: ((nodeId: string, space: 'private' | 'public') => void | Promise<void>) | null;
   readonly #registry: NodoRegistry;
   readonly #revokeObjectUrl: (url: string) => void;
+  readonly #scheduleCacheWrite: (callback: () => void) => () => void;
   readonly #selectionStorage: Storage | null;
   #lifecycleId = 0;
   #requestId = 0;
@@ -141,12 +101,18 @@ export class FluoGState extends GState<FluoSnapshot> {
   #mediaDimensions = new Map<string, { height: number; width: number }>();
   #likeRequests = new Map<string, Promise<boolean>>();
   #likeDesiredStates = new Map<string, boolean>();
-  #likeStateRequests = new Map<string, Promise<void>>();
   #likeMutationEpochs = new Map<string, number>();
+  #likeHydratedAt = new Map<string, number>();
+  #likeStateQueue = new Map<string, FluoLikeTarget>();
+  #likeStateInFlightKeys = new Set<string>();
+  #likeStateRequest: Promise<void> | null = null;
+  #likeStateFlushScheduled = false;
+  #likeStateTimer: ReturnType<typeof setTimeout> | null = null;
   #pageSize = INITIAL_FEED_PAGE_SIZE;
   #cacheOwnerId: string | null;
   #cacheRestorePromise: Promise<void> | null = null;
   #persistScheduled = false;
+  #cancelPersist: (() => void) | null = null;
   #persistGeneration = 0;
   #unsubscribeRegistry: (() => void) | null = null;
   #feedStatesInFlight: {
@@ -185,6 +151,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#feedCache = new FluoFeedCache({ storage: options.cacheStorage });
     this.#onStorageChanged = options.onStorageChanged ?? null;
     this.#registry = options.registry ?? new NodoRegistry();
+    this.#scheduleCacheWrite = options.scheduleCacheWrite ?? scheduleIdleTask;
     this.#createId = options.createId ?? createLocalId;
     this.#createObjectUrl = options.createObjectUrl ?? ((blob) => URL.createObjectURL(blob));
     this.#revokeObjectUrl = options.revokeObjectUrl ?? ((url) => URL.revokeObjectURL(url));
@@ -200,12 +167,13 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   override exit(): void {
+    this.flushFeedCache();
     this.#lifecycleId += 1;
     this.#requestId += 1;
     this.#likeRequests.clear();
     this.#likeDesiredStates.clear();
-    this.#likeStateRequests.clear();
     this.#likeMutationEpochs.clear();
+    this.cancelLikeHydration();
     this.#unsubscribeRegistry?.();
     this.#unsubscribeRegistry = null;
     this.#cacheRestorePromise = null;
@@ -233,6 +201,9 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#lifecycleId += 1;
     this.#requestId += 1;
     this.#persistGeneration += 1;
+    this.#cancelPersist?.();
+    this.#cancelPersist = null;
+    this.#persistScheduled = false;
     this.#gateway.resetSession?.();
     this.#feedCursor = null;
     this.#feedWarmupPending = false;
@@ -244,8 +215,9 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#nodesResolved = false;
     this.#likeRequests.clear();
     this.#likeDesiredStates.clear();
-    this.#likeStateRequests.clear();
     this.#likeMutationEpochs.clear();
+    this.#likeHydratedAt.clear();
+    this.cancelLikeHydration();
     this.#mediaGeneration += 1;
     this.#nodes.resetSession?.();
     this.#mediaRequests.clear();
@@ -276,6 +248,7 @@ export class FluoGState extends GState<FluoSnapshot> {
   configureCacheOwner(ownerId: string | null): void {
     const normalized = normalizeCacheOwner(ownerId);
     if (normalized === this.#cacheOwnerId) return;
+    this.flushFeedCache();
     this.#cacheOwnerId = normalized;
     this.resetInMemoryFeed();
   }
@@ -366,7 +339,11 @@ export class FluoGState extends GState<FluoSnapshot> {
           storageError: null,
         });
         this.persistFeedCache();
-        this.hydrateLikeStates(this.snapshot.posts.slice(0, LIKE_BATCH_SIZE), this.#lifecycleId);
+        this.hydrateLikeStates(
+          this.snapshot.posts.slice(0, LIKE_BATCH_SIZE),
+          this.#lifecycleId,
+          { force: forceReload },
+        );
         // State hashes are only needed to reconcile a later refresh. Do not
         // keep the refresh promise pending after metadata is visible; a slow
         // legacy Nodo state endpoint must not make the Refresh button appear
@@ -398,7 +375,11 @@ export class FluoGState extends GState<FluoSnapshot> {
           storageError: null,
         });
         this.persistFeedCache();
-        this.hydrateLikeStates(this.snapshot.posts.slice(0, LIKE_BATCH_SIZE), this.#lifecycleId);
+        this.hydrateLikeStates(
+          this.snapshot.posts.slice(0, LIKE_BATCH_SIZE),
+          this.#lifecycleId,
+          { force: forceReload },
+        );
         return;
       }
 
@@ -445,7 +426,11 @@ export class FluoGState extends GState<FluoSnapshot> {
         ? cachedChangedPosts.filter((post) => !fetchedKeys.has(postKey(post)))
         : [];
       this.revokeUrls(removed.flatMap((post) => post.attachments));
-      removed.forEach((post) => this.clearMediaCacheForPost(postKey(post)));
+      removed.forEach((post) => {
+        const key = postKey(post);
+        this.clearMediaCacheForPost(key);
+        this.forgetLikeState(key);
+      });
       const retained = this.snapshot.posts.filter((post) =>
         !changedNodeIds.has(post.nodeId) || !reconciliationComplete || fetchedKeys.has(postKey(post)));
       const posts = mergePosts(retained, fetched);
@@ -463,7 +448,11 @@ export class FluoGState extends GState<FluoSnapshot> {
         storageError: null,
       });
       this.persistFeedCache();
-      this.hydrateLikeStates(this.snapshot.posts.slice(0, LIKE_BATCH_SIZE), this.#lifecycleId);
+      this.hydrateLikeStates(
+        this.snapshot.posts.slice(0, LIKE_BATCH_SIZE),
+        this.#lifecycleId,
+        { force: forceReload },
+      );
     } catch (error) {
       if (requestId !== this.#requestId) return;
       this.publish({
@@ -528,14 +517,24 @@ export class FluoGState extends GState<FluoSnapshot> {
     const ownerId = this.#cacheOwnerId;
     const generation = this.#persistGeneration;
     this.#persistScheduled = true;
-    // Feed reconciliation can publish several state updates in one turn.
-    // Coalesce them so localStorage is serialized and written once with the
-    // latest snapshot instead of blocking the UI repeatedly.
-    queueMicrotask(() => {
+    // localStorage is synchronous. Coalesce reconciliation updates and write
+    // during an idle/macrotask slot so a large metadata snapshot cannot block
+    // the current scroll or animation frame.
+    this.#cancelPersist = this.#scheduleCacheWrite(() => {
+      this.#cancelPersist = null;
       this.#persistScheduled = false;
       if (this.#cacheOwnerId !== ownerId || this.#persistGeneration !== generation) return;
       this.persistFeedCacheNow(ownerId);
     });
+  }
+
+  private flushFeedCache(): void {
+    if (!this.#persistScheduled) return;
+    this.#cancelPersist?.();
+    this.#cancelPersist = null;
+    this.#persistScheduled = false;
+    const ownerId = this.#cacheOwnerId;
+    if (ownerId) this.persistFeedCacheNow(ownerId);
   }
 
   private persistFeedCacheNow(ownerId: string): void {
@@ -588,7 +587,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         posts: [...this.snapshot.posts, ...additions],
       });
       this.persistFeedCache();
-      this.hydrateLikeStates(additions, this.#lifecycleId);
+      this.hydrateLikeStates(additions, this.#lifecycleId, { deferred: true });
     } catch (error) {
       if (requestId !== this.#requestId) return;
       this.publish({
@@ -944,6 +943,7 @@ export class FluoGState extends GState<FluoSnapshot> {
         if (this.#likeDesiredStates.get(key) !== authoritativeLiked) continue;
 
         this.#likeDesiredStates.delete(key);
+        this.#likeHydratedAt.set(key, Date.now());
         if (!current || current.likePending !== true) return true;
         this.publish({
           ...this.snapshot,
@@ -975,31 +975,76 @@ export class FluoGState extends GState<FluoSnapshot> {
     return false;
   }
 
-  /** Hydrates like state in one bounded coordinator query per metadata batch. */
-  private hydrateLikeStates(posts: readonly FluoPost[], lifecycleId: number): void {
+  /**
+   * Queues coordinator-backed reaction state. Render-ahead pages are combined
+   * into one request instead of spending one Worker invocation per Nodo page.
+   */
+  private hydrateLikeStates(
+    posts: readonly FluoPost[],
+    lifecycleId: number,
+    options: { deferred?: boolean; force?: boolean } = {},
+  ): void {
+    if (!this.#gateway.listLikeStates || lifecycleId !== this.#lifecycleId) return;
+    const freshAfter = Date.now() - LIKE_STATE_FRESHNESS_MS;
+    for (const post of posts) {
+      const key = postKey(post);
+      if (!options.force && (this.#likeHydratedAt.get(key) ?? 0) >= freshAfter) continue;
+      if (this.#likeStateInFlightKeys.has(key)) continue;
+      this.#likeStateQueue.set(key, { id: post.id, nodeId: post.nodeId, space: post.space });
+    }
+    if (this.#likeStateQueue.size) {
+      this.scheduleLikeHydration(lifecycleId, options.deferred === true);
+    }
+  }
+
+  private scheduleLikeHydration(lifecycleId: number, deferred: boolean): void {
+    if (lifecycleId !== this.#lifecycleId || this.#likeStateRequest) return;
+    if (!deferred) {
+      if (this.#likeStateTimer) {
+        clearTimeout(this.#likeStateTimer);
+        this.#likeStateTimer = null;
+      }
+      if (this.#likeStateFlushScheduled) return;
+      this.#likeStateFlushScheduled = true;
+      queueMicrotask(() => {
+        this.#likeStateFlushScheduled = false;
+        if (lifecycleId === this.#lifecycleId) void this.flushLikeHydration(lifecycleId);
+      });
+      return;
+    }
+    if (this.#likeStateFlushScheduled || this.#likeStateTimer) return;
+    this.#likeStateTimer = setTimeout(() => {
+      this.#likeStateTimer = null;
+      if (lifecycleId === this.#lifecycleId) void this.flushLikeHydration(lifecycleId);
+    }, LIKE_HYDRATION_DELAY_MS);
+  }
+
+  private async flushLikeHydration(lifecycleId: number): Promise<void> {
     const listLikeStates = this.#gateway.listLikeStates;
-    if (!listLikeStates || lifecycleId !== this.#lifecycleId) return;
-    const targets = [...new Map(posts.map((post) => [postKey(post), {
-      id: post.id,
-      nodeId: post.nodeId,
-      space: post.space,
-    } satisfies FluoLikeTarget])).values()];
+    if (!listLikeStates || lifecycleId !== this.#lifecycleId || this.#likeStateRequest) return;
+    const targets = [...this.#likeStateQueue.values()].slice(0, LIKE_BATCH_SIZE);
     if (!targets.length) return;
-    const requestKey = targets.map(postKey).sort().join('\u001f');
-    if (this.#likeStateRequests.has(requestKey)) return;
-    const epochs = new Map(targets.map((target) => [postKey(target), this.#likeMutationEpochs.get(postKey(target)) ?? 0]));
-    const request = Promise.resolve()
-      .then(() => listLikeStates.call(this.#gateway, targets.slice(0, LIKE_BATCH_SIZE)))
+    const keys = targets.map(postKey);
+    const epochs = new Map(keys.map((key) => [key, this.#likeMutationEpochs.get(key) ?? 0]));
+    for (const key of keys) {
+      this.#likeStateQueue.delete(key);
+      this.#likeStateInFlightKeys.add(key);
+    }
+
+    let request: Promise<void>;
+    request = Promise.resolve()
+      .then(() => listLikeStates.call(this.#gateway, targets))
       .then((states) => {
         if (lifecycleId !== this.#lifecycleId) return;
+        const hydratedAt = Date.now();
+        keys.forEach((key) => this.#likeHydratedAt.set(key, hydratedAt));
         const byKey = new Map(states.map((state) => [postKey(state), state]));
         let changed = false;
         const posts = this.snapshot.posts.map((post) => {
           const key = postKey(post);
           const state = byKey.get(key);
-          if (!state || post.likePending === true || epochs.get(key) !== (this.#likeMutationEpochs.get(key) ?? 0)) {
-            return post;
-          }
+          if (!state || post.likePending === true ||
+              epochs.get(key) !== (this.#likeMutationEpochs.get(key) ?? 0)) return post;
           const likeCount = normalizeLikeCount(state.likeCount);
           if (post.liked === state.liked && normalizeLikeCount(post.likeCount) === likeCount) return post;
           changed = true;
@@ -1011,10 +1056,24 @@ export class FluoGState extends GState<FluoSnapshot> {
         }
       })
       .catch(() => undefined)
-      .finally(() => {
-        if (this.#likeStateRequests.get(requestKey) === request) this.#likeStateRequests.delete(requestKey);
+      .then(() => {
+        keys.forEach((key) => this.#likeStateInFlightKeys.delete(key));
+        if (this.#likeStateRequest === request) this.#likeStateRequest = null;
+        if (lifecycleId === this.#lifecycleId && this.#likeStateQueue.size) {
+          this.scheduleLikeHydration(lifecycleId, true);
+        }
       });
-    this.#likeStateRequests.set(requestKey, request);
+    this.#likeStateRequest = request;
+    await request;
+  }
+
+  private cancelLikeHydration(): void {
+    if (this.#likeStateTimer) clearTimeout(this.#likeStateTimer);
+    this.#likeStateTimer = null;
+    this.#likeStateFlushScheduled = false;
+    this.#likeStateQueue.clear();
+    this.#likeStateInFlightKeys.clear();
+    this.#likeStateRequest = null;
   }
 
   async deletePost(postId: string): Promise<boolean> {
@@ -1032,6 +1091,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       this.revokeUrls(post.attachments);
       this.clearMediaCacheForPost(key);
       this.forgetMediaDimensionsForPost(key);
+      this.forgetLikeState(key);
       this.publish({
         ...this.snapshot,
         posts: this.snapshot.posts.filter((candidate) => postKey(candidate) !== key),
@@ -1058,6 +1118,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       const key = postKey(post);
       this.clearMediaCacheForPost(key);
       this.forgetMediaDimensionsForPost(key);
+      this.forgetLikeState(key);
     });
     this.publish({
       ...this.snapshot,
@@ -1210,12 +1271,13 @@ export class FluoGState extends GState<FluoSnapshot> {
 
     const request = this.resolveMediaLoad(target, this.#mediaGeneration, mediaKey, detached);
     this.#mediaRequests.set(mediaKey, request);
-    void request.finally(() => {
+    const release = () => {
       // A changed attachment may start a new request under the same key
       // before this one settles. Never let the old request delete the new
       // entry and accidentally re-enable duplicate transfers.
       if (this.#mediaRequests.get(mediaKey) === request) this.#mediaRequests.delete(mediaKey);
-    });
+    };
+    void request.then(release, release);
     return request;
   }
 
@@ -1308,6 +1370,13 @@ export class FluoGState extends GState<FluoSnapshot> {
     }
   }
 
+  private forgetLikeState(key: string): void {
+    this.#likeDesiredStates.delete(key);
+    this.#likeHydratedAt.delete(key);
+    this.#likeMutationEpochs.delete(key);
+    this.#likeStateQueue.delete(key);
+  }
+
   private clearMediaCache(): void {
     for (const key of this.#mediaSources.keys()) this.removeResolvedMedia(key);
     this.#mediaCache.clear();
@@ -1388,11 +1457,9 @@ const MAX_MEDIA_DIMENSION = 100_000;
 const RESERVED_MEDIA_WIDTH = 1_600;
 const RESERVED_MEDIA_HEIGHT = 900;
 const LIKE_BATCH_SIZE = 100;
+const LIKE_HYDRATION_DELAY_MS = 180;
+const LIKE_STATE_FRESHNESS_MS = 30_000;
 const NODE_SELECTION_KEY_PREFIX = 'kaordo.fluo-node.v1.';
-
-function postKey(post: Pick<FluoPost, 'id' | 'nodeId' | 'space'>): string {
-  return `${post.space}:${post.nodeId}:${post.id}`;
-}
 
 function detachedMediaTarget(owner: FluoMediaOwner, attachment: FluoAttachment): FluoMediaTarget {
   return {
@@ -1458,7 +1525,15 @@ function feedStateChanged(previous: FluoNodeFeedState, next: FluoNodeFeedState):
 }
 
 function createLocalId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `fluo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const secureRandom = globalThis.crypto;
+  if (!secureRandom) throw new Error('Secure random IDs are unavailable on this device.');
+  if (typeof secureRandom.randomUUID === 'function') return secureRandom.randomUUID();
+
+  const bytes = secureRandom.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function normalizeCacheOwner(ownerId: string | null): string | null {
@@ -1486,6 +1561,19 @@ function browserStorage(): Storage | null {
   } catch {
     return null;
   }
+}
+
+function scheduleIdleTask(callback: () => void): () => void {
+  const scope = globalThis as typeof globalThis & {
+    cancelIdleCallback?: (handle: number) => void;
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+  };
+  if (typeof scope.requestIdleCallback === 'function') {
+    const handle = scope.requestIdleCallback(callback, { timeout: 750 });
+    return () => scope.cancelIdleCallback?.(handle);
+  }
+  const handle = setTimeout(callback, 0);
+  return () => clearTimeout(handle);
 }
 
 function normalizeLikeCount(value: unknown): number {

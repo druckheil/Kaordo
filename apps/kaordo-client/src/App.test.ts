@@ -13,7 +13,7 @@ import type { PublicNodoStorage } from './lib/domain/nodo';
 import type { AuthGateway } from './lib/gateways/AuthGateway';
 import type { FluoGateway, RemoteFluoPost } from './lib/gateways/FluoGateway';
 import type { NodoGateway } from './lib/gateways/NodoGateway';
-import type { FluoDraftAttachment } from './lib/states/FluoGState';
+import type { FluoDraftAttachment } from './lib/domain/fluo';
 import type {
   WorkspaceDetail,
   WorkspaceSummary,
@@ -206,7 +206,6 @@ function memoryNodoGateway(): NodoGateway {
     renewPublicStorage: () => Promise.resolve({ expiresAt: 1_900_000_000, reservationId: '123e4567-e89b-42d3-a456-426614174099' }),
     reservePublicStorage: () => Promise.resolve({ expiresAt: 1_900_000_000, reservationId: '123e4567-e89b-42d3-a456-426614174099' }),
     requestQuickTest: () => Promise.resolve({ batteryPercent: null, charging: null, completedAt: 0, coordinatorLatencyMs: 0, diskReadBps: 1, diskWriteBps: 1, memoryAvailableBytes: 0, memoryTotalBytes: 0, networkDownBps: null, networkMetered: null, networkType: 'offline' as const, networkUpBps: null, storageAvailableBytes: 0 }),
-    updateNode: () => Promise.resolve({ currentVersion: 'test', status: 'up-to-date' as const }),
     refreshUsage: () => Promise.resolve({ spaces: fluoNode.spaces, usedBytes: fluoNode.usedBytes }),
     updatePolicy: (_nodeId, policy) => Promise.resolve({ ...policy, ownerOnly: true }),
     updateSpaces: () => Promise.resolve(fluoNode.spaces),
@@ -625,7 +624,6 @@ describe('workspace navigation and objects', () => {
         reservePublicStorage: () => Promise.reject(new Error('Not used in this test.')),
         requestQuickTest,
         refreshUsage: () => Promise.resolve({ spaces: node.spaces, usedBytes: node.usedBytes }),
-        updateNode: () => Promise.resolve({ currentVersion: 'test', status: 'up-to-date' as const }),
         updatePolicy,
         updateSpaces,
       },

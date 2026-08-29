@@ -54,10 +54,11 @@ class PublicReconciliationStore(root: File) {
     @Synchronized
     fun acknowledge(pending: Pending) {
         persistChange {
-            ligoMessageIds.removeAll(pending.ligoMessageIds.toSet()) ||
-                postIds.removeAll(pending.postIds.toSet()) ||
-                reservationIds.removeAll(pending.reservationIds.toSet()) ||
-                eraseJobIds.removeAll(pending.eraseJobIds.toSet())
+            val ligoChanged = ligoMessageIds.removeAll(pending.ligoMessageIds.toSet())
+            val postsChanged = postIds.removeAll(pending.postIds.toSet())
+            val reservationsChanged = reservationIds.removeAll(pending.reservationIds.toSet())
+            val eraseJobsChanged = eraseJobIds.removeAll(pending.eraseJobIds.toSet())
+            ligoChanged || postsChanged || reservationsChanged || eraseJobsChanged
         }
     }
 

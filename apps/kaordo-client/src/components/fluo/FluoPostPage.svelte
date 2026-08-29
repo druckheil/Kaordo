@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { FluoGState, FluoPost, FluoQuote } from '../../lib/states/FluoGState';
+  import type { FluoPost, FluoQuote } from '../../lib/domain/fluo';
+  import type { FluoGState } from '../../lib/states/FluoGState';
   import FluoPostCard from './FluoPostCard.svelte';
 
   type Props = {

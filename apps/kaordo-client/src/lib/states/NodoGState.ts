@@ -4,13 +4,12 @@ import {
   type NodoPolicy,
   type NodoTelemetryField,
   type NodoTelemetryUpdate,
-  type NodoUpdateResult,
 } from '../domain/nodo';
 import type { NodoGateway } from '../gateways/NodoGateway';
 import { GState } from '../state/GState';
 import { NodoRegistry } from '../services/NodoRegistry';
 
-export type NodoOperation = { nodeId: string; type: 'clear' | 'clear-private' | 'delete' | 'policy' | 'rename' | 'spaces' | 'test' | 'update' };
+export type NodoOperation = { nodeId: string; type: 'clear' | 'clear-private' | 'delete' | 'policy' | 'rename' | 'spaces' | 'test' };
 
 export type NodoTelemetryState = 'error' | 'loading' | 'ready';
 
@@ -31,7 +30,6 @@ export type NodoSnapshot = {
   operation: NodoOperation | null;
   phase: 'idle' | 'loading' | 'ready';
   telemetryTest?: NodoTelemetryTest | null;
-  updateResult?: (NodoUpdateResult & { nodeId: string }) | null;
 };
 
 export class NodoGState extends GState<NodoSnapshot> {
@@ -49,7 +47,7 @@ export class NodoGState extends GState<NodoSnapshot> {
   };
 
   constructor(gateway: NodoGateway, registry = new NodoRegistry()) {
-    super({ error: null, nodes: [...registry.nodes], operation: null, phase: 'idle', telemetryTest: null, updateResult: null });
+    super({ error: null, nodes: [...registry.nodes], operation: null, phase: 'idle', telemetryTest: null });
     this.#gateway = gateway;
     this.#registry = registry;
   }
@@ -89,7 +87,7 @@ export class NodoGState extends GState<NodoSnapshot> {
     this.#lastRefreshAt = 0;
     this.#lastUsageRefreshAt.clear();
     this.#registry.reset();
-    this.publish({ error: null, nodes: [], operation: null, phase: 'idle', telemetryTest: null, updateResult: null });
+    this.publish({ error: null, nodes: [], operation: null, phase: 'idle', telemetryTest: null });
   }
 
   refresh(background = false, force = true): Promise<void> {
@@ -317,42 +315,6 @@ export class NodoGState extends GState<NodoSnapshot> {
           }
         : this.snapshot.telemetryTest;
       this.publish({ ...this.snapshot, error: readableError(error), operation: null, telemetryTest });
-      return false;
-    }
-  }
-
-  async updateNode(nodeId: string): Promise<boolean> {
-    if (this.snapshot.operation) return false;
-    const node = this.snapshot.nodes.find((candidate) => candidate.id === nodeId);
-    if (!node) return false;
-    const lifecycleId = this.#lifecycleId;
-    this.publish({
-      ...this.snapshot,
-      error: null,
-      operation: { nodeId, type: 'update' },
-      updateResult: null,
-    });
-    try {
-      const result = await this.#gateway.updateNode(nodeId);
-      if (lifecycleId !== this.#lifecycleId) return true;
-      const updateResult = { ...result, nodeId };
-      if (result.status === 'installed' && result.currentVersion) {
-        this.#registry.update(nodeId, (current) => ({
-          ...current,
-          metrics: { ...current.metrics, appVersion: result.currentVersion },
-        }));
-      }
-      this.publish({ ...this.#registrySnapshot(), error: null, operation: null, updateResult });
-      return result.status !== 'failed';
-    } catch (error) {
-      if (lifecycleId !== this.#lifecycleId) return false;
-      const updateResult = {
-        currentVersion: node.metrics.appVersion ?? 'unknown',
-        message: readableError(error),
-        nodeId,
-        status: 'failed' as const,
-      };
-      this.publish({ ...this.snapshot, error: null, operation: null, updateResult });
       return false;
     }
   }

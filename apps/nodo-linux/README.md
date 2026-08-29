@@ -107,7 +107,8 @@ The built-in updater reads the single HTTPS manifest at
 `updateManifestUrl` in the config. Older versioned manifest URLs are only
 compatibility aliases to this current manifest; nodes never walk historical
 releases. The artifact is streamed to a temporary file, verified, then
-installed with a rollback file. The service is intentionally not restarted
+atomically replaces the executable from the same directory, so the command
+path is never left missing. The service is intentionally not restarted
 automatically; run `kaordo-nodo restart` after applying an update.
 
 ## Building locally

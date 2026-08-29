@@ -1,9 +1,11 @@
 <script lang="ts">
-  import type { FluoGState, FluoPost, FluoQuote } from '../../lib/states/FluoGState';
+  import { fluoPostKey, type FluoPost, type FluoQuote } from '../../lib/domain/fluo';
+  import type { FluoGState } from '../../lib/states/FluoGState';
   import { openContextMenu } from '../../lib/ui/contextMenu';
   import FluoMedia from './FluoMedia.svelte';
   import FluoMediaCarousel from './FluoMediaCarousel.svelte';
   import FluoQuotedPost from './FluoQuotedPost.svelte';
+  import { formatFluoPostDate } from './fluoPost';
   import { FLUO_POST_PREVIEW_LINES, shouldExpandFluoText } from './fluoText';
 
   type Props = {
@@ -27,18 +29,10 @@
     post,
     registerMedia,
   }: Props = $props();
-  let postIdentity = $derived(`${post.space}:${post.nodeId}:${post.id}`);
+  let postIdentity = $derived(fluoPostKey(post));
   let likePending = $derived(fluoState.isLikePending?.(post.id, postIdentity) ?? post.likePending === true);
   let likeCount = $derived(post.likeCount ?? 0);
   let canExpand = $derived(shouldExpandFluoText(post.body));
-
-  function postDate(value: number): string {
-    const date = new Date(value);
-    const today = new Date();
-    return date.toDateString() === today.toDateString()
-      ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : date.toLocaleDateString([], { day: 'numeric', month: 'short' });
-  }
 
   function menuLabel(): string {
     const body = post.body.trim();
@@ -70,7 +64,7 @@
       <strong>{post.author}</strong>
       <span>@{post.author.toLowerCase()}</span>
       <i aria-hidden="true">·</i>
-      <time datetime={new Date(post.createdAt).toISOString()}>{postDate(post.createdAt)}</time>
+      <time datetime={new Date(post.createdAt).toISOString()}>{formatFluoPostDate(post.createdAt)}</time>
       <span class="post-node-mark" title={`Stored in ${post.space} space on Nodo ${post.nodeId}`}>
         {post.space === 'public' ? 'Public Nodo' : 'Private Nodo'}
       </span>
@@ -93,7 +87,10 @@
     {/if}
     {#if post.attachments.length}
       {#if post.attachments.length === 1}
-        <div class="post-media post-media--single">
+        <div
+          class="post-media post-media--single"
+          class:post-media--audio={post.attachments[0]!.kind === 'audio'}
+        >
           {#key `${postIdentity}:${post.attachments[0]!.id}`}
             <FluoMedia
               attachment={post.attachments[0]!}
@@ -120,6 +117,7 @@
     {/if}
     {#if post.quote}
       <FluoQuotedPost
+        {active}
         {fluoState}
         onOpen={onOpenQuote ? () => onOpenQuote(post.quote!) : undefined}
         quote={post.quote}
@@ -277,6 +275,17 @@
     width: fit-content;
     max-width: 100%;
     align-items: flex-start;
+  }
+
+  /* Native audio controls have a fairly wide intrinsic size. Give an audio
+     attachment the full logical content width so that intrinsic sizing cannot
+     push the player outside the post card. Other media keeps its natural
+     bounded width. */
+  .post-media--single.post-media--audio {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
   }
 
   .post-actions {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { FluoAttachment, FluoGState, FluoMediaOwner } from '../../lib/states/FluoGState';
+  import type { FluoAttachment, FluoMediaOwner } from '../../lib/domain/fluo';
+  import type { FluoGState } from '../../lib/states/FluoGState';
   import { FLUO_CAROUSEL_MEDIA_WIDTH } from './fluoMediaLayout';
   import FluoMedia from './FluoMedia.svelte';
 

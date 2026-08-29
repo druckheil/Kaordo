@@ -1,5 +1,5 @@
 import type { NodoAccess } from '../domain/nodo';
-import type { FluoAttachment, FluoDraftAttachment, FluoQuote } from '../states/FluoGState';
+import type { FluoAttachment, FluoDraftAttachment, FluoQuote } from '../domain/fluo';
 import {
   PUBLIC_FLUO_DESTINATION,
   type FluoFeedPage,

@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { NodoAccess, NodoNode, NodoPolicy } from '../domain/nodo';
+import {
+  createFluoQuote,
+  FLUO_MAX_POST_LENGTH,
+  type FluoDraftAttachment,
+  type FluoQuote,
+} from '../domain/fluo';
 import type { FluoFeedPage, FluoGateway, FluoLikeState, FluoLikeTarget, FluoUploadProgress, RemoteFluoPost } from '../gateways/FluoGateway';
 import { PUBLIC_FLUO_DESTINATION } from '../gateways/FluoGateway';
 import type { NodoGateway } from '../gateways/NodoGateway';
-import { createFluoQuote, FLUO_MAX_POST_LENGTH, FluoGState, type FluoDraftAttachment, type FluoQuote } from './FluoGState';
+import { FluoGState } from './FluoGState';
 
 describe('FluoGState', () => {
   it('loads the Cloudflare coordination snapshot with one bootstrap request', async () => {
@@ -99,6 +105,7 @@ describe('FluoGState', () => {
     const first = new FluoGState(firstGateway, new MemoryNodoGateway(), {
       cacheOwnerId: 'user-1',
       cacheStorage: storage,
+      scheduleCacheWrite: scheduleMicrotask,
     });
 
     first.enter();
@@ -117,6 +124,7 @@ describe('FluoGState', () => {
     const second = new FluoGState(secondGateway, secondNodes, {
       cacheOwnerId: 'user-1',
       cacheStorage: storage,
+      scheduleCacheWrite: scheduleMicrotask,
     });
 
     second.enter();
@@ -248,6 +256,30 @@ describe('FluoGState', () => {
 
     expect(state.snapshot.posts[0]).toMatchObject({ likeCount: 3, liked: true });
     expect(fluo.likeQueryCalls).toBe(1);
+  });
+
+  it('reuses fresh like state across automatic feed revalidation', async () => {
+    const fluo = new LikeFluoGateway();
+    fluo.posts = [{
+      attachments: [],
+      author: 'liked',
+      body: 'Do not query the coordinator again on a tab revisit',
+      createdAt: 20,
+      id: '123e4567-e89b-42d3-a456-426614174011',
+      nodeId: NODE.id,
+      space: 'private',
+    }];
+    const state = createState(fluo);
+
+    await state.refreshNodes();
+    await flushTasks();
+    await state.refreshNodes();
+    await flushTasks();
+    expect(fluo.likeQueryCalls).toBe(1);
+
+    await state.refreshFeed();
+    await flushTasks();
+    expect(fluo.likeQueryCalls).toBe(2);
   });
 
   it('updates a like optimistically and rolls back when persistence fails', async () => {
@@ -566,8 +598,17 @@ function createState(
   return new FluoGState(fluo, nodes, {
     createObjectUrl: () => 'blob:remote',
     revokeObjectUrl: () => undefined,
+    scheduleCacheWrite: scheduleMicrotask,
     ...options,
   });
+}
+
+function scheduleMicrotask(callback: () => void): () => void {
+  let cancelled = false;
+  queueMicrotask(() => {
+    if (!cancelled) callback();
+  });
+  return () => { cancelled = true; };
 }
 
 async function flushTasks(): Promise<void> {

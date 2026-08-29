@@ -1,6 +1,6 @@
 import type { Env } from '../env';
 import { authenticate, unixNow } from '../auth/session';
-import { json } from '../http/json';
+import { json, readJsonObject } from '../http/json';
 
 const PUBLIC_LIMIT_BYTES = 1_073_741_824;
 const RESERVATION_SECONDS = 10 * 60;
@@ -217,6 +217,18 @@ export async function releasePublicPost(
   }
   await env.DB.batch([
     env.DB.prepare(
+      `DELETE FROM fluo_public_tombstones
+        WHERE node_id = ?1 AND post_id = ?2
+          AND EXISTS (
+            SELECT 1 FROM fluo_public_allocations AS allocations
+             WHERE allocations.node_id = ?1 AND allocations.post_id = ?2
+               AND allocations.committed = 1
+               AND (allocations.user_id = ?3 OR EXISTS (
+                 SELECT 1 FROM nodes WHERE nodes.id = ?1 AND nodes.user_id = ?3
+               ))
+          )`,
+    ).bind(nodeId, postId, session.userId),
+    env.DB.prepare(
       `DELETE FROM fluo_post_likes
         WHERE node_id = ?1 AND space = 'public' AND post_id = ?2
           AND EXISTS (
@@ -235,9 +247,6 @@ export async function releasePublicPost(
           SELECT 1 FROM nodes WHERE nodes.id = ?1 AND nodes.user_id = ?3
         ))`,
     ).bind(nodeId, postId, session.userId),
-    env.DB.prepare(
-      'DELETE FROM fluo_public_tombstones WHERE node_id = ?1 AND post_id = ?2',
-    ).bind(nodeId, postId),
   ]);
   return json({ usage: await publicUsageResponse(env, session.userId, unixNow()) });
 }
@@ -350,11 +359,9 @@ function supportsPublicReservations(version: string | null): boolean {
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown>> {
-  const contentLength = Number(request.headers.get('content-length') ?? '0');
-  if (contentLength > MAX_REQUEST_BYTES) throw new Error('Request is too large.');
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_REQUEST_BYTES) throw new Error('Request is too large.');
-  const value: unknown = JSON.parse(text);
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('JSON object required.');
-  return value as Record<string, unknown>;
+  return readJsonObject(request, {
+    invalidMessage: 'JSON object required.',
+    maxBytes: MAX_REQUEST_BYTES,
+    tooLargeMessage: 'Request is too large.',
+  });
 }

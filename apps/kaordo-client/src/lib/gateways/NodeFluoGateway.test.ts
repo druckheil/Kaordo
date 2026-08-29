@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { NodoAccess, NodoPolicy } from '../domain/nodo';
-import type { FluoDraftAttachment } from '../states/FluoGState';
+import type { FluoDraftAttachment } from '../domain/fluo';
 import type { NodoGateway } from './NodoGateway';
 import { NodeFluoGateway } from './NodeFluoGateway';
 
@@ -543,7 +543,6 @@ class AccessGateway implements NodoGateway {
     });
   }
   requestQuickTest() { return Promise.resolve({ batteryPercent: null, charging: null, completedAt: 0, coordinatorLatencyMs: 0, diskReadBps: 1, diskWriteBps: 1, memoryAvailableBytes: 0, memoryTotalBytes: 0, networkDownBps: null, networkMetered: null, networkType: 'offline' as const, networkUpBps: null, storageAvailableBytes: 0 }); }
-  updateNode() { return Promise.resolve({ currentVersion: 'test', status: 'up-to-date' as const }); }
   refreshUsage() { return Promise.resolve({ spaces: { private: { quotaBytes: 0, usedBytes: 0 }, public: { quotaBytes: 0, usedBytes: 0 } }, usedBytes: 0 }); }
   updatePolicy(_nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>): Promise<NodoPolicy> {
     return Promise.resolve({ ...policy, ownerOnly: true });

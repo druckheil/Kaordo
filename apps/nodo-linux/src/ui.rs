@@ -60,6 +60,8 @@ pub fn help(version: &str) {
     println!("{}", color(TEAL, "MAINTENANCE"));
     println!("  update                  Check for a SHA-256 verified release");
     println!("  update --apply          Download, verify and atomically install an update");
+    println!();
+    println!("{}", color(TEAL, "INFO"));
     println!("  version                Print the node version");
     println!();
     println!("{}", color(DIM, "Examples:"));

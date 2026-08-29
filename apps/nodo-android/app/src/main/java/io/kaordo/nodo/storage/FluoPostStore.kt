@@ -82,21 +82,14 @@ class FluoPostStore(
         val normalizedBody = body.trim()
         require(normalizedBody.length <= MAX_BODY_LENGTH)
         require(normalizedBody.isNotEmpty() || attachments.isNotEmpty() || quote != null)
-        require(attachments.size <= MAX_ATTACHMENTS)
+        require(validAttachmentCount(attachments))
         require(attachments.map { it.id }.distinct().size == attachments.size)
         quote?.let(::validateQuote)
         if (publicReservationId != null && hasPublicReservation(publicReservationId)) {
             throw PublicReservationUsed()
         }
         for (attachment in attachments) {
-            require(ID.matches(attachment.id))
-            require(attachment.kind in KINDS)
-            require(attachment.mimeType.length in 1..120 && !hasControls(attachment.mimeType))
-            require(attachment.name.length in 1..180 && !hasControls(attachment.name))
-            require(attachment.size >= 0)
-            require((attachment.width == null) == (attachment.height == null))
-            require(attachment.width == null || attachment.width in 1..MAX_MEDIA_DIMENSION)
-            require(attachment.height == null || attachment.height in 1..MAX_MEDIA_DIMENSION)
+            validateAttachmentMetadata(attachment)
             val (record, file) = uploads.completedFile(attachment.id) ?: throw MissingMedia()
             if (record.createdBy != author && !(record.createdBy == null && author == legacyOwner)) {
                 throw MissingMedia()
@@ -315,18 +308,7 @@ class FluoPostStore(
         val items = value.getJSONArray("attachments")
         require(items.length() <= MAX_ATTACHMENTS)
         return Post(
-            attachments = List(items.length()) { index ->
-                val item = items.getJSONObject(index)
-                Attachment(
-                    id = item.getString("id"),
-                    kind = item.getString("kind"),
-                    mimeType = item.getString("mimeType"),
-                    name = item.getString("name"),
-                    size = item.getLong("size"),
-                    width = item.optInt("width", 0).takeIf { it > 0 },
-                    height = item.optInt("height", 0).takeIf { it > 0 },
-                )
-            },
+            attachments = List(items.length()) { index -> parseAttachment(items.getJSONObject(index)) },
             author = value.getString("author"),
             body = value.getString("body"),
             createdAt = value.getLong("createdAt"),
@@ -336,11 +318,8 @@ class FluoPostStore(
         ).also {
             require(ID.matches(it.id) && it.body.length <= MAX_BODY_LENGTH)
             require(it.author.length in 1..32 && !hasControls(it.author))
-            require(it.attachments.all { attachment ->
-                (attachment.width == null) == (attachment.height == null) &&
-                    (attachment.width == null || attachment.width in 1..MAX_MEDIA_DIMENSION) &&
-                    (attachment.height == null || attachment.height in 1..MAX_MEDIA_DIMENSION)
-            })
+            require(validAttachmentCount(it.attachments))
+            it.attachments.forEach(::validateAttachmentMetadata)
         }
     }
 
@@ -368,7 +347,19 @@ class FluoPostStore(
         size = item.getLong("size"),
         width = item.optInt("width", 0).takeIf { it > 0 },
         height = item.optInt("height", 0).takeIf { it > 0 },
-    ).also { attachment ->
+    ).also(::validateAttachmentMetadata)
+
+    private fun validateQuote(quote: QuotedPost) {
+        require(ID.matches(quote.id))
+        require(quote.nodeId.length in 1..120 && !hasControls(quote.nodeId))
+        require(quote.space == "private" || quote.space == "public")
+        require(quote.author.length in 1..32 && !hasControls(quote.author))
+        require(quote.body.length <= MAX_BODY_LENGTH)
+        require(validAttachmentCount(quote.attachments))
+        quote.attachments.forEach(::validateAttachmentMetadata)
+    }
+
+    private fun validateAttachmentMetadata(attachment: Attachment) {
         require(ID.matches(attachment.id))
         require(attachment.kind in KINDS)
         require(attachment.mimeType.length in 1..120 && !hasControls(attachment.mimeType))
@@ -377,25 +368,6 @@ class FluoPostStore(
         require((attachment.width == null) == (attachment.height == null))
         require(attachment.width == null || attachment.width in 1..MAX_MEDIA_DIMENSION)
         require(attachment.height == null || attachment.height in 1..MAX_MEDIA_DIMENSION)
-    }
-
-    private fun validateQuote(quote: QuotedPost) {
-        require(ID.matches(quote.id))
-        require(quote.nodeId.length in 1..120 && !hasControls(quote.nodeId))
-        require(quote.space == "private" || quote.space == "public")
-        require(quote.author.length in 1..32 && !hasControls(quote.author))
-        require(quote.body.length <= MAX_BODY_LENGTH)
-        require(quote.attachments.size <= MAX_ATTACHMENTS)
-        quote.attachments.forEach { attachment ->
-            require(ID.matches(attachment.id))
-            require(attachment.kind in KINDS)
-            require(attachment.mimeType.length in 1..120 && !hasControls(attachment.mimeType))
-            require(attachment.name.length in 1..180 && !hasControls(attachment.name))
-            require(attachment.size >= 0)
-            require((attachment.width == null) == (attachment.height == null))
-            require(attachment.width == null || attachment.width in 1..MAX_MEDIA_DIMENSION)
-            require(attachment.height == null || attachment.height in 1..MAX_MEDIA_DIMENSION)
-        }
     }
 
     private fun hasControls(value: String) = value.any { it.code < 32 || it.code == 127 }
@@ -448,7 +420,9 @@ class FluoPostStore(
     enum class DeleteResult { DELETED, FORBIDDEN, MISSING }
 
     companion object {
-        const val MAX_ATTACHMENTS = 4
+        const val MAX_ATTACHMENTS = 9
+        const val MAX_MEDIA_ATTACHMENTS = 4
+        const val MAX_AUDIO_ATTACHMENTS = 5
         private const val MAX_MEDIA_DIMENSION = 100_000
         const val MAX_BODY_LENGTH = 5_000
         private const val MAX_POST_FILE_BYTES = 32 * 1_024L
@@ -457,6 +431,13 @@ class FluoPostStore(
         private const val INDEX_ENTRY_BYTES = 51L
         private const val SUFFIX = ".post.json"
         private val ID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
-        private val KINDS = setOf("gif", "image", "video")
+        private val KINDS = setOf("audio", "gif", "image", "video")
+
+        private fun validAttachmentCount(attachments: List<Attachment>): Boolean {
+            val audioCount = attachments.count { it.kind == "audio" }
+            val mediaCount = attachments.size - audioCount
+            return attachments.size <= MAX_ATTACHMENTS &&
+                audioCount <= MAX_AUDIO_ATTACHMENTS && mediaCount <= MAX_MEDIA_ATTACHMENTS
+        }
     }
 }

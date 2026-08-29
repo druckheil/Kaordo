@@ -1,11 +1,9 @@
 <script lang="ts">
-  import type {
-    FluoGState,
-    FluoMediaOwner,
-    FluoQuote,
-  } from '../../lib/states/FluoGState';
+  import { fluoPostKey, type FluoMediaOwner, type FluoQuote } from '../../lib/domain/fluo';
+  import type { FluoGState } from '../../lib/states/FluoGState';
   import FluoMedia from './FluoMedia.svelte';
   import FluoMediaCarousel from './FluoMediaCarousel.svelte';
+  import { formatFluoPostDate } from './fluoPost';
 
   type Props = {
     active?: boolean;
@@ -23,7 +21,7 @@
     registerMedia,
   }: Props = $props();
 
-  let quoteIdentity = $derived(`${quote.space}:${quote.nodeId}:${quote.id}`);
+  let quoteIdentity = $derived(fluoPostKey(quote));
   let mediaOwner = $derived<FluoMediaOwner>({
     id: quote.id,
     nodeId: quote.nodeId,
@@ -43,13 +41,6 @@
     onOpen();
   }
 
-  function postDate(value: number): string {
-    const date = new Date(value);
-    const today = new Date();
-    return date.toDateString() === today.toDateString()
-      ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : date.toLocaleDateString([], { day: 'numeric', month: 'short' });
-  }
 </script>
 
 <div
@@ -77,7 +68,7 @@
     <strong>{quote.author}</strong>
     <span>@{quote.author.toLowerCase()}</span>
     <i aria-hidden="true">·</i>
-    <time datetime={new Date(quote.createdAt).toISOString()}>{postDate(quote.createdAt)}</time>
+    <time datetime={new Date(quote.createdAt).toISOString()}>{formatFluoPostDate(quote.createdAt)}</time>
   </div>
 
   {#if quote.body}

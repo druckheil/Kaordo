@@ -8,7 +8,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 pub const TUS_VERSION: &str = "1.0.0";
-pub const MAX_FLUO_ATTACHMENTS: usize = 4;
+pub const MAX_FLUO_ATTACHMENTS: usize = 9;
+pub const MAX_FLUO_MEDIA_ATTACHMENTS: usize = 4;
+pub const MAX_FLUO_AUDIO_ATTACHMENTS: usize = 5;
 pub const MAX_LIGO_ATTACHMENTS: usize = 12;
 pub const MAX_POST_BODY: usize = 5_000;
 pub const MAX_LIGO_BODY: usize = 16_000;
@@ -526,7 +528,7 @@ impl SpaceStorage {
         }
         if post.body.chars().count() > MAX_POST_BODY
             || (post.body.trim().is_empty() && post.attachments.is_empty() && post.quote.is_none())
-            || post.attachments.len() > MAX_FLUO_ATTACHMENTS
+            || !valid_fluo_attachment_count(&post.attachments)
         {
             return Err(StorageError::Invalid("Post payload is invalid."));
         }
@@ -906,12 +908,7 @@ impl SpaceStorage {
     ) -> Result<(), StorageError> {
         let mut seen = std::collections::HashSet::new();
         for attachment in attachments {
-            if !seen.insert(&attachment.id)
-                || !valid_id(&attachment.id)
-                || !matches!(attachment.kind.as_str(), "gif" | "image" | "video")
-                || attachment.name.len() > 180
-                || attachment.mime_type.len() > 120
-            {
+            if !seen.insert(&attachment.id) || !valid_fluo_attachment_metadata(attachment) {
                 return Err(StorageError::Invalid("Post payload is invalid."));
             }
             let Some((record, path)) = self
@@ -943,35 +940,12 @@ impl SpaceStorage {
                 .any(|character| character.is_control())
             || !matches!(quote.space.as_str(), "private" | "public")
             || quote.body.chars().count() > MAX_POST_BODY
-            || quote.attachments.len() > MAX_FLUO_ATTACHMENTS
+            || !valid_fluo_attachment_count(&quote.attachments)
         {
             return Err(StorageError::Invalid("Post quote is invalid."));
         }
         for attachment in &quote.attachments {
-            if !valid_id(&attachment.id)
-                || attachment.kind != "gif"
-                    && attachment.kind != "image"
-                    && attachment.kind != "video"
-                || attachment.mime_type.is_empty()
-                || attachment.mime_type.len() > 120
-                || attachment
-                    .mime_type
-                    .chars()
-                    .any(|character| character.is_control())
-                || attachment.name.is_empty()
-                || attachment.name.len() > 180
-                || attachment
-                    .name
-                    .chars()
-                    .any(|character| character.is_control())
-                || attachment
-                    .width
-                    .zip(attachment.height)
-                    .is_some_and(|(width, height)| {
-                        width == 0 || height == 0 || width > 100_000 || height > 100_000
-                    })
-                || attachment.width.is_some() != attachment.height.is_some()
-            {
+            if !valid_fluo_attachment_metadata(attachment) {
                 return Err(StorageError::Invalid("Post quote is invalid."));
             }
         }
@@ -1295,6 +1269,44 @@ fn now_millis() -> i64 {
         .min(i64::MAX as u128) as i64
 }
 
+fn valid_fluo_attachment_count(attachments: &[Attachment]) -> bool {
+    let audio_count = attachments
+        .iter()
+        .filter(|attachment| attachment.kind == "audio")
+        .count();
+    let media_count = attachments.len().saturating_sub(audio_count);
+    attachments.len() <= MAX_FLUO_ATTACHMENTS
+        && audio_count <= MAX_FLUO_AUDIO_ATTACHMENTS
+        && media_count <= MAX_FLUO_MEDIA_ATTACHMENTS
+}
+
+fn valid_fluo_attachment_metadata(attachment: &Attachment) -> bool {
+    valid_id(&attachment.id)
+        && matches!(
+            attachment.kind.as_str(),
+            "audio" | "gif" | "image" | "video"
+        )
+        && !attachment.mime_type.is_empty()
+        && attachment.mime_type.len() <= 120
+        && !attachment
+            .mime_type
+            .chars()
+            .any(|character| character.is_control())
+        && !attachment.name.is_empty()
+        && attachment.name.len() <= 180
+        && !attachment
+            .name
+            .chars()
+            .any(|character| character.is_control())
+        && attachment.width.is_some() == attachment.height.is_some()
+        && attachment
+            .width
+            .zip(attachment.height)
+            .map_or(true, |(width, height)| {
+                width > 0 && height > 0 && width <= 100_000 && height <= 100_000
+            })
+}
+
 fn valid_id(value: &str) -> bool {
     Uuid::parse_str(value).is_ok() && value.len() == 36
 }
@@ -1326,7 +1338,13 @@ pub fn metadata_media_type(metadata: &str) -> Option<String> {
         .and_then(|value| base64::engine::general_purpose::STANDARD.decode(value).ok())
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .map(|value| value.to_ascii_lowercase())
-        .filter(|value| value.starts_with("image/") || value.starts_with("video/"))
+        .filter(|value| {
+            value.len() <= 120
+                && value.bytes().all(|byte| (33..=126).contains(&byte))
+                && (value.starts_with("image/")
+                    || value.starts_with("video/")
+                    || value.starts_with("audio/"))
+        })
 }
 
 pub fn media_type(filename: &str) -> &'static str {
@@ -1342,6 +1360,14 @@ pub fn media_type(filename: &str) -> &'static str {
         "png" => "image/png",
         "webp" => "image/webp",
         "avif" => "image/avif",
+        "aac" => "audio/aac",
+        "flac" => "audio/flac",
+        "m4a" => "audio/mp4",
+        "mp3" => "audio/mpeg",
+        "oga" | "ogg" => "audio/ogg",
+        "opus" => "audio/opus",
+        "wav" => "audio/wav",
+        "weba" => "audio/webm",
         "mp4" | "m4v" => "video/mp4",
         "webm" => "video/webm",
         "mov" => "video/quicktime",
@@ -1351,7 +1377,8 @@ pub fn media_type(filename: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{NodeStorage, Post, Space, MAX_POST_BODY};
+    use super::{MAX_POST_BODY, NodeStorage, Post, Space, metadata_media_type};
+    use base64::Engine;
     use std::fs;
     use std::io::Cursor;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1424,10 +1451,18 @@ mod tests {
             id: "123e4567-e89b-42d3-a456-426614174001".to_owned(),
             ..post
         };
-        assert!(storage
-            .space(Space::Private)
-            .create_post(&too_long, "alice", None)
-            .is_err());
+        assert!(
+            storage
+                .space(Space::Private)
+                .create_post(&too_long, "alice", None)
+                .is_err()
+        );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn upload_media_type_rejects_response_header_controls() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode("audio/mpeg\r\nx-test: bad");
+        assert!(metadata_media_type(&format!("filetype {encoded}")).is_none());
     }
 }

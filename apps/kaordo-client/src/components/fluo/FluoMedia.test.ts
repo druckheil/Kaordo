@@ -35,6 +35,7 @@ describe('FluoMedia', () => {
   });
 
   it('renders the audio player for an audio attachment', async () => {
+    localStorage.removeItem('kaordo.fluo.audio-volume');
     let load!: () => Promise<void>;
     const register = vi.fn((callback: () => Promise<void>) => {
       load = callback;
@@ -60,7 +61,10 @@ describe('FluoMedia', () => {
 
     expect(view.container.querySelector('audio')?.getAttribute('src')).toBe('blob:audio');
     expect(view.container.querySelector('.audio-player__heading')?.textContent).toContain('lesson.mp3');
+    expect((view.getByLabelText('Volume') as HTMLInputElement).value).toBe('1');
     expect(view.container.querySelector('img')).toBeNull();
+    view.unmount();
+    localStorage.removeItem('kaordo.fluo.audio-volume');
   });
 
   it('ignores a late response from the previous attachment', async () => {

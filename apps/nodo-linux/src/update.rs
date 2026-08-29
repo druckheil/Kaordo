@@ -1,20 +1,15 @@
 use crate::auth;
 use crate::config::Config;
 use crate::ui;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 const DEFAULT_UPDATE_MANIFEST_URL: &str = "https://kaordo.pages.dev/downloads/nodo-linux.json";
 const UPDATE_MANIFEST_TIMEOUT_SECONDS: u64 = 8;
-const STATUS_FILENAME: &str = ".update-status.json";
-const LOCK_FILENAME: &str = ".update.lock";
-const STALE_LOCK_SECONDS: u64 = 20;
 
 #[derive(Debug, Clone, Deserialize)]
 struct Manifest {
@@ -27,29 +22,15 @@ struct Manifest {
     notes: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateCheck {
-    pub available: bool,
-    pub current_version: String,
-    pub notes: Option<String>,
-    pub target_version: Option<String>,
-    #[serde(skip)]
+#[derive(Debug, Clone)]
+struct UpdateCheck {
+    available: bool,
+    notes: Option<String>,
+    target_version: Option<String>,
     manifest: Option<Manifest>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateStatus {
-    pub current_version: String,
-    pub job_id: String,
-    pub message: Option<String>,
-    pub status: String,
-    pub target_version: Option<String>,
-    pub updated_at: i64,
-}
-
-pub fn check(config: &Config) -> Result<UpdateCheck, Box<dyn std::error::Error>> {
+fn check(config: &Config) -> Result<UpdateCheck, Box<dyn std::error::Error>> {
     let url = config
         .update_manifest_url
         .as_deref()
@@ -67,52 +48,15 @@ pub fn check(config: &Config) -> Result<UpdateCheck, Box<dyn std::error::Error>>
     let available = version_key(&manifest.version);
     Ok(UpdateCheck {
         available: available > current,
-        current_version: crate::VERSION.to_owned(),
         notes: manifest.notes.clone(),
         target_version: (available > current).then_some(manifest.version.clone()),
         manifest: Some(manifest),
     })
 }
 
-pub fn run(
-    config: &Config,
-    apply: bool,
-    restart: bool,
-    job_id: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let _lock_guard = job_id.map(|job_id| UpdateLockGuard { config, job_id });
-    let check = check(config);
-    let check = match check {
-        Ok(check) => check,
-        Err(error) => {
-            if let Some(job_id) = job_id {
-                write_status_at_path(
-                    config,
-                    &status_for(
-                        job_id,
-                        "failed",
-                        crate::VERSION,
-                        None,
-                        Some(error.to_string()),
-                    ),
-                )?;
-            }
-            return Err(error);
-        }
-    };
+pub fn run(config: &Config, apply: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let check = check(config)?;
     if !check.available {
-        if let Some(job_id) = job_id {
-            write_status_at_path(
-                config,
-                &status_for(
-                    job_id,
-                    "up-to-date",
-                    crate::VERSION,
-                    None,
-                    Some(format!("Nodo is already up to date ({}).", crate::VERSION)),
-                ),
-            )?;
-        }
         ui::success(&format!("Nodo is up to date ({})", crate::VERSION));
         return Ok(());
     }
@@ -125,219 +69,13 @@ pub fn run(
         println!("Run 'kaordo-nodo update --apply' to install it.");
         return Ok(());
     }
-    if let Some(job_id) = job_id {
-        write_status_at_path(
-            config,
-            &status_for(
-                job_id,
-                "installing",
-                crate::VERSION,
-                Some(target_version.clone()),
-                Some("Downloading and verifying the update.".to_owned()),
-            ),
-        )?;
-    }
     let manifest = check
         .manifest
         .as_ref()
         .ok_or("The update manifest was not retained.")?;
-    let result = apply_update(&target_version, manifest);
-    if let Err(error) = result {
-        if let Some(job_id) = job_id {
-            write_status_at_path(
-                config,
-                &status_for(
-                    job_id,
-                    "failed",
-                    crate::VERSION,
-                    Some(target_version.clone()),
-                    Some(error.to_string()),
-                ),
-            )?;
-        }
-        return Err(error);
-    }
-    if let Some(job_id) = job_id {
-        write_status_at_path(
-            config,
-            &status_for(
-                job_id,
-                "installed",
-                target_version.as_str(),
-                Some(target_version.clone()),
-                Some("Update installed. Restarting the Nodo service.".to_owned()),
-            ),
-        )?;
-    }
-    if restart {
-        if let Err(error) = crate::service::restart_background() {
-            if let Some(job_id) = job_id {
-                write_status_at_path(
-                    config,
-                    &status_for(
-                        job_id,
-                        "failed",
-                        target_version.as_str(),
-                        Some(target_version.clone()),
-                        Some(format!(
-                            "Update installed, but the Nodo could not restart: {error}"
-                        )),
-                    ),
-                )?;
-            }
-            return Err(error);
-        }
-    } else {
-        ui::success("Update installed. Restart the background service to activate it.");
-    }
+    apply_update(&target_version, manifest)?;
+    ui::success("Update installed. Restart the background service to activate it.");
     Ok(())
-}
-
-pub fn start_background(config: &Config) -> Result<UpdateStatus, Box<dyn std::error::Error>> {
-    if !acquire_update_lock(config)? {
-        if let Some(existing) = read_status(config, None)?
-            && matches!(existing.status.as_str(), "started" | "installing")
-        {
-            return Ok(existing);
-        }
-        return Err("Another Nodo update is already starting. Try again shortly.".into());
-    }
-    let job_id = Uuid::new_v4().to_string();
-    let status = status_for(
-        &job_id,
-        "started",
-        crate::VERSION,
-        None,
-        Some("Update command accepted. Nodo will check the verified release and restart if an update is available.".to_owned()),
-    );
-    if let Err(error) = write_status_at_path(config, &status) {
-        release_update_lock(config, &job_id);
-        return Err(error.into());
-    }
-    let executable = match std::env::current_exe() {
-        Ok(executable) => executable,
-        Err(error) => {
-            release_update_lock(config, &job_id);
-            return Err(error.into());
-        }
-    };
-    let result = Command::new(executable)
-        .args(["update", "--apply", "--restart", "--job-id", &job_id])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-    let child = match result {
-        Ok(child) => child,
-        Err(error) => {
-            release_update_lock(config, &job_id);
-            let failed = status_for(
-                &job_id,
-                "failed",
-                crate::VERSION,
-                None,
-                Some(format!("Could not start the update process: {error}")),
-            );
-            write_status_at_path(config, &failed)?;
-            return Err(error.into());
-        }
-    };
-    if let Err(error) = write_update_lock(config, &job_id, child.id()) {
-        // The updater is already running. Keep it alive; the lock is only a
-        // duplicate-click guard and will be cleaned up by the child.
-        crate::ui::warning(&format!("Could not record update lock: {error}"));
-    }
-    Ok(status)
-}
-
-fn acquire_update_lock(config: &Config) -> io::Result<bool> {
-    let path = lock_path(config);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    loop {
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(_) => return Ok(true),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                let contents = fs::read_to_string(&path).unwrap_or_default();
-                let pid = contents
-                    .lines()
-                    .nth(1)
-                    .and_then(|value| value.trim().parse::<u32>().ok())
-                    .unwrap_or_default();
-                let fresh = fs::metadata(&path)
-                    .and_then(|metadata| metadata.modified())
-                    .ok()
-                    .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-                    .is_some_and(|age| age.as_secs() < STALE_LOCK_SECONDS);
-                if (pid != 0 && process_is_alive(pid)) || (pid == 0 && fresh) {
-                    return Ok(false);
-                }
-                let _ = fs::remove_file(&path);
-            }
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-fn write_update_lock(config: &Config, job_id: &str, pid: u32) -> io::Result<()> {
-    let path = lock_path(config);
-    if !path.exists() {
-        return Ok(());
-    }
-    fs::write(path, format!("{job_id}\n{pid}"))
-}
-
-fn release_update_lock(config: &Config, job_id: &str) {
-    let path = lock_path(config);
-    let matches = fs::read_to_string(&path)
-        .ok()
-        .and_then(|contents| contents.lines().next().map(|value| value == job_id))
-        .unwrap_or(false);
-    if matches {
-        let _ = fs::remove_file(path);
-    }
-}
-
-struct UpdateLockGuard<'a> {
-    config: &'a Config,
-    job_id: &'a str,
-}
-
-impl Drop for UpdateLockGuard<'_> {
-    fn drop(&mut self) {
-        release_update_lock(self.config, self.job_id);
-    }
-}
-
-fn process_is_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        return fs::metadata(format!("/proc/{pid}")).is_ok();
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        false
-    }
-}
-
-fn lock_path(config: &Config) -> PathBuf {
-    config.data_dir.join(LOCK_FILENAME)
-}
-
-pub fn read_status(config: &Config, job_id: Option<&str>) -> io::Result<Option<UpdateStatus>> {
-    let path = status_path(config);
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let status: UpdateStatus = serde_json::from_slice(&fs::read(path)?)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    Ok(job_id
-        .is_none_or(|value| value == status.job_id)
-        .then_some(status))
 }
 
 /// Older Linux builds persisted their release-specific manifest URL. Treat
@@ -364,8 +102,11 @@ fn apply_update(
         .get(&manifest.linux_url)
         .send()?
         .error_for_status()?;
-    let temporary = temporary_path()?;
-    let mut file = File::create(&temporary)?;
+    let mut temporary = TemporaryUpdate::create()?;
+    let mut file = temporary
+        .file
+        .take()
+        .ok_or("Update temporary file is unavailable.")?;
     let mut reader = response;
     let mut hash = Sha256::new();
     let mut buffer = vec![0_u8; 128 * 1024];
@@ -381,70 +122,51 @@ fn apply_update(
     let actual = hex(&hash.finalize());
     let expected = manifest.sha256.trim().to_ascii_lowercase();
     if expected.len() != 64 || !constant_time_eq(&actual, &expected) {
-        let _ = fs::remove_file(&temporary);
         return Err("Downloaded update failed SHA-256 verification.".into());
     }
+    drop(file);
     let target = std::env::current_exe()?;
-    let backup = target.with_extension("old");
-    if backup.exists() {
-        fs::remove_file(&backup)?;
+    let permissions = fs::metadata(&target)?.permissions();
+    fs::set_permissions(&temporary.path, permissions)?;
+    // The temporary file is created beside the executable, so rename is an
+    // atomic replacement on Linux. There is never a moment where the command
+    // path is missing, even if the service keeps the previous inode open.
+    fs::rename(&temporary.path, &target)?;
+    temporary.installed = true;
+    if let Some(parent) = target.parent() {
+        let _ = File::open(parent).and_then(|directory| directory.sync_all());
     }
-    fs::rename(&target, &backup)?;
-    if let Err(error) = fs::rename(&temporary, &target) {
-        let _ = fs::rename(&backup, &target);
-        return Err(error.into());
-    }
-    let permissions = fs::metadata(&backup)?.permissions();
-    fs::set_permissions(&target, permissions)?;
-    let _ = fs::remove_file(backup);
     Ok(())
 }
 
-fn status_for(
-    job_id: &str,
-    status: &str,
-    current_version: &str,
-    target_version: Option<String>,
-    message: Option<String>,
-) -> UpdateStatus {
-    UpdateStatus {
-        current_version: current_version.to_owned(),
-        job_id: job_id.to_owned(),
-        message,
-        status: status.to_owned(),
-        target_version,
-        updated_at: unix_seconds(),
+struct TemporaryUpdate {
+    file: Option<File>,
+    installed: bool,
+    path: PathBuf,
+}
+
+impl TemporaryUpdate {
+    fn create() -> io::Result<Self> {
+        let target = std::env::current_exe()?;
+        let path = target.with_extension(format!("download.{}.tmp", Uuid::new_v4()));
+        let file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)?;
+        Ok(Self {
+            file: Some(file),
+            installed: false,
+            path,
+        })
     }
 }
 
-fn status_path(config: &Config) -> PathBuf {
-    config.data_dir.join(STATUS_FILENAME)
-}
-
-pub fn write_status_at_path(config: &Config, status: &UpdateStatus) -> io::Result<()> {
-    write_status_at(&status_path(config), status)
-}
-
-fn write_status_at(path: &std::path::Path, status: &UpdateStatus) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+impl Drop for TemporaryUpdate {
+    fn drop(&mut self) {
+        if !self.installed {
+            let _ = fs::remove_file(&self.path);
+        }
     }
-    let temporary = path.with_extension("json.tmp");
-    let bytes = serde_json::to_vec(status)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    fs::write(&temporary, bytes)?;
-    fs::rename(temporary, path)
-}
-
-fn unix_seconds() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs() as i64)
-}
-
-fn temporary_path() -> io::Result<PathBuf> {
-    let target = std::env::current_exe()?;
-    Ok(target.with_extension(format!("download.{}.tmp", std::process::id())))
 }
 
 fn version_key(value: &str) -> (u64, u64, u64, u8, u64) {

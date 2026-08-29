@@ -108,7 +108,7 @@ pub fn client(timeout_seconds: u64) -> Result<Client, reqwest::Error> {
     Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(timeout_seconds))
-        .user_agent("Kaordo-Nodo-Linux/0.1")
+        .user_agent(format!("Kaordo-Nodo-Linux/{}", crate::VERSION))
         .build()
 }
 

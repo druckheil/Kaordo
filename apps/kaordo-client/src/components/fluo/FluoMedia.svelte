@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import type { FluoAttachment, FluoGState, FluoMediaOwner } from '../../lib/states/FluoGState';
+  import type { FluoAttachment, FluoMediaOwner } from '../../lib/domain/fluo';
+  import type { FluoGState } from '../../lib/states/FluoGState';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
   import PhotoViewer from '../ui/PhotoViewer.svelte';
   import FluoAudioPlayer from './FluoAudioPlayer.svelte';

@@ -100,14 +100,6 @@ export type NodoQuickTest = NodoTelemetryMetrics & {
   completedAt: number;
 };
 
-export type NodoUpdateResult = {
-  currentVersion: string;
-  jobId?: string;
-  message?: string;
-  status: 'failed' | 'installed' | 'started' | 'up-to-date';
-  targetVersion?: string;
-};
-
 export type NodoStorageClearResult = {
   deletedBytes: number;
   deletedPosts: number;

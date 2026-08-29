@@ -563,7 +563,12 @@ describe('authentication API', () => {
       headers: { ...readerAuthorization, 'content-type': 'application/json' },
       method: 'PUT',
     });
-    expect(privateReaderLike.status).toBe(404);
+    expect(privateReaderLike.status).toBe(200);
+    await expect(privateReaderLike.json()).resolves.toMatchObject({
+      ...privateTarget,
+      liked: true,
+      likeCount: 2,
+    });
 
     const publicTarget = {
       nodeId,
