@@ -427,7 +427,7 @@
   .canvas-toolbar {
     position: absolute;
     top: 13px;
-    left: 16px;
+    left: 50%;
     z-index: 10;
     display: flex;
     align-items: center;
@@ -447,7 +447,8 @@
     scrollbar-width: none;
     font-size: calc(10px * var(--text-scale));
     font-weight: 600;
-    animation: canvas-overlay-enter 280ms ease-out both;
+    transform: translateX(-50%);
+    animation: canvas-toolbar-enter 280ms ease-out both;
   }
 
   .canvas-toolbar::-webkit-scrollbar { display: none; }
@@ -580,9 +581,9 @@
   .zoom-button:hover, .zoom-value:hover { color: #285f50; background: #e5f0eb; border-color: #b9d0c6; }
   .zoom-button:focus-visible, .zoom-value:focus-visible { outline: 2px solid rgb(55 117 102 / 35%); outline-offset: 1px; }
 
-  @keyframes canvas-overlay-enter {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
+  @keyframes canvas-toolbar-enter {
+    from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
   }
 
   @media (prefers-reduced-motion: reduce) {

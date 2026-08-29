@@ -541,8 +541,37 @@
 }
 
 .workspace-shell--klaro .editor-heading {
-  padding-right: 20px;
-  padding-left: 20px;
+  min-height: 48px;
+  padding-right: 18px;
+  padding-left: 18px;
+}
+
+.workspace-shell--klaro .editor-heading h2 {
+  margin-top: 0;
+}
+
+.workspace-shell--klaro .editor-heading__separator {
+  background: var(--klaro-line) !important;
+}
+
+.workspace-shell--klaro .editor-file-name {
+  color: var(--klaro-text-muted) !important;
+}
+
+.workspace-shell--klaro .editor-back-action {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg) !important;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+.workspace-shell--klaro .editor-back-action:hover {
+  color: var(--klaro-primary-hover) !important;
+  background: var(--klaro-bg-light) !important;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+.workspace-shell--klaro .editor-back-action:active {
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
 }
 
 .workspace-shell--klaro .canvas-stage {
@@ -595,7 +624,7 @@
 
 .workspace-shell--klaro .canvas-toolbar {
   top: 14px;
-  left: 16px;
+  left: 50%;
   min-height: 42px;
   padding: 5px 9px 5px 12px;
   color: var(--klaro-text-muted) !important;
@@ -604,7 +633,8 @@
   border-radius: 15px;
   box-shadow: var(--klaro-shadow-raised) !important;
   backdrop-filter: none !important;
-  animation: klaro-overlay-enter 260ms ease-out both;
+  transform: translateX(-50%);
+  animation: klaro-toolbar-enter 260ms ease-out both;
 }
 
 .workspace-shell--klaro .canvas-toolbar-title {
@@ -647,6 +677,11 @@
 .workspace-shell--klaro .color-button::after {
   border-color: color-mix(in srgb, var(--klaro-text) 20%, transparent) !important;
   box-shadow: var(--klaro-shadow-inset-sm);
+}
+
+.workspace-shell--klaro .color-button--stroke::after {
+  background: color-mix(in srgb, var(--color) 14%, var(--klaro-bg-light)) !important;
+  border: 3px solid var(--color) !important;
 }
 
 .workspace-shell--klaro .color-button:hover,
@@ -968,6 +1003,11 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+@keyframes klaro-toolbar-enter {
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.99); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
 @keyframes klaro-panel-enter {
   from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
@@ -1032,6 +1072,25 @@ html[data-theme='dark'] .workspace-shell--klaro > .contents-panel {
 
 html[data-theme='dark'] .workspace-shell--klaro :is(.panel-heading h2, .editor-heading h2, .file-copy strong, .content-node-copy strong, .canvas-card-copy strong, .canvas-onboarding strong, .editor-empty h3) {
   color: var(--klaro-text) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .editor-file-name {
+  color: var(--klaro-text-muted) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .editor-back-action {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg) !important;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .editor-back-action:hover {
+  color: var(--klaro-primary-hover) !important;
+  background: var(--klaro-bg-light) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .editor-back-action:active {
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
 }
 
 html[data-theme='dark'] .workspace-shell--klaro :is(.file-copy small, .content-node-copy small, .canvas-toolbar-status, .draft-indicator, .editor-empty p, .canvas-hint) {

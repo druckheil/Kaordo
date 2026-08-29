@@ -5,18 +5,15 @@
     type AppSection,
     type AppSectionDefinition,
   } from '../lib/domain/appSection';
-  import type { WorkspaceSummary } from '../lib/domain/workspace';
 
   type Props = {
-    activeFile: WorkspaceSummary | null;
     activeSection: AppSection;
-    onBack: () => void | Promise<void>;
     onNavigate: (section: AppSection) => void;
     platform: 'desktop' | 'web';
     sections: ReadonlyArray<AppSectionDefinition>;
   };
 
-  let { activeFile, activeSection, onBack, onNavigate, platform, sections }: Props = $props();
+  let { activeSection, onNavigate, platform, sections }: Props = $props();
   let navigationSections = $derived(
     sections.filter((section) => !['mi', 'regado', 'agordoj'].includes(section.id)),
   );
@@ -24,7 +21,6 @@
     sections.filter((section) => section.id === 'mi' || section.id === 'regado'),
   );
   let appBarElement = $state<HTMLElement>();
-  let backButtonElement = $state<HTMLButtonElement>();
   let segmentedElement = $state<HTMLElement>();
   let indicatorElement = $state<HTMLDivElement>();
   let indicatorFrame = 0;
@@ -136,9 +132,6 @@
     };
   });
 
-  export function focusBack() {
-    backButtonElement?.focus();
-  }
 </script>
 
 <!-- Tauri maps a double click on this drag region to maximize/unmaximize. -->
@@ -232,23 +225,6 @@
   </nav>
 
   <div class="section-context">
-    {#if activeSection === 'klaro' && activeFile}
-      <button
-        class="back-action"
-        type="button"
-        bind:this={backButtonElement}
-        onclick={onBack}
-      >
-        <svg viewBox="0 0 20 20" aria-hidden="true">
-          <path d="m11.5 5-5 5 5 5M7 10h7" />
-        </svg>
-        Back
-      </button>
-      <span class="navigation-separator" aria-hidden="true"></span>
-      <span class="context-label" title={`${activeFile.name}.vdw`}>
-        {activeFile.name}.vdw
-      </span>
-    {/if}
     <div class="header-actions" aria-label="Account and application controls">
       {#each utilitySections as section}
         <button
@@ -587,11 +563,6 @@
     z-index: 0;
   }
 
-  .back-action:focus-visible {
-    outline: 2px solid var(--accent-bright);
-    outline-offset: 2px;
-  }
-
   .section-context {
     display: flex;
     align-items: center;
@@ -599,55 +570,6 @@
     gap: 9px;
     min-width: 0;
     max-width: 100%;
-  }
-
-  .context-label {
-    overflow: hidden;
-    color: var(--header-muted);
-    font-size: calc(11px * var(--text-scale));
-    font-weight: 580;
-    letter-spacing: 0.04em;
-    text-overflow: ellipsis;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-
-  .back-action {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    flex: none;
-    height: 26px;
-    padding: 0 8px 0 6px;
-    color: var(--header-muted);
-    background: var(--header-control);
-    border: 1px solid var(--header-control-border);
-    border-radius: 7px;
-    cursor: pointer;
-    font-size: calc(11px * var(--text-scale));
-    font-weight: 600;
-  }
-
-  .back-action:hover {
-    color: var(--header-text);
-    background: var(--header-background);
-  }
-
-  .back-action svg {
-    width: 14px;
-    height: 14px;
-    fill: none;
-    stroke: currentColor;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-width: 1.7;
-  }
-
-  .navigation-separator {
-    flex: none;
-    width: 1px;
-    height: 14px;
-    background: var(--header-border);
   }
 
   @media (max-width: 1120px) {
@@ -660,9 +582,6 @@
       padding-inline: 7px;
     }
 
-    .context-label {
-      max-width: 110px;
-    }
   }
 
   @media (prefers-reduced-motion: reduce) {

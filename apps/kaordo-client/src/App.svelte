@@ -178,9 +178,8 @@
     workspaceGateway: WorkspaceGateway;
   };
 
-  type FocusableHeader = { focusBack(): void };
   type FocusableFiles = { focusRetry(): void; focusTitle(): void };
-  type FocusableEditor = { focusCreateWorkspace(): void; focusRetry(): void };
+  type FocusableEditor = { focusBack(): void; focusCreateWorkspace(): void; focusRetry(): void };
   type FocusableContents = { focusNewPanel(): void };
 
   let {
@@ -276,7 +275,6 @@
   let isLoggingOut = $state(false);
   let accountAction = $state<'username' | 'password' | null>(null);
   let authenticatedUserId: string | null = null;
-  let header = $state<FocusableHeader>();
   let filesPanel = $state<FocusableFiles>();
   let editorPanel = $state<FocusableEditor>();
   let contentsPanel = $state<FocusableContents>();
@@ -660,7 +658,7 @@
     if (!created) return;
     isCreateWorkspaceOpen = false;
     flushSync();
-    header?.focusBack();
+    editorPanel?.focusBack();
   }
 
   async function openFile(file: WorkspaceSummary) {
@@ -792,10 +790,7 @@
   class:app-shell--desktop={platform === 'desktop'}
 >
   <AppHeader
-    bind:this={header}
-    {activeFile}
     {activeSection}
-    onBack={closeFile}
     onNavigate={navigate}
     {platform}
     sections={appSectionsFor(authSnapshot.user?.role ?? 'user')}
@@ -848,10 +843,12 @@
 
       <EditorPanel
         bind:this={editorPanel}
+        activeFile={activeFile}
         canvas={editor.canvas}
         {canvasSnapshot}
         fileCount={workspaceSnapshot.files.length}
         onCreateWorkspace={openCreateWorkspaceDialog}
+        onBack={closeFile}
         onRetryOpen={retryOpenWorkspace}
         {platform}
         {storageLocation}
