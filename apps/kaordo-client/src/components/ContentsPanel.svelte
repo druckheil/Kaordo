@@ -417,7 +417,7 @@
   {/if}
 {/snippet}
 
-<aside class="panel contents-panel" aria-labelledby="contents-title">
+<aside id="klaro-contents-panel" class="panel contents-panel" aria-labelledby="contents-title">
   <PanelHeader
     action={headerAction}
     eyebrow="Contents"

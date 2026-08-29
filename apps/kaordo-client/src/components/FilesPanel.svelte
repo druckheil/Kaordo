@@ -48,6 +48,7 @@
 </script>
 
 <aside
+  id="klaro-workspace-panel"
   class="panel files-panel"
   aria-labelledby="files-title"
   aria-busy={loading}

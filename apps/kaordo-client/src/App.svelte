@@ -261,6 +261,8 @@
   let profileSnapshot = $state(profile.state.snapshot);
   let iloSnapshot = $state(ilo.state.snapshot);
   let activeSection = $state<AppSection>(loadLastSection());
+  let klaroWorkspacePanelOpen = $state(true);
+  let klaroContentsPanelOpen = $state(true);
   type StorageBrowserTarget =
     | { kind: 'public'; title: string; subtitle: string }
     | { kind: 'node'; nodeId: string; nodeName: string; space: NodoStorageSpace };
@@ -746,6 +748,14 @@
     isCreatePanelOpen = true;
   }
 
+  function toggleKlaroWorkspacePanel() {
+    klaroWorkspacePanelOpen = !klaroWorkspacePanelOpen;
+  }
+
+  function toggleKlaroContentsPanel() {
+    klaroContentsPanelOpen = !klaroContentsPanelOpen;
+  }
+
   async function closeCreatePanelDialog() {
     if (workspaceSnapshot.isCreatingObject) return;
     isCreatePanelOpen = false;
@@ -800,10 +810,28 @@
       class="workspace-shell"
       class:workspace-shell--klaro={activeSection === 'klaro'}
       class:workspace-shell--with-objects={activeFile !== null}
+      class:klaro-workspace-panel-closed={!klaroWorkspacePanelOpen}
+      class:klaro-contents-panel-closed={!klaroContentsPanelOpen}
       class:app-section--hidden={activeSection !== 'klaro'}
       aria-label="Kaordo application workspace"
     >
       <h1 class="visually-hidden">Kaordo application workspace</h1>
+
+      {#if activeSection === 'klaro'}
+        <button
+          class="klaro-side-panel-toggle klaro-side-panel-toggle--workspace"
+          type="button"
+          aria-controls="klaro-workspace-panel"
+          aria-expanded={klaroWorkspacePanelOpen}
+          aria-label={klaroWorkspacePanelOpen ? 'Hide Workspace panel' : 'Show Workspace panel'}
+          title={klaroWorkspacePanelOpen ? 'Hide Workspace panel' : 'Show Workspace panel'}
+          onclick={toggleKlaroWorkspacePanel}
+        >
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d={klaroWorkspacePanelOpen ? 'm12 5-5 5 5 5' : 'm8 5 5 5-5 5'} />
+          </svg>
+        </button>
+      {/if}
 
       <FilesPanel
         bind:this={filesPanel}
@@ -831,6 +859,22 @@
       />
 
       {#if activeFile}
+        {#if activeSection === 'klaro'}
+          <button
+            class="klaro-side-panel-toggle klaro-side-panel-toggle--contents"
+            type="button"
+            aria-controls="klaro-contents-panel"
+            aria-expanded={klaroContentsPanelOpen}
+            aria-label={klaroContentsPanelOpen ? 'Hide Contents panel' : 'Show Contents panel'}
+            title={klaroContentsPanelOpen ? 'Hide Contents panel' : 'Show Contents panel'}
+            onclick={toggleKlaroContentsPanel}
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d={klaroContentsPanelOpen ? 'm8 5 5 5-5 5' : 'm12 5-5 5 5 5'} />
+            </svg>
+          </button>
+        {/if}
+
         <ContentsPanel
           bind:this={contentsPanel}
           canvas={editor.canvas}
@@ -1051,6 +1095,82 @@
   .workspace-shell--with-objects {
     grid-template-columns:
       minmax(224px, 256px) minmax(480px, 1fr) minmax(264px, 304px);
+  }
+
+  .workspace-shell--klaro {
+    position: relative;
+  }
+
+  .klaro-side-panel-toggle {
+    position: absolute;
+    z-index: 12;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 62px;
+    padding: 0;
+    color: var(--klaro-primary, #5b54e0);
+    background: var(--klaro-bg, #e4e9f0);
+    border: 0;
+    border-radius: 18px;
+    box-shadow: var(--klaro-shadow-raised, 5px 5px 14px rgb(39 51 67 / 20%));
+    cursor: pointer;
+    transition: color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  }
+
+  .klaro-side-panel-toggle:hover {
+    color: var(--klaro-primary-hover, #4a44c4);
+    box-shadow: var(--klaro-shadow-raised-sm, 3px 3px 8px rgb(39 51 67 / 20%));
+    transform: translateY(-1px);
+  }
+
+  .klaro-side-panel-toggle:active {
+    box-shadow: var(--klaro-shadow-inset-sm, inset 2px 2px 5px rgb(39 51 67 / 20%));
+    transform: translateY(1px);
+  }
+
+  .klaro-side-panel-toggle:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--klaro-primary, #5b54e0) 28%, transparent);
+    outline-offset: 3px;
+  }
+
+  .klaro-side-panel-toggle svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2.2;
+  }
+
+  .klaro-side-panel-toggle--workspace {
+    top: 50%;
+    left: 8px;
+    transform: translateY(-50%);
+  }
+
+  .klaro-side-panel-toggle--workspace:hover {
+    transform: translateY(calc(-50% - 1px));
+  }
+
+  .klaro-side-panel-toggle--workspace:active {
+    transform: translateY(calc(-50% + 1px));
+  }
+
+  .klaro-side-panel-toggle--contents {
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+  }
+
+  .klaro-side-panel-toggle--contents:hover {
+    transform: translateY(calc(-50% - 1px));
+  }
+
+  .klaro-side-panel-toggle--contents:active {
+    transform: translateY(calc(-50% + 1px));
   }
 
   @keyframes shell-enter {
