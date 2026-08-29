@@ -50,6 +50,45 @@ function createScroller(): HTMLElement {
 }
 
 describe('FluoTimeline', () => {
+  it('reserves space for a quoted post before the row is measured', async () => {
+    const scroller = createScroller();
+    const view = render(FluoTimeline, {
+      fluoState: timelineState(),
+      hasMore: false,
+      isLoading: false,
+      isLoadingMore: false,
+      isRefreshing: false,
+      posts: [
+        {
+          ...posts[0]!,
+          quote: {
+            attachments: [],
+            author: 'quoted-author',
+            body: 'Quoted content',
+            createdAt: posts[0]!.createdAt - 1,
+            id: 'quoted-post',
+            nodeId: 'node-1',
+            space: 'private',
+          },
+        },
+        posts[1]!,
+      ],
+      scrollElement: scroller,
+    });
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-index="1"]')).not.toBeNull();
+    });
+    const firstRow = view.container.querySelector<HTMLElement>('[data-index="0"]');
+    const secondRow = view.container.querySelector<HTMLElement>('[data-index="1"]');
+    const firstStart = Number(firstRow?.style.transform.match(/-?\d+(?:\.\d+)?/)?.[0]);
+    const secondStart = Number(secondRow?.style.transform.match(/-?\d+(?:\.\d+)?/)?.[0]);
+
+    expect(secondStart - firstStart).toBeGreaterThan(170);
+    view.unmount();
+    scroller.remove();
+  });
+
   it('keeps a fifty-post buffer in both scroll directions', async () => {
     const scroller = createScroller();
     const view = render(FluoTimeline, {

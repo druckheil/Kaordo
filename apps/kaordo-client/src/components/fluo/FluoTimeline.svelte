@@ -8,6 +8,7 @@
   import { onMount, tick } from 'svelte';
   import {
     fluoPostKey as postKey,
+    type FluoAttachment,
     type FluoPost,
     type FluoQuote,
   } from '../../lib/domain/fluo';
@@ -49,6 +50,10 @@
   const MAX_CONCURRENT_MEDIA_LOADS = 6;
   const MEDIA_STARTS_PER_FRAME = 3;
   const POST_GAP = 8;
+  const QUOTED_POST_MEDIA_WIDTH = 360;
+  const QUOTED_POST_CAROUSEL_MEDIA_WIDTH = 280;
+  const QUOTED_POST_TEXT_CHARS_PER_LINE = 70;
+  const QUOTED_POST_TEXT_LINE_HEIGHT = 15;
 
   let {
     active = true,
@@ -195,18 +200,59 @@
       ? Math.min(FLUO_POST_PREVIEW_LINES, Math.max(1, countFluoTextLines(post.body)))
       : 0;
     const expandControl = shouldExpandFluoText(post.body) ? 35 : 0;
-    if (!post.attachments.length) return 91 + textLines * 20 + expandControl;
-    const mediaWidth = post.attachments.length === 1
-      ? FLUO_MAX_MEDIA_WIDTH
-      : FLUO_CAROUSEL_MEDIA_WIDTH;
-    const mediaHeight = post.attachments.reduce((maximum, attachment) => {
+    const contentHeight = post.attachments.length
+      ? 113 + textLines * 20 + expandControl + estimateMediaHeight(
+          post.id,
+          post.attachments,
+          post.attachments.length === 1 ? FLUO_MAX_MEDIA_WIDTH : FLUO_CAROUSEL_MEDIA_WIDTH,
+          postKey(post),
+        )
+      : 91 + textLines * 20 + expandControl;
+    return contentHeight + estimateQuotedPostHeight(post.quote);
+  }
+
+  /**
+   * Keep a realistic row size before a quoted card or its media is mounted.
+   * The virtualizer corrects this estimate with the measured border box, but
+   * omitting the quote here lets the next absolute row paint on top of it
+   * during that first frame.
+   */
+  function estimateQuotedPostHeight(quote: FluoQuote | undefined): number {
+    if (!quote) return 0;
+
+    const hasTextBlock = Boolean(quote.body) || quote.attachments.length === 0;
+    const textLines = hasTextBlock
+      ? Math.max(1, countFluoTextLines(quote.body, QUOTED_POST_TEXT_CHARS_PER_LINE))
+      : 0;
+    const mediaHeight = quote.attachments.length
+      ? estimateMediaHeight(
+          quote.id,
+          quote.attachments,
+          quote.attachments.length === 1
+            ? QUOTED_POST_MEDIA_WIDTH
+            : QUOTED_POST_CAROUSEL_MEDIA_WIDTH,
+          postKey(quote),
+        )
+      : 0;
+
+    // margin-top + vertical padding + header + author + body + media margin.
+    return 12 + 23 + 13 + 28 + (textLines ? 8 + textLines * QUOTED_POST_TEXT_LINE_HEIGHT : 0) +
+      (mediaHeight > 0 ? 10 + mediaHeight : 0);
+  }
+
+  function estimateMediaHeight(
+    postId: string,
+    attachments: readonly FluoAttachment[],
+    mediaWidth: number,
+    mediaIdentity: string,
+  ): number {
+    return attachments.reduce((maximum, attachment) => {
       if (attachment.kind === 'audio') return Math.max(maximum, FLUO_AUDIO_MEDIA_HEIGHT);
       const measured = attachment.width && attachment.height
         ? attachment
-        : fluoState.getMediaDimensions?.(post.id, attachment.id);
+        : fluoState.getMediaDimensions?.(postId, attachment.id, mediaIdentity);
       return Math.max(maximum, getFluoMediaLayout(measured?.width, measured?.height, mediaWidth).height);
     }, 0);
-    return 113 + textLines * 20 + expandControl + mediaHeight;
   }
 
   function measurePostElement(
@@ -214,13 +260,17 @@
     entry: Parameters<typeof tanstackMeasureElement>[1],
     instance: Virtualizer<HTMLElement, HTMLDivElement>,
   ): number {
-    const measured = tanstackMeasureElement(element, entry, instance);
+    // TanStack intentionally returns the cached size for a sync measurement
+    // without a ResizeObserver entry. A virtualized row can be remounted with
+    // changed quote/media content while keeping the same key, so use the real
+    // border-box height in that path instead of reviving a stale cache entry.
+    const measured = entry ? tanstackMeasureElement(element, entry, instance) : element.offsetHeight;
     if (measured > 0) return measured;
     const index = Number(element.dataset.index);
     return Number.isSafeInteger(index) ? estimatePostHeight(index) : 220;
   }
 
-  function measurePost(element: HTMLDivElement) {
+  function measurePost(element: HTMLDivElement, _size: number) {
     get(virtualizer).measureElement(element);
     return {
       update: () => get(virtualizer).measureElement(element),
@@ -394,7 +444,7 @@
         data-index={row.index}
         data-post-key={postKey(post)}
         style={`transform:translateY(${row.start - $virtualizer.options.scrollMargin}px)`}
-        use:measurePost
+        use:measurePost={row.size}
       >
         <FluoPostCard
           {active}
