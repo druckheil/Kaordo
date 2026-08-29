@@ -3,6 +3,7 @@ import type {
   CanvasPoint,
   CanvasViewport,
 } from '../domain/canvas';
+import { applicationScale } from '../ui/applicationScale';
 
 export const CANVAS_WIDTH = 4800;
 export const CANVAS_HEIGHT = 3200;
@@ -19,26 +20,8 @@ export const CANVAS_MAX_ZOOM = 3;
 const CANVAS_SIDE_PADDING = 40;
 const CANVAS_TOP_PADDING = 72;
 
-/**
- * Returns the visual scale applied to the application root.
- *
- * The desktop client uses CSS `zoom` for the Application Size preference so
- * that the browser and Tauri render the same layout. Pointer coordinates and
- * DOM rectangles are still reported in visual pixels, while canvas state is
- * stored in logical canvas pixels. Keeping this conversion here gives every
- * canvas interaction one source of truth and makes the 100% case a fast,
- * backwards-compatible no-op.
- */
-export function canvasApplicationScale(): number {
-  if (typeof globalThis.document === 'undefined') return 1;
-  const root = globalThis.document.documentElement;
-  const inline = root.style.getPropertyValue('--app-scale');
-  const computed = typeof globalThis.getComputedStyle === 'function'
-    ? globalThis.getComputedStyle(root).getPropertyValue('--app-scale')
-    : '';
-  const value = Number.parseFloat(inline || computed);
-  return Number.isFinite(value) && value > 0 ? value : 1;
-}
+/** Kept as a domain-specific alias for existing canvas callers. */
+export const canvasApplicationScale = applicationScale;
 
 export function clampCanvasPoint(
   point: CanvasPoint,

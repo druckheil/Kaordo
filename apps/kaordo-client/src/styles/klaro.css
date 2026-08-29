@@ -1,0 +1,1110 @@
+/*
+ * Klaro is the canvas/editor surface of Kaordo.  Keep its visual language
+ * local to the workspace so the editor can use the same tactile SoftUI
+ * primitives as Fluo, Ilo and Nodo without leaking styles into other
+ * sections.  The editor's behavior lives in CanvasService/state; this file
+ * only controls surfaces, rhythm and interaction feedback.
+ */
+.workspace-shell--klaro {
+  --klaro-bg: #e4e9f0;
+  --klaro-bg-light: #edf1f7;
+  --klaro-bg-dark: #d1d9e6;
+  --klaro-rail-bg: #d2dbe8;
+  --klaro-shadow-color: rgb(39 51 67 / 20%);
+  --klaro-shadow-raised: 5px 5px 14px var(--klaro-shadow-color);
+  --klaro-shadow-raised-sm: 3px 3px 8px var(--klaro-shadow-color);
+  --klaro-shadow-raised-lg: 12px 14px 30px var(--klaro-shadow-color);
+  --klaro-shadow-inset: inset 3px 3px 8px var(--klaro-shadow-color);
+  --klaro-shadow-inset-sm: inset 2px 2px 5px var(--klaro-shadow-color);
+  --klaro-primary: #5b54e0;
+  --klaro-primary-hover: #4a44c4;
+  --klaro-text: #2d3748;
+  --klaro-text-muted: #5a6a7e;
+  --klaro-text-light: #6a7d94;
+  --klaro-line: color-mix(in srgb, var(--klaro-text) 13%, transparent);
+  --klaro-danger: #c95667;
+  --sui-bg: var(--klaro-bg);
+  --sui-bg-light: var(--klaro-bg-light);
+  --sui-bg-dark: var(--klaro-bg-dark);
+  --sui-shadow-color: var(--klaro-shadow-color);
+  --sui-shadow-light: transparent;
+  --sui-shadow-dark: var(--klaro-shadow-color);
+  --sui-shadow-raised: var(--klaro-shadow-raised);
+  --sui-shadow-raised-sm: var(--klaro-shadow-raised-sm);
+  --sui-shadow-raised-lg: var(--klaro-shadow-raised-lg);
+  --sui-shadow-inset: var(--klaro-shadow-inset);
+  --sui-shadow-inset-sm: var(--klaro-shadow-inset-sm);
+  --sui-primary: var(--klaro-primary);
+  --sui-primary-hover: var(--klaro-primary-hover);
+  --sui-text: var(--klaro-text);
+  --sui-text-muted: var(--klaro-text-muted);
+  --sui-text-light: var(--klaro-text-light);
+  grid-template-columns: minmax(216px, 236px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  overflow: hidden;
+  color: var(--klaro-text);
+  background:
+    radial-gradient(circle at 74% 0%, rgb(91 84 224 / 7%), transparent 36%),
+    var(--klaro-bg) !important;
+}
+
+.workspace-shell--klaro.workspace-shell--with-objects {
+  grid-template-columns: minmax(216px, 236px) minmax(0, 1fr) minmax(240px, 280px);
+}
+
+.workspace-shell--klaro > :is(.files-panel, .editor-panel, .contents-panel) {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--klaro-text) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 22px;
+  box-shadow: var(--klaro-shadow-raised-lg) !important;
+  animation: klaro-panel-enter 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.workspace-shell--klaro > .files-panel {
+  background: var(--klaro-rail-bg) !important;
+  animation-delay: 20ms;
+}
+
+.workspace-shell--klaro > .editor-panel { animation-delay: 50ms; }
+.workspace-shell--klaro > .contents-panel { animation-delay: 80ms; }
+
+.workspace-shell--klaro > .contents-panel {
+  background: color-mix(in srgb, var(--klaro-bg-dark) 42%, var(--klaro-bg)) !important;
+}
+
+/* Panel chrome ---------------------------------------------------------- */
+.workspace-shell--klaro :is(.panel-heading, .editor-heading) {
+  min-height: 60px;
+  padding: 0 18px;
+  color: var(--klaro-text) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--klaro-line) !important;
+}
+
+.workspace-shell--klaro .files-panel .panel-heading {
+  background: var(--klaro-rail-bg) !important;
+}
+
+.workspace-shell--klaro :is(.panel-eyebrow, .editor-heading .panel-eyebrow) {
+  color: var(--klaro-primary) !important;
+  font-size: calc(9px * var(--text-scale));
+  font-weight: 780;
+  letter-spacing: 0.14em;
+}
+
+.workspace-shell--klaro :is(.panel-heading h2, .editor-heading h2) {
+  margin-top: 5px;
+  color: var(--klaro-text) !important;
+  font-size: calc(17px * var(--text-scale));
+  font-weight: 720;
+  letter-spacing: -0.035em;
+}
+
+.workspace-shell--klaro .draft-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--klaro-text-muted) !important;
+  font-size: calc(10px * var(--text-scale));
+  font-weight: 650;
+}
+
+.workspace-shell--klaro .draft-dot {
+  width: 7px;
+  height: 7px;
+  background: #35a878 !important;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #35a878 16%, transparent) !important;
+}
+
+.workspace-shell--klaro .panel-heading--action {
+  gap: 5px;
+  padding-right: 14px;
+  padding-left: 18px;
+}
+
+.workspace-shell--klaro .new-panel-action,
+.workspace-shell--klaro .library-retry,
+.workspace-shell--klaro .library-notice--error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 10px;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+  cursor: pointer;
+  font-size: calc(9px * var(--text-scale));
+  font-weight: 720;
+  transition: color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.workspace-shell--klaro .new-panel-action svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+
+.workspace-shell--klaro :is(.new-panel-action:hover, .library-retry:hover, .library-notice--error button:hover) {
+  color: var(--klaro-primary-hover) !important;
+  transform: translateY(-1px);
+}
+
+.workspace-shell--klaro :is(.new-panel-action:active, .library-retry:active, .library-notice--error button:active) {
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+  transform: translateY(1px);
+}
+
+/* File rail ------------------------------------------------------------- */
+.workspace-shell--klaro .file-list {
+  min-height: 0;
+  padding: 12px 10px 16px;
+  overflow: auto;
+  scrollbar-color: color-mix(in srgb, var(--klaro-primary) 42%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.workspace-shell--klaro .file-list ul {
+  display: grid;
+  gap: 8px;
+}
+
+.workspace-shell--klaro .file-list li {
+  animation: klaro-row-enter 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.workspace-shell--klaro .file-list li:nth-child(2) { animation-delay: 35ms; }
+.workspace-shell--klaro .file-list li:nth-child(3) { animation-delay: 70ms; }
+.workspace-shell--klaro .file-list li:nth-child(n + 4) { animation-delay: 105ms; }
+
+.workspace-shell--klaro .files-panel li > button {
+  min-height: 58px;
+  padding: 9px 10px;
+  color: var(--klaro-text) !important;
+  background: var(--klaro-rail-bg) !important;
+  border: 0 !important;
+  border-radius: 14px;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+  transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.workspace-shell--klaro .files-panel li > button:hover {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg-light) !important;
+  transform: translateY(-1px);
+}
+
+.workspace-shell--klaro .files-panel li > button:active,
+.workspace-shell--klaro .files-panel li > button.active {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg) !important;
+  box-shadow: var(--klaro-shadow-inset) !important;
+  transform: translateY(1px);
+}
+
+.workspace-shell--klaro .files-panel li > button:focus-visible,
+.workspace-shell--klaro :is(.content-node, .new-panel-action, .library-retry):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--klaro-primary) 28%, transparent);
+  outline-offset: 2px;
+}
+
+.workspace-shell--klaro .file-icon {
+  width: 29px;
+  height: 34px;
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 9px;
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+}
+
+.workspace-shell--klaro .file-icon::after {
+  right: 5px;
+  left: 5px;
+  height: 2px;
+  background: color-mix(in srgb, var(--klaro-primary) 46%, transparent) !important;
+  box-shadow: 0 6px 0 color-mix(in srgb, var(--klaro-primary) 22%, transparent) !important;
+}
+
+.workspace-shell--klaro .files-panel li > button.active .file-icon {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg-light) !important;
+  border: 0 !important;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+.workspace-shell--klaro .file-copy strong {
+  color: currentColor !important;
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 720;
+}
+
+.workspace-shell--klaro .file-copy small {
+  margin-top: 4px;
+  color: var(--klaro-text-light) !important;
+  font-size: calc(9px * var(--text-scale));
+}
+
+.workspace-shell--klaro .library-notice {
+  margin: 12px 2px 2px;
+  padding: 10px 11px;
+  color: #8e673e !important;
+  background: color-mix(in srgb, #e5a851 10%, var(--klaro-rail-bg)) !important;
+  border: 0 !important;
+  border-radius: 12px;
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+  font-size: calc(9px * var(--text-scale));
+}
+
+.workspace-shell--klaro .library-notice--error {
+  color: var(--klaro-danger) !important;
+  background: color-mix(in srgb, var(--klaro-danger) 9%, var(--klaro-rail-bg)) !important;
+}
+
+.workspace-shell--klaro .panel-empty {
+  gap: 14px;
+  padding: 28px 22px;
+  color: var(--klaro-text-muted) !important;
+}
+
+.workspace-shell--klaro .panel-empty p {
+  color: var(--klaro-text-muted) !important;
+  font-size: calc(10px * var(--text-scale));
+}
+
+.workspace-shell--klaro .empty-icon {
+  color: var(--klaro-primary) !important;
+  opacity: 0.72;
+}
+
+.workspace-shell--klaro .empty-icon--stack span {
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 7px;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+/* Contents rail --------------------------------------------------------- */
+.workspace-shell--klaro .contents-tree {
+  display: flex;
+  flex-direction: column;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 10px 16px;
+  overflow: auto;
+  list-style: none;
+  scrollbar-color: color-mix(in srgb, var(--klaro-primary) 42%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-label.content-node {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 42px;
+  margin: 1px 0;
+  padding: 6px 8px;
+  color: var(--klaro-text) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 12px;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+  cursor: pointer;
+  text-align: left;
+  transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-label.content-node:hover {
+  color: var(--klaro-primary) !important;
+  background: color-mix(in srgb, var(--klaro-bg) 92%, var(--klaro-primary) 8%) !important;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+  transform: translateY(-1px);
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-label.content-node:active {
+  background: color-mix(in srgb, var(--klaro-primary) 11%, transparent) !important;
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+  transform: translateY(1px);
+}
+
+.workspace-shell--klaro .contents-tree :is(.content-node--selected, .content-node--placed) {
+  color: var(--klaro-primary) !important;
+  background: color-mix(in srgb, var(--klaro-bg) 88%, var(--klaro-primary) 12%) !important;
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+  transform: none;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-toggle,
+.workspace-shell--klaro .contents-tree .sui-tree-toggle-spacer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-toggle {
+  color: var(--klaro-text-light);
+  transition: color 150ms ease, transform 180ms ease;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-toggle svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-item.expanded > .sui-tree-label .sui-tree-toggle {
+  color: var(--klaro-primary);
+  transform: rotate(90deg);
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  flex: 0 0 21px;
+  color: var(--klaro-text-light) !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 7px;
+  box-shadow: none !important;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.workspace-shell--klaro .contents-tree .content-node--panel .sui-tree-icon {
+  color: var(--klaro-primary) !important;
+}
+
+.workspace-shell--klaro .contents-tree :is(.content-node--card .sui-tree-icon, .content-node--media .sui-tree-icon) {
+  color: #2e9670 !important;
+}
+
+.workspace-shell--klaro .contents-tree .content-node--text .sui-tree-icon {
+  color: #826fd0 !important;
+  font-family: Georgia, serif;
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 700;
+}
+
+.workspace-shell--klaro .contents-tree .content-node--arrow .sui-tree-icon {
+  color: #4f79a6 !important;
+}
+
+.workspace-shell--klaro .contents-tree .content-node-copy {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workspace-shell--klaro .contents-tree .content-node-copy strong {
+  display: block;
+  overflow: hidden;
+  color: currentColor !important;
+  font-size: calc(10px * var(--text-scale));
+  font-weight: 720;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-shell--klaro .contents-tree .content-node-copy small {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--klaro-text-light) !important;
+  font-size: calc(8px * var(--text-scale));
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-children {
+  display: none;
+  min-width: 0;
+  margin: 2px 0 2px 12px;
+  padding: 3px 4px 3px 8px;
+  background: color-mix(in srgb, var(--klaro-bg) 84%, var(--klaro-bg-dark) 16%);
+  border-radius: 14px;
+  box-shadow: var(--klaro-shadow-inset-sm);
+  list-style: none;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-item.expanded > .sui-tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-shell--klaro .contents-tree .content-node-status {
+  margin-left: auto;
+  color: var(--klaro-primary) !important;
+  font-size: calc(13px * var(--text-scale));
+  font-weight: 700;
+}
+
+/* Editor and canvas ----------------------------------------------------- */
+.workspace-shell--klaro .editor-panel {
+  background:
+    radial-gradient(circle at 50% 0%, rgb(91 84 224 / 5%), transparent 42%),
+    var(--klaro-bg) !important;
+}
+
+.workspace-shell--klaro .editor-heading {
+  padding-right: 20px;
+  padding-left: 20px;
+}
+
+.workspace-shell--klaro .canvas-stage {
+  background: var(--klaro-bg-dark) !important;
+}
+
+.workspace-shell--klaro .canvas-viewport {
+  color: var(--klaro-text) !important;
+  background: var(--klaro-bg-dark) !important;
+  scrollbar-color: color-mix(in srgb, var(--klaro-primary) 50%, transparent) color-mix(in srgb, var(--klaro-bg-dark) 88%, #fff) !important;
+  transition: background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.workspace-shell--klaro .canvas-viewport:focus-visible {
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--klaro-primary) 25%, transparent) !important;
+}
+
+.workspace-shell--klaro .canvas-viewport--drop-target {
+  background: color-mix(in srgb, var(--klaro-primary) 8%, var(--klaro-bg-dark)) !important;
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--klaro-primary) 32%, transparent) !important;
+}
+
+.workspace-shell--klaro .canvas-viewport::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--klaro-bg-dark) 88%, #fff) !important;
+  border-color: var(--klaro-bg-dark) !important;
+}
+
+.workspace-shell--klaro .canvas-viewport::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--klaro-primary) 46%, var(--klaro-bg-dark)) !important;
+  border-color: color-mix(in srgb, var(--klaro-bg-dark) 88%, #fff) !important;
+}
+
+.workspace-shell--klaro .canvas-viewport::-webkit-scrollbar-corner {
+  background: var(--klaro-bg-dark) !important;
+}
+
+.workspace-shell--klaro .canvas-surface {
+  background-color: var(--klaro-bg) !important;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--klaro-primary) 4%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--klaro-primary) 4%, transparent) 1px, transparent 1px),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--klaro-text-light) 30%, transparent) 1px, transparent 1.2px),
+    radial-gradient(circle at 50% 42%, rgb(91 84 224 / 8%), transparent 38%) !important;
+  box-shadow: inset 0 0 120px color-mix(in srgb, var(--klaro-shadow-color) 13%, transparent) !important;
+}
+
+.workspace-shell--klaro .canvas-origin {
+  color: color-mix(in srgb, var(--klaro-primary) 38%, transparent) !important;
+}
+
+.workspace-shell--klaro .canvas-toolbar {
+  top: 14px;
+  left: 16px;
+  min-height: 42px;
+  padding: 5px 9px 5px 12px;
+  color: var(--klaro-text-muted) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 15px;
+  box-shadow: var(--klaro-shadow-raised) !important;
+  backdrop-filter: none !important;
+  animation: klaro-overlay-enter 260ms ease-out both;
+}
+
+.workspace-shell--klaro .canvas-toolbar-title {
+  color: var(--klaro-primary) !important;
+  font-weight: 760;
+}
+
+.workspace-shell--klaro .canvas-toolbar-separator {
+  height: 21px;
+  background: var(--klaro-line) !important;
+}
+
+.workspace-shell--klaro :is(.tool-button, .format-button, .zoom-button, .zoom-value) {
+  color: var(--klaro-text-muted) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 9px;
+  transition: color 120ms ease, background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.workspace-shell--klaro :is(.tool-button, .format-button, .zoom-button, .zoom-value):hover,
+.workspace-shell--klaro :is(.tool-button--active, .format-button--active) {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg-light) !important;
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+}
+
+.workspace-shell--klaro :is(.tool-button, .format-button, .zoom-button, .zoom-value):active {
+  box-shadow: var(--klaro-shadow-inset) !important;
+  transform: translateY(1px);
+}
+
+.workspace-shell--klaro .text-tool-hint,
+.workspace-shell--klaro .style-group > span,
+.workspace-shell--klaro .arrow-points-group > span,
+.workspace-shell--klaro .arrow-style-group > span {
+  color: var(--klaro-text-light) !important;
+}
+
+.workspace-shell--klaro .color-button::after {
+  border-color: color-mix(in srgb, var(--klaro-text) 20%, transparent) !important;
+  box-shadow: var(--klaro-shadow-inset-sm);
+}
+
+.workspace-shell--klaro .color-button:hover,
+.workspace-shell--klaro .color-button--active {
+  background: var(--klaro-bg-light) !important;
+  border-color: transparent !important;
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+}
+
+.workspace-shell--klaro .arrow-range,
+.workspace-shell--klaro .audio-timeline,
+.workspace-shell--klaro .audio-volume input {
+  accent-color: var(--klaro-primary);
+}
+
+.workspace-shell--klaro .canvas-toolbar-status {
+  color: var(--klaro-text-light) !important;
+}
+
+.workspace-shell--klaro .canvas-hint,
+.workspace-shell--klaro .canvas-warning {
+  color: var(--klaro-text-muted) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 12px;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+  backdrop-filter: none !important;
+}
+
+.workspace-shell--klaro .canvas-hint svg {
+  color: var(--klaro-primary) !important;
+  stroke: currentColor;
+}
+
+.workspace-shell--klaro .canvas-warning {
+  color: #8e673e !important;
+  background: color-mix(in srgb, #e5a851 11%, var(--klaro-bg)) !important;
+}
+
+.workspace-shell--klaro .canvas-onboarding {
+  color: var(--klaro-text-muted) !important;
+  background: color-mix(in srgb, var(--klaro-bg-light) 90%, transparent) !important;
+  border: 0 !important;
+  border-radius: 20px;
+  box-shadow: var(--klaro-shadow-raised-lg) !important;
+  backdrop-filter: none !important;
+}
+
+.workspace-shell--klaro .canvas-onboarding-icon {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 15px;
+  box-shadow: var(--klaro-shadow-inset) !important;
+}
+
+.workspace-shell--klaro .canvas-onboarding strong {
+  color: var(--klaro-text) !important;
+}
+
+.workspace-shell--klaro .canvas-onboarding > span:last-child {
+  color: var(--klaro-text-muted) !important;
+}
+
+/* Canvas objects -------------------------------------------------------- */
+.workspace-shell--klaro :is(.canvas-card, .object-drag-card) {
+  color: var(--klaro-text) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 18px;
+  box-shadow: var(--klaro-shadow-raised-lg) !important;
+}
+
+.workspace-shell--klaro .canvas-card:hover {
+  border: 0 !important;
+  box-shadow: 12px 16px 34px var(--klaro-shadow-color) !important;
+  transform: translateY(-1px);
+}
+
+.workspace-shell--klaro :is(.canvas-card--selected, .canvas-card:focus-within) {
+  border: 0 !important;
+  box-shadow: var(--klaro-shadow-raised), 0 0 0 3px color-mix(in srgb, var(--klaro-primary) 18%, transparent) !important;
+}
+
+.workspace-shell--klaro .canvas-card--dragging {
+  box-shadow: 12px 18px 40px var(--klaro-shadow-color) !important;
+}
+
+.workspace-shell--klaro .canvas-card-drag-handle {
+  height: 48px;
+  color: var(--klaro-text) !important;
+  background: transparent !important;
+  border-bottom: 1px solid var(--klaro-line) !important;
+}
+
+.workspace-shell--klaro .canvas-card-drag-handle:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--klaro-primary) 26%, transparent) !important;
+}
+
+.workspace-shell--klaro .canvas-card-accent {
+  width: 4px;
+  background: linear-gradient(var(--klaro-primary), var(--klaro-primary-hover)) !important;
+}
+
+.workspace-shell--klaro .canvas-card-icon {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg-light) !important;
+  border: 0 !important;
+  border-radius: 9px;
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+}
+
+.workspace-shell--klaro .canvas-card-copy small {
+  color: var(--klaro-primary) !important;
+}
+
+.workspace-shell--klaro .canvas-card-copy strong {
+  color: var(--klaro-text) !important;
+}
+
+.workspace-shell--klaro .canvas-card-grip {
+  color: var(--klaro-text-light) !important;
+}
+
+.workspace-shell--klaro .canvas-card-resize-handle,
+.workspace-shell--klaro .canvas-rectangle-resize-handle,
+.workspace-shell--klaro .text-resize-handle {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 9px;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+.workspace-shell--klaro :is(.canvas-card-resize-handle:hover, .canvas-rectangle-resize-handle:hover, .text-resize-handle:hover) {
+  color: var(--klaro-primary-hover) !important;
+  background: var(--klaro-bg-light) !important;
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+}
+
+.workspace-shell--klaro :is(.canvas-card-resize-handle:active, .canvas-rectangle-resize-handle:active, .text-resize-handle:active) {
+  box-shadow: var(--klaro-shadow-inset) !important;
+}
+
+.workspace-shell--klaro :is(.canvas-text-block, .canvas-media) {
+  color: var(--klaro-text) !important;
+}
+
+.workspace-shell--klaro .canvas-text-block:hover {
+  background: color-mix(in srgb, var(--klaro-bg-light) 84%, transparent) !important;
+  border-color: transparent !important;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+.workspace-shell--klaro .canvas-text-block--selected {
+  background: var(--klaro-bg-light) !important;
+  border-color: transparent !important;
+  outline: 3px solid color-mix(in srgb, var(--klaro-primary) 18%, transparent) !important;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+.workspace-shell--klaro .canvas-text-block--editing {
+  background: var(--klaro-bg-light) !important;
+  border-color: transparent !important;
+  box-shadow: var(--klaro-shadow-inset), 0 0 0 3px color-mix(in srgb, var(--klaro-primary) 17%, transparent) !important;
+}
+
+.workspace-shell--klaro :is(.canvas-text-placeholder, .canvas-text-editor--empty::before) {
+  color: var(--klaro-text-light) !important;
+}
+
+.workspace-shell--klaro .canvas-media:hover,
+.workspace-shell--klaro .canvas-media--selected {
+  border-color: transparent !important;
+  outline: 3px solid color-mix(in srgb, var(--klaro-primary) 17%, transparent);
+  box-shadow: var(--klaro-shadow-raised) !important;
+}
+
+.workspace-shell--klaro :is(.canvas-media-image, .canvas-media-video, .canvas-media-audio) {
+  border: 0 !important;
+  border-radius: 12px;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+.workspace-shell--klaro .canvas-media-image {
+  background: var(--klaro-bg-light) !important;
+}
+
+.workspace-shell--klaro .canvas-media-audio {
+  color: var(--klaro-text) !important;
+  background: var(--klaro-bg-light) !important;
+}
+
+.workspace-shell--klaro .audio-play {
+  color: #fff !important;
+  background: var(--klaro-primary) !important;
+  border: 0 !important;
+  box-shadow: 3px 3px 8px color-mix(in srgb, var(--klaro-primary) 25%, var(--klaro-shadow-color)) !important;
+}
+
+.workspace-shell--klaro .audio-play:active {
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+  transform: translateY(1px);
+}
+
+.workspace-shell--klaro .audio-copy span,
+.workspace-shell--klaro .audio-volume {
+  color: var(--klaro-text-muted) !important;
+}
+
+.workspace-shell--klaro .media-drag-handle,
+.workspace-shell--klaro .media-resize-handle {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg) !important;
+  border: 0 !important;
+  border-radius: 9px;
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+.workspace-shell--klaro .media-drag-handle:active,
+.workspace-shell--klaro .media-resize-handle:active {
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+}
+
+.workspace-shell--klaro :is(.global-rectangle, .nested-rectangle) {
+  box-shadow: var(--klaro-shadow-raised-sm) !important;
+}
+
+.workspace-shell--klaro :is(.global-rectangle--selected, .nested-rectangle--selected) {
+  outline: 3px solid color-mix(in srgb, var(--klaro-primary) 22%, transparent) !important;
+  outline-offset: 3px;
+}
+
+.workspace-shell--klaro :is(.canvas-arrow-line, .canvas-arrow--draft) {
+  color: var(--klaro-primary) !important;
+}
+
+.workspace-shell--klaro .canvas-arrow-line--selected {
+  filter: drop-shadow(0 3px 4px color-mix(in srgb, var(--klaro-primary) 28%, transparent));
+}
+
+.workspace-shell--klaro .canvas-arrow-handle {
+  fill: var(--klaro-bg-light) !important;
+  stroke: var(--klaro-primary) !important;
+  stroke-width: 2.5;
+}
+
+.workspace-shell--klaro .canvas-arrow-handle--control {
+  fill: color-mix(in srgb, var(--klaro-primary) 13%, var(--klaro-bg-light)) !important;
+}
+
+.workspace-shell--klaro .card-nested-canvas {
+  background: color-mix(in srgb, var(--klaro-bg-dark) 54%, var(--klaro-bg)) !important;
+  box-shadow: inset 0 1px color-mix(in srgb, var(--klaro-bg-light) 34%, transparent) !important;
+}
+
+.workspace-shell--klaro .nested-canvas-empty {
+  color: var(--klaro-text-light) !important;
+}
+
+.workspace-shell--klaro .editor-empty {
+  color: var(--klaro-text) !important;
+}
+
+.workspace-shell--klaro .editor-empty .dimension-plane {
+  border-color: var(--klaro-primary) !important;
+}
+
+.workspace-shell--klaro .editor-empty .dimension-plane--front {
+  background: color-mix(in srgb, var(--klaro-primary) 10%, var(--klaro-bg)) !important;
+  border-color: transparent !important;
+  box-shadow: var(--klaro-shadow-raised) !important;
+}
+
+.workspace-shell--klaro .editor-empty .dimension-core {
+  background: var(--klaro-primary) !important;
+  border-color: var(--klaro-bg) !important;
+  box-shadow: 0 0 0 1px var(--klaro-primary) !important;
+}
+
+.workspace-shell--klaro .editor-empty :is(.empty-eyebrow, .workspace-loader) {
+  color: var(--klaro-primary) !important;
+}
+
+.workspace-shell--klaro .editor-empty h3 {
+  color: var(--klaro-text) !important;
+}
+
+.workspace-shell--klaro .editor-empty p {
+  color: var(--klaro-text-muted) !important;
+}
+
+.workspace-shell--klaro .editor-empty strong {
+  color: var(--klaro-text) !important;
+}
+
+.workspace-shell--klaro .primary-action {
+  color: #fff !important;
+  background: var(--klaro-primary) !important;
+  border: 0 !important;
+  border-radius: 12px;
+  box-shadow: 4px 5px 11px color-mix(in srgb, var(--klaro-primary) 26%, var(--klaro-shadow-color)) !important;
+  transition: background 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.workspace-shell--klaro .primary-action:hover:not(:disabled) {
+  background: var(--klaro-primary-hover) !important;
+  box-shadow: var(--klaro-shadow-raised) !important;
+  transform: translateY(-1px);
+}
+
+.workspace-shell--klaro .primary-action:active:not(:disabled) {
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+  transform: translateY(1px);
+}
+
+@keyframes klaro-overlay-enter {
+  from { opacity: 0; transform: translateY(-4px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes klaro-panel-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes klaro-row-enter {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* The dark theme keeps the same geometry and interaction states, but uses
+ * charcoal surfaces and dark-only shadows so no white halo appears. */
+html[data-theme='dark'] .workspace-shell--klaro {
+  --klaro-bg: #2a2d35;
+  --klaro-bg-light: #31343c;
+  --klaro-bg-dark: #23262d;
+  --klaro-rail-bg: #20242d;
+  --klaro-shadow-color: rgb(0 0 0 / 42%);
+  --klaro-primary: #9b95ff;
+  --klaro-primary-hover: #b2adff;
+  --klaro-text: #e2e8f0;
+  --klaro-text-muted: #aab4c5;
+  --klaro-text-light: #8591a5;
+  --klaro-line: color-mix(in srgb, var(--klaro-text) 15%, transparent);
+  --klaro-danger: #e28a9e;
+  --sui-bg: var(--klaro-bg);
+  --sui-bg-light: var(--klaro-bg-light);
+  --sui-bg-dark: var(--klaro-bg-dark);
+  --sui-shadow-color: var(--klaro-shadow-color);
+  --sui-shadow-dark: var(--klaro-shadow-color);
+  --sui-shadow-raised: 6px 7px 16px var(--klaro-shadow-color);
+  --sui-shadow-raised-sm: 3px 4px 9px var(--klaro-shadow-color);
+  --sui-shadow-raised-lg: 12px 15px 30px var(--klaro-shadow-color);
+  --sui-shadow-inset: inset 3px 3px 8px var(--klaro-shadow-color);
+  --sui-shadow-inset-sm: inset 2px 2px 5px var(--klaro-shadow-color);
+  --sui-primary: var(--klaro-primary);
+  --sui-primary-hover: var(--klaro-primary-hover);
+  --sui-text: var(--klaro-text);
+  --sui-text-muted: var(--klaro-text-muted);
+  --sui-text-light: var(--klaro-text-light);
+  color: var(--klaro-text) !important;
+  background: var(--klaro-bg) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro > :is(.files-panel, .editor-panel, .contents-panel),
+html[data-theme='dark'] .workspace-shell--klaro :is(.panel-heading, .editor-heading) {
+  color: var(--klaro-text) !important;
+  background: var(--klaro-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--klaro-shadow-raised-lg) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro > .files-panel,
+html[data-theme='dark'] .workspace-shell--klaro .files-panel .panel-heading,
+html[data-theme='dark'] .workspace-shell--klaro .files-panel li > button {
+  background: var(--klaro-rail-bg) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro > .contents-panel {
+  background: color-mix(in srgb, var(--klaro-bg-dark) 48%, var(--klaro-bg)) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro :is(.panel-heading h2, .editor-heading h2, .file-copy strong, .content-node-copy strong, .canvas-card-copy strong, .canvas-onboarding strong, .editor-empty h3) {
+  color: var(--klaro-text) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro :is(.file-copy small, .content-node-copy small, .canvas-toolbar-status, .draft-indicator, .editor-empty p, .canvas-hint) {
+  color: var(--klaro-text-muted) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .canvas-stage,
+html[data-theme='dark'] .workspace-shell--klaro .canvas-viewport {
+  background: var(--klaro-bg-dark) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .canvas-surface {
+  background-color: var(--klaro-bg) !important;
+  background-image:
+    linear-gradient(rgb(155 149 255 / 7%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(155 149 255 / 7%) 1px, transparent 1px),
+    radial-gradient(circle, rgb(155 149 255 / 23%) 1px, transparent 1.2px),
+    radial-gradient(circle at 50% 42%, rgb(155 149 255 / 8%), transparent 38%) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro :is(.canvas-toolbar, .canvas-hint, .canvas-warning, .canvas-onboarding, .canvas-card, .object-drag-card, .canvas-media-image, .canvas-media-video, .canvas-media-audio, .canvas-card-resize-handle, .canvas-rectangle-resize-handle, .text-resize-handle, .media-drag-handle, .media-resize-handle, .content-node, .files-panel li > button, .primary-action) {
+  color: var(--klaro-text) !important;
+  background: var(--klaro-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--klaro-shadow-raised) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .files-panel li > button,
+html[data-theme='dark'] .workspace-shell--klaro .files-panel .panel-heading {
+  background: var(--klaro-rail-bg) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .canvas-warning {
+  color: #f1bd63 !important;
+  background: #3a3026 !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro :is(.tool-button, .format-button, .zoom-button, .zoom-value, .new-panel-action, .library-retry, .library-notice--error button, .file-icon, .content-node-icon) {
+  color: var(--klaro-text-muted) !important;
+  background: var(--klaro-bg) !important;
+  border-color: transparent !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro :is(.tool-button:hover, .tool-button--active, .format-button:hover, .format-button--active, .zoom-button:hover, .zoom-value:hover, .content-node:hover, .files-panel li > button:hover, .new-panel-action:hover, .library-retry:hover, .library-notice--error button:hover) {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg-light) !important;
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro :is(.content-node--selected, .content-node--placed, .files-panel li > button.active) {
+  color: var(--klaro-primary) !important;
+  background: var(--klaro-bg) !important;
+  box-shadow: var(--klaro-shadow-inset) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .content-node {
+  background: var(--klaro-bg-light) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .content-node:hover {
+  background: color-mix(in srgb, var(--klaro-bg-light) 72%, var(--klaro-primary) 28%) !important;
+  box-shadow: var(--klaro-shadow-raised) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro :is(.content-node--selected, .content-node--placed) {
+  background: color-mix(in srgb, var(--klaro-bg-light) 88%, var(--klaro-primary) 12%) !important;
+  box-shadow: var(--klaro-shadow-inset), 0 0 0 1px color-mix(in srgb, var(--klaro-primary) 24%, transparent) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .contents-tree .sui-tree-children {
+  background: color-mix(in srgb, var(--klaro-bg) 84%, var(--klaro-bg-dark) 16%) !important;
+  box-shadow: var(--klaro-shadow-inset-sm) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro :is(.canvas-text-block--selected, .canvas-text-block--editing) {
+  background: var(--klaro-bg-light) !important;
+  box-shadow: var(--klaro-shadow-inset) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .canvas-media-audio {
+  color: var(--klaro-text) !important;
+  background: var(--klaro-bg-light) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .audio-play {
+  color: #242530 !important;
+  background: var(--klaro-primary) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .card-nested-canvas {
+  background: var(--klaro-bg-dark) !important;
+}
+
+@media (max-width: 920px) {
+  .workspace-shell--klaro {
+    grid-template-columns: minmax(196px, 214px) minmax(0, 1fr);
+    gap: 9px;
+    padding: 9px;
+  }
+
+  .workspace-shell--klaro.workspace-shell--with-objects {
+    grid-template-columns: minmax(196px, 214px) minmax(0, 1fr);
+  }
+
+  .workspace-shell--klaro.workspace-shell--with-objects > .contents-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .workspace-shell--klaro {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-shell--klaro > .files-panel {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-shell--klaro *,
+  .workspace-shell--klaro *::before,
+  .workspace-shell--klaro *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -77,6 +77,14 @@
 
   type ContentNode = PanelNode | ElementNode;
 
+  /**
+   * Render-ready shape for SoftUI's Tree View.  The canvas snapshot is kept
+   * flat because that is the most useful shape for focus/delete operations;
+   * this lightweight projection adds only the parent/children relationship
+   * needed by the tree markup.
+   */
+  type ContentTreeNode = ContentNode & { children: ContentTreeNode[] };
+
   let {
     canvas,
     canvasSnapshot,
@@ -101,6 +109,8 @@
     canvasSnapshot,
     placedPanelIds,
   ));
+  let contentTree = $derived.by(() => buildContentTreeHierarchy(contentNodes));
+  let collapsedTreeKeys = $state<Set<string>>(new Set());
 
   export function focusNewPanel() {
     newPanelButton?.focus();
@@ -113,6 +123,28 @@
       return;
     }
     void canvas.focusCanvasElement(workspace.id, node.element.id);
+  }
+
+  function isTreeNodeExpanded(node: ContentTreeNode): boolean {
+    return node.children.length > 0 && !collapsedTreeKeys.has(node.key);
+  }
+
+  function handleTreeNodeClick(event: MouseEvent, node: ContentTreeNode): void {
+    const target = event.target;
+    const clickedToggle = typeof Element !== 'undefined'
+      && target instanceof Element
+      && target.closest('.sui-tree-toggle') !== null;
+
+    if (clickedToggle && node.children.length > 0) {
+      event.stopPropagation();
+      const next = new Set(collapsedTreeKeys);
+      if (next.has(node.key)) next.delete(node.key);
+      else next.add(node.key);
+      collapsedTreeKeys = next;
+      return;
+    }
+
+    focusNode(node);
   }
 
   function handleNodeKeydown(event: KeyboardEvent, node: ContentNode): void {
@@ -346,6 +378,27 @@
     }
     return nodes;
   }
+
+  function buildContentTreeHierarchy(nodes: readonly ContentNode[]): ContentTreeNode[] {
+    const roots: ContentTreeNode[] = [];
+    const stack: Array<{ depth: number; node: ContentTreeNode }> = [];
+
+    for (const node of nodes) {
+      const treeNode: ContentTreeNode = { ...node, children: [] };
+
+      while (stack.length && stack[stack.length - 1]!.depth >= node.depth) {
+        stack.pop();
+      }
+
+      const parent = stack[stack.length - 1]?.node;
+      if (parent) parent.children.push(treeNode);
+      else roots.push(treeNode);
+
+      stack.push({ depth: node.depth, node: treeNode });
+    }
+
+    return roots;
+  }
 </script>
 
 {#snippet headerAction()}
@@ -375,15 +428,18 @@
   {#if isOpening}
     <PanelLoading message="Loading contents…" />
   {:else if workspace && contentNodes.length}
-    <ul class="contents-tree" role="tree" aria-label="Contents in this workspace">
-      {#each contentNodes as node (node.key)}
+    {#snippet renderTree(nodes: ContentTreeNode[])}
+      {#each nodes as node (node.key)}
         <li
+          class="sui-tree-item"
+          class:expanded={isTreeNodeExpanded(node)}
           role="treeitem"
           aria-level={node.depth + 1}
-          aria-selected={node.kind !== 'panel' && node.selected}
+          aria-expanded={node.children.length > 0 ? isTreeNodeExpanded(node) : undefined}
+          aria-selected={node.kind !== 'panel' ? node.selected : undefined}
         >
           <button
-            class="content-node"
+            class="content-node sui-tree-label sui-raised"
             class:content-node--panel={node.kind === 'panel'}
             class:content-node--card={node.kind === 'card'}
             class:content-node--text={node.kind === 'text'}
@@ -391,7 +447,7 @@
             class:content-node--arrow={node.kind === 'arrow'}
             class:content-node--selected={node.kind !== 'panel' && node.selected}
             class:content-node--placed={node.kind === 'panel' && node.placed}
-            style={`--depth: ${node.depth}`}
+            class:active={node.kind !== 'panel' ? node.selected : node.placed}
             type="button"
             aria-label={node.kind === 'panel'
               ? `${node.placed ? 'Focus' : 'Place'} ${node.label} on canvas`
@@ -403,12 +459,18 @@
             title={node.kind === 'panel'
               ? node.placed ? 'Focus panel on canvas' : 'Place panel on canvas'
               : 'Focus on canvas'}
-            onclick={() => focusNode(node)}
+            onclick={(event) => handleTreeNodeClick(event, node)}
             onkeydown={(event) => handleNodeKeydown(event, node)}
             oncontextmenu={(event) => handleNodeContextMenu(event, node)}
           >
-            <span class="content-node-guide" aria-hidden="true"></span>
-            <span class="content-node-icon" aria-hidden="true">
+            {#if node.children.length > 0}
+              <span class="sui-tree-toggle" aria-hidden="true">
+                <svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5" /></svg>
+              </span>
+            {:else}
+              <span class="sui-tree-toggle-spacer" aria-hidden="true"></span>
+            {/if}
+            <span class="content-node-icon sui-tree-icon" aria-hidden="true">
               {#if node.kind === 'panel'}
                 <svg viewBox="0 0 20 20"><path d="M3 5.5h5l1.5 2H17v7H3z" /></svg>
               {:else if node.kind === 'card'}
@@ -421,18 +483,28 @@
                 <svg viewBox="0 0 20 20"><path d="M3 10h11m-4-4 4 4-4 4" /></svg>
               {/if}
             </span>
-            <span class="content-node-copy">
+            <span class="content-node-copy sui-tree-text">
               <strong>{node.label}</strong>
               <small>{node.kind === 'panel' ? 'Panel' : nodeSubtitle(node)}</small>
             </span>
             {#if node.kind === 'panel' && node.placed}
               <span class="content-node-status" aria-label="On canvas">✓</span>
-            {:else if node.kind !== 'panel'}
-              <span class="content-node-arrow" aria-hidden="true">›</span>
             {/if}
           </button>
+          {#if node.children.length > 0}
+            <ul
+              class="sui-tree-children sui-inset"
+              role="group"
+            >
+              {@render renderTree(node.children)}
+            </ul>
+          {/if}
         </li>
       {/each}
+    {/snippet}
+
+    <ul class="contents-tree sui-tree" role="tree" aria-label="Contents in this workspace">
+      {@render renderTree(contentTree)}
     </ul>
   {:else}
     <div class="panel-empty panel-empty--contents">
@@ -458,6 +530,9 @@
   .contents-panel { border-left: 1px solid var(--line); }
 
   .contents-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
     min-height: 0;
     margin: 0;
     padding: 10px 12px;
@@ -465,94 +540,107 @@
     list-style: none;
   }
 
-  .content-node {
-    display: grid;
-    grid-template-columns: 8px 22px minmax(0, 1fr) 16px;
+  .sui-tree-item {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .sui-tree-label {
+    display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
     min-height: 46px;
-    padding: 6px 8px 6px calc(8px + var(--depth) * 18px);
+    padding: 6px 8px;
     color: #3c453f;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 8px;
+    background: var(--panel);
+    border: 0;
+    border-radius: 12px;
     cursor: pointer;
     text-align: left;
-    transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+    box-shadow: 3px 3px 8px rgb(39 51 67 / 20%);
+    transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
   }
 
-  .content-node:hover,
+  .sui-tree-label:hover {
+    color: #285a4e;
+    background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+    box-shadow: 2px 2px 6px rgb(39 51 67 / 18%);
+    transform: translateY(-1px);
+  }
+
+  .sui-tree-label:active,
   .content-node--selected,
   .content-node--placed {
     color: #285a4e;
-    background: rgb(223 236 231 / 48%);
-    border-color: #d0ddd6;
-    transform: translateX(-2px);
+    background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%);
+    box-shadow: inset 2px 2px 5px rgb(39 51 67 / 20%);
+    transform: translateY(1px);
   }
 
-  .content-node:focus-visible {
+  .sui-tree-label:focus-visible {
     outline: 2px solid rgb(55 117 102 / 38%);
     outline-offset: 1px;
   }
 
-  .content-node-guide {
-    width: 7px;
-    height: 7px;
-    border-radius: 3px;
+  .sui-tree-toggle,
+  .sui-tree-toggle-spacer {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
   }
 
-  .content-node--panel .content-node-guide { background: var(--accent); }
-  .content-node--card .content-node-guide { background: #b8874b; }
-  .content-node--text .content-node-guide { background: #8c6da7; }
-  .content-node--media .content-node-guide { background: #4c8b79; }
-  .content-node--arrow .content-node-guide { background: #4a719b; }
+  .sui-tree-toggle { color: #747d76; transition: color 150ms ease, transform 180ms ease; }
+  .sui-tree-toggle svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+  .sui-tree-item.expanded > .sui-tree-label .sui-tree-toggle { color: var(--accent); transform: rotate(90deg); }
 
   .content-node-icon {
-    display: grid;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 21px;
     height: 21px;
+    flex: 0 0 21px;
     color: #397565;
-    background: #e2eee9;
-    border: 1px solid #aac8bc;
+    background: transparent;
+    border: 0;
     border-radius: 6px;
-    place-items: center;
-  }
-
-  .content-node--card .content-node-icon {
-    color: #956c36;
-    background: #f5ead9;
-    border-color: #dec7a4;
   }
 
   .content-node--text .content-node-icon {
     color: #775c8d;
-    background: #eee6f5;
-    border-color: #d0bfdf;
     font-family: Georgia, serif;
     font-size: calc(12px * var(--text-scale));
     font-weight: 700;
   }
 
-  .content-node--media .content-node-icon {
-    color: #357866;
-    background: #e0f0e9;
-    border-color: #add2c2;
-  }
-
-  .content-node--arrow .content-node-icon {
-    color: #456e98;
-    background: #e4edf6;
-    border-color: #b8cce0;
-  }
-
   .content-node-icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
-  .content-node-copy { min-width: 0; }
+  .content-node-copy { min-width: 0; flex: 1; overflow: hidden; }
   strong, small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   strong { font-size: calc(12px * var(--text-scale)); font-weight: 640; line-height: 1.3; }
   small { margin-top: 3px; color: #747d76; font-size: calc(10px * var(--text-scale)); line-height: 1.2; }
-  .content-node-status { justify-self: end; color: #377566; font-size: calc(13px * var(--text-scale)); font-weight: 700; }
-  .content-node-arrow { justify-self: end; color: #8a9690; font-size: 20px; line-height: 1; }
+  .content-node-status { margin-left: auto; color: #377566; font-size: calc(13px * var(--text-scale)); font-weight: 700; }
+
+  .sui-tree-children {
+    display: none;
+    min-width: 0;
+    margin: 2px 0 2px 12px;
+    padding: 3px 4px 3px 8px;
+    background: color-mix(in srgb, var(--panel) 84%, #c6d0dd 16%);
+    border-radius: 14px;
+    box-shadow: inset 2px 2px 5px rgb(39 51 67 / 16%);
+    list-style: none;
+  }
+
+  .sui-tree-item.expanded > .sui-tree-children {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
 
   .panel-empty { display: flex; align-items: center; flex-direction: column; justify-content: center; gap: 16px; padding: 30px 28px; color: #68716b; text-align: center; }
   .panel-empty p { max-width: 160px; font-size: calc(12px * var(--text-scale)); line-height: 1.55; }

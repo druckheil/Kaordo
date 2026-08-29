@@ -6,6 +6,7 @@
     type ContextMenuIcon,
     type ContextMenuItem,
   } from '../../lib/ui/contextMenu';
+  import { applicationScale } from '../../lib/ui/applicationScale';
 
   let menu = $state<HTMLDivElement>();
   let confirmingId = $state<string | null>(null);
@@ -31,10 +32,18 @@
 
   function menuPosition(): string {
     if (!snapshot) return '';
-    const width = 204;
+    const scale = applicationScale();
+    // Keep these values in the same logical CSS units as .context-menu.  The
+    // element is rendered inside the zoomed #app root, while clientX/clientY
+    // arrive in visual viewport pixels.
+    const width = 196;
     const height = confirmingId ? 126 : 34 + snapshot.items.length * 37 + 10;
-    const x = Math.max(8, Math.min(snapshot.x, window.innerWidth - width - 8));
-    const y = Math.max(8, Math.min(snapshot.y, window.innerHeight - height - 8));
+    const viewportWidth = window.innerWidth / scale;
+    const viewportHeight = window.innerHeight / scale;
+    const pointerX = snapshot.x / scale;
+    const pointerY = snapshot.y / scale;
+    const x = Math.max(8, Math.min(pointerX, viewportWidth - width - 8));
+    const y = Math.max(8, Math.min(pointerY, viewportHeight - height - 8));
     return `left:${x}px;top:${y}px`;
   }
 

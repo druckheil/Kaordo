@@ -798,6 +798,7 @@
   >
     <main
       class="workspace-shell"
+      class:workspace-shell--klaro={activeSection === 'klaro'}
       class:workspace-shell--with-objects={activeFile !== null}
       class:app-section--hidden={activeSection !== 'klaro'}
       aria-label="Kaordo application workspace"
