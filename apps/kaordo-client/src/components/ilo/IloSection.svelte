@@ -217,7 +217,7 @@
                   </div>
                   <div class="training-actions split">
                     <button class="forgot" type="button" disabled={snapshot.busy !== null} onclick={() => grade('forgot')}>
-                      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 7.5A6 6 0 1 1 4.5 12M5 3.5v4H1"/></svg>
+                      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3.5 2 7.5l4 4M2.5 7.5h6a6 6 0 1 1 0 6"/></svg>
                       Forgot
                     </button>
                     <button class="remember" type="button" disabled={snapshot.busy !== null} onclick={() => grade('remember')}>
@@ -313,6 +313,7 @@
     --sui-bg: #e4e9f0;
     --sui-bg-light: #edf1f7;
     --sui-bg-dark: #d1d9e6;
+    --ilo-tools-bg: #c3ccdc;
     --ilo-shadow-color: rgb(39 51 67 / 20%);
     --sui-shadow-light: transparent !important;
     --sui-shadow-dark: var(--ilo-shadow-color) !important;
@@ -346,6 +347,7 @@
     --sui-bg: #2a2d35;
     --sui-bg-light: #31343c;
     --sui-bg-dark: #23262d;
+    --ilo-tools-bg: #202734;
     --ilo-shadow-color: rgb(0 0 0 / 42%);
     --sui-shadow-dark: var(--ilo-shadow-color) !important;
     --sui-primary: var(--accent, #69a993);
@@ -364,12 +366,12 @@
     min-height: 0;
     padding: 18px 13px 14px;
     flex-direction: column;
-    background: color-mix(in srgb, var(--sui-bg) 70%, var(--sui-bg-dark) 30%);
+    background: var(--ilo-tools-bg);
     box-shadow: inset -1px 0 0 color-mix(in srgb, var(--sui-shadow-dark) 20%, transparent);
   }
 
   :global(html[data-theme='dark']) .tools-rail {
-    background: color-mix(in srgb, var(--sui-bg) 78%, var(--sui-bg-dark) 22%) !important;
+    background: var(--ilo-tools-bg) !important;
   }
 
   .tools-rail > header { display: grid; gap: 3px; padding: 0 9px 16px; }
@@ -388,16 +390,16 @@
     padding: 10px;
     color: var(--sui-text-muted);
     text-align: left;
-    background: transparent;
+    background: color-mix(in srgb, var(--sui-bg) 72%, var(--ilo-tools-bg) 28%);
     border: 0;
     border-radius: 13px;
-    box-shadow: none;
+    box-shadow: var(--sui-shadow-raised-sm);
     cursor: pointer;
     transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
   }
 
-  .tool-card:hover { color: var(--sui-text); background: color-mix(in srgb, var(--sui-bg-light) 48%, transparent); box-shadow: var(--sui-shadow-raised-sm); transform: translateY(-1px); }
-  .tool-card.active { color: var(--sui-primary); background: var(--sui-bg); box-shadow: var(--sui-shadow-inset-sm); transform: none; }
+  .tool-card:hover { color: var(--sui-text); background: color-mix(in srgb, var(--sui-bg-light) 78%, var(--ilo-tools-bg) 22%); box-shadow: var(--sui-shadow-raised); transform: translateY(-1px); }
+  .tool-card.active { color: var(--sui-primary); background: color-mix(in srgb, var(--sui-bg-light) 88%, var(--sui-primary) 12%); box-shadow: var(--sui-shadow-inset-sm), 0 0 0 1px color-mix(in srgb, var(--sui-primary) 24%, transparent); transform: none; }
   .tool-card:active { box-shadow: var(--sui-shadow-inset-sm); transform: none; }
   .tool-icon { display: grid; width: 41px; height: 41px; color: var(--sui-primary); background: var(--sui-bg); border-radius: 12px; box-shadow: var(--sui-shadow-raised-sm); place-items: center; }
   .tool-card.active .tool-icon { box-shadow: var(--sui-shadow-inset-sm); }
