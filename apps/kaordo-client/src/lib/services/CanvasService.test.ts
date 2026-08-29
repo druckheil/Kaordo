@@ -21,6 +21,7 @@ const workspace: WorkspaceDetail = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -125,15 +126,8 @@ describe('CanvasService interaction boundaries', () => {
     state.exit();
   });
 
-  it('coalesces scroll camera snapshots into one animation frame', () => {
-    let frame: FrameRequestCallback | undefined;
-    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
-      frame = callback;
-      return 9;
-    });
-    const cancelFrame = vi.fn();
-    vi.stubGlobal('requestAnimationFrame', requestFrame);
-    vi.stubGlobal('cancelAnimationFrame', cancelFrame);
+  it('coalesces scroll camera snapshots until scrolling is idle', () => {
+    vi.useFakeTimers();
 
     const state = new CanvasGState();
     const service = new CanvasViewportService(state, () => workspace);
@@ -146,9 +140,10 @@ describe('CanvasService interaction boundaries', () => {
     service.scheduleCameraCapture();
     service.scheduleCameraCapture();
 
-    expect(requestFrame).toHaveBeenCalledTimes(1);
     expect(rememberCamera).not.toHaveBeenCalled();
-    frame?.(0);
+    vi.advanceTimersByTime(139);
+    expect(rememberCamera).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
     expect(rememberCamera).toHaveBeenCalledOnce();
     expect(state.cameraFor(workspace.id)).toEqual({
       centerX: 520,
@@ -160,7 +155,6 @@ describe('CanvasService interaction boundaries', () => {
     service.scheduleCameraCapture();
     service.captureCamera();
 
-    expect(cancelFrame).toHaveBeenCalledWith(9);
     expect(rememberCamera).toHaveBeenCalledTimes(2);
     expect(state.cameraFor(workspace.id)).toEqual({
       centerX: 600,

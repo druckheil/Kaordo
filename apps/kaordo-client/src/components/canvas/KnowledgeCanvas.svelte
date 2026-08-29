@@ -24,7 +24,66 @@
 
   function attachViewport(node: HTMLDivElement) {
     canvas.attachViewport(node);
-    return { destroy: () => canvas.attachViewport(null) };
+
+    // Native touchpad scrolling must stay on the compositor. A permanently
+    // non-passive wheel listener makes the browser wait for JavaScript before
+    // every scroll update, even when the handler ultimately does nothing.
+    // Start passively and install the blocking listener only after a wheel
+    // gesture is identified as zoom input (mouse wheel or pinch).
+    const passiveOptions: AddEventListenerOptions = { passive: true };
+    const blockingOptions: AddEventListenerOptions = { passive: false };
+    let blocking = false;
+    let releaseTimer: number | null = null;
+
+    function switchToPassive(): void {
+      if (!blocking) return;
+      if (releaseTimer !== null) {
+        window.clearTimeout(releaseTimer);
+        releaseTimer = null;
+      }
+      node.removeEventListener('wheel', onBlockingWheel, blockingOptions);
+      node.addEventListener('wheel', onPassiveWheel, passiveOptions);
+      blocking = false;
+    }
+
+    function schedulePassiveSwitch(): void {
+      if (releaseTimer !== null) window.clearTimeout(releaseTimer);
+      releaseTimer = window.setTimeout(() => {
+        releaseTimer = null;
+        switchToPassive();
+      }, 180);
+    }
+
+    function onPassiveWheel(event: WheelEvent): void {
+      const shouldBlock = canvas.handleCanvasWheel(event, false);
+      if (!shouldBlock) return;
+      node.removeEventListener('wheel', onPassiveWheel, passiveOptions);
+      node.addEventListener('wheel', onBlockingWheel, blockingOptions);
+      blocking = true;
+      schedulePassiveSwitch();
+    }
+
+    function onBlockingWheel(event: WheelEvent): void {
+      const shouldBlock = canvas.handleCanvasWheel(event, true);
+      if (!shouldBlock) {
+        switchToPassive();
+        return;
+      }
+      schedulePassiveSwitch();
+    }
+
+    node.addEventListener('wheel', onPassiveWheel, passiveOptions);
+    return {
+      destroy: () => {
+        if (releaseTimer !== null) window.clearTimeout(releaseTimer);
+        if (blocking) {
+          node.removeEventListener('wheel', onBlockingWheel, blockingOptions);
+        } else {
+          node.removeEventListener('wheel', onPassiveWheel, passiveOptions);
+        }
+        canvas.attachViewport(null);
+      },
+    };
   }
 
   function skippedPanelMessage(count: number): string {
@@ -62,7 +121,6 @@
     onpointercancel={(event) => canvas.finishCanvasPan(event)}
     onlostpointercapture={(event) => canvas.handleCanvasPanCaptureLost(event)}
     onscroll={() => canvas.handleCanvasScroll()}
-    onwheel={(event) => canvas.handleCanvasWheel(event)}
     oncontextmenu={(event) => openContextMenu(event, 'Canvas', [
       {
         action: () => canvas.state.setTool('select'),
@@ -237,7 +295,6 @@
     background-size: 120px 120px, 120px 120px, 24px 24px, 100% 100%;
     box-shadow: inset 0 0 120px rgb(51 82 69 / 2%);
     transform-origin: top left;
-    will-change: transform;
   }
 
   .canvas-zoom-space {

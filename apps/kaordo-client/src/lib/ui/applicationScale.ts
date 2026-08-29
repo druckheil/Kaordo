@@ -10,10 +10,14 @@ export function applicationScale(): number {
   if (typeof globalThis.document === 'undefined') return 1;
 
   const root = globalThis.document.documentElement;
-  const inline = root.style.getPropertyValue('--app-scale');
-  const computed = typeof globalThis.getComputedStyle === 'function'
-    ? globalThis.getComputedStyle(root).getPropertyValue('--app-scale')
-    : '';
-  const value = Number.parseFloat(inline || computed);
-  return Number.isFinite(value) && value > 0 ? value : 1;
+  // Appearance gateways apply the active value inline. Reading it directly
+  // avoids forcing a style recalculation on every pointer/scroll sample.
+  const inline = Number.parseFloat(root.style.getPropertyValue('--app-scale'));
+  if (Number.isFinite(inline) && inline > 0) return inline;
+
+  if (typeof globalThis.getComputedStyle !== 'function') return 1;
+  const computed = Number.parseFloat(
+    globalThis.getComputedStyle(root).getPropertyValue('--app-scale'),
+  );
+  return Number.isFinite(computed) && computed > 0 ? computed : 1;
 }

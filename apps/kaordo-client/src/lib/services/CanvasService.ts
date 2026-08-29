@@ -1049,8 +1049,8 @@ export class CanvasService {
     this.#viewport.scheduleCameraCapture();
   }
 
-  handleCanvasWheel(event: WheelEvent): void {
-    this.#viewport.zoomFromWheel(event);
+  handleCanvasWheel(event: WheelEvent, canPreventDefault = true): boolean {
+    return this.#viewport.zoomFromWheel(event, canPreventDefault);
   }
 
   zoomIn(): void {

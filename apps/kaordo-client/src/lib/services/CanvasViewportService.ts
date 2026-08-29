@@ -22,11 +22,6 @@ type PanStart = {
   scrollTop: number;
 };
 
-type ScheduledFrame = {
-  id: number;
-  kind: 'animation-frame' | 'timeout';
-};
-
 type PendingZoom = {
   anchor: CanvasPoint;
   workspaceId: string;
@@ -38,18 +33,16 @@ export class CanvasViewportService {
   readonly #getWorkspace: () => WorkspaceDetail | null;
   readonly #state: CanvasGState;
   #cameraRestoreAttempt = 0;
-  #cameraFrame: ScheduledFrame | null = null;
   #cameraCommitTimer: number | null = null;
   #isRestoringCamera = false;
   #pan: PanStart | null = null;
-  #pendingCamera: { camera: ReturnType<typeof cameraFromScroll>; workspaceId: string } | null = null;
   #pendingZoom: PendingZoom | null = null;
   #pendingCameraWorkspaceId: string | null = null;
-  #hasPublishedScheduledCamera = false;
   #viewport: HTMLDivElement | null = null;
   #wheelGesture: 'mouse' | 'trackpad' | null = null;
   #wheelGestureAt = 0;
   #zoomFrame: number | null = null;
+  #zoomWillChangeTimer: number | null = null;
 
   constructor(
     state: CanvasGState,
@@ -68,6 +61,7 @@ export class CanvasViewportService {
     if (!element) {
       this.cancelScheduledCameraCapture();
       this.cancelZoomAnimation();
+      this.clearZoomWillChange();
     }
   }
 
@@ -118,15 +112,17 @@ export class CanvasViewportService {
     };
   }
 
-  zoomFromWheel(event: WheelEvent): void {
+  zoomFromWheel(event: WheelEvent, canPreventDefault = true): boolean {
     const workspace = this.#getWorkspace();
     const viewport = this.#viewport;
-    if (!workspace || !viewport || event.deltaY === 0) return;
+    if (!workspace || !viewport || event.deltaY === 0) return false;
     if (!event.ctrlKey && this.isTrackpadScroll(event)) {
-      this.cancelZoomAnimation();
-      return;
+      if (this.#zoomFrame !== null || this.#pendingZoom !== null) {
+        this.cancelZoomAnimation();
+      }
+      return false;
     }
-    event.preventDefault();
+    if (canPreventDefault && event.cancelable) event.preventDefault();
     const delta = event.deltaY * (event.deltaMode === 1
       ? 16
       : event.deltaMode === 2
@@ -151,6 +147,7 @@ export class CanvasViewportService {
         ),
       },
     );
+    return true;
   }
 
   zoomBy(factor: number): void {
@@ -259,35 +256,21 @@ export class CanvasViewportService {
       this.#isRestoringCamera
     ) return;
     this.#pendingCameraWorkspaceId = workspaceId;
-    if (this.#cameraFrame) return;
 
-    const capture = () => {
-      this.#cameraFrame = null;
+    // Camera coordinates are persistence data, not render state. Do not read
+    // layout or publish a new Svelte snapshot while native scrolling is in
+    // progress: both operations force work on the main thread and make
+    // high-frequency touchpad scrolling visibly stutter. Capture once after
+    // the gesture has been idle for a short interval instead.
+    if (this.#cameraCommitTimer !== null) {
+      window.clearTimeout(this.#cameraCommitTimer);
+    }
+    this.#cameraCommitTimer = window.setTimeout(() => {
+      this.#cameraCommitTimer = null;
       const pendingWorkspaceId = this.#pendingCameraWorkspaceId;
       this.#pendingCameraWorkspaceId = null;
-      const pending = this.readCamera(pendingWorkspaceId ?? undefined);
-      if (!pending) return;
-
-      // Camera coordinates are persistence data, not render state. Publish at
-      // the start and after scrolling settles, rather than invalidating every
-      // canvas child on every native scroll event.
-      this.#pendingCamera = pending;
-      if (!this.#hasPublishedScheduledCamera) {
-        this.publishPendingCamera();
-      }
-      this.scheduleIdleCameraCommit();
-    };
-    if (typeof window.requestAnimationFrame === 'function') {
-      this.#cameraFrame = {
-        id: window.requestAnimationFrame(capture),
-        kind: 'animation-frame',
-      };
-    } else {
-      this.#cameraFrame = {
-        id: window.setTimeout(capture, 0),
-        kind: 'timeout',
-      };
-    }
+      this.captureCameraNow(pendingWorkspaceId ?? undefined);
+    }, CAMERA_IDLE_CAPTURE_MS);
   }
 
   captureCamera(workspaceId = this.#getWorkspace()?.id): void {
@@ -432,7 +415,20 @@ export class CanvasViewportService {
       zoomSpace.style.width = `${CANVAS_WIDTH * next}px`;
       zoomSpace.style.height = `${CANVAS_HEIGHT * next}px`;
     }
-    if (surface) surface.style.transform = `scale(${next})`;
+    if (surface) {
+      // Promote the large surface only while zooming. Keeping a permanent
+      // 4800×3200 compositor layer makes native scrolling compete for GPU
+      // memory, especially in scaled Tauri windows.
+      surface.style.willChange = 'transform';
+      surface.style.transform = `scale(${next})`;
+      if (this.#zoomWillChangeTimer !== null) {
+        window.clearTimeout(this.#zoomWillChangeTimer);
+      }
+      this.#zoomWillChangeTimer = window.setTimeout(() => {
+        this.#zoomWillChangeTimer = null;
+        surface.style.removeProperty('will-change');
+      }, ZOOM_WILL_CHANGE_MS);
+    }
     viewport.scrollLeft = canvasAnchor.x * next - anchor.x;
     viewport.scrollTop = canvasAnchor.y * next - anchor.y;
   }
@@ -443,6 +439,15 @@ export class CanvasViewportService {
     }
     this.#zoomFrame = null;
     this.#pendingZoom = null;
+  }
+
+  private clearZoomWillChange(): void {
+    if (this.#zoomWillChangeTimer !== null) {
+      window.clearTimeout(this.#zoomWillChangeTimer);
+      this.#zoomWillChangeTimer = null;
+    }
+    this.#viewport?.querySelector<HTMLElement>('.canvas-surface')
+      ?.style.removeProperty('will-change');
   }
 
   private isTrackpadScroll(event: WheelEvent): boolean {
@@ -462,61 +467,25 @@ export class CanvasViewportService {
   }
 
   private captureCameraNow(workspaceId = this.#getWorkspace()?.id): void {
-    const pending = this.readCamera(workspaceId);
-    if (!pending) return;
-    this.#pendingCamera = null;
-    this.#state.rememberCamera(pending.workspaceId, pending.camera);
-  }
-
-  private cancelScheduledCameraCapture(): void {
-    const frame = this.#cameraFrame;
-    if (frame?.kind === 'animation-frame') {
-      window.cancelAnimationFrame(frame.id);
-    } else if (frame) {
-      window.clearTimeout(frame.id);
-    }
-    if (this.#cameraCommitTimer !== null) {
-      window.clearTimeout(this.#cameraCommitTimer);
-    }
-    this.#cameraFrame = null;
-    this.#cameraCommitTimer = null;
-    this.#pendingCamera = null;
-    this.#pendingCameraWorkspaceId = null;
-    this.#hasPublishedScheduledCamera = false;
-  }
-
-  private readCamera(
-    workspaceId = this.#getWorkspace()?.id,
-  ): { camera: ReturnType<typeof cameraFromScroll>; workspaceId: string } | null {
-    if (!workspaceId || !this.#viewport || this.#isRestoringCamera) return null;
+    if (!workspaceId || !this.#viewport || this.#isRestoringCamera) return;
     const viewport = this.metrics();
-    return {
-      camera: cameraFromScroll(
+    this.#state.rememberCamera(
+      workspaceId,
+      cameraFromScroll(
         { x: viewport.scrollLeft, y: viewport.scrollTop },
         viewport,
       ),
-      workspaceId,
-    };
+    );
   }
 
-  private publishPendingCamera(): void {
-    const pending = this.#pendingCamera;
-    if (!pending) return;
-    this.#pendingCamera = null;
-    this.#hasPublishedScheduledCamera = true;
-    this.#state.rememberCamera(pending.workspaceId, pending.camera);
-  }
-
-  private scheduleIdleCameraCommit(): void {
+  private cancelScheduledCameraCapture(): void {
     if (this.#cameraCommitTimer !== null) {
       window.clearTimeout(this.#cameraCommitTimer);
     }
-    this.#cameraCommitTimer = window.setTimeout(() => {
-      this.#cameraCommitTimer = null;
-      this.publishPendingCamera();
-      this.#hasPublishedScheduledCamera = false;
-    }, CAMERA_IDLE_CAPTURE_MS);
+    this.#cameraCommitTimer = null;
+    this.#pendingCameraWorkspaceId = null;
   }
 }
 
 const CAMERA_IDLE_CAPTURE_MS = 140;
+const ZOOM_WILL_CHANGE_MS = 180;
