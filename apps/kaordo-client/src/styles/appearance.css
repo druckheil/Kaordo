@@ -48,12 +48,12 @@ html[data-theme='dark'] :is(
   color: #d5dfd9 !important;
   background:
     radial-gradient(circle at 74% 4%, rgb(92 161 137 / 8%), transparent 31%),
-    #171e1a !important;
+    var(--sui-bg, #171e1a) !important;
 }
 
 html[data-theme='dark'] :is(.tool-workspace, .tools-rail) {
   color: #d4ded8 !important;
-  background: #171e1a !important;
+  background: var(--sui-bg, #171e1a) !important;
   border-color: #344039 !important;
 }
 
@@ -71,9 +71,9 @@ html[data-theme='dark'] :is(
   .log-list article
 ) {
   color: #cfd9d3 !important;
-  background: #202924 !important;
+  background: var(--sui-bg, #202924) !important;
   border-color: #354139 !important;
-  box-shadow: 0 14px 34px rgb(0 0 0 / 16%) !important;
+  box-shadow: var(--sui-shadow-raised, 0 14px 34px rgb(0 0 0 / 16%)) !important;
 }
 
 html[data-theme='dark'] :is(
@@ -88,7 +88,7 @@ html[data-theme='dark'] :is(
   .progress-shell .summary-grid strong,
   .activity-view h2
 ) {
-  color: #e3ece7 !important;
+  color: var(--sui-text, #e3ece7) !important;
 }
 
 html[data-theme='dark'] :is(
@@ -100,13 +100,13 @@ html[data-theme='dark'] :is(
   .noun-toggle button
 ) {
   color: #dce6e0 !important;
-  background: #171e1a !important;
+  background: var(--sui-bg-dark, #171e1a) !important;
   border-color: #3b4840 !important;
 }
 
 html[data-theme='dark'] :is(.answer-panel, .tool-icon, .theme, .stage-index) {
-  color: #89b9a8 !important;
-  background: #263b33 !important;
+  color: var(--sui-primary, #89b9a8) !important;
+  background: var(--sui-bg-dark, #263b33) !important;
   border-color: #3c594d !important;
 }
 
