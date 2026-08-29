@@ -9,7 +9,7 @@
     getFluoAudioLayout,
     FLUO_MAX_MEDIA_WIDTH,
     getFluoMediaLayout,
-    normalizeFluoMediaRatio,
+    type FluoMediaDimensions,
   } from './fluoMediaLayout';
 
   type Props = {
@@ -19,9 +19,11 @@
     mediaOwner?: FluoMediaOwner;
     maxWidth?: number;
     mediaIdentity?: string;
+    onIntrinsicDimensions?: (dimensions: FluoMediaDimensions) => void;
     postIdentity?: string;
     postId: string;
     register: (load: () => Promise<void>) => () => void;
+    sharedHeight?: number;
   };
 
   let {
@@ -31,9 +33,11 @@
     mediaOwner,
     maxWidth = FLUO_MAX_MEDIA_WIDTH,
     mediaIdentity,
+    onIntrinsicDimensions,
     postIdentity,
     postId,
     register,
+    sharedHeight,
   }: Props = $props();
   let retrying = $state(false);
   let automaticRetryUsed = $state(false);
@@ -53,30 +57,39 @@
     attachment.id,
     postIdentity,
   ) ?? { height: attachment.height, width: attachment.width }));
-  // The reserved box is intentionally immutable for this mount. The post
-  // manifest carries source dimensions for newly-created media; old posts
-  // without them use the same bounded fallback for both skeleton and content.
-  // Intrinsic decode events are still recorded for future mounts/viewers, but
-  // they must never change a row's height after it entered the timeline.
-  const reservedLayout = $derived(attachment.kind === 'audio'
+
+  // Each attachment keeps its own aspect-ratio calculation. A carousel can
+  // provide a shared height so that all visual items occupy one even row,
+  // while audio keeps its compact player height.
+  const naturalLayout = $derived(attachment.kind === 'audio'
     ? getFluoAudioLayout(maxWidth)
     : getFluoMediaLayout(
         initialDimensions.width,
         initialDimensions.height,
         maxWidth,
       ));
-  // Keep the reserved height stable, but once intrinsic dimensions are known
-  // let the box narrow/widen to the real ratio. This removes the old fallback
-  // background beside portrait media without causing a vertical reflow.
+
   let mediaLayout = $derived.by(() => {
-    if (!discoveredDimensions) return reservedLayout;
-    const ratio = normalizeFluoMediaRatio(discoveredDimensions.width, discoveredDimensions.height);
+    const layout = discoveredDimensions
+      ? getFluoMediaLayout(
+          discoveredDimensions.width,
+          discoveredDimensions.height,
+          maxWidth,
+        )
+      : naturalLayout;
+    const targetHeight = attachment.kind !== 'audio' && sharedHeight !== undefined &&
+      Number.isFinite(sharedHeight)
+      ? Math.max(layout.height, Math.round(sharedHeight))
+      : layout.height;
+    if (targetHeight === layout.height) return layout;
     return {
-      ...reservedLayout,
-      ratio,
-      width: Math.max(1, Math.round(Math.min(maxWidth, reservedLayout.height * ratio))),
+      ...layout,
+      height: targetHeight,
+      width: Math.max(1, Math.round(targetHeight * layout.ratio)),
     };
   });
+  let isEqualized = $derived(attachment.kind !== 'audio' && sharedHeight !== undefined &&
+    Number.isFinite(sharedHeight) && mediaLayout.height > naturalLayout.height);
 
   onMount(() => register(ensureLoaded));
 
@@ -243,7 +256,9 @@
 
   function applyMediaDimensions(width: number, height: number): void {
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
-    discoveredDimensions = { height, width };
+    const dimensions = { height, width };
+    discoveredDimensions = dimensions;
+    onIntrinsicDimensions?.(dimensions);
     fluoState.setMediaDimensions(postId, attachment.id, width, height, postIdentity);
   }
 
@@ -275,8 +290,9 @@
 
 <figure
   class:media-audio={attachment.kind === 'audio'}
+  class:media-equalized={isEqualized}
   class:media-unavailable={loadState === 'error'}
-  style={`--media-ratio:${mediaLayout.ratio};--media-width:${mediaLayout.width}px;--media-height:${mediaLayout.height}px;width:${mediaLayout.width}px;height:${mediaLayout.height}px`}
+  style={`--media-ratio:${mediaLayout.ratio};--media-width:${mediaLayout.width}px;--media-height:${mediaLayout.height}px`}
 >
   {#if loadState === 'error'}
     <button class="media-retry" type="button" disabled={retrying} onclick={retryFromButton}>
@@ -329,7 +345,7 @@
     min-width: 0;
     width: var(--media-width);
     inline-size: min(var(--media-width), 100%);
-    height: var(--media-height);
+    height: auto;
     max-width: 100%;
     max-inline-size: 100%;
     aspect-ratio: var(--media-ratio);
@@ -369,6 +385,10 @@
   .image-trigger:focus-visible {
     outline: 2px solid var(--sui-primary);
     outline-offset: -2px;
+  }
+
+  .media-equalized .image-trigger img {
+    object-fit: cover;
   }
 
   .media-skeleton {

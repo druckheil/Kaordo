@@ -1,4 +1,3 @@
-export const FLUO_MIN_MEDIA_HEIGHT = 148;
 export const FLUO_MAX_MEDIA_HEIGHT = 430;
 export const FLUO_MAX_MEDIA_WIDTH = 620;
 export const FLUO_AUDIO_MEDIA_HEIGHT = 76;
@@ -8,6 +7,11 @@ export const FLUO_CAROUSEL_MEDIA_WIDTH = 320;
 export type FluoMediaLayout = {
   height: number;
   ratio: number;
+  width: number;
+};
+
+export type FluoMediaDimensions = {
+  height: number;
   width: number;
 };
 
@@ -25,9 +29,9 @@ export function getFluoAudioLayout(availableWidth = FLUO_MAX_MEDIA_WIDTH): FluoM
  * Calculates one stable display box from the media metadata.
  *
  * The original dimensions remain the primary input. The height and width
- * limits only keep extreme portraits, panoramas, and tiny thumbnails usable.
- * The returned dimensions always have the same ratio so the skeleton, image,
- * and video occupy one identical box while the content is loading.
+ * limits only keep extreme portraits and panoramas usable. There is no
+ * artificial minimum height: small images keep their real size instead of
+ * gaining an empty strip above or below the media.
  */
 export function getFluoMediaLayout(
   width?: number,
@@ -38,11 +42,9 @@ export function getFluoMediaLayout(
   const maxWidth = Math.max(1, Math.min(FLUO_MAX_MEDIA_WIDTH, availableWidth));
   const maxByHeight = FLUO_MAX_MEDIA_HEIGHT * ratio;
   const upperWidth = Math.max(1, Math.min(maxWidth, maxByHeight));
-  const lowerWidth = Math.min(upperWidth, FLUO_MIN_MEDIA_HEIGHT * ratio);
   const sourceWidth = positiveFinite(width) ? width : upperWidth;
-  const boundedWidth = clamp(sourceWidth, lowerWidth, upperWidth);
-  const displayHeight = clamp(boundedWidth / ratio, FLUO_MIN_MEDIA_HEIGHT, FLUO_MAX_MEDIA_HEIGHT);
-  const displayWidth = displayHeight * ratio;
+  const displayWidth = clamp(sourceWidth, 1, upperWidth);
+  const displayHeight = displayWidth / ratio;
 
   return {
     height: Math.max(1, Math.round(displayHeight)),

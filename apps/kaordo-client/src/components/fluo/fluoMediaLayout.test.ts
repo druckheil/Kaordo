@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   FLUO_MAX_MEDIA_HEIGHT,
   FLUO_MAX_MEDIA_WIDTH,
-  FLUO_MIN_MEDIA_HEIGHT,
   getFluoMediaLayout,
 } from './fluoMediaLayout';
 
@@ -34,6 +33,12 @@ describe('getFluoMediaLayout', () => {
 
     expect(layout.width).toBe(FLUO_MAX_MEDIA_WIDTH);
     expect(layout.height).toBeLessThanOrEqual(FLUO_MAX_MEDIA_HEIGHT);
-    expect(layout.height).toBeGreaterThanOrEqual(FLUO_MIN_MEDIA_HEIGHT);
+    expect(layout.height).toBe(Math.round(FLUO_MAX_MEDIA_WIDTH / (16 / 9)));
+  });
+
+  it('does not inflate small media with an artificial minimum height', () => {
+    const layout = getFluoMediaLayout(80, 40);
+
+    expect(layout).toEqual({ height: 40, ratio: 2, width: 80 });
   });
 });

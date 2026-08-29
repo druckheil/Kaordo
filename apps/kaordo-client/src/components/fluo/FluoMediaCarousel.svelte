@@ -2,7 +2,11 @@
   import { onMount } from 'svelte';
   import type { FluoAttachment, FluoMediaOwner } from '../../lib/domain/fluo';
   import type { FluoGState } from '../../lib/states/FluoGState';
-  import { FLUO_CAROUSEL_MEDIA_WIDTH } from './fluoMediaLayout';
+  import {
+    FLUO_CAROUSEL_MEDIA_WIDTH,
+    getFluoMediaLayout,
+    type FluoMediaDimensions,
+  } from './fluoMediaLayout';
   import FluoMedia from './FluoMedia.svelte';
 
   type Props = {
@@ -30,7 +34,29 @@
   let track = $state<HTMLDivElement>();
   let canScrollLeft = $state(false);
   let canScrollRight = $state(false);
+  let discoveredDimensions = $state<Record<string, FluoMediaDimensions>>({});
   let updateFrame = 0;
+
+  // Calculate the natural height of every visual attachment first, then use
+  // the tallest one for the whole carousel row. Audio keeps its compact
+  // player height and is intentionally not used to enlarge image/video
+  // attachments.
+  let sharedVisualHeight = $derived.by(() => {
+    let maximum = 0;
+    let visualCount = 0;
+    for (const attachment of attachments) {
+      if (attachment.kind === 'audio') continue;
+      visualCount += 1;
+      const dimensions = discoveredDimensions[attachment.id]
+        ?? fluoState.getMediaDimensions?.(postId, attachment.id, postIdentity)
+        ?? { height: attachment.height, width: attachment.width };
+      maximum = Math.max(
+        maximum,
+        getFluoMediaLayout(dimensions.width, dimensions.height, maxWidth).height,
+      );
+    }
+    return visualCount > 1 && maximum > 0 ? maximum : undefined;
+  });
 
   onMount(() => {
     const element = scroller;
@@ -76,6 +102,15 @@
     const distance = Math.max(220, scroller.clientWidth * 0.82);
     scroller.scrollBy({ behavior: 'smooth', left: direction * distance });
   }
+
+  function handleIntrinsicDimensions(
+    attachmentId: string,
+    dimensions: FluoMediaDimensions,
+  ): void {
+    const previous = discoveredDimensions[attachmentId];
+    if (previous?.width === dimensions.width && previous.height === dimensions.height) return;
+    discoveredDimensions = { ...discoveredDimensions, [attachmentId]: dimensions };
+  }
 </script>
 
 <div class="post-media post-media--carousel">
@@ -94,9 +129,11 @@
           {mediaOwner}
           mediaIdentity={`${postIdentity ?? postId}:${attachment.id}`}
           {maxWidth}
+          onIntrinsicDimensions={(dimensions) => handleIntrinsicDimensions(attachment.id, dimensions)}
           {postIdentity}
           {postId}
           register={registerMedia}
+          sharedHeight={sharedVisualHeight}
         />
       {/each}
     </div>
@@ -165,6 +202,10 @@
 
   .media-carousel-track :global(figure) {
     flex: 0 0 auto;
+    width: var(--media-width);
+    inline-size: var(--media-width);
+    max-width: none;
+    max-inline-size: none;
     scroll-snap-align: start;
   }
 

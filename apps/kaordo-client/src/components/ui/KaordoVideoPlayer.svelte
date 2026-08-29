@@ -108,7 +108,6 @@
     display: block;
     width: 100%;
     height: 100%;
-    min-height: 148px;
     overflow: hidden;
     --media-brand: #4b8b76;
     --media-focus-color: #5fae91;
