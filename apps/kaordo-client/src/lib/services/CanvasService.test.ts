@@ -3,6 +3,7 @@ import type { WorkspaceDetail } from '../domain/workspace';
 import { CanvasGState } from '../states/CanvasGState';
 import { CanvasService } from './CanvasService';
 import { CanvasViewportService } from './CanvasViewportService';
+import { pointerToCanvas } from '../features/canvas';
 
 const workspace: WorkspaceDetail = {
   id: 'workspace-1',
@@ -48,6 +49,20 @@ describe('CanvasService interaction boundaries', () => {
 
     expect(readBounds).toHaveBeenCalledTimes(1);
     service.cancelObjectPointerDrag(pointerEvent(source, { pointerId: 4 }));
+  });
+
+  it('converts visual pointer coordinates back to canvas pixels at a custom app scale', () => {
+    const result = pointerToCanvas(
+      { x: 350, y: 250 },
+      { bottom: 650, left: 100, right: 900, top: 50 },
+      { scrollLeft: 80, scrollTop: 60 },
+      { x: 25, y: 25 },
+      undefined,
+      1,
+      1.25,
+    );
+
+    expect(result).toEqual({ x: 260, y: 200 });
   });
 
   it('uses the latest fractional pointer sample and commits without snap-back', () => {

@@ -24,6 +24,7 @@ import {
   CANVAS_CARD_MIN_WIDTH,
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
+  canvasApplicationScale,
 } from '../features/canvas';
 import {
   canvasMediaFrame,
@@ -1231,9 +1232,15 @@ export class CanvasService {
   ): { height: number; width: number } {
     const size = constrainObjectSize(resize.object, {
       height:
-        resize.height + (sample.clientY - resize.startClientY) / this.currentZoom(),
+        resize.height +
+          (sample.clientY - resize.startClientY) /
+            canvasApplicationScale() /
+            this.currentZoom(),
       width:
-        resize.width + (sample.clientX - resize.startClientX) / this.currentZoom(),
+        resize.width +
+          (sample.clientX - resize.startClientX) /
+            canvasApplicationScale() /
+            this.currentZoom(),
     });
     const committed = round
       ? { height: Math.round(size.height), width: Math.round(size.width) }

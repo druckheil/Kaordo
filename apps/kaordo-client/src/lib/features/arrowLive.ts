@@ -9,6 +9,8 @@ export type ArrowLiveDragDetail = {
   controlPoint?: number;
   endpoint?: 'end' | 'start';
   elementId?: string;
+  /** All descendants that moved with elementId in this frame. */
+  elementIds?: readonly string[];
   objectId?: string;
   phase: 'end' | 'move';
 };

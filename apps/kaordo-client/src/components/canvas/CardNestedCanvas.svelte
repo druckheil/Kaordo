@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
   import type { CanvasPlacement } from '../../lib/domain/canvas';
-  import type {
-    ArrowElement,
-    CanvasElement,
-    RectangleElement,
-    WorkspaceCanvasDocument,
+  import {
+    canvasElementIdsForElement,
+    type ArrowElement,
+    type CanvasElement,
+    type RectangleElement,
+    type WorkspaceCanvasDocument,
   } from '../../lib/domain/workspace';
   import {
     arrowFromGesture,
@@ -21,6 +22,7 @@
     dispatchCanvasLiveMove,
   } from '../../lib/features/canvasLive';
   import {
+    canvasApplicationScale,
     CANVAS_CARD_HEADER_HEIGHT,
   } from '../../lib/features/canvas';
   import {
@@ -86,12 +88,13 @@
   function boardPoint(event: PointerEvent, constrained = false) {
     const bounds = board?.getBoundingClientRect();
     const zoom = canvas.state.zoomFor(workspaceId);
-    const x = (event.clientX - (bounds?.left ?? 0)) / zoom;
-    const y = (event.clientY - (bounds?.top ?? 0)) / zoom;
+    const applicationScale = canvasApplicationScale();
+    const x = (event.clientX - (bounds?.left ?? 0)) / applicationScale / zoom;
+    const y = (event.clientY - (bounds?.top ?? 0)) / applicationScale / zoom;
     return constrained
       ? {
-          x: clamp(x, 0, (bounds?.width ?? 0) / zoom),
-          y: clamp(y, 0, (bounds?.height ?? 0) / zoom),
+          x: clamp(x, 0, (bounds?.width ?? 0) / applicationScale / zoom),
+          y: clamp(y, 0, (bounds?.height ?? 0) / applicationScale / zoom),
         }
       : { x, y };
   }
@@ -349,9 +352,10 @@
   function drawnRectangle(draw: RectangleDrawGesture): RectangleElement {
     const bounds = board?.getBoundingClientRect();
     const zoom = canvas.state.zoomFor(workspaceId);
+    const applicationScale = canvasApplicationScale();
     const geometry = rectangleGeometry(draw, {
-      boundsHeight: (bounds?.height ?? placement.height * zoom) / zoom,
-      boundsWidth: (bounds?.width ?? placement.width * zoom) / zoom,
+      boundsHeight: (bounds?.height ?? placement.height * applicationScale * zoom) / applicationScale / zoom,
+      boundsWidth: (bounds?.width ?? placement.width * applicationScale * zoom) / applicationScale / zoom,
       clickHeight: 72,
       clickWidth: 112,
     });
@@ -455,13 +459,7 @@
     const root = board;
     if (!root) return [];
     const ids = new Set<string>([element.id]);
-    if (element.type === 'rectangle') {
-      for (const child of document.elements) {
-        if ('parentElementId' in child && child.parentElementId === element.id) {
-          ids.add(child.id);
-        }
-      }
-    }
+    for (const id of canvasElementIdsForElement(document.elements, element.id)) ids.add(id);
     for (const candidate of document.elements) {
       if (
         candidate.type === 'arrow' &&

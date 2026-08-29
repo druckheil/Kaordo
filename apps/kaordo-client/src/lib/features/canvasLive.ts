@@ -1,4 +1,5 @@
 import type { CanvasElement } from '../domain/workspace';
+import { canvasElementIdsForElement } from '../domain/workspace';
 import { dispatchArrowLiveDrag, type ArrowHandle } from './arrowLive';
 
 export type CanvasLiveMove = {
@@ -33,9 +34,14 @@ export function dispatchCanvasLiveMove(
     });
     return;
   }
-  for (const elementId of liveTargetIds(move.element, elements)) {
-    dispatchArrowLiveDrag({ elementId, deltaX, deltaY, phase: 'move' });
-  }
+  const elementIds = liveTargetIds(move.element, elements);
+  dispatchArrowLiveDrag({
+    deltaX,
+    deltaY,
+    elementId: move.element.id,
+    elementIds,
+    phase: 'move',
+  });
 }
 
 /** Clears the live offset after the committed canvas state is rendered. */
@@ -63,22 +69,19 @@ export function dispatchCanvasLiveEnd(
     });
     return;
   }
-  for (const elementId of liveTargetIds(move.element, elements)) {
-    dispatchArrowLiveDrag({ elementId, deltaX: 0, deltaY: 0, phase: 'end' });
-  }
+  const elementIds = liveTargetIds(move.element, elements);
+  dispatchArrowLiveDrag({
+    deltaX: 0,
+    deltaY: 0,
+    elementId: move.element.id,
+    elementIds,
+    phase: 'end',
+  });
 }
 
 function liveTargetIds(
   element: CanvasElement,
   elements: readonly CanvasElement[],
 ): string[] {
-  const ids = [element.id];
-  if (element.type !== 'rectangle') return ids;
-  for (const child of elements) {
-    if (
-      (child.type === 'text' || child.type === 'media') &&
-      child.parentElementId === element.id
-    ) ids.push(child.id);
-  }
-  return ids;
+  return [...canvasElementIdsForElement(elements, element.id)];
 }

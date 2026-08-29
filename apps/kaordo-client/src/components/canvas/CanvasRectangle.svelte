@@ -8,6 +8,7 @@
     RECTANGLE_DRAW_MIN_HEIGHT,
     RECTANGLE_DRAW_MIN_WIDTH,
   } from '../../lib/features/rectangleDrawing';
+  import { canvasApplicationScale } from '../../lib/features/canvas';
   import type { CanvasService } from '../../lib/services/CanvasService';
 
   type Props = {
@@ -158,14 +159,15 @@
       };
     }
     const zoom = canvas.currentZoom();
+    const applicationScale = canvasApplicationScale();
     return {
       height: Math.round(clamp(
-        active.startHeight + (event.clientY - active.startClientY) / zoom,
+        active.startHeight + (event.clientY - active.startClientY) / applicationScale / zoom,
         RECTANGLE_DRAW_MIN_HEIGHT,
         heightLimit,
       )),
       width: Math.round(clamp(
-        active.startWidth + (event.clientX - active.startClientX) / zoom,
+        active.startWidth + (event.clientX - active.startClientX) / applicationScale / zoom,
         RECTANGLE_DRAW_MIN_WIDTH,
         widthLimit,
       )),

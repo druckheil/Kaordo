@@ -7,6 +7,7 @@
     CANVAS_MEDIA_MIN_HEIGHT,
     CANVAS_MEDIA_MIN_WIDTH,
   } from '../../lib/features/canvasMedia';
+  import { canvasApplicationScale } from '../../lib/features/canvas';
   import type { CanvasService } from '../../lib/services/CanvasService';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
   import PhotoViewer from '../ui/PhotoViewer.svelte';
@@ -186,6 +187,7 @@
     event.preventDefault();
     event.stopPropagation();
     const zoom = canvas.currentZoom();
+    const applicationScale = canvasApplicationScale();
     resizedSize = {
       ...proportionalSize(
         resize.startWidth,
@@ -193,8 +195,8 @@
         dominantResizeScale(
           resize.startWidth,
           resize.startHeight,
-          (event.clientX - resize.startClientX) / zoom,
-          (event.clientY - resize.startClientY) / zoom,
+          (event.clientX - resize.startClientX) / applicationScale / zoom,
+          (event.clientY - resize.startClientY) / applicationScale / zoom,
         ),
       ),
     };

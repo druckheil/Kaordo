@@ -1,10 +1,15 @@
 import { tick } from 'svelte';
 import type { CanvasPlacement, CanvasPoint } from '../domain/canvas';
-import type { ObjectSummary, WorkspaceDetail } from '../domain/workspace';
+import {
+  canvasElementIdsForObject,
+  type ObjectSummary,
+  type WorkspaceDetail,
+} from '../domain/workspace';
 import {
   automaticPlacement,
   CANVAS_CARD_HEIGHT,
   CANVAS_CARD_WIDTH,
+  canvasApplicationScale,
   clampCanvasPoint,
   moveCanvasPoint,
   POINTER_DRAG_THRESHOLD,
@@ -35,6 +40,8 @@ type ObjectPointerDrag = {
   startClientX: number;
   startClientY: number;
   viewportBounds: CanvasBounds | null;
+  applicationScale: number;
+  liveElementIds: readonly string[];
   wasOnCanvas: boolean;
 };
 
@@ -109,6 +116,13 @@ export class CanvasDragService {
     const sourceBounds = sourceElement.getBoundingClientRect();
     const grabBounds = positionElement?.getBoundingClientRect() ?? sourceBounds;
     const zoom = workspace ? this.#state.zoomFor(workspace.id) : 1;
+    const applicationScale = canvasApplicationScale();
+    const liveElementIds = workspace
+      ? [...canvasElementIdsForObject(
+          this.#state.canvasDocumentFor(workspace.id),
+          object.id,
+        )]
+      : [];
 
     if (workspace && existing && canvasCard) {
       this.#state.clearEntering(workspace.id, object.id);
@@ -125,10 +139,10 @@ export class CanvasDragService {
       clientY: event.clientY,
       grabOffsetX: startedFromCanvasCard
         ? event.clientX - grabBounds.left
-        : ((object.document.frame?.width ?? CANVAS_CARD_WIDTH) * zoom) / 2,
+        : ((object.document.frame?.width ?? CANVAS_CARD_WIDTH) * zoom * applicationScale) / 2,
       grabOffsetY: startedFromCanvasCard
         ? event.clientY - grabBounds.top
-        : ((object.document.frame?.height ?? CANVAS_CARD_HEIGHT) * zoom) / 2,
+        : ((object.document.frame?.height ?? CANVAS_CARD_HEIGHT) * zoom * applicationScale) / 2,
       hasMoved: false,
       object,
       objectHeight: existing?.height ?? object.document.frame?.height ?? CANVAS_CARD_HEIGHT,
@@ -142,6 +156,8 @@ export class CanvasDragService {
       startClientX: event.clientX,
       startClientY: event.clientY,
       viewportBounds: this.#viewport.bounds(),
+      applicationScale,
+      liveElementIds,
       wasOnCanvas: existing !== undefined,
     };
 
@@ -243,6 +259,7 @@ export class CanvasDragService {
       void tick().then(() => {
         if (this.#finishingDrag !== drag) return;
         dispatchArrowLiveDrag({
+          elementIds: drag.liveElementIds,
           objectId: drag.object.id,
           deltaX: 0,
           deltaY: 0,
@@ -355,6 +372,7 @@ export class CanvasDragService {
     const finishing = this.#finishingDrag;
     if (finishing) {
       dispatchArrowLiveDrag({
+        elementIds: finishing.liveElementIds,
         objectId: finishing.object.id,
         deltaX: 0,
         deltaY: 0,
@@ -382,6 +400,7 @@ export class CanvasDragService {
         height: drag.objectHeight,
         width: drag.objectWidth,
       },
+      drag.applicationScale,
     );
   }
 
@@ -418,6 +437,7 @@ export class CanvasDragService {
       const deltaX = drag.canvasX! - drag.originCanvasX!;
       const deltaY = drag.canvasY! - drag.originCanvasY!;
       dispatchArrowLiveDrag({
+        elementIds: drag.liveElementIds,
         objectId: drag.object.id,
         deltaX,
         deltaY,
@@ -428,6 +448,7 @@ export class CanvasDragService {
       positionElement.style.removeProperty('z-index');
       if (drag.wasOnCanvas) {
         dispatchArrowLiveDrag({
+          elementIds: drag.liveElementIds,
           objectId: drag.object.id,
           deltaX: 0,
           deltaY: 0,
@@ -491,6 +512,7 @@ export class CanvasDragService {
     drag.positionElement?.style.removeProperty('z-index');
     if (drag.wasOnCanvas && endLive) {
       dispatchArrowLiveDrag({
+        elementIds: drag.liveElementIds,
         objectId: drag.object.id,
         deltaX: 0,
         deltaY: 0,

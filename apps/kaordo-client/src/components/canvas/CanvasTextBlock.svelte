@@ -9,6 +9,7 @@
     CanvasService,
     TextFormatCommand,
   } from '../../lib/services/CanvasService';
+  import { canvasApplicationScale } from '../../lib/features/canvas';
   import { openContextMenu } from '../../lib/ui/contextMenu';
 
   type Props = {
@@ -97,9 +98,12 @@
     if (!resize || resize.pointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
+    const applicationScale = canvasApplicationScale();
     resizedWidth = clamp(
       resize.startWidth +
-        (event.clientX - resize.startClientX) / canvas.currentZoom(),
+        (event.clientX - resize.startClientX) /
+          applicationScale /
+          canvas.currentZoom(),
       100,
       Math.max(100, maxWidth),
     );

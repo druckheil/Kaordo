@@ -144,14 +144,31 @@
     // delta a second time would make the endpoint jump twice as far.
     if (detail.objectId && arrow.parentObjectId === detail.objectId) return false;
     if (attachment.objectId && attachment.objectId === detail.objectId) return true;
-    if (attachment.elementId && attachment.elementId === detail.elementId) return true;
+    if (
+      attachment.elementId &&
+      (attachment.elementId === detail.elementId ||
+        detail.elementIds?.includes(attachment.elementId))
+    ) return true;
     return Boolean(
       detail.objectId &&
       attachment.elementId &&
-      elements.some((element) =>
-        element.id === attachment.elementId && element.parentObjectId === detail.objectId,
-      ),
+      elementBelongsToObject(attachment.elementId, detail.objectId),
     );
+  }
+
+  function elementBelongsToObject(elementId: string, objectId: string): boolean {
+    const visited = new Set<string>();
+    let current = elements.find((element) => element.id === elementId);
+    while (current && !visited.has(current.id)) {
+      if (current.parentObjectId === objectId) return true;
+      visited.add(current.id);
+      const parentElementId = 'parentElementId' in current
+        ? current.parentElementId
+        : undefined;
+      if (!parentElementId) return false;
+      current = elements.find((element) => element.id === parentElementId);
+    }
+    return false;
   }
 
   function path(): string {

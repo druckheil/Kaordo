@@ -4,6 +4,7 @@ import type { WorkspaceDetail } from '../domain/workspace';
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
+  canvasApplicationScale,
   cameraFromScroll,
   cameraScroll,
   clampCanvasZoom,
@@ -83,6 +84,7 @@ export class CanvasViewportService {
     grabOffsetY: number,
     bounds = this.bounds(),
     size?: { height: number; width: number },
+    applicationScale = canvasApplicationScale(),
   ): CanvasPoint | null {
     if (!this.#viewport || !bounds) return null;
     return pointerToCanvas(
@@ -92,6 +94,7 @@ export class CanvasViewportService {
       { x: grabOffsetX, y: grabOffsetY },
       size,
       this.#state.zoomFor(this.#getWorkspace()?.id ?? ''),
+      applicationScale,
     );
   }
 
@@ -102,15 +105,16 @@ export class CanvasViewportService {
     }
     const { clientHeight, clientWidth } = viewport;
     const zoom = this.#state.zoomFor(this.#getWorkspace()?.id ?? '');
+    const applicationScale = canvasApplicationScale();
     const bounds =
       clientHeight > 0 && clientWidth > 0
         ? null
         : viewport.getBoundingClientRect();
     return {
-      height: (clientHeight || bounds?.height || 0) / zoom,
+      height: (clientHeight || (bounds?.height ?? 0) / applicationScale) / zoom,
       scrollLeft: viewport.scrollLeft / zoom,
       scrollTop: viewport.scrollTop / zoom,
-      width: (clientWidth || bounds?.width || 0) / zoom,
+      width: (clientWidth || (bounds?.width ?? 0) / applicationScale) / zoom,
     };
   }
 
@@ -132,12 +136,19 @@ export class CanvasViewportService {
       ? this.#pendingZoom.zoom
       : this.#state.zoomFor(workspace.id);
     const bounds = viewport.getBoundingClientRect();
+    const applicationScale = canvasApplicationScale();
     this.requestZoom(
       workspace.id,
       base * Math.exp(-delta * (event.ctrlKey ? 0.008 : 0.0012)),
       {
-        x: Math.max(0, Math.min(viewport.clientWidth, event.clientX - bounds.left)),
-        y: Math.max(0, Math.min(viewport.clientHeight, event.clientY - bounds.top)),
+        x: Math.max(
+          0,
+          Math.min(viewport.clientWidth, (event.clientX - bounds.left) / applicationScale),
+        ),
+        y: Math.max(
+          0,
+          Math.min(viewport.clientHeight, (event.clientY - bounds.top) / applicationScale),
+        ),
       },
     );
   }
@@ -216,8 +227,11 @@ export class CanvasViewportService {
   continuePan(event: PointerEvent): void {
     const pan = this.#pan;
     if (!pan || pan.pointerId !== event.pointerId || !this.#viewport) return;
-    this.#viewport.scrollLeft = pan.scrollLeft - (event.clientX - pan.clientX);
-    this.#viewport.scrollTop = pan.scrollTop - (event.clientY - pan.clientY);
+    const applicationScale = canvasApplicationScale();
+    this.#viewport.scrollLeft =
+      pan.scrollLeft - (event.clientX - pan.clientX) / applicationScale;
+    this.#viewport.scrollTop =
+      pan.scrollTop - (event.clientY - pan.clientY) / applicationScale;
   }
 
   finishPan(event: PointerEvent): void {

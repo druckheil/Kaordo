@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
-  import type {
-    ArrowElement,
-    CanvasElement,
-    RectangleElement,
-    WorkspaceCanvasDocument,
+  import {
+    canvasElementIdsForElement,
+    type ArrowElement,
+    type CanvasElement,
+    type RectangleElement,
+    type WorkspaceCanvasDocument,
   } from '../../lib/domain/workspace';
   import type { CanvasService } from '../../lib/services/CanvasService';
   import type { CanvasSnapshot } from '../../lib/states/CanvasGState';
@@ -21,6 +22,9 @@
     dispatchCanvasLiveEnd,
     dispatchCanvasLiveMove,
   } from '../../lib/features/canvasLive';
+  import {
+    canvasApplicationScale,
+  } from '../../lib/features/canvas';
   import {
     moveMediaWithRectangle,
     moveTextWithRectangle,
@@ -79,16 +83,17 @@
   function canvasPoint(event: PointerEvent) {
     const bounds = layer?.getBoundingClientRect();
     const zoom = canvas.state.zoomFor(workspaceId);
+    const applicationScale = canvasApplicationScale();
     return {
       x: clamp(
-        (event.clientX - (bounds?.left ?? 0)) / zoom,
+        (event.clientX - (bounds?.left ?? 0)) / applicationScale / zoom,
         0,
-        (bounds?.width ?? 0) / zoom,
+        (bounds?.width ?? 0) / applicationScale / zoom,
       ),
       y: clamp(
-        (event.clientY - (bounds?.top ?? 0)) / zoom,
+        (event.clientY - (bounds?.top ?? 0)) / applicationScale / zoom,
         0,
-        (bounds?.height ?? 0) / zoom,
+        (bounds?.height ?? 0) / applicationScale / zoom,
       ),
     };
   }
@@ -104,9 +109,16 @@
       const point = canvasPoint(event);
       const bounds = layer?.getBoundingClientRect();
       const zoom = canvas.state.zoomFor(workspaceId);
+      const applicationScale = canvasApplicationScale();
+      const canvasWidth = (bounds?.width || 4800 * applicationScale * zoom) /
+        applicationScale /
+        zoom;
+      const canvasHeight = (bounds?.height || 3200 * applicationScale * zoom) /
+        applicationScale /
+        zoom;
       canvas.createTextElement(workspaceId, {
-        x: clamp(point.x - 20, 0, (bounds?.width || 4800) / zoom - 260),
-        y: clamp(point.y - 18, 0, (bounds?.height || 3200) / zoom - 48),
+        x: clamp(point.x - 20, 0, canvasWidth - 260),
+        y: clamp(point.y - 18, 0, canvasHeight - 48),
       });
       return;
     }
@@ -338,9 +350,14 @@
   function drawnRectangle(draw: RectangleDrawGesture): RectangleElement {
     const bounds = layer?.getBoundingClientRect();
     const zoom = canvas.state.zoomFor(workspaceId);
+    const applicationScale = canvasApplicationScale();
     const geometry = rectangleGeometry(draw, {
-      boundsHeight: (bounds?.height ?? 3200 * zoom) / zoom,
-      boundsWidth: (bounds?.width ?? 4800 * zoom) / zoom,
+      boundsHeight: (bounds?.height || 3200 * applicationScale * zoom) /
+        applicationScale /
+        zoom,
+      boundsWidth: (bounds?.width || 4800 * applicationScale * zoom) /
+        applicationScale /
+        zoom,
       clickHeight: 90,
       clickWidth: 140,
     });
@@ -369,6 +386,7 @@
   function movedElement(move: MoveGesture): CanvasElement {
     const bounds = layer?.getBoundingClientRect();
     const zoom = canvas.state.zoomFor(workspaceId);
+    const applicationScale = canvasApplicationScale();
     const deltaX = move.currentX - move.startX;
     const deltaY = move.currentY - move.startY;
     if (move.element.type === 'arrow') {
@@ -419,12 +437,16 @@
       x: clamp(
         move.element.x + deltaX,
         0,
-        (bounds?.width ?? move.element.width) / zoom - move.element.width,
+        (bounds?.width || 4800 * applicationScale * zoom) /
+          applicationScale /
+          zoom - move.element.width,
       ),
       y: clamp(
         move.element.y + deltaY,
         0,
-        (bounds?.height ?? move.element.height) / zoom - move.element.height,
+        (bounds?.height || 3200 * applicationScale * zoom) /
+          applicationScale /
+          zoom - move.element.height,
       ),
     };
   }
@@ -451,12 +473,8 @@
     const root = layer;
     if (!root) return [];
     const ids = new Set<string>([element.id]);
-    if (element.type === 'rectangle') {
-      for (const child of document.elements) {
-        if ('parentElementId' in child && child.parentElementId === element.id) {
-          ids.add(child.id);
-        }
-      }
+    for (const id of canvasElementIdsForElement(document.elements, element.id)) {
+      ids.add(id);
     }
     for (const candidate of document.elements) {
       if (

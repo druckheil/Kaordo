@@ -211,17 +211,7 @@ export function canvasElementIdsForObject(
   document: WorkspaceCanvasDocument,
   objectId: string,
 ): Set<string> {
-  const children = new Map<string, string[]>();
-  for (const element of document.elements) {
-    if (
-      (element.type !== 'text' && element.type !== 'media') ||
-      !element.parentElementId
-    ) continue;
-    const siblings = children.get(element.parentElementId) ?? [];
-    siblings.push(element.id);
-    children.set(element.parentElementId, siblings);
-  }
-
+  const children = childElementMap(document.elements);
   const ids = new Set<string>();
   const pending = document.elements
     .filter((element) => element.parentObjectId === objectId)
@@ -233,6 +223,42 @@ export function canvasElementIdsForObject(
     pending.push(...(children.get(id) ?? []));
   }
   return ids;
+}
+
+/**
+ * Returns an element and every descendant nested inside it.
+ *
+ * Nested text/media can themselves own children in older canvas documents.
+ * Traversing the complete hierarchy keeps moving, deletion and live-arrow
+ * updates consistent instead of silently stopping at the first level.
+ */
+export function canvasElementIdsForElement(
+  elements: readonly CanvasElement[],
+  elementId: string,
+): Set<string> {
+  const children = childElementMap(elements);
+  const ids = new Set<string>();
+  const pending = [elementId];
+  while (pending.length > 0) {
+    const id = pending.pop();
+    if (!id || ids.has(id)) continue;
+    ids.add(id);
+    pending.push(...(children.get(id) ?? []));
+  }
+  return ids;
+}
+
+function childElementMap(
+  elements: readonly CanvasElement[],
+): Map<string, string[]> {
+  const children = new Map<string, string[]>();
+  for (const element of elements) {
+    if (!('parentElementId' in element) || !element.parentElementId) continue;
+    const siblings = children.get(element.parentElementId) ?? [];
+    siblings.push(element.id);
+    children.set(element.parentElementId, siblings);
+  }
+  return children;
 }
 
 export function normalizeWorkspaceCanvasDocument(
