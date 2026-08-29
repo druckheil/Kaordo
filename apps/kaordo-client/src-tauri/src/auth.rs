@@ -893,7 +893,7 @@ pub async fn fluo_like_states(
     }
     let posts = posts
         .into_iter()
-        .map(normalize_fluo_like_target)
+        .map(|target| normalize_fluo_like_target(&target))
         .collect::<Result<Vec<_>, _>>()?;
     let response = authenticated_json_request_with_timeout(
         &client,
@@ -2152,7 +2152,7 @@ fn node_id_path(value: &str) -> Result<String, String> {
         .map_err(|_| "The node identifier is invalid.".to_owned())
 }
 
-fn normalize_fluo_like_target(target: FluoLikeTargetInput) -> Result<FluoLikeTargetInput, String> {
+fn normalize_fluo_like_target(target: &FluoLikeTargetInput) -> Result<FluoLikeTargetInput, String> {
     Ok(FluoLikeTargetInput {
         node_id: node_id_path(&target.node_id)?,
         post_id: node_id_path(&target.post_id)?,
