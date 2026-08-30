@@ -8,7 +8,7 @@ interface PagesContext {
   params: { path?: string | string[] };
 }
 
-const RELEASE_VERSIONS = ['0.2.1', '0.2', '0.1.7', '0.1.6', '0.1.5', '0.1.4', '0.1.3', '0.1.2', '0.1.1', '0.1.0'] as const;
+const RELEASE_VERSIONS = ['0.2.2', '0.2.1', '0.2', '0.1.7', '0.1.6', '0.1.5', '0.1.4', '0.1.3', '0.1.2', '0.1.1', '0.1.0'] as const;
 const LINUX_MANIFEST = /^nodo-linux(?:-[^/]+)?\.json$/u;
 const LINUX_MANIFEST_KEY = 'nodo-linux.json';
 
