@@ -8,15 +8,17 @@ English, even when the request is written in another language.
 
 - Kaordo 0.2 is released and tagged as `v0.2`; its release commit is
   `62a704b` and `main` also contains the post-release CI/release fixes. The
-  completed follow-up scope is `scope-0.2.1`; active development now continues
-  on `scope-0.2.2`. Keep compatibility with the existing 0.1.x wire/data
-  formats until a protocol migration is explicitly planned.
+  completed follow-up scopes are `scope-0.2.1` and `scope-0.2.2`; active
+  development now continues on `scope-0.2.3`. Keep compatibility with the
+  existing 0.1.x wire/data formats until a protocol migration is explicitly
+  planned.
 - Scope 0.1.2 was the first completed fast-forward release (historical
   `main` commit `4a18465`); keep the completed scope-0.1.2 and scope-0.1.1
   branches for history. The current 0.2 release is tagged `v0.2` as noted
   above.
--  0.2.1 is the current Open Beta release/download/site version. Scopes 0.1.3,
-  0.1.7, 0.1.10 and 0.2.1 are completed scopes; 0.2.2 is active development.
+-  0.2.2 is the current Open Beta release/download/site version. Scopes 0.1.3,
+  0.1.7, 0.1.10, 0.2.1 and 0.2.2 are completed scopes; 0.2.3 is active
+  development.
   Do not bump all manifests or release URLs merely because a
   scope branch changes; do that only when the requested release actually
   changes.
@@ -287,10 +289,10 @@ waiting for another request.
   service; no desktop build is required unless client/Rust code also changed.
 - Overwrite stable artifact names. Never create p2, fixed, timestamped, or
   other duplicate artifacts.
-- For the active scope 0.2.2, release/scope-0.2.2 may contain at most:
-  - Kaordo_scope-0.2.2_windows_x64-setup.exe
-  - Kaordo-Nodo_scope-0.2.2_android.apk
-  - Kaordo_scope-0.2.2_macos_universal.dmg
+- For the active scope 0.2.3, release/scope-0.2.3 may contain at most:
+  - Kaordo_scope-0.2.3_windows_x64-setup.exe
+  - Kaordo-Nodo_scope-0.2.3_android.apk
+  - Kaordo_scope-0.2.3_macos_universal.dmg
 - Linux Nodo artifacts remain ignored build output, but the current Linux
   development binary and its manifest are always published to Pages/R2 after
   a Linux Nodo change so installed nodes can self-update immediately. Never
@@ -306,13 +308,13 @@ Run from apps/kaordo-client:
 PATH=/opt/homebrew/opt/llvm/bin:/Users/druckheil/.cargo/bin:$PATH \
 XWIN_CACHE_DIR=/Users/druckheil/Projects/Kaordo/target/xwin-cache \
 pnpm tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc \
-  --bundles nsis --config '{"version":"0.2.2"}'
+  --bundles nsis --config '{"version":"0.2.3"}'
 ~~~
 
 Copy/overwrite:
 
 ~~~text
-release/scope-0.2.2/Kaordo_scope-0.2.2_windows_x64-setup.exe
+release/scope-0.2.3/Kaordo_scope-0.2.3_windows_x64-setup.exe
 ~~~
 
 Cross-linker PDB warnings and the expected unsigned-on-macOS installer warning
@@ -340,7 +342,7 @@ unset SIGNING_SECRET KAORDO_ANDROID_KEYSTORE_PASSWORD KAORDO_ANDROID_KEY_PASSWOR
 Copy/overwrite:
 
 ~~~text
-release/scope-0.2.2/Kaordo-Nodo_scope-0.2.2_android.apk
+release/scope-0.2.3/Kaordo-Nodo_scope-0.2.3_android.apk
 ~~~
 
 Always use the same signing key so an APK updates the installed Nodo without
