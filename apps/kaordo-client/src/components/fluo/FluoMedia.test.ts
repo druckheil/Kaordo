@@ -122,7 +122,7 @@ describe('FluoMedia', () => {
 
     const figure = view.container.querySelector('figure');
     expect(figure).not.toBeNull();
-    expect(figure?.style.width).toBe('246px');
+    expect(figure?.style.getPropertyValue('--media-width')).toBe('246px');
     expect(figure?.style.getPropertyValue('--media-ratio')).toBe(String(400 / 700));
     view.unmount();
   });

@@ -11,8 +11,17 @@ export class InFlightRequests {
     const existing = this.#requests.get(key);
     if (existing) return existing as Promise<T>;
 
+    // Gateway adapters are expected to return a promise, but a synchronous
+    // validation/IPC failure must still clear the slot instead of escaping
+    // before the request can be shared or cleaned up.
+    let started: Promise<T>;
+    try {
+      started = Promise.resolve(request());
+    } catch (error) {
+      started = Promise.reject(error);
+    }
     let shared: Promise<T>;
-    shared = request().finally(() => {
+    shared = started.finally(() => {
       if (this.#requests.get(key) === shared) this.#requests.delete(key);
     });
     this.#requests.set(key, shared);

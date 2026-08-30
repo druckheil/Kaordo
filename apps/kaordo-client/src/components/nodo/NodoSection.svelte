@@ -99,6 +99,36 @@
   }
 
   type MetricKind = 'battery' | 'connection' | 'download' | 'latency' | 'memory' | 'read' | 'upload' | 'write';
+  type MetricDefinition = {
+    icon: string;
+    kind: MetricKind;
+    label: string;
+    title: string;
+  };
+
+  const metricDefinitions: readonly MetricDefinition[] = [
+    { icon: '↯', kind: 'battery', label: 'Battery', title: 'Battery' },
+    { icon: 'M', kind: 'memory', label: 'Memory', title: 'Memory' },
+    { icon: '⌁', kind: 'connection', label: 'Connection', title: 'Connection' },
+    { icon: '◷', kind: 'latency', label: 'Latency', title: 'Latency' },
+    { icon: '⇣', kind: 'download', label: 'Link download', title: 'Link download' },
+    { icon: '⇡', kind: 'upload', label: 'Link upload', title: 'Link upload' },
+    { icon: '↓', kind: 'read', label: 'Disk read', title: 'Disk read' },
+    { icon: '↑', kind: 'write', label: 'Disk write', title: 'Disk write' },
+  ];
+
+  function metricValue(node: NodoNode, kind: MetricKind): string {
+    switch (kind) {
+      case 'battery': return batteryLabel(node);
+      case 'memory': return memoryLabel(node);
+      case 'connection': return networkLabel(node);
+      case 'latency': return latencyLabel(node);
+      case 'download': return metricBytes(node, node.metrics.networkDownBps, true);
+      case 'upload': return metricBytes(node, node.metrics.networkUpBps, true);
+      case 'read': return metricBytes(node, node.metrics.diskReadBps, true, 'Run quick test');
+      case 'write': return metricBytes(node, node.metrics.diskWriteBps, true, 'Run quick test');
+    }
+  }
 
   function metricScore(node: NodoNode, kind: MetricKind): number | null {
     if (!node.online) return 0;
@@ -367,7 +397,7 @@
               <span class="node-space">{bytes(node.quotaBytes)}</span>
             </button>
           {/each}
-          <p class="list-note">Hosts refresh automatically every 30 seconds.</p>
+          <p class="list-note">Hosts refresh automatically every minute.</p>
         </aside>
 
         {#if selected}
@@ -416,14 +446,29 @@
             <section class="telemetry-section" aria-labelledby="telemetry-heading">
               <div class="section-title"><div><span class="section-number">01</span><h3 id="telemetry-heading">Live telemetry</h3></div><span class:online={selected.online} class="live-badge">{selected.online ? 'Live' : 'Offline'}</span></div>
               <div class="metric-grid">
-                <article class:metric-loading={telemetryState(selected, 'battery') === 'loading'} class:metric-error={telemetryState(selected, 'battery') === 'error'} aria-busy={telemetryState(selected, 'battery') === 'loading'} data-health={metricHealthLabel(selected, 'battery')} style={healthStyle(metricScore(selected, 'battery'))} title={`Battery: ${metricHealthLabel(selected, 'battery')}`}><div class="metric-content"><span class="metric-icon">↯</span><div><span>Battery</span><strong>{batteryLabel(selected)}</strong></div></div>{#if telemetryState(selected, 'battery') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'battery') === 'error'}<span class="metric-failure" title="Battery could not be refreshed">!</span>{/if}</article>
-                <article class:metric-loading={telemetryState(selected, 'memory') === 'loading'} class:metric-error={telemetryState(selected, 'memory') === 'error'} aria-busy={telemetryState(selected, 'memory') === 'loading'} data-health={healthLabel(metricScore(selected, 'memory'))} style={healthStyle(metricScore(selected, 'memory'))} title={`Memory: ${healthLabel(metricScore(selected, 'memory'))}`}><div class="metric-content"><span class="metric-icon">M</span><div><span>Memory</span><strong>{memoryLabel(selected)}</strong></div></div>{#if telemetryState(selected, 'memory') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'memory') === 'error'}<span class="metric-failure" title="Memory could not be refreshed">!</span>{/if}</article>
-                <article class:metric-loading={telemetryState(selected, 'connection') === 'loading'} class:metric-error={telemetryState(selected, 'connection') === 'error'} aria-busy={telemetryState(selected, 'connection') === 'loading'} data-health={healthLabel(metricScore(selected, 'connection'))} style={healthStyle(metricScore(selected, 'connection'))} title={`Connection: ${healthLabel(metricScore(selected, 'connection'))}`}><div class="metric-content"><span class="metric-icon">⌁</span><div><span>Connection</span><strong>{networkLabel(selected)}</strong></div></div>{#if telemetryState(selected, 'connection') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'connection') === 'error'}<span class="metric-failure" title="Connection could not be refreshed">!</span>{/if}</article>
-                <article class:metric-loading={telemetryState(selected, 'latency') === 'loading'} class:metric-error={telemetryState(selected, 'latency') === 'error'} aria-busy={telemetryState(selected, 'latency') === 'loading'} data-health={healthLabel(metricScore(selected, 'latency'))} style={healthStyle(metricScore(selected, 'latency'))} title={`Latency: ${healthLabel(metricScore(selected, 'latency'))}`}><div class="metric-content"><span class="metric-icon">◷</span><div><span>Latency</span><strong>{latencyLabel(selected)}</strong></div></div>{#if telemetryState(selected, 'latency') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'latency') === 'error'}<span class="metric-failure" title="Latency could not be refreshed">!</span>{/if}</article>
-                <article class:metric-loading={telemetryState(selected, 'download') === 'loading'} class:metric-error={telemetryState(selected, 'download') === 'error'} aria-busy={telemetryState(selected, 'download') === 'loading'} data-health={healthLabel(metricScore(selected, 'download'))} style={healthStyle(metricScore(selected, 'download'))} title={`Link download: ${healthLabel(metricScore(selected, 'download'))}`}><div class="metric-content"><span class="metric-icon">⇣</span><div><span>Link download</span><strong>{metricBytes(selected, selected.metrics.networkDownBps, true)}</strong></div></div>{#if telemetryState(selected, 'download') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'download') === 'error'}<span class="metric-failure" title="Download link could not be refreshed">!</span>{/if}</article>
-                <article class:metric-loading={telemetryState(selected, 'upload') === 'loading'} class:metric-error={telemetryState(selected, 'upload') === 'error'} aria-busy={telemetryState(selected, 'upload') === 'loading'} data-health={healthLabel(metricScore(selected, 'upload'))} style={healthStyle(metricScore(selected, 'upload'))} title={`Link upload: ${healthLabel(metricScore(selected, 'upload'))}`}><div class="metric-content"><span class="metric-icon">⇡</span><div><span>Link upload</span><strong>{metricBytes(selected, selected.metrics.networkUpBps, true)}</strong></div></div>{#if telemetryState(selected, 'upload') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'upload') === 'error'}<span class="metric-failure" title="Upload link could not be refreshed">!</span>{/if}</article>
-                <article class:metric-loading={telemetryState(selected, 'read') === 'loading'} class:metric-error={telemetryState(selected, 'read') === 'error'} aria-busy={telemetryState(selected, 'read') === 'loading'} data-health={healthLabel(metricScore(selected, 'read'))} style={healthStyle(metricScore(selected, 'read'))} title={`Disk read: ${healthLabel(metricScore(selected, 'read'))}`}><div class="metric-content"><span class="metric-icon">↓</span><div><span>Disk read</span><strong>{metricBytes(selected, selected.metrics.diskReadBps, true, 'Run quick test')}</strong></div></div>{#if telemetryState(selected, 'read') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'read') === 'error'}<span class="metric-failure" title="Disk read could not be refreshed">!</span>{/if}</article>
-                <article class:metric-loading={telemetryState(selected, 'write') === 'loading'} class:metric-error={telemetryState(selected, 'write') === 'error'} aria-busy={telemetryState(selected, 'write') === 'loading'} data-health={healthLabel(metricScore(selected, 'write'))} style={healthStyle(metricScore(selected, 'write'))} title={`Disk write: ${healthLabel(metricScore(selected, 'write'))}`}><div class="metric-content"><span class="metric-icon">↑</span><div><span>Disk write</span><strong>{metricBytes(selected, selected.metrics.diskWriteBps, true, 'Run quick test')}</strong></div></div>{#if telemetryState(selected, 'write') === 'loading'}<span class="metric-spinner"><LoadingSpinner compact /></span>{:else if telemetryState(selected, 'write') === 'error'}<span class="metric-failure" title="Disk write could not be refreshed">!</span>{/if}</article>
+                {#each metricDefinitions as metric (metric.kind)}
+                  {@const metricState = telemetryState(selected, metric.kind)}
+                  {@const score = metricScore(selected, metric.kind)}
+                  {@const health = metricHealthLabel(selected, metric.kind)}
+                  <article
+                    class:metric-loading={metricState === 'loading'}
+                    class:metric-error={metricState === 'error'}
+                    aria-busy={metricState === 'loading'}
+                    data-health={health}
+                    style={healthStyle(score)}
+                    title={`${metric.title}: ${health}`}
+                  >
+                    <div class="metric-content">
+                      <span class="metric-icon">{metric.icon}</span>
+                      <div><span>{metric.label}</span><strong>{metricValue(selected, metric.kind)}</strong></div>
+                    </div>
+                    {#if metricState === 'loading'}
+                      <span class="metric-spinner"><LoadingSpinner compact /></span>
+                    {:else if metricState === 'error'}
+                      <span class="metric-failure" title={`${metric.label} could not be refreshed`}>!</span>
+                    {/if}
+                  </article>
+                {/each}
               </div>
               <div class="quick-test-row">
                 <div><strong>Fresh device test</strong><span>Refreshes every metric independently and finishes within five seconds.</span></div>

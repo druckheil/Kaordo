@@ -58,6 +58,7 @@
     currentX: number;
     currentY: number;
     element: CanvasElement;
+    elementIds: readonly string[];
     kind: 'move';
     pointerId: number;
     startX: number;
@@ -219,16 +220,18 @@
     if (snapshot.activeTool !== 'select') return;
     event.preventDefault();
     const point = boardPoint(event);
+    const elementIds = [...canvasElementIdsForElement(document.elements, element.id)];
     gesture = {
       arrowHandle,
       currentX: point.x,
       currentY: point.y,
       element,
+      elementIds,
       kind: 'move',
       pointerId: event.pointerId,
       startX: point.x,
       startY: point.y,
-      visualNodes: findVisualNodes(element),
+      visualNodes: findVisualNodes(element, elementIds),
     };
     applyMoveVisual(gesture);
     board?.setPointerCapture?.(event.pointerId);
@@ -455,11 +458,16 @@
     );
   }
 
-  function findVisualNodes(element: CanvasElement): HTMLElement[] {
+  function findVisualNodes(
+    element: CanvasElement,
+    descendantIds: readonly string[] = [
+      ...canvasElementIdsForElement(document.elements, element.id),
+    ],
+  ): HTMLElement[] {
     const root = board;
     if (!root) return [];
     const ids = new Set<string>([element.id]);
-    for (const id of canvasElementIdsForElement(document.elements, element.id)) ids.add(id);
+    for (const id of descendantIds) ids.add(id);
     for (const candidate of document.elements) {
       if (
         candidate.type === 'arrow' &&
@@ -469,9 +477,13 @@
         ids.add(candidate.id);
       }
     }
+    const nodesById = new Map<string, HTMLElement>();
+    for (const node of root.querySelectorAll<HTMLElement>('[data-canvas-element-id]')) {
+      const id = node.dataset.canvasElementId;
+      if (id && !nodesById.has(id)) nodesById.set(id, node);
+    }
     return [...ids].flatMap((id) => {
-      const node = [...root.querySelectorAll<HTMLElement>('[data-canvas-element-id]')]
-        .find((candidate) => candidate.dataset.canvasElementId === id);
+      const node = nodesById.get(id);
       if (!node) return [];
       return [node.closest<HTMLElement>('.canvas-rectangle-shell') ?? node];
     });

@@ -5,6 +5,12 @@ import { dispatchArrowLiveDrag, type ArrowHandle } from './arrowLive';
 export type CanvasLiveMove = {
   arrowHandle?: ArrowHandle;
   element: CanvasElement;
+  /**
+   * Descendants captured when the gesture starts. Reusing this list keeps
+   * pointer-move frames allocation-free; callers that do not have a cached
+   * list retain the safe document-derived fallback.
+   */
+  elementIds?: readonly string[];
 };
 
 /** Broadcasts one frame of an element move to attached arrows. */
@@ -34,7 +40,7 @@ export function dispatchCanvasLiveMove(
     });
     return;
   }
-  const elementIds = liveTargetIds(move.element, elements);
+  const elementIds = move.elementIds ?? liveTargetIds(move.element, elements);
   dispatchArrowLiveDrag({
     deltaX,
     deltaY,
@@ -69,7 +75,7 @@ export function dispatchCanvasLiveEnd(
     });
     return;
   }
-  const elementIds = liveTargetIds(move.element, elements);
+  const elementIds = move.elementIds ?? liveTargetIds(move.element, elements);
   dispatchArrowLiveDrag({
     deltaX: 0,
     deltaY: 0,

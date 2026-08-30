@@ -27,6 +27,10 @@ const MAX_MESSAGE_WINDOW = 120;
 const INBOX_POLL_MIN_MS = 4_000;
 const INBOX_POLL_MAX_MS = 30_000;
 const LIVE_FALLBACK_POLL_MS = 10 * 60_000;
+// A reconnect can happen while the same chat is still open.  Receipts are
+// already delivered over the live channel, so avoid issuing a duplicate
+// history request for every short-lived socket reconnect.
+const ACTIVE_RECEIPTS_MIN_INTERVAL_MS = 30_000;
 const LIVE_RECONNECT_MAX_MS = 30_000;
 const LIVE_CONNECT_TIMEOUT_MS = 10_000;
 const SOCKET_CONNECTING = 0;
@@ -138,6 +142,9 @@ export class LigoGState extends GState<LigoSnapshot> {
   #syncRequested = false;
   #entered = false;
   #emptyPolls = 0;
+  #lastReceiptSyncAt = 0;
+  #lastReceiptSyncUserId: string | null = null;
+  #receiptSyncInFlight: { promise: Promise<void>; userId: string } | null = null;
 
   constructor(
     private readonly api: LigoGateway,
@@ -221,6 +228,9 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#messageCursor = null;
     this.#peerCloudCursor = null;
     this.#ownCloudCursor = null;
+    this.#lastReceiptSyncAt = 0;
+    this.#lastReceiptSyncUserId = null;
+    this.#receiptSyncInFlight = null;
     this.#scrollPositions.clear();
     this.#messageHeights.clear();
     for (const pending of this.#outgoingQueue.splice(0)) {
@@ -1102,27 +1112,39 @@ export class LigoGState extends GState<LigoSnapshot> {
     }, 100));
   }
 
-  private async syncActiveReceipts(): Promise<void> {
+  private syncActiveReceipts(): Promise<void> {
     const ownerId = this.#ownerId;
     const user = this.snapshot.activeUser;
-    if (!ownerId || !user) return;
-    try {
-      const page = await this.api.history(user.username.toLowerCase(), 'self', null, MESSAGE_PAGE);
-      for (const message of page.messages) {
-        await this.local.updateStatus(ownerId, message.id, message.status);
-      }
-      if (this.#ownerId !== ownerId || this.snapshot.activeUser?.id !== user.id) return;
-      const statuses = new Map(page.messages.map(({ id, status }) => [id, status]));
-      this.publish({
-        ...this.snapshot,
-        messages: this.snapshot.messages.map((message) => {
-          const status = statuses.get(message.id);
-          return status ? { ...message, status: advancedStatus(message.status, status) } : message;
-        }),
-      });
-    } catch {
-      // Live receipts remain the primary path; the next reconnect retries history.
+    if (!ownerId || !user) return Promise.resolve();
+    if (this.#receiptSyncInFlight?.userId === user.id) {
+      return this.#receiptSyncInFlight.promise;
     }
+    const now = Date.now();
+    if (this.#lastReceiptSyncUserId === user.id && now - this.#lastReceiptSyncAt < ACTIVE_RECEIPTS_MIN_INTERVAL_MS) return Promise.resolve();
+    this.#lastReceiptSyncAt = now;
+    this.#lastReceiptSyncUserId = user.id;
+    let sync: Promise<void>;
+    sync = (async () => {
+      try {
+        const page = await this.api.history(user.username.toLowerCase(), 'self', null, MESSAGE_PAGE);
+        await Promise.all(page.messages.map((message) => this.local.updateStatus(ownerId, message.id, message.status)));
+        if (this.#ownerId !== ownerId || this.snapshot.activeUser?.id !== user.id) return;
+        const statuses = new Map(page.messages.map(({ id, status }) => [id, status]));
+        this.publish({
+          ...this.snapshot,
+          messages: this.snapshot.messages.map((message) => {
+            const status = statuses.get(message.id);
+            return status ? { ...message, status: advancedStatus(message.status, status) } : message;
+          }),
+        });
+      } catch {
+        // Live receipts remain the primary path; the next reconnect retries history.
+      }
+    })().finally(() => {
+      if (this.#receiptSyncInFlight?.promise === sync) this.#receiptSyncInFlight = null;
+    });
+    this.#receiptSyncInFlight = { promise: sync, userId: user.id };
+    return sync;
   }
 
   private hasOlderMessages(): boolean {
@@ -1167,6 +1189,9 @@ export class LigoGState extends GState<LigoSnapshot> {
         this.#liveFailures = 0;
         this.#emptyPolls = 0;
         this.startLivePing(socket);
+        // A short fallback poll may have been scheduled while the socket was
+        // connecting.  Once live delivery is available it is redundant.
+        this.clearPollTimer();
         this.requestInboxSync();
         void this.syncActiveReceipts();
       };
@@ -1251,13 +1276,17 @@ export class LigoGState extends GState<LigoSnapshot> {
     this.#pollTimer = setTimeout(() => { void this.syncInbox(); }, delay);
   }
 
+  private clearPollTimer(): void {
+    if (this.#pollTimer) clearTimeout(this.#pollTimer);
+    this.#pollTimer = null;
+  }
+
   private stopTimers(): void {
     if (this.#searchTimer) clearTimeout(this.#searchTimer);
-    if (this.#pollTimer) clearTimeout(this.#pollTimer);
+    this.clearPollTimer();
     if (this.#liveReconnectTimer) clearTimeout(this.#liveReconnectTimer);
     this.clearLiveConnectTimer();
     this.#searchTimer = null;
-    this.#pollTimer = null;
     this.#liveReconnectTimer = null;
   }
 }

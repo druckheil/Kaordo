@@ -11,7 +11,7 @@ describe('PublicStorageGState', () => {
     });
     const gateway = {
       publicStorage: () => storagePromise,
-    } as NodoGateway;
+    } as unknown as NodoGateway;
     const state = new PublicStorageGState(gateway);
 
     state.enter();
@@ -32,7 +32,7 @@ describe('PublicStorageGState', () => {
   it('keeps a failed request visible instead of reporting unavailable as a blank field', async () => {
     const gateway = {
       publicStorage: () => Promise.reject('Public pool request failed.'),
-    } as NodoGateway;
+    } as unknown as NodoGateway;
     const state = new PublicStorageGState(gateway);
 
     await state.refresh();
@@ -41,5 +41,47 @@ describe('PublicStorageGState', () => {
       error: 'Public pool request failed.',
       phase: 'error',
     });
+  });
+
+  it('shares concurrent pool reads during section transitions', async () => {
+    let calls = 0;
+    let resolveStorage: (storage: PublicNodoStorage) => void = () => undefined;
+    const storagePromise = new Promise<PublicNodoStorage>((resolve) => {
+      resolveStorage = resolve;
+    });
+    const gateway = {
+      publicStorage: () => {
+        calls += 1;
+        return storagePromise;
+      },
+    } as unknown as NodoGateway;
+    const state = new PublicStorageGState(gateway);
+
+    const first = state.refresh();
+    const second = state.refresh();
+
+    expect(second).toBe(first);
+    expect(calls).toBe(1);
+
+    resolveStorage({ limitBytes: 0, nodeCandidates: [], reservedBytes: 0, usedBytes: 0 });
+    await first;
+  });
+
+  it('reuses a recent pool snapshot and supports explicit invalidation', async () => {
+    let calls = 0;
+    const gateway = {
+      publicStorage: async () => {
+        calls += 1;
+        return { limitBytes: calls, nodeCandidates: [], reservedBytes: 0, usedBytes: calls };
+      },
+    } as unknown as NodoGateway;
+    const state = new PublicStorageGState(gateway);
+
+    await state.refresh();
+    await state.refresh();
+    expect(calls).toBe(1);
+
+    await state.refresh(true);
+    expect(calls).toBe(2);
   });
 });

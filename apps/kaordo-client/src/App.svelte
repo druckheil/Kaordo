@@ -358,7 +358,7 @@
       await nodoGateway.deleteStorageItem(item.nodeId, item.space, item.kind, item.storageKey);
       storageItems = storageItems.filter((candidate) => candidate.storageKey !== item.storageKey || candidate.nodeId !== item.nodeId);
       void nodo.state.refresh(true);
-      if (item.space === 'public') void publicStorage.state.refresh();
+      if (item.space === 'public') void publicStorage.state.refresh(true);
     } catch (error) {
       storageItemsError = error instanceof Error && error.message.trim() ? error.message : 'The storage item could not be deleted.';
     }

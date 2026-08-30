@@ -170,15 +170,23 @@
   function rememberScroll() {
     const userId = snapshot.activeUser?.id;
     if (!messageList || !userId || restoringUserId === userId) return;
-    const viewport = messageList.getBoundingClientRect();
-    const messages = [...messageList.querySelectorAll<HTMLElement>('[data-message-id]')];
-    const anchor = messages.find((message) => message.getBoundingClientRect().bottom > viewport.top + 1) ?? null;
-    followsBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 4;
+    const scrollTop = messageList.scrollTop;
+    const virtualizer = get(messageVirtualizer);
+    // Only the virtual rows around the viewport can be an anchor. Scanning
+    // every mounted message and measuring DOM rectangles on every scroll
+    // frame forced repeated layout passes, which made trackpad scrolling
+    // visibly stutter even for small conversations. TanStack already exposes
+    // the row's logical start, so the offset can be captured without another
+    // synchronous layout read.
+    const firstVisibleRow = virtualizer.getVirtualItems()
+      .find(({ end }) => end > scrollTop) ?? null;
+    const anchorId = firstVisibleRow ? snapshot.messages[firstVisibleRow.index]?.id ?? null : null;
+    followsBottom = messageList.scrollHeight - scrollTop - messageList.clientHeight < 4;
     ligoState.rememberScroll(userId, {
       atBottom: followsBottom,
-      messageId: anchor?.dataset.messageId ?? null,
-      offset: anchor ? anchor.getBoundingClientRect().top - viewport.top : 0,
-      scrollTop: messageList.scrollTop,
+      messageId: anchorId,
+      offset: firstVisibleRow ? firstVisibleRow.start - scrollTop : 0,
+      scrollTop,
     });
   }
   async function restoreScroll(userId: string) {

@@ -1,6 +1,7 @@
 import {
   NODO_TELEMETRY_FIELDS,
   type NodoNode,
+  type NodoNodeUsage,
   type NodoPolicy,
   type NodoTelemetryField,
   type NodoTelemetryUpdate,
@@ -41,6 +42,7 @@ export class NodoGState extends GState<NodoSnapshot> {
   #requestId = 0;
   #lastRefreshAt = 0;
   #lastUsageRefreshAt = new Map<string, number>();
+  #usageInFlight = new Map<string, Promise<NodoNodeUsage>>();
   #unsubscribeRegistry: (() => void) | null = null;
   readonly #visibilityChanged = () => {
     if (document.visibilityState === 'visible') void this.refresh(true);
@@ -74,6 +76,7 @@ export class NodoGState extends GState<NodoSnapshot> {
     if (this.#refreshTimer) clearInterval(this.#refreshTimer);
     this.#refreshTimer = null;
     this.#refreshInFlight = null;
+    this.#usageInFlight.clear();
     this.#unsubscribeRegistry?.();
     this.#unsubscribeRegistry = null;
     if (typeof document !== 'undefined') {
@@ -86,6 +89,7 @@ export class NodoGState extends GState<NodoSnapshot> {
     this.#lifecycleId += 1;
     this.#lastRefreshAt = 0;
     this.#lastUsageRefreshAt.clear();
+    this.#usageInFlight.clear();
     this.#registry.reset();
     this.publish({ error: null, nodes: [], operation: null, phase: 'idle', telemetryTest: null });
   }
@@ -125,10 +129,9 @@ export class NodoGState extends GState<NodoSnapshot> {
           const refreshedAt = this.#lastUsageRefreshAt.get(node.id) ?? 0;
           if (!force && Date.now() - refreshedAt < NODE_USAGE_CACHE_MS) return node;
           try {
-            const usage = await bounded(
-              this.#gateway.refreshUsage(node.id),
+            const usage = await this.loadUsage(
+              node.id,
               Math.min(NODE_USAGE_DEADLINE_MS, remaining(refreshDeadline)),
-              'Nodo usage refresh timed out.',
             );
             this.#lastUsageRefreshAt.set(node.id, Date.now());
             return { ...node, spaces: usage.spaces, usedBytes: usage.usedBytes };
@@ -149,17 +152,38 @@ export class NodoGState extends GState<NodoSnapshot> {
   async refreshNodeUsage(nodeId: string): Promise<void> {
     const lifecycleId = this.#lifecycleId;
     try {
-      const usage = await bounded(
-        this.#gateway.refreshUsage(nodeId),
-        NODE_USAGE_DEADLINE_MS,
-        'Nodo usage refresh timed out.',
-      );
+      const usage = await this.loadUsage(nodeId, NODE_USAGE_DEADLINE_MS);
       if (lifecycleId !== this.#lifecycleId) return;
       this.#lastUsageRefreshAt.set(nodeId, Date.now());
       this.#registry.update(nodeId, (node) => ({ ...node, spaces: usage.spaces, usedBytes: usage.usedBytes }));
     } catch {
       // The next foreground refresh will reconcile an offline or unreachable host.
     }
+  }
+
+  /**
+   * Share a usage read when a targeted reconciliation overlaps the fleet
+   * refresh. This keeps a direct write from producing a duplicate Nodo/Worker
+   * request while retaining the existing timeout for each caller.
+   */
+  private loadUsage(nodeId: string, timeoutMilliseconds: number): Promise<NodoNodeUsage> {
+    const existing = this.#usageInFlight.get(nodeId);
+    if (existing) {
+      // A fleet refresh may join a targeted read with less time left on its
+      // global deadline. Keep that caller's timeout independent of the
+      // request that happened to create the shared promise.
+      return bounded(existing, timeoutMilliseconds, 'Nodo usage refresh timed out.');
+    }
+
+    const request = this.#gateway.refreshUsage(nodeId).finally(() => {
+      if (this.#usageInFlight.get(nodeId) === request) this.#usageInFlight.delete(nodeId);
+    });
+    this.#usageInFlight.set(nodeId, request);
+    // The caller-specific bounded wrapper below handles the rejection. Keep
+    // the shared request itself observed as well so a timed-out caller cannot
+    // leave an unhandled rejection while the underlying Nodo response settles.
+    void request.catch(() => undefined);
+    return bounded(request, timeoutMilliseconds, 'Nodo usage refresh timed out.');
   }
 
   async deleteNode(nodeId: string): Promise<boolean> {
