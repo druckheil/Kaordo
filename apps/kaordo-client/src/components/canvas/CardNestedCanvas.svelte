@@ -517,8 +517,25 @@
       }
       node.style.transform = transform;
       node.style.willChange = 'transform';
-      node.style.zIndex = '8';
+      // Keep attached content above the card while both are lifted into the
+      // drag layer. Equal z-index values make an older media-before-card
+      // document order paint the card over its own media for the duration of
+      // the gesture, which looks like the media vanished until pointerup.
+      node.style.zIndex = dragVisualZIndex(node, move.element.id);
     }
+  }
+
+  function visualNodeElementId(node: HTMLElement): string | undefined {
+    return node.dataset.canvasElementId ??
+      node.querySelector<HTMLElement>('[data-canvas-element-id]')?.dataset.canvasElementId;
+  }
+
+  function dragVisualZIndex(node: HTMLElement, rootId: string): string {
+    if (visualNodeElementId(node) === rootId) return '8';
+    if (node.classList.contains('canvas-media') || node.classList.contains('canvas-text-block')) {
+      return '10';
+    }
+    return '9';
   }
 
   function clearGestureVisual(

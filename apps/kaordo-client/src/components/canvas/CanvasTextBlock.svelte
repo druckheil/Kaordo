@@ -38,6 +38,7 @@
   let draftHtml = $state('');
   let savedRange: Range | null = null;
   let autosaveTimer: number | null = null;
+  let lastPointerDown: { at: number; id: string } | null = null;
   let resize = $state<{
     pointerId: number;
     startClientX: number;
@@ -71,6 +72,18 @@
   function startInteraction(event: PointerEvent) {
     event.stopPropagation();
     if (editing) return;
+    const now = performance.now();
+    const isDoubleClick = event.detail >= 2 || (
+      lastPointerDown?.id === element.id &&
+      now - lastPointerDown.at <= 450
+    );
+    lastPointerDown = isDoubleClick
+      ? null
+      : { at: now, id: element.id };
+    if (isDoubleClick) {
+      beginEditing(event);
+      return;
+    }
     onStartMove(event, element);
   }
 

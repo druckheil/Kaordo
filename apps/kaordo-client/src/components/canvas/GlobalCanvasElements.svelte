@@ -23,6 +23,7 @@
     dispatchCanvasLiveMove,
   } from '../../lib/features/canvasLive';
   import {
+    CANVAS_CARD_HEADER_HEIGHT,
     canvasApplicationScale,
   } from '../../lib/features/canvas';
   import {
@@ -108,6 +109,20 @@
       event.preventDefault();
       event.stopPropagation();
       const point = canvasPoint(event);
+      const panel = panelAtPoint(point);
+      if (panel) {
+        canvas.createTextElement(workspaceId, {
+          parentObjectId: panel.id,
+          width: Math.min(260, Math.max(100, panel.width - 20)),
+          x: clamp(point.x - panel.x - 20, 0, panel.width - 260),
+          y: clamp(
+            point.y - panel.y - CANVAS_CARD_HEADER_HEIGHT - 18,
+            0,
+            panel.height - CANVAS_CARD_HEADER_HEIGHT - 48,
+          ),
+        });
+        return;
+      }
       const bounds = layer?.getBoundingClientRect();
       const zoom = canvas.state.zoomFor(workspaceId);
       const applicationScale = canvasApplicationScale();
@@ -283,7 +298,7 @@
     canvas.state.setTool('select');
     const currentDocument = canvas.state.canvasDocumentFor(workspaceId);
     const element = finished.kind === 'draw'
-      ? drawnRectangle(finished)
+      ? drawnRectangle(finished, true, currentDocument.elements)
       : finished.kind === 'draw-arrow'
         ? drawnArrow(finished, currentDocument.elements)
         : settleMovedElement(finished);
@@ -350,7 +365,11 @@
     pendingPoint = null;
   }
 
-  function drawnRectangle(draw: RectangleDrawGesture): RectangleElement {
+  function drawnRectangle(
+    draw: RectangleDrawGesture,
+    attach = false,
+    elements: readonly CanvasElement[] = document.elements,
+  ): RectangleElement {
     const bounds = layer?.getBoundingClientRect();
     const zoom = canvas.state.zoomFor(workspaceId);
     const applicationScale = canvasApplicationScale();
@@ -364,7 +383,7 @@
       clickHeight: 90,
       clickWidth: 140,
     });
-    return {
+    const rectangle: RectangleElement = {
       fill: snapshot.shapeFill,
       height: geometry.height,
       id: createElementId(),
@@ -376,14 +395,57 @@
       x: geometry.x,
       y: geometry.y,
     };
+    // The global drawing layer sits above panels while a drawing tool is
+    // active, so it receives pointer events even when the pointer is over a
+    // panel. Set the panel relationship when the card is committed; keeping
+    // the draft in global coordinates avoids moving the preview mid-draw.
+    return attach
+      ? settleCanvasElement(
+          rectangle,
+          geometry.x,
+          geometry.y,
+          [...elements],
+          snapshot.placements[workspaceId] ?? [],
+        ) as RectangleElement
+      : rectangle;
   }
 
   function drawnArrow(
     draw: ArrowDrawGesture,
     elements: readonly CanvasElement[],
   ): ArrowElement {
-    const arrow = arrowFromGesture(draw, createElementId(), snapshot.shapeStroke);
+    const panel = panelAtPoint({
+      x: (draw.startX + draw.currentX) / 2,
+      y: (draw.startY + draw.currentY) / 2,
+    });
+    const localDraw = panel
+      ? {
+          ...draw,
+          currentX: draw.currentX - panel.x,
+          currentY: draw.currentY - panel.y - CANVAS_CARD_HEADER_HEIGHT,
+          startX: draw.startX - panel.x,
+          startY: draw.startY - panel.y - CANVAS_CARD_HEADER_HEIGHT,
+        }
+      : draw;
+    const arrow = arrowFromGesture(
+      localDraw,
+      createElementId(),
+      snapshot.shapeStroke,
+      panel?.id,
+    );
     return snapArrow(arrow, elements, snapshot.placements[workspaceId] ?? []);
+  }
+
+  function panelAtPoint(point: { x: number; y: number }):
+    { height: number; id: string; width: number; x: number; y: number } | undefined {
+    return [...(snapshot.placements[workspaceId] ?? [])]
+      .reverse()
+      .find((panel) =>
+        point.x >= panel.x &&
+        point.x <= panel.x + panel.width &&
+        point.y >= panel.y + CANVAS_CARD_HEADER_HEIGHT &&
+        point.y <= panel.y + panel.height,
+      );
   }
 
   function movedElement(move: MoveGesture): CanvasElement {
@@ -531,8 +593,25 @@
       }
       node.style.transform = transform;
       node.style.willChange = 'transform';
-      node.style.zIndex = '8';
+      // Keep attached content above the card while both are lifted into the
+      // drag layer. Equal z-index values make an older media-before-card
+      // document order paint the card over its own media for the duration of
+      // the gesture, which looks like the media vanished until pointerup.
+      node.style.zIndex = dragVisualZIndex(node, move.element.id);
     }
+  }
+
+  function visualNodeElementId(node: HTMLElement): string | undefined {
+    return node.dataset.canvasElementId ??
+      node.querySelector<HTMLElement>('[data-canvas-element-id]')?.dataset.canvasElementId;
+  }
+
+  function dragVisualZIndex(node: HTMLElement, rootId: string): string {
+    if (visualNodeElementId(node) === rootId) return '8';
+    if (node.classList.contains('canvas-media') || node.classList.contains('canvas-text-block')) {
+      return '10';
+    }
+    return '9';
   }
 
   function clearGestureVisual(

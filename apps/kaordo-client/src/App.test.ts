@@ -1440,6 +1440,233 @@ describe('workspace navigation and objects', () => {
     });
   });
 
+  it('attaches a card drawn by the global layer to the panel underneath it', async () => {
+    const savedDocuments: Record<string, unknown>[] = [];
+    mockCommands({
+      load_canvas_document: () => JSON.stringify({
+        elements: [],
+        placements: [{ height: 286, objectId: 'object-1', width: 360, x: 100, y: 100 }],
+        version: 1,
+      }),
+      open_workspace: () => openedResearch,
+      save_canvas_document: (args) => {
+        savedDocuments.push(JSON.parse(String(args?.documentJson)));
+      },
+    });
+    renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
+    await openResearchFile();
+
+    const drawingSurface = screen.getByRole('application', {
+      name: 'Workspace canvas drawing surface',
+    });
+    vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
+      bottom: 3200,
+      height: 3200,
+      left: 0,
+      right: 4800,
+      top: 0,
+      width: 4800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Card tool' }));
+    await fireEvent.pointerDown(drawingSurface, {
+      button: 0,
+      clientX: 130,
+      clientY: 170,
+      pointerId: 64,
+    });
+    await fireEvent.pointerMove(drawingSurface, {
+      button: 0,
+      buttons: 1,
+      clientX: 260,
+      clientY: 250,
+      pointerId: 64,
+    });
+    await fireEvent.pointerUp(drawingSurface, {
+      button: 0,
+      clientX: 260,
+      clientY: 250,
+      pointerId: 64,
+    });
+
+    const card = await screen.findByRole('button', { name: 'Card' });
+    expect(card.closest('[data-canvas-positioner-id="object-1"]')).not.toBeNull();
+    await waitFor(() => expect(savedDocuments.at(-1)?.elements).toEqual([
+      expect.objectContaining({
+        parentObjectId: 'object-1',
+        type: 'rectangle',
+        x: 30,
+        y: 22,
+      }),
+    ]));
+  });
+
+  it('keeps media attached to a card during the live drag frame', async () => {
+    mockCommands({
+      load_canvas_document: () => JSON.stringify({
+        elements: [
+          {
+            height: 80,
+            id: 'media-1',
+            kind: 'image',
+            mediaId: 'blob-1',
+            mimeType: 'image/png',
+            name: 'image.png',
+            parentElementId: 'rectangle-1',
+            size: 1,
+            type: 'media',
+            width: 120,
+            x: 120,
+            y: 120,
+          },
+          {
+            fill: '#dcece5',
+            height: 160,
+            id: 'rectangle-1',
+            radius: 10,
+            stroke: '#397565',
+            strokeWidth: 2,
+            type: 'rectangle',
+            width: 220,
+            x: 100,
+            y: 100,
+          },
+        ],
+        placements: [],
+        version: 1,
+      }),
+      load_canvas_media: () => new Blob(['image']),
+      open_workspace: () => openedResearch,
+    });
+    renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
+    await openResearchFile();
+
+    const rectangle = await screen.findByRole('button', { name: 'Canvas card' });
+    const media = document.querySelector<HTMLElement>('[data-canvas-element-id="media-1"]');
+    expect(media).not.toBeNull();
+    const drawingSurface = screen.getByRole('application', {
+      name: 'Workspace canvas drawing surface',
+    });
+    vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
+      bottom: 3200,
+      height: 3200,
+      left: 0,
+      right: 4800,
+      top: 0,
+      width: 4800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    await fireEvent.pointerDown(rectangle, {
+      button: 0,
+      clientX: 110,
+      clientY: 110,
+      pointerId: 61,
+    });
+    await fireEvent.pointerMove(drawingSurface, {
+      button: 0,
+      buttons: 1,
+      clientX: 150,
+      clientY: 140,
+      pointerId: 61,
+    });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    expect(media).toHaveStyle({
+      transform: 'translate3d(40px, 30px, 0)',
+      zIndex: '10',
+    });
+    await fireEvent.pointerUp(drawingSurface, {
+      button: 0,
+      clientX: 150,
+      clientY: 140,
+      pointerId: 61,
+    });
+  });
+
+  it('keeps media attached to a nested card during the live drag frame', async () => {
+    mockCommands({
+      load_canvas_document: () => JSON.stringify({
+        elements: [
+          {
+            fill: '#dcece5',
+            height: 160,
+            id: 'rectangle-1',
+            parentObjectId: 'object-1',
+            radius: 10,
+            stroke: '#397565',
+            strokeWidth: 2,
+            type: 'rectangle',
+            width: 220,
+            x: 20,
+            y: 20,
+          },
+          {
+            height: 80,
+            id: 'media-1',
+            kind: 'image',
+            mediaId: 'blob-1',
+            mimeType: 'image/png',
+            name: 'image.png',
+            parentElementId: 'rectangle-1',
+            parentObjectId: 'object-1',
+            size: 1,
+            type: 'media',
+            width: 120,
+            x: 40,
+            y: 40,
+          },
+        ],
+        placements: [{ height: 286, objectId: 'object-1', width: 360, x: 100, y: 100 }],
+        version: 1,
+      }),
+      load_canvas_media: () => new Blob(['image']),
+      open_workspace: () => openedResearch,
+    });
+    renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
+    await openResearchFile();
+
+    const nested = screen.getByRole('application', { name: 'Project brief panel' });
+    const rectangle = await screen.findByRole('button', { name: 'Card' });
+    const media = document.querySelector<HTMLElement>('[data-canvas-element-id="media-1"]');
+    expect(media).not.toBeNull();
+    vi.spyOn(nested, 'getBoundingClientRect').mockReturnValue({
+      bottom: 318,
+      height: 238,
+      left: 100,
+      right: 460,
+      top: 148,
+      width: 360,
+      x: 100,
+      y: 148,
+      toJSON: () => ({}),
+    });
+    await fireEvent.pointerDown(rectangle, {
+      button: 0,
+      clientX: 140,
+      clientY: 188,
+      pointerId: 62,
+    });
+    await fireEvent.pointerMove(nested, {
+      button: 0,
+      buttons: 1,
+      clientX: 180,
+      clientY: 218,
+      pointerId: 62,
+    });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    expect(media).toHaveStyle({ transform: 'translate3d(40px, 30px, 0)' });
+    await fireEvent.pointerUp(nested, {
+      button: 0,
+      clientX: 180,
+      clientY: 218,
+      pointerId: 62,
+    });
+  });
+
   it('opens a text editor inside a rectangle on double-click', async () => {
     const savedDocuments: Array<{ elements: Array<Record<string, unknown>> }> = [];
     Object.defineProperty(document, 'execCommand', {
@@ -1533,6 +1760,60 @@ describe('workspace navigation and objects', () => {
       configurable: true,
       value: undefined,
     });
+  });
+
+  it('opens a text editor directly when a text block is double-clicked', async () => {
+    mockCommands({
+      load_canvas_document: () => JSON.stringify({
+        elements: [
+          {
+            color: '#25332d',
+            fontSize: 16,
+            height: 48,
+            html: 'Existing text',
+            id: 'text-1',
+            textAlign: 'left',
+            type: 'text',
+            width: 260,
+            x: 100,
+            y: 100,
+          },
+        ],
+        placements: [],
+        version: 1,
+      }),
+      open_workspace: () => openedResearch,
+    });
+    renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
+    await openResearchFile();
+
+    const text = await screen.findByRole('button', { name: 'Text: Existing text' });
+    await fireEvent.pointerDown(text, {
+      button: 0,
+      clientX: 110,
+      clientY: 110,
+      pointerId: 70,
+    });
+    await fireEvent.pointerUp(text, {
+      button: 0,
+      clientX: 110,
+      clientY: 110,
+      pointerId: 70,
+    });
+    await fireEvent.pointerDown(text, {
+      button: 0,
+      clientX: 110,
+      clientY: 110,
+      pointerId: 71,
+    });
+    await fireEvent.pointerUp(text, {
+      button: 0,
+      clientX: 110,
+      clientY: 110,
+      pointerId: 71,
+    });
+
+    expect(await screen.findByRole('textbox', { name: 'Text editor' })).toBeInTheDocument();
   });
 
   it('creates, edits, formats, lists, and saves text on the canvas', async () => {
