@@ -57,6 +57,10 @@ export type AdminModerationResult = {
   status: 'active' | 'suspended' | 'erasing' | 'erased';
 };
 
+export type AdminSeedResetResult = {
+  ok: boolean;
+};
+
 export type CloudflareUsage = {
   d1: {
     databaseCount: number;

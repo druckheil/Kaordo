@@ -13,6 +13,7 @@
     error: string | null;
     onChangePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
     onChangeUsername: (newUsername: string, currentPassword: string) => Promise<boolean>;
+    onIssueSeed: () => Promise<string>;
     onLogout: () => void | Promise<void>;
     onListPublic: () => void | Promise<void>;
     platform: 'desktop' | 'web';
@@ -36,6 +37,7 @@
     error,
     onChangePassword,
     onChangeUsername,
+    onIssueSeed,
     onLogout,
     onListPublic,
     platform,
@@ -54,6 +56,14 @@
   }: Props = $props();
 
   let accountModal = $state<AccountChangeMode | null>(null);
+  let accountSeed = $state<string | null>(null);
+  let accountSeedBusy = $state(false);
+  let accountSeedCopied = $state(false);
+  let accountSeedError = $state<string | null>(null);
+  let accountSeedIssued = $state(false);
+  $effect(() => {
+    if (user.seedIssued === true) accountSeedIssued = true;
+  });
   let publicPercent = $derived(publicStorage
     ? Math.min(100, publicStorage.usedBytes / Math.max(1, publicStorage.limitBytes) * 100)
     : 0);
@@ -77,6 +87,51 @@
       ? await onChangeUsername(values.newUsername, values.currentPassword)
       : await onChangePassword(values.currentPassword, values.newPassword);
     if (changed) accountModal = null;
+  }
+
+  async function revealSeed(): Promise<void> {
+    if (accountSeedBusy || accountSeed || accountSeedIssued) return;
+    accountSeedBusy = true;
+    accountSeedError = null;
+    accountSeedCopied = false;
+    try {
+      accountSeed = await onIssueSeed();
+      accountSeedIssued = true;
+    } catch (error) {
+      accountSeedError = error instanceof Error && error.message.trim()
+        ? error.message
+        : 'The sign-in seed could not be issued.';
+      if (accountSeedError.includes('already been issued')) accountSeedIssued = true;
+    } finally {
+      accountSeedBusy = false;
+    }
+  }
+
+  async function copySeed(): Promise<void> {
+    if (!accountSeed) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(accountSeed);
+      } else {
+        const input = document.createElement('textarea');
+        input.value = accountSeed;
+        input.setAttribute('readonly', '');
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.append(input);
+        input.select();
+        document.execCommand('copy');
+        input.remove();
+      }
+      accountSeedCopied = true;
+    } catch {
+      accountSeedError = 'The seed could not be copied. Select it manually.';
+    }
+  }
+
+  function hideSeed(): void {
+    accountSeed = null;
+    accountSeedCopied = false;
   }
 </script>
 
@@ -147,6 +202,37 @@
       </div>
     </section>
   </div>
+
+  <section class="seed-card" aria-labelledby="sign-in-seed-title">
+    <span class="seed-icon" aria-hidden="true">
+      <svg viewBox="0 0 20 20"><path d="M10 2.8 16 5v4.4c0 3.5-2 6-6 7.8-4-1.8-6-4.3-6-7.8V5z" /><path d="m7.2 10.2 1.8 1.8 3.8-4" /></svg>
+    </span>
+    <div class="seed-copy">
+      <span class="card-label">Separate sign-in</span>
+      <h2 id="sign-in-seed-title">Account sign-in seed</h2>
+      {#if accountSeed}
+        <p class="seed-warning">Save this seed somewhere safe. It will only be shown once.</p>
+        <code class="account-seed" aria-label="Sign-in seed">{accountSeed}</code>
+        <div class="seed-actions">
+          <button type="button" class="seed-copy-button" onclick={() => void copySeed()}>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.5" /><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5" /></svg>
+            {accountSeedCopied ? 'Copied' : 'Copy seed'}
+          </button>
+          <button type="button" class="seed-hide-button" onclick={hideSeed}>Hide seed</button>
+        </div>
+      {:else if accountSeedIssued}
+        <p>This seed has already been revealed. Ask an administrator to reset it if you need a new one.</p>
+        <span class="seed-issued"><i aria-hidden="true"></i> Seed already revealed</span>
+      {:else}
+        <p>Generate a unique seed to use as a separate sign-in method. It is shown once and stored only as a secure hash.</p>
+        <button class="seed-reveal-button" type="button" disabled={accountSeedBusy} onclick={() => void revealSeed()}>
+          {#if accountSeedBusy}<LoadingSpinner compact />{:else}<span aria-hidden="true">✦</span>{/if}
+          {accountSeedBusy ? 'Generating…' : 'Show sign-in seed'}
+        </button>
+      {/if}
+      {#if accountSeedError}<p class="seed-error" role="alert">{accountSeedError}</p>{/if}
+    </div>
+  </section>
 
   <section class="sessions-card" aria-busy={sessionsLoading} aria-labelledby="sessions-title">
     <header class="sessions-heading">
@@ -330,6 +416,7 @@
 
   .account-settings-heading,
   .account-card,
+  .seed-card,
   .sessions-card,
   .public-storage-card,
   .logout-card {
@@ -391,6 +478,23 @@
   .account-actions button:hover:not(:disabled), .terminate-session:hover:not(:disabled), .logout-card button:hover:not(:disabled) { color: var(--sui-primary-hover); transform: translateY(-1px); }
   .account-actions button:active:not(:disabled), .terminate-session:active:not(:disabled), .logout-card button:active:not(:disabled) { box-shadow: var(--sui-shadow-inset-sm); transform: none; }
   button:disabled { cursor: default; opacity: .56; }
+
+  .seed-card { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 13px; min-width: 0; padding: 18px 19px; border-radius: 16px; }
+  .seed-icon { display: grid; width: 44px; height: 44px; color: var(--sui-primary); background: var(--sui-bg); border-radius: 14px; box-shadow: var(--sui-shadow-inset-sm); place-items: center; }
+  .seed-icon svg { width: 23px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.45; }
+  .seed-copy { min-width: 0; }
+  .seed-copy h2 { margin-top: 3px; color: var(--sui-text); font-size: calc(13px * var(--text-scale)); font-weight: 710; }
+  .seed-copy > p { max-width: 700px; margin-top: 5px; color: var(--sui-text-muted); font-size: calc(8px * var(--text-scale)); line-height: 1.55; }
+  .seed-warning { color: var(--sui-danger) !important; font-weight: 650; }
+  .account-seed { display: block; margin-top: 12px; padding: 12px 13px; overflow-wrap: anywhere; color: var(--sui-text); background: var(--sui-bg-light); border-radius: 11px; box-shadow: var(--sui-shadow-inset-sm); font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: calc(10px * var(--text-scale)); font-weight: 700; letter-spacing: .05em; line-height: 1.65; user-select: all; }
+  .seed-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .seed-actions button, .seed-reveal-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 31px; padding: 0 11px; border: 0; border-radius: 9px; cursor: pointer; font: inherit; font-size: calc(8px * var(--text-scale)); font-weight: 720; transition: transform 140ms ease, box-shadow 140ms ease, color 140ms ease; }
+  .seed-copy-button, .seed-reveal-button { color: #fff; background: var(--sui-primary); box-shadow: 0 6px 14px color-mix(in srgb, var(--sui-primary) 28%, transparent); }
+  .seed-hide-button { color: var(--sui-primary); background: var(--sui-bg); box-shadow: var(--sui-shadow-raised-sm); }
+  .seed-actions button:hover:not(:disabled), .seed-reveal-button:hover:not(:disabled) { transform: translateY(-1px); }
+  .seed-actions button:active:not(:disabled), .seed-reveal-button:active:not(:disabled) { box-shadow: var(--sui-shadow-inset-sm); transform: none; }
+  .seed-actions svg { width: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.45; }
+  .seed-error { margin-top: 9px !important; color: var(--sui-danger) !important; }
 
   .current-device { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 70px; }
   .device-mark { width: 40px; height: 40px; border-radius: 13px; }

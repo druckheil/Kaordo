@@ -36,6 +36,8 @@ pub struct AuthUser {
     created_at: i64,
     id: String,
     role: String,
+    #[serde(default)]
+    seed_issued: bool,
     username: String,
 }
 
@@ -191,6 +193,13 @@ struct Credentials<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct SeedCredentials<'a> {
+    device_name: String,
+    seed_phrase: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct UsernameChangeRequest<'a> {
     new_password_proof: &'a str,
     password_proof: &'a str,
@@ -214,6 +223,12 @@ struct DesktopAuthResponse {
 #[derive(Deserialize)]
 struct UserResponse {
     user: AuthUser,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SeedResponse {
+    seed_phrase: String,
 }
 
 #[derive(Deserialize)]
@@ -565,6 +580,24 @@ impl AuthClient {
         decode_response(response).await
     }
 
+    async fn authenticate_seed(
+        &self,
+        path: &str,
+        seed_phrase: &str,
+    ) -> Result<DesktopAuthResponse, String> {
+        let response = self
+            .http
+            .post(format!("{API_ORIGIN}{path}"))
+            .json(&SeedCredentials {
+                device_name: format!("Kaordo on {}", std::env::consts::OS),
+                seed_phrase,
+            })
+            .send()
+            .await
+            .map_err(|_| "The authentication service could not be reached.".to_owned())?;
+        decode_response(response).await
+    }
+
     async fn authorized(
         &self,
         method: Method,
@@ -640,6 +673,27 @@ pub async fn auth_login(
     let user = persist_auth_result(result).await?;
     client.set_authenticated(true);
     Ok(user)
+}
+
+#[tauri::command]
+pub async fn auth_seed_login(
+    client: State<'_, AuthClient>,
+    mut seed_phrase: String,
+) -> Result<AuthUser, String> {
+    let result = client
+        .authenticate_seed("/api/auth/desktop/seed-login", &seed_phrase)
+        .await;
+    seed_phrase.zeroize();
+    let user = persist_auth_result(result).await?;
+    client.set_authenticated(true);
+    Ok(user)
+}
+
+#[tauri::command]
+pub async fn auth_issue_seed(client: State<'_, AuthClient>) -> Result<String, String> {
+    let response = authenticated_request(&client, Method::POST, "/api/auth/account/seed").await?;
+    let body = decode_response::<SeedResponse>(response).await?;
+    Ok(body.seed_phrase)
 }
 
 #[tauri::command]
@@ -815,6 +869,14 @@ pub async fn admin_erase_user(
     user_id: String,
 ) -> Result<Value, String> {
     admin_moderate_user(&client, &user_id, "erase").await
+}
+
+#[tauri::command]
+pub async fn admin_reset_user_seed(
+    client: State<'_, AuthClient>,
+    user_id: String,
+) -> Result<Value, String> {
+    admin_moderate_user(&client, &user_id, "reset-seed").await
 }
 
 async fn admin_moderate_user(

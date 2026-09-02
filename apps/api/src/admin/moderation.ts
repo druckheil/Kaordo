@@ -2,6 +2,7 @@ import type { Env } from '../env';
 import { base64Url, base64UrlBytes, arrayBuffer, randomBytes } from '../auth/encoding';
 import { authenticate, unixNow, type AuthenticatedSession } from '../auth/session';
 import { accountRole, isAdmin, SUPERADMIN_USERNAME, type UserRow } from '../auth/types';
+import { resetSeed } from '../auth/database';
 import { json } from '../http/json';
 
 const USER_ID = /^[A-Za-z0-9_-]{22}$/u;
@@ -172,6 +173,23 @@ export async function adminEraseUser(
     return json({ ok: true, status: 'erased', pendingJobs: 0 });
   }
   return json({ ok: true, status: 'erasing', pendingJobs: pending }, 202);
+}
+
+/** Invalidate the current sign-in seed without touching active sessions. */
+export async function adminResetUserSeed(
+  request: Request,
+  env: Env,
+  encodedUserId: string,
+): Promise<Response> {
+  const context = await adminContext(request, env);
+  if (context instanceof Response) return context;
+  const target = await targetUser(env, encodedUserId, context.session);
+  if (target instanceof Response) return target;
+  if (await hasPendingErase(env, target.id)) {
+    return json({ error: 'This account is being erased and cannot be changed.' }, 409);
+  }
+  if (!await resetSeed(env.DB, target.id)) return json({ error: 'User was not found.' }, 404);
+  return json({ ok: true });
 }
 
 /** Apply heartbeat acknowledgements and finalize accounts with no jobs left. */

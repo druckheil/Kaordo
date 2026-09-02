@@ -5,6 +5,8 @@ import {
   changePassword,
   changeUsername,
   login,
+  seedLogin,
+  issueSeed,
   logout,
   me,
   presence,
@@ -21,6 +23,7 @@ import { adminCloudflareTelemetry } from './admin/telemetry';
 import {
   adminBanUser,
   adminEraseUser,
+  adminResetUserSeed,
   adminUnbanUser,
 } from './admin/moderation';
 import {
@@ -128,7 +131,7 @@ export function handleRequest(
   if (request.method === 'GET' && pathname === '/api/admin/cloudflare') {
     return adminCloudflareTelemetry(request, env);
   }
-  const adminUserAction = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]{1,64})\/(ban|unban|erase)$/u);
+  const adminUserAction = pathname.match(/^\/api\/admin\/users\/([A-Za-z0-9_-]{1,64})\/(ban|unban|erase|reset-seed)$/u);
   if (adminUserAction?.[1] && adminUserAction[2] === 'ban' && request.method === 'POST') {
     return adminBanUser(request, env, adminUserAction[1], ctx);
   }
@@ -137,6 +140,9 @@ export function handleRequest(
   }
   if (adminUserAction?.[1] && adminUserAction[2] === 'erase' && request.method === 'POST') {
     return adminEraseUser(request, env, adminUserAction[1], ctx);
+  }
+  if (adminUserAction?.[1] && adminUserAction[2] === 'reset-seed' && request.method === 'POST') {
+    return adminResetUserSeed(request, env, adminUserAction[1]);
   }
   if (request.method === 'POST' && pathname === '/api/nodes/heartbeat') {
     return nodeHeartbeat(request, env);
@@ -393,6 +399,12 @@ export function handleRequest(
   if (request.method === 'POST' && pathname === '/api/auth/desktop/login') {
     return login(request, env, CLIENT_DESKTOP);
   }
+  if (request.method === 'POST' && pathname === '/api/auth/seed-login') {
+    return seedLogin(request, env, CLIENT_WEB);
+  }
+  if (request.method === 'POST' && pathname === '/api/auth/desktop/seed-login') {
+    return seedLogin(request, env, CLIENT_DESKTOP);
+  }
   if (request.method === 'POST' && pathname === '/api/auth/logout') {
     return logout(request, env);
   }
@@ -429,6 +441,9 @@ export function handleRequest(
   }
   if (request.method === 'PATCH' && pathname === '/api/auth/account/password') {
     return changePassword(request, env, ctx);
+  }
+  if (request.method === 'POST' && pathname === '/api/auth/account/seed') {
+    return issueSeed(request, env);
   }
 
   return json({ error: 'Not found.' }, 404);

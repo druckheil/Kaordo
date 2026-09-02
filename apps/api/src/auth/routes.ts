@@ -14,6 +14,7 @@ import {
 } from './database';
 import { base64Url, base64UrlBytes } from './encoding';
 import { hashPassword, verifyPassword } from './password';
+import { hashSeedPhrase, issueSeed as createSeed, seedUserByHash } from './seed';
 import { enforceAuthRateLimit, RateLimitError } from './rateLimit';
 import {
   authenticate,
@@ -34,10 +35,12 @@ import {
   InputError,
   readCredentials,
   readPasswordChange,
+  readSeedCredentials,
   readUsernameChange,
 } from './validation';
 
 const GENERIC_LOGIN_ERROR = 'Username or password is incorrect.';
+const GENERIC_SEED_LOGIN_ERROR = 'Seed is incorrect.';
 
 export async function register(request: Request, env: Env, clientKind: AuthClientKind): Promise<Response> {
   try {
@@ -95,6 +98,47 @@ export async function login(request: Request, env: Env, clientKind: AuthClientKi
       userId: user.id,
     });
     return authenticatedResponse(request, publicUser(user), session.token, clientKind);
+  } catch (error) {
+    return authErrorResponse(error);
+  }
+}
+
+export async function seedLogin(
+  request: Request,
+  env: Env,
+  clientKind: AuthClientKind,
+): Promise<Response> {
+  try {
+    const credentials = await readSeedCredentials(request);
+    await enforceAuthRateLimit(request, env, `seed:${credentials.seedPhrase}`);
+    const seedHash = await hashSeedPhrase(credentials.seedPhrase);
+    const user = await seedUserByHash(env.DB, seedHash);
+    if (!user || user.status !== ACCOUNT_STATUS_ACTIVE) {
+      return json({ error: GENERIC_SEED_LOGIN_ERROR }, 401);
+    }
+    const session = await createSessionToken();
+    await createSession(env.DB, {
+      clientKind,
+      createdAt: unixNow(),
+      deviceName: clientKind === CLIENT_DESKTOP ? credentials.deviceName : null,
+      tokenHash: session.tokenHash,
+      userId: user.id,
+    });
+    return authenticatedResponse(request, publicUser(user), session.token, clientKind);
+  } catch (error) {
+    return authErrorResponse(error);
+  }
+}
+
+export async function issueSeed(request: Request, env: Env): Promise<Response> {
+  try {
+    const session = await authenticate(request, env);
+    if (!session) return json({ error: 'Authentication required.' }, 401);
+    const seedPhrase = await createSeed(env.DB, session.userId, unixNow());
+    if (!seedPhrase) {
+      return json({ error: 'A sign-in seed has already been issued. It cannot be shown again.' }, 409);
+    }
+    return json({ seedPhrase });
   } catch (error) {
     return authErrorResponse(error);
   }

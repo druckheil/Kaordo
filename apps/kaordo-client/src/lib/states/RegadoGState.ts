@@ -123,13 +123,15 @@ export class RegadoGState extends GState<RegadoSnapshot> {
 
   async moderateUser(
     userId: string,
-    action: 'ban' | 'unban' | 'erase',
-  ): Promise<AdminModerationResult> {
+    action: 'ban' | 'unban' | 'erase' | 'reset-seed',
+  ): Promise<AdminModerationResult | { ok: boolean }> {
     const result = action === 'ban'
       ? await this.#gateway.banUser(userId)
       : action === 'unban'
         ? await this.#gateway.unbanUser(userId)
-        : await this.#gateway.eraseUser(userId);
+        : action === 'erase'
+          ? await this.#gateway.eraseUser(userId)
+          : await this.#gateway.resetUserSeed(userId);
     await this.refreshDashboard(true);
     return result;
   }

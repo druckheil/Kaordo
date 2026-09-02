@@ -8,12 +8,17 @@
 
   type Props = {
     activeSection: AppSection;
+    /**
+     * Anonymous screens reuse the same chrome for visual continuity. Their
+     * navigation is intentionally inert until a session is established.
+     */
+    interactive?: boolean;
     onNavigate: (section: AppSection) => void;
     platform: 'desktop' | 'web';
     sections: ReadonlyArray<AppSectionDefinition>;
   };
 
-  let { activeSection, onNavigate, platform, sections }: Props = $props();
+  let { activeSection, interactive = true, onNavigate, platform, sections }: Props = $props();
   let navigationSections = $derived(
     sections.filter((section) => !['mi', 'regado', 'agordoj'].includes(section.id)),
   );
@@ -136,6 +141,7 @@
 
 <!-- Tauri maps a double click on this drag region to maximize/unmaximize. -->
 <header
+  class:app-bar--static={!interactive}
   class="app-bar"
   bind:this={appBarElement}
   data-tauri-drag-region={platform === 'desktop' ? 'deep' : undefined}
@@ -183,6 +189,7 @@
         value={section.id}
         checked={activeSection === section.id}
         aria-label={section.label}
+        disabled={!interactive}
         onchange={() => onNavigate(section.id)}
       />
       <label for={`kaordo-section-${section.id}`} title={section.description}>
@@ -231,6 +238,7 @@
           class="header-action"
           class:header-action--active={activeSection === section.id}
           type="button"
+          disabled={!interactive}
           aria-current={activeSection === section.id ? 'page' : undefined}
           onclick={() => onNavigate(section.id)}
         >
@@ -252,6 +260,7 @@
         class="header-action settings-action"
         class:header-action--active={activeSection === 'agordoj'}
         type="button"
+        disabled={!interactive}
         title="Agordoj"
         aria-label="Open application settings"
         aria-current={activeSection === 'agordoj' ? 'page' : undefined}
@@ -296,6 +305,14 @@
 
   .app-bar:active {
     cursor: grabbing;
+  }
+
+  .app-bar--static {
+    cursor: default;
+  }
+
+  .app-bar--static:active {
+    cursor: default;
   }
 
   :global(html[data-theme='dark']) .app-bar {
@@ -535,6 +552,18 @@
 
   .sui-segmented label:hover {
     color: var(--sui-text);
+  }
+
+  .app-bar--static .sui-segmented label,
+  .app-bar--static .header-action {
+    cursor: default;
+  }
+
+  .app-bar--static .sui-segmented label:hover,
+  .app-bar--static .header-action:hover {
+    color: var(--header-muted);
+    box-shadow: none;
+    transform: none;
   }
 
   .sui-segmented input:checked + label {

@@ -22,6 +22,7 @@
     media: Readonly<MediaSettingsSnapshot>;
     onChangePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
     onChangeUsername: (newUsername: string, currentPassword: string) => Promise<boolean>;
+    onIssueSeed: () => Promise<string>;
     onListPublic: () => void | Promise<void>;
     onLogout: () => void | Promise<void>;
     onMediaReset: () => void;
@@ -56,6 +57,7 @@
     media,
     onChangePassword,
     onChangeUsername,
+    onIssueSeed,
     onListPublic,
     onLogout,
     onMediaReset,
@@ -108,6 +110,7 @@
       {busy}
       onChangePassword={onChangePassword}
       onChangeUsername={onChangeUsername}
+      onIssueSeed={onIssueSeed}
       onListPublic={onListPublic}
       onLogout={onLogout}
       {platform}

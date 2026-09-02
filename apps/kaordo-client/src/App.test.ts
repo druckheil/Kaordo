@@ -85,6 +85,7 @@ const adminGateway = {
   banUser: () => Promise.resolve({ ok: true, status: 'suspended' as const }),
   unbanUser: () => Promise.resolve({ ok: true, status: 'active' as const }),
   eraseUser: () => Promise.resolve({ ok: true, status: 'erasing' as const, pendingJobs: 1 }),
+  resetUserSeed: () => Promise.resolve({ ok: true }),
 };
 const appearanceGateway = {
   load: () => ({ scale: 1 as const, textScale: 1, theme: 'light' as const }),
@@ -133,6 +134,8 @@ function authenticatedGateway(): AuthGateway {
     changeUsername: () => Promise.resolve(signedInUser),
     currentUser: () => Promise.resolve(signedInUser),
     login: () => Promise.resolve(signedInUser),
+    loginWithSeed: () => Promise.resolve(signedInUser),
+    issueSeed: () => Promise.resolve('00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000'),
     listSessions: () => Promise.resolve([]),
     logout: () => Promise.resolve(),
     presence: () => Promise.resolve(),
@@ -738,6 +741,7 @@ describe('workspace navigation and objects', () => {
         banUser: () => Promise.resolve({ ok: true, status: 'suspended' as const }),
         unbanUser: () => Promise.resolve({ ok: true, status: 'active' as const }),
         eraseUser: () => Promise.resolve({ ok: true, status: 'erasing' as const, pendingJobs: 1 }),
+        resetUserSeed: () => Promise.resolve({ ok: true }),
       },
       appearanceGateway,
       autoloadWorkspaceLibrary: false,
@@ -2067,6 +2071,8 @@ describe('authentication gate', () => {
       changeUsername: () => Promise.resolve(signedInUser),
       currentUser: () => Promise.resolve(null),
       login,
+      loginWithSeed: () => Promise.resolve(signedInUser),
+      issueSeed: () => Promise.resolve('00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000'),
       listSessions: () => Promise.resolve([]),
       logout: () => Promise.resolve(),
       presence: () => Promise.resolve(),
@@ -2097,6 +2103,44 @@ describe('authentication gate', () => {
     expect(login).toHaveBeenCalledWith('Nova_User', 'correct horse battery staple');
   });
 
+  it('allows signing in with a seed', async () => {
+    const loginWithSeed = vi.fn(() => Promise.resolve(signedInUser));
+    const authGateway: AuthGateway = {
+      changePassword: () => Promise.resolve(),
+      changeUsername: () => Promise.resolve(signedInUser),
+      currentUser: () => Promise.resolve(null),
+      login: () => Promise.resolve(signedInUser),
+      loginWithSeed,
+      issueSeed: () => Promise.resolve('00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000'),
+      listSessions: () => Promise.resolve([]),
+      logout: () => Promise.resolve(),
+      presence: () => Promise.resolve(),
+      register: () => Promise.resolve(signedInUser),
+      terminateSession: () => Promise.resolve(),
+    };
+
+    render(App, {
+      adminGateway,
+      appearanceGateway,
+      autoloadWorkspaceLibrary: false,
+      authGateway,
+      workspaceGateway: new TauriWorkspaceGateway(),
+    });
+
+    await screen.findByRole('heading', { name: 'Welcome back' });
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Fluo' })).toBeDisabled();
+    await fireEvent.click(screen.getByRole('button', { name: /Sign in with a seed/u }));
+    expect(await screen.findByRole('heading', { name: 'Sign in with your seed' })).toBeInTheDocument();
+    await fireEvent.input(screen.getByRole('textbox'), {
+      target: { value: 'AAAAAAAA BBBBBBBB CCCCCCCC DDDDDDDD\nEEEEEEEE FFFFFFFF 00000000 11111111' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Sign in with seed' }));
+
+    expect(await screen.findByRole('heading', { name: 'Files' })).toBeInTheDocument();
+    expect(loginWithSeed).toHaveBeenCalledWith('aaaaaaaa bbbbbbbb cccccccc dddddddd eeeeeeee ffffffff 00000000 11111111');
+  });
+
   it('validates registration before sending credentials', async () => {
     const register = vi.fn(() => Promise.resolve(signedInUser));
     const authGateway: AuthGateway = {
@@ -2104,6 +2148,8 @@ describe('authentication gate', () => {
       changeUsername: () => Promise.resolve(signedInUser),
       currentUser: () => Promise.resolve(null),
       login: () => Promise.resolve(signedInUser),
+      loginWithSeed: () => Promise.resolve(signedInUser),
+      issueSeed: () => Promise.resolve('00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000'),
       listSessions: () => Promise.resolve([]),
       logout: () => Promise.resolve(),
       presence: () => Promise.resolve(),

@@ -1,4 +1,5 @@
 import { utf8 } from './encoding';
+import { normalizeSeedPhrase } from './seed';
 
 const USERNAME_PATTERN = /^[a-z0-9](?:[a-z0-9_]{1,30}[a-z0-9])?$/u;
 const MAX_REQUEST_BYTES = 4_096;
@@ -23,6 +24,11 @@ export type UsernameChange = {
 export type PasswordChange = {
   currentPasswordProof: string;
   newPasswordProof: string;
+};
+
+export type SeedCredentials = {
+  deviceName: string | null;
+  seedPhrase: string;
 };
 
 export async function readCredentials(request: Request): Promise<Credentials> {
@@ -61,6 +67,26 @@ export async function readCredentials(request: Request): Promise<Credentials> {
     normalizedUsername,
     passwordProof: value.passwordProof,
   };
+}
+
+export async function readSeedCredentials(request: Request): Promise<SeedCredentials> {
+  const value = await readJsonRecord(request);
+  if (typeof value.seedPhrase !== 'string') {
+    throw new InputError('A seed is required.');
+  }
+  const seedPhrase = normalizeSeedPhrase(value.seedPhrase);
+  if (!seedPhrase) {
+    throw new InputError('The seed is invalid.');
+  }
+  let deviceName: string | null = null;
+  if (value.deviceName !== undefined) {
+    if (typeof value.deviceName !== 'string') throw new InputError('Device name is invalid.');
+    deviceName = value.deviceName.trim();
+    if (!deviceName || deviceName.length > 80 || utf8(deviceName).byteLength > 160) {
+      throw new InputError('Device name is invalid.');
+    }
+  }
+  return { deviceName, seedPhrase };
 }
 
 export async function readUsernameChange(request: Request): Promise<UsernameChange> {

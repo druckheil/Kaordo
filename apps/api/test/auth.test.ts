@@ -131,6 +131,62 @@ describe('authentication API', () => {
     expect(await current.json()).toMatchObject({ user: { username: 'Desktop_User' } });
   });
 
+  it('issues a one-time sign-in seed, supports seed login, and lets admins reset it', async () => {
+    const registered = await post('/api/auth/desktop/register', {
+      password: PASSWORD,
+      username: 'Seed_User',
+    });
+    const registeredBody = await registered.json<{ sessionToken: string; user: { id: string } }>();
+    const authorization = { authorization: `Bearer ${registeredBody.sessionToken}` };
+
+    const issued = await api('/api/auth/account/seed', {
+      headers: authorization,
+      method: 'POST',
+    });
+    const issuedBody = await issued.json<{ seedPhrase: string }>();
+    expect(issued.status).toBe(200);
+    expect(issuedBody.seedPhrase).toMatch(/^(?:[0-9a-f]{8})(?: [0-9a-f]{8}){7}$/u);
+    const stored = await env.DB.prepare('SELECT length(seed_hash) AS seed_length FROM users WHERE id = ?1')
+      .bind(arrayBuffer(base64UrlBytes(registeredBody.user.id)))
+      .first<{ seed_length: number }>();
+    expect(stored?.seed_length).toBe(32);
+
+    const repeated = await api('/api/auth/account/seed', {
+      headers: authorization,
+      method: 'POST',
+    });
+    expect(repeated.status).toBe(409);
+
+    const seedLogin = await post('/api/auth/desktop/seed-login', {
+      seedPhrase: issuedBody.seedPhrase,
+    }, false);
+    expect(seedLogin.status).toBe(200);
+    const seedLoginBody = await seedLogin.json<{ sessionToken: string; user: { username: string } }>();
+    expect(seedLoginBody.user.username).toBe('Seed_User');
+
+    const admin = await post('/api/auth/desktop/register', {
+      password: PASSWORD,
+      username: 'druckheil',
+    });
+    const adminToken = (await admin.json<{ sessionToken: string }>()).sessionToken;
+    const reset = await api(`/api/admin/users/${registeredBody.user.id}/reset-seed`, {
+      headers: { authorization: `Bearer ${adminToken}` },
+      method: 'POST',
+    });
+    expect(reset.status).toBe(200);
+    expect((await post('/api/auth/desktop/seed-login', {
+      seedPhrase: issuedBody.seedPhrase,
+    }, false)).status).toBe(401);
+
+    const reissued = await api('/api/auth/account/seed', {
+      headers: authorization,
+      method: 'POST',
+    });
+    const reissuedBody = await reissued.json<{ seedPhrase: string }>();
+    expect(reissued.status).toBe(200);
+    expect(reissuedBody.seedPhrase).not.toBe(issuedBody.seedPhrase);
+  });
+
   it('lists the current user sessions and terminates one without affecting another', async () => {
     const registered = await post('/api/auth/desktop/register', {
       deviceName: 'First desktop',
@@ -1670,7 +1726,7 @@ let testIpCounter = 0;
 
 function api(pathname: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
-  if (!headers.has('cf-connecting-ip') && /^\/api\/auth\/(?:desktop\/)?(?:register|login)$/u.test(pathname)) {
+  if (!headers.has('cf-connecting-ip') && /^\/api\/auth\/(?:desktop\/)?(?:register|login|seed-login)$/u.test(pathname)) {
     testIpCounter = (testIpCounter % 250) + 1;
     headers.set('cf-connecting-ip', `198.51.100.${testIpCounter}`);
   }

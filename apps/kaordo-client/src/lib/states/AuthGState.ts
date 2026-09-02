@@ -52,6 +52,42 @@ export class AuthGState extends GState<AuthSnapshot> {
     }
   }
 
+  async authenticateWithSeed(seedPhrase: string): Promise<boolean> {
+    if (this.snapshot.phase === 'submitting') return false;
+    const requestId = ++this.#requestId;
+    this.publish({ error: null, phase: 'submitting', user: null });
+    try {
+      const user = await this.#gateway.loginWithSeed(seedPhrase);
+      if (requestId !== this.#requestId) return false;
+      this.publish({ error: null, phase: 'authenticated', user });
+      return true;
+    } catch (error) {
+      if (requestId !== this.#requestId) return false;
+      this.publish({ error: readableError(error), phase: 'anonymous', user: null });
+      return false;
+    }
+  }
+
+  async issueSeed(): Promise<string> {
+    if (this.snapshot.phase !== 'authenticated') {
+      throw new Error('Authentication is required.');
+    }
+    try {
+      const seedPhrase = await this.#gateway.issueSeed();
+      const currentUser = this.snapshot.user;
+      this.publish({
+        ...this.snapshot,
+        error: null,
+        user: currentUser ? { ...currentUser, seedIssued: true } : currentUser,
+      });
+      return seedPhrase;
+    } catch (error) {
+      const message = readableError(error);
+      this.publish({ ...this.snapshot, error: message });
+      throw new Error(message);
+    }
+  }
+
   async logout(): Promise<boolean> {
     if (this.snapshot.phase !== 'authenticated') return false;
     const requestId = ++this.#requestId;

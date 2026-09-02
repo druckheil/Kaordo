@@ -2,6 +2,7 @@ export type AuthUser = {
   createdAt: number;
   id: string;
   role: 'admin' | 'superadmin' | 'user';
+  seedIssued?: boolean;
   username: string;
 };
 

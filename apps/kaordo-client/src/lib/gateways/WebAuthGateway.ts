@@ -3,6 +3,7 @@ import type { AuthGateway } from './AuthGateway';
 import { browserFetch, decodeJsonResponse, requestJson } from './WebApiClient';
 
 type UserResponse = { user: AuthUser };
+type SeedResponse = { seedPhrase: string };
 type SessionsResponse = { sessions: AuthSession[] };
 
 export class WebAuthGateway implements AuthGateway {
@@ -18,6 +19,26 @@ export class WebAuthGateway implements AuthGateway {
 
   register(username: string, password: string): Promise<AuthUser> {
     return this.authenticate('register', username, password);
+  }
+
+  async loginWithSeed(seedPhrase: string): Promise<AuthUser> {
+    const normalized = normalizeSeedPhrase(seedPhrase);
+    if (!normalized) throw new Error('Enter the complete seed phrase.');
+    const result = await requestJson<UserResponse>('/api/auth/seed-login', {
+      body: JSON.stringify({ seedPhrase: normalized }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    }, AUTH_UNAVAILABLE);
+    return result.user;
+  }
+
+  async issueSeed(): Promise<string> {
+    const result = await requestJson<SeedResponse>('/api/auth/account/seed', {
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    }, AUTH_UNAVAILABLE);
+    if (!result.seedPhrase) throw new Error(AUTH_UNAVAILABLE);
+    return result.seedPhrase;
   }
 
   async changeUsername(
@@ -155,6 +176,13 @@ export function validatePassword(password: string, registration: boolean) {
   if (length < 6 || length > maximum || new TextEncoder().encode(password).length > 256) {
     throw new Error(`Password must be 6–${maximum} characters.`);
   }
+}
+
+function normalizeSeedPhrase(value: string): string | null {
+  const normalized = value.trim().toLowerCase().split(/\s+/u).join(' ');
+  return /^(?:[0-9a-f]{8})(?: [0-9a-f]{8}){7}$/u.test(normalized)
+    ? normalized
+    : null;
 }
 
 async function decode<T>(response: Response): Promise<T> {

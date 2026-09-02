@@ -1,6 +1,6 @@
 <script lang="ts">
   type Props = {
-    action: 'ban' | 'erase';
+    action: 'ban' | 'erase' | 'reset-seed';
     busy: boolean;
     error: string | null;
     onCancel: () => void;
@@ -9,18 +9,20 @@
   };
 
   let { action, busy, error, onCancel, onConfirm, username }: Props = $props();
-  let title = $derived(action === 'erase' ? 'Erase account' : 'Ban account');
+  let title = $derived(action === 'erase' ? 'Erase account' : action === 'reset-seed' ? 'Reset sign-in seed' : 'Ban account');
   let description = $derived(action === 'erase'
     ? `This permanently removes ${username}'s account, conversations, spaces and stored payloads from every Nodo. Offline Nodos will finish the cleanup when they reconnect.`
-    : `${username} will be signed out and blocked from every Kaordo action until an administrator unbans the account.`);
-  let submitLabel = $derived(action === 'erase' ? 'Erase everything' : 'Ban user');
+    : action === 'reset-seed'
+      ? `${username}'s current sign-in seed will stop working immediately. They can show one new seed from Agordoj.`
+      : `${username} will be signed out and blocked from every Kaordo action until an administrator unbans the account.`);
+  let submitLabel = $derived(action === 'erase' ? 'Erase everything' : action === 'reset-seed' ? 'Reset seed' : 'Ban user');
 </script>
 
 <div class="modal-layer" role="presentation">
   <div class="modal-backdrop" aria-hidden="true"></div>
   <div class="action-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-action-title" aria-describedby="admin-action-description" tabindex="-1">
     <header>
-      <span class:danger={action === 'erase'} class="action-icon" aria-hidden="true">{action === 'erase' ? '×' : '!'}</span>
+      <span class:danger={action === 'erase'} class="action-icon" aria-hidden="true">{action === 'erase' ? '×' : action === 'reset-seed' ? '↻' : '!'}</span>
       <div>
         <span class="eyebrow">User moderation</span>
         <h2 id="admin-action-title">{title}</h2>

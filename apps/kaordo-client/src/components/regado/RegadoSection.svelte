@@ -8,7 +8,7 @@
     onRefresh: () => void | Promise<void>;
     onRefreshCloudflare: () => void | Promise<void>;
     onRefreshDashboard: () => void | Promise<void>;
-    onModerateUser: (userId: string, action: 'ban' | 'unban' | 'erase') => void | Promise<void>;
+    onModerateUser: (userId: string, action: 'ban' | 'unban' | 'erase' | 'reset-seed') => void | Promise<void>;
     snapshot: Readonly<RegadoSnapshot>;
   };
 
@@ -31,7 +31,7 @@
     cloudflare.worker.requestsToday,
     dashboard?.capacity.worker.requestsDaily ?? 1,
   ));
-  let action = $state<{ kind: 'ban' | 'erase'; user: AdminUser } | null>(null);
+  let action = $state<{ kind: 'ban' | 'erase' | 'reset-seed'; user: AdminUser } | null>(null);
   let actionError = $state<string | null>(null);
   let moderatingUserId = $state<string | null>(null);
 
@@ -79,7 +79,7 @@
       .format(new Date(timestamp * 1_000));
   }
 
-  function openAction(kind: 'ban' | 'erase', user: AdminUser): void {
+  function openAction(kind: 'ban' | 'erase' | 'reset-seed', user: AdminUser): void {
     actionError = null;
     action = { kind, user };
   }
@@ -294,6 +294,7 @@
                   {:else}
                     <button type="button" class="small-action" disabled={moderatingUserId !== null} onclick={() => openAction('ban', user)}>Ban</button>
                   {/if}
+                  <button type="button" class="small-action" disabled={moderatingUserId !== null} onclick={() => openAction('reset-seed', user)}>Reset seed</button>
                   <button type="button" class="small-action small-action--danger" disabled={moderatingUserId !== null} onclick={() => openAction('erase', user)}>Erase</button>
                 {:else if user.status === 'erasing'}
                   <span class="erase-progress">Queued</span>

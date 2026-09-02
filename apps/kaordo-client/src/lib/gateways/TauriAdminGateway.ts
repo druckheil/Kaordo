@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
-import type { AdminDashboard, AdminModerationResult, CloudflareUsage } from '../domain/admin';
+import type { AdminDashboard, AdminModerationResult, AdminSeedResetResult, CloudflareUsage } from '../domain/admin';
 import type { TauriInvoke } from './TauriWorkspaceGateway';
 import type { AdminGateway } from './AdminGateway';
 
@@ -34,5 +34,9 @@ export class TauriAdminGateway implements AdminGateway {
 
   eraseUser(userId: string): Promise<AdminModerationResult> {
     return this.#invoke<AdminModerationResult>('admin_erase_user', { userId });
+  }
+
+  resetUserSeed(userId: string): Promise<AdminSeedResetResult> {
+    return this.#invoke<AdminSeedResetResult>('admin_reset_user_seed', { userId });
   }
 }

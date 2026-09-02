@@ -14,6 +14,8 @@ import {
 
 const MAX_SESSIONS_PER_USER = 16;
 
+export type SeedUserRow = UserRow;
+
 export async function findUserByUsername(
   db: D1Database,
   username: string,
@@ -22,13 +24,40 @@ export async function findUserByUsername(
     .prepare(
       `SELECT id, username, display_username, password_hash, password_salt,
               password_algorithm, password_iterations, created_at, status,
-              role, last_seen_at
+              role, last_seen_at, seed_hash IS NOT NULL AS seed_issued
          FROM users
         WHERE username = ?1
         LIMIT 1`,
     )
     .bind(username)
     .first<UserRow>();
+}
+
+export async function findUserBySeedHash(
+  db: D1Database,
+  seedHash: Uint8Array,
+): Promise<SeedUserRow | null> {
+  return db
+    .prepare(
+      `SELECT id, username, display_username, password_hash, password_salt,
+              password_algorithm, password_iterations, created_at, status,
+              role, last_seen_at, seed_hash IS NOT NULL AS seed_issued
+         FROM users
+        WHERE seed_hash = ?1
+        LIMIT 1`,
+    )
+    .bind(seedHash)
+    .first<SeedUserRow>();
+}
+
+export async function resetSeed(
+  db: D1Database,
+  userId: ArrayBuffer,
+): Promise<boolean> {
+  const result = await db.prepare(
+    'UPDATE users SET seed_hash = NULL, seed_created_at = NULL WHERE id = ?1',
+  ).bind(userId).run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 export async function findUserById(
@@ -39,7 +68,7 @@ export async function findUserById(
     .prepare(
       `SELECT id, username, display_username, password_hash, password_salt,
               password_algorithm, password_iterations, created_at, status,
-              role, last_seen_at
+              role, last_seen_at, seed_hash IS NOT NULL AS seed_issued
          FROM users
         WHERE id = ?1
         LIMIT 1`,
@@ -162,6 +191,7 @@ export async function createUserAndSession(
     createdAt: input.createdAt,
     id: base64Url(userId),
     role: accountRole(input.username, role),
+    seedIssued: false,
     username: input.displayUsername,
   };
 }
@@ -207,7 +237,8 @@ export async function findSessionUser(
   return db
     .prepare(
       `SELECT u.id, u.username, u.display_username, u.created_at, u.status,
-              u.role, u.last_seen_at, s.expires_at, s.last_used_at
+              u.role, u.last_seen_at, s.expires_at, s.last_used_at,
+              u.seed_hash IS NOT NULL AS seed_issued
          FROM sessions s
          JOIN users u ON u.id = s.user_id
         WHERE s.token_hash = ?1
@@ -290,14 +321,17 @@ export async function deleteExpiredSessions(db: D1Database, now: number): Promis
 }
 
 export function publicUser(
-  row: Pick<UserRow, 'created_at' | 'display_username' | 'id' | 'role' | 'username'>,
+  row: Pick<UserRow, 'created_at' | 'display_username' | 'id' | 'role' | 'username'> &
+    Partial<Pick<UserRow, 'seed_issued'>>,
 ): PublicUser {
-  return {
+  const user: PublicUser = {
     createdAt: row.created_at,
     id: base64Url(row.id),
     role: accountRole(row.username, row.role),
     username: row.display_username,
   };
+  if (row.seed_issued !== undefined) user.seedIssued = row.seed_issued === 1;
+  return user;
 }
 
 export const SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60;

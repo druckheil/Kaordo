@@ -1,4 +1,4 @@
-import type { AdminDashboard, AdminModerationResult, CloudflareUsage } from '../domain/admin';
+import type { AdminDashboard, AdminModerationResult, AdminSeedResetResult, CloudflareUsage } from '../domain/admin';
 import type { AdminGateway } from './AdminGateway';
 import { requestJson } from './WebApiClient';
 
@@ -21,6 +21,13 @@ export class WebAdminGateway implements AdminGateway {
 
   eraseUser(userId: string): Promise<AdminModerationResult> {
     return this.moderate(userId, 'erase');
+  }
+
+  resetUserSeed(userId: string): Promise<AdminSeedResetResult> {
+    return requestJson(`/api/admin/users/${encodeURIComponent(userId)}/reset-seed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    }, ADMIN_UNAVAILABLE);
   }
 
   private moderate(userId: string, action: 'ban' | 'unban' | 'erase'): Promise<AdminModerationResult> {

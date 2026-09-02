@@ -572,6 +572,14 @@
     return auth.state.authenticate(mode, username, password);
   }
 
+  function authenticateWithSeed(seedPhrase: string) {
+    return auth.state.authenticateWithSeed(seedPhrase);
+  }
+
+  function issueSeed(): Promise<string> {
+    return auth.state.issueSeed();
+  }
+
   async function logout() {
     if (isLoggingOut) return;
     isLoggingOut = true;
@@ -928,6 +936,7 @@
         media={mediaSettingsSnapshot}
         onChangePassword={changePassword}
         onChangeUsername={changeUsername}
+        onIssueSeed={issueSeed}
         onListPublic={openPublicStorageBrowser}
         onLogout={logout}
         onMediaReset={() => mediaSettings.state.reset()}
@@ -1025,12 +1034,22 @@
   />
 {/if}
 {:else}
-  <AuthScreen
-    snapshot={authSnapshot}
-    onAuthenticate={authenticate}
-    onClearError={() => auth.state.clearError()}
-    {platform}
-  />
+  <div class="anonymous-shell" class:anonymous-shell--desktop={platform === 'desktop'}>
+    <AppHeader
+      activeSection={sectionForRole(activeSection, 'user')}
+      interactive={false}
+      onNavigate={() => undefined}
+      {platform}
+      sections={appSectionsFor('user')}
+    />
+    <AuthScreen
+      snapshot={authSnapshot}
+      onAuthenticate={authenticate}
+      onSeedAuthenticate={authenticateWithSeed}
+      onClearError={() => auth.state.clearError()}
+      {platform}
+    />
+  </div>
 {/if}
 
 <style>
@@ -1048,6 +1067,22 @@
 
   .app-shell--desktop {
     overflow: hidden;
+    border-radius: 14px;
+  }
+
+  .anonymous-shell {
+    --app-header-height: 32px;
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    grid-template-rows: var(--app-header-height) minmax(0, 1fr);
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--canvas);
+  }
+
+  .anonymous-shell--desktop {
     border-radius: 14px;
   }
 

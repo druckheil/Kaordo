@@ -16,6 +16,7 @@ describe('RegadoGState', () => {
       banUser: async () => ({ ok: true, status: 'suspended' }),
       unbanUser: async () => ({ ok: true, status: 'active' }),
       eraseUser: async () => ({ ok: true, status: 'erasing', pendingJobs: 1 }),
+      resetUserSeed: async () => ({ ok: true }),
     };
     const state = new RegadoGState(gateway);
 
@@ -49,6 +50,7 @@ describe('RegadoGState', () => {
       banUser: async () => ({ ok: true, status: 'suspended' }),
       unbanUser: async () => ({ ok: true, status: 'active' }),
       eraseUser: async () => ({ ok: true, status: 'erasing', pendingJobs: 1 }),
+      resetUserSeed: async () => ({ ok: true }),
     });
 
     await state.refreshCloudflare();

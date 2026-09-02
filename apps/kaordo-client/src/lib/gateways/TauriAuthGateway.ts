@@ -18,8 +18,16 @@ export class TauriAuthGateway implements AuthGateway {
     return this.#invoke<AuthUser>('auth_login', { password, username });
   }
 
+  loginWithSeed(seedPhrase: string): Promise<AuthUser> {
+    return this.#invoke<AuthUser>('auth_seed_login', { seedPhrase });
+  }
+
   register(username: string, password: string): Promise<AuthUser> {
     return this.#invoke<AuthUser>('auth_register', { password, username });
+  }
+
+  issueSeed(): Promise<string> {
+    return this.#invoke<string>('auth_issue_seed');
   }
 
   changeUsername(

@@ -12,6 +12,7 @@ export type PublicUser = {
   createdAt: number;
   id: string;
   role: 'admin' | 'superadmin' | 'user';
+  seedIssued?: boolean;
   username: string;
 };
 
@@ -26,6 +27,7 @@ export type UserRow = {
   password_salt: ArrayBuffer;
   status: number;
   role: number;
+  seed_issued: number;
   username: string;
 };
 
@@ -37,6 +39,7 @@ export type SessionUserRow = {
   last_used_at: number;
   last_seen_at: number;
   role: number;
+  seed_issued: number;
   status: number;
   username: string;
 };
