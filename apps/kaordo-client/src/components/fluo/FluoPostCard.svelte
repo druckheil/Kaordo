@@ -4,6 +4,7 @@
   import { openContextMenu } from '../../lib/ui/contextMenu';
   import FluoMedia from './FluoMedia.svelte';
   import FluoMediaCarousel from './FluoMediaCarousel.svelte';
+  import FluoAuthorIdentity from './FluoAuthorIdentity.svelte';
   import FluoQuotedPost from './FluoQuotedPost.svelte';
   import { formatFluoPostDate } from './fluoPost';
   import { FLUO_POST_PREVIEW_LINES, shouldExpandFluoText } from './fluoText';
@@ -58,7 +59,7 @@
     },
   ])}
 >
-  <span class="avatar" aria-hidden="true">Y</span>
+  <FluoAuthorIdentity {active} author={post.author} {fluoState} />
   <div class="post-content">
     <header>
       <strong>{post.author}</strong>
@@ -168,25 +169,15 @@
     border: 0;
     border-radius: var(--sui-radius);
     box-shadow: 0 3px 8px var(--fluo-shadow-color, rgb(39 51 67 / 20%));
-    contain: layout paint style;
+    contain: layout style;
+    position: relative;
+    overflow: visible;
     transition: box-shadow 150ms ease;
   }
 
-  .post-card:hover { box-shadow: 0 5px 14px var(--fluo-shadow-color, rgb(39 51 67 / 20%)); }
+  :global(.post-card:has(.author-profile--open)) { z-index: 10; }
 
-  .avatar {
-    display: grid;
-    width: 38px;
-    height: 38px;
-    color: #fff;
-    background: var(--sui-primary);
-    border: 0;
-    border-radius: var(--sui-radius-sm);
-    box-shadow: 0 2px 6px var(--fluo-shadow-color, rgb(39 51 67 / 18%));
-    font-size: calc(12px * var(--text-scale));
-    font-weight: 720;
-    place-items: center;
-  }
+  .post-card:hover { box-shadow: 0 5px 14px var(--fluo-shadow-color, rgb(39 51 67 / 20%)); }
 
   .post-content { min-width: 0; }
   .post-content > header { display: flex; align-items: center; gap: 5px; min-height: 18px; }

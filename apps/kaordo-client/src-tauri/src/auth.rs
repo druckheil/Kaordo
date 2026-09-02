@@ -24,6 +24,11 @@ const KEYRING_ACCOUNT: &str = "session.v1";
 const KEYRING_SERVICE: &str = "io.kaordo.editor.auth";
 const LEGACY_KEYRING_SERVICE: &str = concat!("io.", "veri", "dimensio.editor.auth");
 const PASSWORD_PROOF_NAMESPACE: &str = concat!("veri", "dimensio:password:v1:");
+const PROFILE_MAX_BYTES: u64 = 32 * 1024;
+const PROFILE_AVATAR_MAX_BYTES: u64 = 4 * 1024 * 1024;
+const PROFILE_BANNER_MAX_BYTES: u64 = 8 * 1024 * 1024;
+const PROFILE_MAX_TOTAL_BYTES: u64 =
+    PROFILE_MAX_BYTES + PROFILE_AVATAR_MAX_BYTES + PROFILE_BANNER_MAX_BYTES;
 
 pub struct AuthClient {
     authenticated: AtomicBool,
@@ -299,6 +304,12 @@ pub struct ProfileCommitInput {
     avatar_file_id: Option<String>,
     avatar_mime_type: Option<String>,
     avatar_size: u64,
+    #[serde(default)]
+    banner_file_id: Option<String>,
+    #[serde(default)]
+    banner_mime_type: Option<String>,
+    #[serde(default)]
+    banner_size: u64,
     profile_file_id: String,
     profile_size: u64,
 }
@@ -1856,13 +1867,38 @@ pub async fn profile_get(client: State<'_, AuthClient>) -> Result<Value, String>
 }
 
 #[tauri::command]
+pub async fn profile_directory(
+    client: State<'_, AuthClient>,
+    usernames: Vec<String>,
+) -> Result<Value, String> {
+    if usernames.len() > 50 || usernames.iter().any(|username| !profile_username(username)) {
+        return Err("The public profile lookup is invalid.".to_owned());
+    }
+    if usernames.is_empty() {
+        return Ok(serde_json::json!({ "profiles": [] }));
+    }
+    let query = usernames
+        .iter()
+        .map(|username| format!("username={}", query_escape(username)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let response = authenticated_request(
+        &client,
+        Method::GET,
+        &format!("/api/profile/directory?{query}"),
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
 pub async fn profile_reserve(
     client: State<'_, AuthClient>,
     node_id: String,
     bytes: u64,
 ) -> Result<Value, String> {
     let node_id = node_id_path(&node_id)?;
-    if bytes == 0 || bytes > 4_227_072 {
+    if bytes == 0 || bytes > PROFILE_MAX_TOTAL_BYTES {
         return Err("Profile storage reservation is invalid.".to_owned());
     }
     let response = authenticated_json_request(
@@ -1884,7 +1920,18 @@ pub async fn profile_commit(
     let reservation_id = node_id_path(&reservation_id)?;
     if input.profile_file_id.is_empty()
         || input.profile_size == 0
-        || input.avatar_size > 4 * 1024 * 1024
+        || input.profile_size > PROFILE_MAX_BYTES
+        || input.avatar_size > PROFILE_AVATAR_MAX_BYTES
+        || input.banner_size > PROFILE_BANNER_MAX_BYTES
+        || input.avatar_size > 0 && input.avatar_file_id.is_none()
+        || input.banner_size > 0 && input.banner_file_id.is_none()
+        || input.banner_size == 0 && input.banner_file_id.is_some()
+        || input.banner_size > 0 && input.banner_mime_type.is_none()
+        || input
+            .profile_size
+            .saturating_add(input.avatar_size)
+            .saturating_add(input.banner_size)
+            > PROFILE_MAX_TOTAL_BYTES
     {
         return Err("Profile payload is invalid.".to_owned());
     }
@@ -2206,6 +2253,22 @@ fn query_escape(value: &str) -> String {
         }
     }
     escaped
+}
+
+fn profile_username(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if !(3..=32).contains(&bytes.len()) {
+        return false;
+    }
+    if !bytes[0].is_ascii_lowercase() && !bytes[0].is_ascii_digit() {
+        return false;
+    }
+    if !bytes[bytes.len() - 1].is_ascii_lowercase() && !bytes[bytes.len() - 1].is_ascii_digit() {
+        return false;
+    }
+    bytes
+        .iter()
+        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_')
 }
 
 fn node_id_path(value: &str) -> Result<String, String> {

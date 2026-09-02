@@ -6,6 +6,7 @@ import {
   fluoPostKey as postKey,
   type FluoAttachment,
   type FluoAttachmentKind,
+  type FluoAuthorProfile,
   type FluoDraftAttachment,
   type FluoMediaOwner,
   type FluoPost,
@@ -99,6 +100,11 @@ export class FluoGState extends GState<FluoSnapshot> {
   #mediaCacheBytes = 0;
   #mediaCacheClock = 0;
   #mediaDimensions = new Map<string, { height: number; width: number }>();
+  #authorProfiles = new Map<string, CachedAuthorProfile>();
+  #authorProfileRequests = new Map<string, AuthorProfileRequest>();
+  #authorProfileQueue = new Set<string>();
+  #authorProfileFlushScheduled = false;
+  #authorProfileFlushInFlight: Promise<void> | null = null;
   #likeRequests = new Map<string, Promise<boolean>>();
   #likeDesiredStates = new Map<string, boolean>();
   #likeMutationEpochs = new Map<string, number>();
@@ -173,6 +179,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#likeRequests.clear();
     this.#likeDesiredStates.clear();
     this.#likeMutationEpochs.clear();
+    this.clearAuthorProfileState();
     this.cancelLikeHydration();
     this.#unsubscribeRegistry?.();
     this.#unsubscribeRegistry = null;
@@ -217,6 +224,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#likeDesiredStates.clear();
     this.#likeMutationEpochs.clear();
     this.#likeHydratedAt.clear();
+    this.clearAuthorProfileState();
     this.cancelLikeHydration();
     this.#mediaGeneration += 1;
     this.#nodes.resetSession?.();
@@ -511,6 +519,73 @@ export class FluoGState extends GState<FluoSnapshot> {
     return shared;
   }
 
+  private scheduleAuthorProfileFlush(): void {
+    if (this.#authorProfileFlushScheduled) return;
+    this.#authorProfileFlushScheduled = true;
+    queueMicrotask(() => {
+      this.#authorProfileFlushScheduled = false;
+      void this.flushAuthorProfileQueue();
+    });
+  }
+
+  private async flushAuthorProfileQueue(): Promise<void> {
+    if (this.#authorProfileFlushInFlight || !this.#authorProfileQueue.size) return;
+    const keys = [...this.#authorProfileQueue].slice(0, AUTHOR_PROFILE_BATCH_SIZE);
+    keys.forEach((key) => this.#authorProfileQueue.delete(key));
+    const lifecycleId = this.#lifecycleId;
+    const loader = this.#gateway.loadAuthorProfiles;
+    if (!loader) return;
+
+    const batchPromise = (async () => {
+      let profiles: FluoAuthorProfile[] = [];
+      try {
+        // Keep the gateway as the receiver. Some implementations use other
+        // gateway methods and private state from their class instance (for
+        // example NodeFluoGateway resolves profile media through its node
+        // connection), so invoking an extracted method would lose `this` and
+        // silently turn every profile batch into the fallback avatar.
+        profiles = await loader.call(this.#gateway, keys);
+      } catch {
+        // A profile is optional. Keep the fallback initial and let a later
+        // expiry retry without surfacing a feed-level error.
+        profiles = [];
+      }
+      if (lifecycleId !== this.#lifecycleId) return;
+      const byUsername = new Map<string, FluoAuthorProfile>();
+      for (const profile of profiles) {
+        const key = normalizeAuthorUsername(profile.username);
+        if (key) byUsername.set(key, profile);
+      }
+      const expiresAt = Date.now() + AUTHOR_PROFILE_CACHE_MS;
+      for (const key of keys) {
+        const profile = byUsername.get(key) ?? null;
+        this.#authorProfiles.set(key, { expiresAt, profile });
+        const pending = this.#authorProfileRequests.get(key);
+        if (!pending) continue;
+        this.#authorProfileRequests.delete(key);
+        pending.resolve(profile);
+      }
+    })();
+    this.#authorProfileFlushInFlight = batchPromise;
+    try {
+      await batchPromise;
+    } finally {
+      if (this.#authorProfileFlushInFlight === batchPromise) {
+        this.#authorProfileFlushInFlight = null;
+        if (this.#authorProfileQueue.size) this.scheduleAuthorProfileFlush();
+      }
+    }
+  }
+
+  private clearAuthorProfileState(): void {
+    for (const pending of this.#authorProfileRequests.values()) pending.resolve(null);
+    this.#authorProfileRequests.clear();
+    this.#authorProfileQueue.clear();
+    this.#authorProfiles.clear();
+    this.#authorProfileFlushScheduled = false;
+    this.#authorProfileFlushInFlight = null;
+  }
+
   private persistFeedCache(): void {
     if (!this.#cacheOwnerId) return;
     if (this.#persistScheduled) return;
@@ -601,6 +676,41 @@ export class FluoGState extends GState<FluoSnapshot> {
   async loadMedia(postId: string, attachmentId: string, postIdentity?: string): Promise<string | null> {
     const target = this.findMediaTarget(postId, attachmentId, postIdentity);
     return target ? this.startMediaLoad(target) : null;
+  }
+
+  /**
+   * Resolves one author's public profile through a coalesced batch. Avatars
+   * mount with virtualized rows, so a page with many authors still results in
+   * one bounded directory request instead of one request per card or hover.
+   */
+  loadAuthorProfile(username: string): Promise<FluoAuthorProfile | null> {
+    const key = normalizeAuthorUsername(username);
+    if (!key || !this.#gateway.loadAuthorProfiles) return Promise.resolve(null);
+    const cached = this.#authorProfiles.get(key);
+    if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.profile);
+    if (cached) this.#authorProfiles.delete(key);
+
+    const existing = this.#authorProfileRequests.get(key);
+    if (existing) return existing.promise;
+
+    let resolveRequest!: (profile: FluoAuthorProfile | null) => void;
+    const promise = new Promise<FluoAuthorProfile | null>((resolve) => {
+      resolveRequest = resolve;
+    });
+    this.#authorProfileRequests.set(key, { promise, resolve: resolveRequest });
+    this.#authorProfileQueue.add(key);
+    this.scheduleAuthorProfileFlush();
+    return promise;
+  }
+
+  /** Drops cached author metadata after an account profile edit. */
+  clearAuthorProfileCache(username?: string): void {
+    if (username === undefined) {
+      this.clearAuthorProfileState();
+      return;
+    }
+    const key = normalizeAuthorUsername(username);
+    if (key) this.#authorProfiles.delete(key);
   }
 
   /**
@@ -1401,6 +1511,16 @@ type ResolvedFluoMedia = {
   url: string;
 };
 
+type CachedAuthorProfile = {
+  expiresAt: number;
+  profile: FluoAuthorProfile | null;
+};
+
+type AuthorProfileRequest = {
+  promise: Promise<FluoAuthorProfile | null>;
+  resolve: (profile: FluoAuthorProfile | null) => void;
+};
+
 function attachmentKind(file: File): FluoAttachmentKind | null {
   const mimeType = file.type.toLowerCase();
   const name = file.name.toLowerCase();
@@ -1459,6 +1579,9 @@ const RESERVED_MEDIA_HEIGHT = 900;
 const LIKE_BATCH_SIZE = 100;
 const LIKE_HYDRATION_DELAY_MS = 180;
 const LIKE_STATE_FRESHNESS_MS = 30_000;
+const AUTHOR_PROFILE_CACHE_MS = 2 * 60_000;
+const AUTHOR_PROFILE_BATCH_SIZE = 50;
+const AUTHOR_USERNAME_PATTERN = /^[a-z0-9](?:[a-z0-9_]{1,30}[a-z0-9])?$/u;
 const NODE_SELECTION_KEY_PREFIX = 'kaordo.fluo-node.v1.';
 
 function detachedMediaTarget(owner: FluoMediaOwner, attachment: FluoAttachment): FluoMediaTarget {
@@ -1539,6 +1662,11 @@ function createLocalId(): string {
 function normalizeCacheOwner(ownerId: string | null): string | null {
   const normalized = ownerId?.trim();
   return normalized || null;
+}
+
+function normalizeAuthorUsername(username: string): string | null {
+  const normalized = username.trim().toLowerCase();
+  return AUTHOR_USERNAME_PATTERN.test(normalized) ? normalized : null;
 }
 
 function readSelectedNode(storage: Storage | null, ownerId: string | null): string {

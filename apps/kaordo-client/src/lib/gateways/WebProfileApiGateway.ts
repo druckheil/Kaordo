@@ -1,12 +1,19 @@
 import type { ProfilePointer } from '../domain/profile';
-import type { ProfileApiGateway, ProfileCommit, ProfileCommitInput, ProfileReservation } from './ProfileGateway';
+import type {
+  ProfileApiGateway,
+  ProfileCommit,
+  ProfileCommitInput,
+  ProfileDirectoryGateway,
+  ProfileReservation,
+  PublicProfilePointer,
+} from './ProfileGateway';
 import { requestJson } from './WebApiClient';
 
 const PROFILE_UNAVAILABLE = 'Profile storage is unavailable.';
 
 type ProfileResponse = { profile: ProfilePointer | null };
 
-export class WebProfileApiGateway implements ProfileApiGateway {
+export class WebProfileApiGateway implements ProfileApiGateway, ProfileDirectoryGateway {
   async get(): Promise<ProfilePointer | null> {
     return (await requestJson<ProfileResponse>('/api/profile', {}, PROFILE_UNAVAILABLE)).profile;
   }
@@ -38,4 +45,23 @@ export class WebProfileApiGateway implements ProfileApiGateway {
       PROFILE_UNAVAILABLE,
     );
   }
+
+  async lookup(usernames: readonly string[]): Promise<PublicProfilePointer[]> {
+    const normalized = uniqueProfileUsernames(usernames);
+    if (!normalized.length) return [];
+    const query = new URLSearchParams();
+    normalized.forEach((username) => query.append('username', username));
+    const result = await requestJson<{ profiles: PublicProfilePointer[] }>(
+      `/api/profile/directory?${query.toString()}`,
+      {},
+      PROFILE_UNAVAILABLE,
+    );
+    return Array.isArray(result.profiles) ? result.profiles : [];
+  }
+}
+
+function uniqueProfileUsernames(usernames: readonly string[]): string[] {
+  return [...new Set(usernames
+    .map((username) => username.trim().toLowerCase())
+    .filter(Boolean))].slice(0, 50);
 }

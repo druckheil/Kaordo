@@ -3,6 +3,7 @@
   import type { FluoGState } from '../../lib/states/FluoGState';
   import FluoMedia from './FluoMedia.svelte';
   import FluoMediaCarousel from './FluoMediaCarousel.svelte';
+  import FluoAuthorIdentity from './FluoAuthorIdentity.svelte';
   import { formatFluoPostDate } from './fluoPost';
 
   type Props = {
@@ -64,9 +65,9 @@
   </header>
 
   <div class="quoted-post__author">
-    <span class="quoted-post__avatar" aria-hidden="true">Y</span>
+    <FluoAuthorIdentity active={active} author={quote.author} compact {fluoState} />
     <strong>{quote.author}</strong>
-    <span>@{quote.author.toLowerCase()}</span>
+    <span class="quoted-post__username">@{quote.author.toLowerCase()}</span>
     <i aria-hidden="true">·</i>
     <time datetime={new Date(quote.createdAt).toISOString()}>{formatFluoPostDate(quote.createdAt)}</time>
   </div>
@@ -182,20 +183,8 @@
 
   .quoted-post__author { margin-top: 8px; }
 
-  .quoted-post__avatar {
-    display: grid;
-    width: 20px;
-    height: 20px;
-    color: var(--sui-bg);
-    background: var(--sui-primary);
-    border-radius: 6px;
-    font-size: calc(8px * var(--text-scale));
-    font-weight: 750;
-    place-items: center;
-  }
-
   .quoted-post__author strong,
-  .quoted-post__author span:not(.quoted-post__avatar),
+  .quoted-post__author .quoted-post__username,
   .quoted-post__author time,
   .quoted-post__author i {
     overflow: hidden;

@@ -36,6 +36,25 @@ export type FluoQuote = {
   space: FluoSpace;
 };
 
+/**
+ * A public author's profile as rendered by Fluo. Media stays a direct,
+ * short-lived Nodo stream URL; profile text is kept small and optional so a
+ * missing profile never prevents a post from rendering.
+ */
+export type FluoAuthorProfile = {
+  accentColor?: 'mint' | 'ocean' | 'sunset' | 'violet' | null;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
+  description: string;
+  headline: string;
+  location: string;
+  nickname: string;
+  pronouns: string;
+  status: string;
+  username: string;
+  website: string;
+};
+
 export type FluoPost = {
   attachments: FluoAttachment[];
   author: string;

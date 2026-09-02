@@ -27,6 +27,9 @@
   let displayName = $derived(profile?.nickname || user.username);
   let joined = $derived(formatMonth(user.createdAt));
   let updated = $derived(profile?.updatedAt ? formatDate(profile.updatedAt) : 'Not published yet');
+  let accent = $derived(profile?.accentColor ?? 'violet');
+  let websiteHref = $derived(safeWebsite(profile?.website ?? ''));
+  let websiteLabel = $derived(websiteHref ? websiteHref.replace(/^https?:\/\//, '').replace(/\/$/, '') : '');
 
   function formatMonth(timestamp: number): string {
     return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(new Date(timestamp * 1_000));
@@ -36,12 +39,27 @@
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(timestamp * 1_000));
   }
 
+  function safeWebsite(value: string): string {
+    try {
+      const url = new URL(value);
+      return (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password ? url.toString() : '';
+    } catch {
+      return '';
+    }
+  }
+
   async function submitProfileChange(values: ProfileEditValues): Promise<void> {
     if (await onSaveProfile(values)) profileModal = false;
   }
 </script>
 
-<main class="profile-shell" aria-labelledby="profile-title">
+<main
+  class="profile-shell"
+  class:profile-shell--mint={accent === 'mint'}
+  class:profile-shell--ocean={accent === 'ocean'}
+  class:profile-shell--sunset={accent === 'sunset'}
+  aria-labelledby="profile-title"
+>
   <div class="profile-layout">
     <header class="profile-heading">
       <div>
@@ -60,32 +78,46 @@
       </section>
     {:else}
       <section class="profile-hero" aria-labelledby="identity-title">
-        <div class="avatar" aria-hidden={!profile?.avatarUrl}>
-          {#if profile?.avatarUrl}
-            <img src={profile.avatarUrl} alt="" />
+        <div class="profile-banner" class:profile-banner--empty={!profile?.bannerUrl}>
+          {#if profile?.bannerUrl}
+            <img src={profile.bannerUrl} alt="" />
           {:else}
-            {initial}
+            <span class="profile-banner-orbit" aria-hidden="true"></span>
+            <span class="profile-banner-label">Make it yours</span>
           {/if}
         </div>
-        <div class="profile-hero-copy">
-          <span class="card-label">Kaordo member</span>
-          <h2 id="identity-title">{displayName}</h2>
-          <p class="profile-username">@{user.username} <span aria-hidden="true">·</span> Member since {joined}</p>
-          {#if profile?.description}
-            <p class="profile-description">{profile.description}</p>
-          {:else}
-            <p class="profile-description profile-description--empty">Add a short description so people know what matters to you.</p>
-          {/if}
-        </div>
-        <div class="profile-hero-actions">
-          <button class="profile-edit-button" type="button" disabled={profileLoading || profileSaving} onclick={() => (profileModal = true)}>
-            {#if profileSaving}<LoadingSpinner compact />{/if}
-            {profileSaving ? 'Saving…' : 'Edit profile'}
-          </button>
-          <span class="profile-badge">
-            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="m7 10 2 2 4-4" /></svg>
-            Public
-          </span>
+        <div class="profile-hero-content">
+          <div class="avatar" aria-hidden={!profile?.avatarUrl}>
+            {#if profile?.avatarUrl}
+              <img src={profile.avatarUrl} alt="" />
+            {:else}
+              {initial}
+            {/if}
+          </div>
+          <div class="profile-hero-copy">
+            <div class="profile-identity-line">
+              <span class="card-label">Kaordo member</span>
+              {#if profile?.status}<span class="profile-status"><i aria-hidden="true"></i>{profile.status}</span>{/if}
+            </div>
+            <h2 id="identity-title">{displayName}</h2>
+            <p class="profile-username">@{user.username} <span aria-hidden="true">·</span> Member since {joined}</p>
+            {#if profile?.headline}<p class="profile-headline">{profile.headline}</p>{/if}
+            {#if profile?.description}
+              <p class="profile-description">{profile.description}</p>
+            {:else}
+              <p class="profile-description profile-description--empty">Add a short description so people know what matters to you.</p>
+            {/if}
+          </div>
+          <div class="profile-hero-actions">
+            <button class="profile-edit-button" type="button" disabled={profileLoading || profileSaving} onclick={() => (profileModal = true)}>
+              {#if profileSaving}<LoadingSpinner compact />{/if}
+              {profileSaving ? 'Saving…' : 'Edit profile'}
+            </button>
+            <span class="profile-badge">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="m7 10 2 2 4-4" /></svg>
+              Public
+            </span>
+          </div>
         </div>
       </section>
 
@@ -116,6 +148,11 @@
           <dl class="profile-details-list">
             <div><dt>Username</dt><dd>@{user.username}</dd></div>
             <div><dt>Member since</dt><dd>{joined}</dd></div>
+            {#if profile?.pronouns}<div><dt>Pronouns</dt><dd>{profile.pronouns}</dd></div>{/if}
+            {#if profile?.location}<div><dt>Location</dt><dd>{profile.location}</dd></div>{/if}
+            {#if websiteHref}
+              <div><dt>Website</dt><dd><a href={websiteHref} rel="noreferrer" target="_blank">{websiteLabel}</a></dd></div>
+            {/if}
             <div><dt>Last updated</dt><dd>{updated}</dd></div>
           </dl>
         </section>
@@ -129,13 +166,20 @@
 
 {#if profileModal}
   <ProfileEditDialog
+    accentColor={profile?.accentColor ?? null}
     avatarUrl={profile?.avatarUrl ?? null}
+    bannerUrl={profile?.bannerUrl ?? null}
     busy={profileSaving}
     description={profile?.description ?? ''}
     error={profileError}
+    headline={profile?.headline ?? ''}
+    location={profile?.location ?? ''}
     nickname={profile?.nickname ?? user.username}
     onCancel={() => { if (!profileSaving) profileModal = false; }}
     onSubmit={submitProfileChange}
+    pronouns={profile?.pronouns ?? ''}
+    status={profile?.status ?? ''}
+    website={profile?.website ?? ''}
   />
 {/if}
 
@@ -160,7 +204,22 @@
     min-height: 0;
     overflow: auto;
     color: var(--sui-text);
-    background: radial-gradient(circle at 76% 2%, rgb(91 84 224 / 8%), transparent 33%), var(--sui-bg);
+    background: radial-gradient(circle at 76% 2%, color-mix(in srgb, var(--sui-primary) 10%, transparent), transparent 33%), var(--sui-bg);
+  }
+
+  .profile-shell--mint {
+    --sui-primary: #279b78;
+    --sui-primary-hover: #1f8064;
+  }
+
+  .profile-shell--ocean {
+    --sui-primary: #327bb8;
+    --sui-primary-hover: #286496;
+  }
+
+  .profile-shell--sunset {
+    --sui-primary: #c56e55;
+    --sui-primary-hover: #a95743;
   }
 
   :global(html[data-theme='dark']) .profile-shell {
@@ -180,6 +239,10 @@
     --sui-shadow-inset: inset 3px 3px 8px rgb(0 0 0 / 32%), inset -3px -3px 7px rgb(255 255 255 / 4%);
     --sui-shadow-inset-sm: inset 2px 2px 6px rgb(0 0 0 / 32%), inset -2px -2px 5px rgb(255 255 255 / 4%);
   }
+
+  :global(html[data-theme='dark']) .profile-shell.profile-shell--mint { --sui-primary: #54c99a; --sui-primary-hover: #74ddb2; }
+  :global(html[data-theme='dark']) .profile-shell.profile-shell--ocean { --sui-primary: #70b2ec; --sui-primary-hover: #91c8f6; }
+  :global(html[data-theme='dark']) .profile-shell.profile-shell--sunset { --sui-primary: #ee9c83; --sui-primary-hover: #f5b09a; }
 
   :global(html[data-theme='dark']) .profile-hero {
     background: linear-gradient(145deg, var(--sui-bg-light), var(--sui-bg));
@@ -201,16 +264,27 @@
   .profile-loading strong { color: var(--sui-text); font-size: calc(12px * var(--text-scale)); }
   .profile-loading p { margin-top: 6px; font-size: calc(8px * var(--text-scale)); }
 
-  .profile-hero { position: relative; display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; align-items: center; gap: 18px; min-height: 148px; padding: 22px 24px; overflow: hidden; background: linear-gradient(145deg, var(--sui-bg-light), var(--sui-bg)); border-radius: 22px; box-shadow: var(--sui-shadow-raised-lg), inset 1px 1px 0 rgb(255 255 255 / 30%); animation: profile-rise 260ms cubic-bezier(.2, .8, .2, 1) both; }
+  .profile-hero { position: relative; overflow: hidden; background: linear-gradient(145deg, var(--sui-bg-light), var(--sui-bg)); border-radius: 22px; box-shadow: var(--sui-shadow-raised-lg), inset 1px 1px 0 rgb(255 255 255 / 30%); animation: profile-rise 260ms cubic-bezier(.2, .8, .2, 1) both; }
   .profile-hero::after { position: absolute; right: -34px; bottom: -54px; width: 180px; height: 180px; border: 18px solid color-mix(in srgb, var(--sui-primary) 8%, transparent); border-radius: 50%; content: ''; pointer-events: none; }
-  .avatar { position: relative; z-index: 1; display: grid; width: 82px; height: 82px; overflow: hidden; color: #fff; background: linear-gradient(145deg, var(--sui-primary), color-mix(in srgb, var(--sui-primary) 65%, #25314d)); border-radius: 25px; box-shadow: 8px 8px 16px rgb(39 51 67 / 19%), -5px -5px 12px rgb(255 255 255 / 52%); font-size: calc(29px * var(--text-scale)); font-weight: 740; place-items: center; }
+  .profile-banner { position: relative; height: 132px; overflow: hidden; background: var(--sui-bg-dark); }
+  .profile-banner img { width: 100%; height: 100%; object-fit: cover; }
+  .profile-banner::after { position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 21 44 / 3%), rgb(11 21 44 / 30%)); content: ''; pointer-events: none; }
+  .profile-banner--empty { background: radial-gradient(circle at 15% 20%, rgb(255 255 255 / 25%), transparent 24%), linear-gradient(125deg, color-mix(in srgb, var(--sui-primary) 78%, #18233b), color-mix(in srgb, var(--sui-primary) 32%, #72b8c2)); }
+  .profile-banner-orbit { position: absolute; right: 15%; bottom: -80px; width: 210px; height: 210px; border: 24px solid rgb(255 255 255 / 13%); border-radius: 50%; box-shadow: 0 0 0 12px rgb(255 255 255 / 5%); }
+  .profile-banner-label { position: absolute; z-index: 1; right: 22px; bottom: 17px; color: rgb(255 255 255 / 82%); font-size: calc(8px * var(--text-scale)); font-weight: 730; letter-spacing: .1em; text-transform: uppercase; }
+  .profile-hero-content { position: relative; z-index: 1; display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 21px 24px 23px; }
+  .avatar { position: relative; z-index: 1; display: grid; width: 82px; height: 82px; overflow: hidden; color: #fff; background: linear-gradient(145deg, var(--sui-primary), color-mix(in srgb, var(--sui-primary) 65%, #25314d)); border: 5px solid var(--sui-bg); border-radius: 25px; box-shadow: 8px 8px 16px rgb(39 51 67 / 19%), -5px -5px 12px rgb(255 255 255 / 52%); font-size: calc(29px * var(--text-scale)); font-weight: 740; place-items: center; transform: translateY(-40px); margin-bottom: -40px; }
   .avatar img { width: 100%; height: 100%; object-fit: cover; }
   .profile-hero-copy { position: relative; z-index: 1; min-width: 0; }
+  .profile-identity-line { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
   .profile-hero-copy h2 { margin-top: 6px; color: var(--sui-text); font-size: calc(23px * var(--text-scale)); font-weight: 740; letter-spacing: -.04em; }
   .profile-username { margin-top: 5px; color: var(--sui-text-muted); font-size: calc(9px * var(--text-scale)); }
   .profile-username span { padding: 0 4px; color: var(--sui-text-light); }
+  .profile-headline { margin-top: 7px; color: var(--sui-text); font-size: calc(10px * var(--text-scale)); font-weight: 660; overflow-wrap: anywhere; }
   .profile-description { max-width: 620px; margin-top: 10px; overflow-wrap: anywhere; color: var(--sui-text); font-size: calc(10px * var(--text-scale)); line-height: 1.45; }
   .profile-description--empty { color: var(--sui-text-light); font-style: italic; }
+  .profile-status { display: inline-flex; align-items: center; gap: 5px; max-width: min(280px, 100%); padding: 4px 8px; overflow: hidden; color: var(--sui-text-muted); background: color-mix(in srgb, var(--sui-bg-dark) 63%, transparent); border-radius: 999px; font-size: calc(7px * var(--text-scale)); font-weight: 660; text-overflow: ellipsis; white-space: nowrap; }
+  .profile-status i { width: 6px; height: 6px; flex: none; background: var(--sui-success); border-radius: 50%; box-shadow: 0 0 0 3px color-mix(in srgb, var(--sui-success) 15%, transparent); }
   .profile-hero-actions { position: relative; z-index: 1; display: flex; align-items: flex-end; flex-direction: column; gap: 10px; }
   .profile-edit-button, .profile-badge, .profile-card { background: var(--sui-bg); box-shadow: var(--sui-shadow-raised-sm); }
   .profile-edit-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 104px; min-height: 36px; padding: 0 12px; color: var(--sui-primary); border: 0; border-radius: 11px; cursor: pointer; font: inherit; font-size: calc(9px * var(--text-scale)); font-weight: 710; transition: color 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
@@ -235,6 +309,8 @@
   .profile-details-list > div { display: grid; grid-template-columns: 87px minmax(0, 1fr); align-items: center; min-height: 31px; }
   dt { color: var(--sui-text-light); font-size: calc(8px * var(--text-scale)); }
   dd { min-width: 0; margin: 0; overflow: hidden; color: var(--sui-text); font-size: calc(9px * var(--text-scale)); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+  dd a { color: var(--sui-primary); text-decoration: none; text-overflow: ellipsis; }
+  dd a:hover { color: var(--sui-primary-hover); text-decoration: underline; }
   .profile-error { margin-top: 12px; padding: 10px 12px; color: #c95667; background: color-mix(in srgb, #c95667 10%, var(--sui-bg)); border-radius: 10px; font-size: calc(8px * var(--text-scale)); }
   button:focus-visible { outline: 2px solid color-mix(in srgb, var(--sui-primary) 45%, transparent); outline-offset: 3px; }
   @keyframes profile-rise { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
@@ -242,7 +318,8 @@
   @media (max-width: 700px) {
     .profile-layout { padding-inline: 18px; }
     .profile-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
-    .profile-hero { grid-template-columns: 64px minmax(0, 1fr); padding: 18px; }
+    .profile-banner { height: 112px; }
+    .profile-hero-content { grid-template-columns: 64px minmax(0, 1fr); padding: 17px 18px 19px; }
     .avatar { width: 64px; height: 64px; border-radius: 19px; }
     .profile-hero-actions { grid-column: 2; align-items: flex-start; flex-direction: row; }
     .profile-grid { grid-template-columns: 1fr; }

@@ -84,6 +84,7 @@ import {
   cancelProfileStorage,
   commitProfileStorage,
   getProfile,
+  listPublicProfiles,
   reserveProfileStorage,
 } from './profile/routes';
 import {
@@ -420,6 +421,9 @@ export function handleRequest(
   }
   if (request.method === 'GET' && pathname === '/api/profile') {
     return getProfile(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/profile/directory') {
+    return listPublicProfiles(request, env);
   }
   if (request.method === 'POST' && pathname === '/api/profile/reservations') {
     return reserveProfileStorage(request, env);

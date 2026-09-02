@@ -1,5 +1,6 @@
 import type {
   FluoAttachment,
+  FluoAuthorProfile,
   FluoDraftAttachment,
   FluoQuote,
   FluoPost,
@@ -57,6 +58,8 @@ export type FluoMediaSource = { blob: Blob; streamUrl?: never } | { blob?: never
 export interface FluoGateway {
   resetSession?(): void;
   deletePost(nodeId: string, postId: string, space: 'private' | 'public'): Promise<void>;
+  /** Optional for lightweight/test gateways; production gateways batch this lookup. */
+  loadAuthorProfiles?(usernames: readonly string[]): Promise<FluoAuthorProfile[]>;
   listLikeStates?(targets: readonly FluoLikeTarget[]): Promise<FluoLikeState[]>;
   listFeedPage(
     nodeIds: readonly string[],

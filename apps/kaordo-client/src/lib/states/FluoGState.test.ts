@@ -3,6 +3,7 @@ import type { NodoAccess, NodoNode, NodoPolicy } from '../domain/nodo';
 import {
   createFluoQuote,
   FLUO_MAX_POST_LENGTH,
+  type FluoAuthorProfile,
   type FluoDraftAttachment,
   type FluoQuote,
 } from '../domain/fluo';
@@ -35,6 +36,21 @@ describe('FluoGState', () => {
     expect(nodes.bootstrapCalls).toBe(1);
     release();
     await Promise.all([first, second]);
+  });
+
+  it('keeps the gateway receiver when resolving author profiles', async () => {
+    const fluo = new ContextProfileFluoGateway();
+    const state = createState(fluo);
+
+    const profilePromise = state.loadAuthorProfile('druckheil');
+    await flushTasks();
+
+    await expect(profilePromise).resolves.toMatchObject({
+      avatarUrl: 'https://nodo.test/avatar.webp',
+      bannerUrl: 'https://nodo.test/banner.webp',
+      username: 'druckheil',
+    });
+    expect(fluo.profileCalls).toBe(1);
   });
 
   it('accepts a five-thousand-character post draft', () => {
@@ -670,6 +686,26 @@ class MemoryFluoGateway implements FluoGateway {
   async deletePost(_nodeId: string, postId: string): Promise<void> {
     if (this.failure) throw this.failure;
     this.posts = this.posts.filter(({ id }) => id !== postId);
+  }
+}
+
+class ContextProfileFluoGateway extends MemoryFluoGateway {
+  profileCalls = 0;
+
+  loadAuthorProfiles(usernames: readonly string[]): Promise<FluoAuthorProfile[]> {
+    this.profileCalls += 1;
+    return Promise.resolve(usernames.map((username) => ({
+      avatarUrl: 'https://nodo.test/avatar.webp',
+      bannerUrl: 'https://nodo.test/banner.webp',
+      description: '',
+      headline: '',
+      location: '',
+      nickname: 'DruckHeil',
+      pronouns: '',
+      status: '',
+      username,
+      website: '',
+    })));
   }
 }
 

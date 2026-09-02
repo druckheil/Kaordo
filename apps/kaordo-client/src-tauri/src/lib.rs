@@ -394,6 +394,7 @@ pub fn run() {
             auth::nodo_update_spaces,
             auth::profile_cancel,
             auth::profile_commit,
+            auth::profile_directory,
             auth::profile_get,
             auth::profile_reserve,
             canvas_media::canvas_delete_media,

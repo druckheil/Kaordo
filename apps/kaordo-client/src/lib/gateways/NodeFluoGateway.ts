@@ -1,5 +1,14 @@
 import type { NodoAccess } from '../domain/nodo';
-import type { FluoAttachment, FluoDraftAttachment, FluoQuote } from '../domain/fluo';
+import type {
+  FluoAttachment,
+  FluoAuthorProfile,
+  FluoDraftAttachment,
+  FluoQuote,
+} from '../domain/fluo';
+import {
+  parseStoredProfileDocument,
+  type StoredProfileMediaReference,
+} from '../domain/profileDocument';
 import {
   PUBLIC_FLUO_DESTINATION,
   type FluoFeedPage,
@@ -14,6 +23,7 @@ import {
   type RemoteFluoPost,
 } from './FluoGateway';
 import type { NodoGateway } from './NodoGateway';
+import type { ProfileDirectoryGateway, PublicProfilePointer } from './ProfileGateway';
 import { nodoOrigin, orderedNodoCandidates } from './NodoRoute';
 
 const TUS_VERSION = '1.0.0';
@@ -26,6 +36,8 @@ const RECOVERY_TIMEOUT_MS = 5_000;
 const MAX_CHUNK_RETRIES = 6;
 const RELAY_CHUNK_SIZE = 8 * 1024 * 1024;
 const CONNECTION_IDLE_MILLISECONDS = 90 * 60_000;
+const PROFILE_DOCUMENT_MAX_BYTES = 32 * 1024;
+const PROFILE_LOAD_CONCURRENCY = 6;
 export type NodoUploadFile = { blob: Blob; mimeType: string; name: string; size: number };
 let feedSessionSequence = 0;
 
@@ -50,6 +62,7 @@ export class NodeFluoGateway implements FluoGateway {
   constructor(
     private readonly nodes: NodoGateway,
     private readonly likes: FluoLikesGateway = EMPTY_FLUO_LIKES_GATEWAY,
+    private readonly profileDirectory: ProfileDirectoryGateway | null = null,
   ) {}
 
   resetSession(): void {
@@ -103,6 +116,77 @@ export class NodeFluoGateway implements FluoGateway {
 
   listLikeStates(targets: readonly FluoLikeTarget[]): Promise<FluoLikeState[]> {
     return this.likes.listLikeStates(targets);
+  }
+
+  async loadAuthorProfiles(usernames: readonly string[]): Promise<FluoAuthorProfile[]> {
+    if (!this.profileDirectory || !usernames.length) return [];
+    const pointers = await this.profileDirectory.lookup(usernames);
+    return mapConcurrent(pointers, PROFILE_LOAD_CONCURRENCY, async (pointer) => {
+      try {
+        return await this.loadAuthorProfile(pointer);
+      } catch {
+        // An unavailable or malformed profile should never hide its author's
+        // post. Fluo keeps the initial avatar fallback in that case.
+        return null;
+      }
+    }).then((profiles) => profiles.filter((profile): profile is FluoAuthorProfile => profile !== null));
+  }
+
+  private async loadAuthorProfile(pointer: PublicProfilePointer): Promise<FluoAuthorProfile | null> {
+    const profile = await this.withNode(pointer.nodeId, async (connection) => {
+      const blob = await connection.blob(
+        `${SPACE_PATHS.public.content}/${encodeURIComponent(pointer.profileFileId)}`,
+        'application/json',
+        15_000,
+      );
+      if (blob.size > PROFILE_DOCUMENT_MAX_BYTES) return null;
+      let value: unknown;
+      try {
+        value = JSON.parse(await blob.text());
+      } catch {
+        return null;
+      }
+      const document = parseStoredProfileDocument(value);
+      if (!document) return null;
+      const avatar = pointer.avatarFileId
+        ? { fileId: pointer.avatarFileId, mimeType: pointer.avatarMimeType ?? 'image/*' }
+        : document.avatar;
+      const banner = pointer.bannerFileId
+        ? { fileId: pointer.bannerFileId, mimeType: pointer.bannerMimeType ?? 'image/*' }
+        : document.banner;
+      const [avatarUrl, bannerUrl] = await Promise.all([
+        this.profileMediaUrl(connection, avatar),
+        this.profileMediaUrl(connection, banner),
+      ]);
+      return {
+        accentColor: document.accentColor ?? null,
+        avatarUrl,
+        bannerUrl,
+        description: document.description,
+        headline: document.headline ?? '',
+        location: document.location ?? '',
+        nickname: document.nickname,
+        pronouns: document.pronouns ?? '',
+        status: document.status ?? '',
+        username: pointer.username,
+        website: safeProfileWebsite(document.website),
+      } satisfies FluoAuthorProfile;
+    }, false);
+    return profile;
+  }
+
+  private async profileMediaUrl(
+    connection: NodeConnection,
+    media: Pick<StoredProfileMediaReference, 'fileId' | 'mimeType'> | null | undefined,
+  ): Promise<string | null> {
+    if (!media?.fileId) return null;
+    try {
+      return await connection.streamUrl(
+        `${SPACE_PATHS.public.content}/${encodeURIComponent(media.fileId)}`,
+      );
+    } catch {
+      return null;
+    }
   }
 
   async loadMedia(
@@ -920,4 +1004,37 @@ function base64(value: string): string {
   let binary = '';
   for (const byte of new TextEncoder().encode(value)) binary += String.fromCharCode(byte);
   return btoa(binary);
+}
+
+/** Runs independent public-profile reads without opening an unbounded number
+ * of Nodo connections when a virtualized page mounts many authors at once. */
+async function mapConcurrent<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= values.length) return;
+      results[index] = await mapper(values[index]!, index);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(1, concurrency), values.length) }, () => worker()),
+  );
+  return results;
+}
+
+function safeProfileWebsite(value: string | undefined): string {
+  if (!value || value.length > 200) return '';
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') &&
+      !url.username && !url.password ? value : '';
+  } catch {
+    return '';
+  }
 }
