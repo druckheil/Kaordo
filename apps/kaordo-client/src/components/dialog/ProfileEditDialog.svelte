@@ -92,6 +92,7 @@
   submittingLabel="Saving…"
   title="Edit profile"
   titleId="profile-edit-title"
+  variant="settings"
 >
   {#snippet icon()}
     <svg viewBox="0 0 24 24" role="presentation"><circle cx="12" cy="8" r="3.4" /><path d="M5.5 19c.7-3.4 2.9-5.1 6.5-5.1s5.8 1.7 6.5 5.1M17.2 5.2l1.5 1.5 2.9-2.9" /></svg>
@@ -143,15 +144,17 @@
 </DialogShell>
 
 <style>
-  .profile-avatar-editor { display: flex; align-items: center; gap: 13px; margin-top: 18px; padding: 12px; background: #f1f5f1; border: 1px solid #dce5dd; border-radius: 10px; }
-  .profile-avatar-preview { display: grid; width: 58px; height: 58px; flex: none; overflow: hidden; color: #215443; background: linear-gradient(145deg, #dcece5, #9ccbb9); border-radius: 17px; font-size: calc(20px * var(--text-scale)); font-weight: 720; place-items: center; }
+  .profile-avatar-editor { display: flex; align-items: center; gap: 13px; margin-top: 16px; padding: 13px; color: var(--sui-text, #2d3748); background: var(--sui-bg, #e4e9f0); border: 0; border-radius: 14px; box-shadow: var(--sui-shadow-inset-sm, inset 2px 2px 6px rgb(39 51 67 / 17%), inset -2px -2px 5px rgb(255 255 255 / 50%)); }
+  .profile-avatar-preview { display: grid; width: 62px; height: 62px; flex: none; overflow: hidden; color: #fff; background: linear-gradient(145deg, var(--sui-primary, #5b54e0), color-mix(in srgb, var(--sui-primary, #5b54e0) 62%, #25314d)); border-radius: 19px; box-shadow: var(--sui-shadow-raised-sm, 0 5px 12px rgb(39 51 67 / 17%)); font-size: calc(21px * var(--text-scale)); font-weight: 720; place-items: center; }
   .profile-avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
-  .profile-avatar-editor strong { display: block; color: #344239; font-size: calc(11px * var(--text-scale)); }
-  .profile-avatar-editor p { margin-top: 3px; color: #7f8b83; font-size: calc(9px * var(--text-scale)); }
+  .profile-avatar-editor strong { display: block; color: var(--sui-text, #2d3748); font-size: calc(10px * var(--text-scale)); }
+  .profile-avatar-editor p { margin-top: 3px; color: var(--sui-text-light, #6a7d94); font-size: calc(8px * var(--text-scale)); }
   .avatar-actions { display: flex; gap: 7px; margin-top: 8px; }
-  .avatar-button, .avatar-remove { height: 27px; padding: 0 9px; border-radius: 7px; cursor: pointer; font-size: calc(9px * var(--text-scale)); font-weight: 650; }
-  .avatar-button { color: #3e7965; background: #fff; border: 1px solid #bed8cc; }
-  .avatar-remove { color: #9b5b55; background: transparent; border: 1px solid #e4c9c6; }
+  .avatar-button, .avatar-remove { height: 29px; padding: 0 10px; border: 0; border-radius: 9px; box-shadow: var(--sui-shadow-raised-sm, 0 4px 10px rgb(39 51 67 / 17%)); cursor: pointer; font: inherit; font-size: calc(8px * var(--text-scale)); font-weight: 690; transition: color 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
+  .avatar-button { color: var(--sui-primary, #5b54e0); background: var(--sui-bg, #e4e9f0); }
+  .avatar-remove { color: var(--sui-danger, #c95667); background: var(--sui-bg, #e4e9f0); }
+  .avatar-button:hover:not(:disabled), .avatar-remove:hover:not(:disabled) { transform: translateY(-1px); }
+  .avatar-button:active:not(:disabled), .avatar-remove:active:not(:disabled) { box-shadow: var(--sui-shadow-inset-sm, inset 2px 2px 6px rgb(39 51 67 / 17%)); transform: translateY(1px); }
   .avatar-button:disabled, .avatar-remove:disabled { cursor: default; opacity: .55; }
   .hidden-file { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
   textarea { width: 100%; resize: vertical; }

@@ -448,12 +448,12 @@
       if (activeSection === 'fluo') editor.startFluo();
       if (activeSection === 'nodo') nodo.start();
       if (activeSection === 'regado') regado.start();
-      if (activeSection === 'mi') {
-        profile.start();
+      if (activeSection === 'mi') profile.start();
+      if (activeSection === 'agordoj') {
         publicStorage.start();
-        // Username/password edits update the authenticated snapshot without
-        // changing the account. Avoid repeating the storage and session
-        // requests for that local projection update.
+        // Private account data is loaded only while Agordoj is visible. This
+        // keeps the public Mi profile lightweight and avoids unnecessary
+        // storage/session requests during normal navigation.
         if (accountJustAuthenticated) {
           void loadRondoPublicStorage();
           void loadSessions();
@@ -599,7 +599,7 @@
     accountAction = 'password';
     try {
       const changed = await auth.state.changePassword(currentPassword, newPassword);
-      if (changed && activeSection === 'mi') void loadSessions();
+      if (changed && activeSection === 'agordoj') void loadSessions();
       return changed;
     } finally {
       accountAction = null;
@@ -607,7 +607,10 @@
   }
 
   async function saveProfile(values: ProfileEditValues): Promise<boolean> {
-    const publicStorage = publicStorageSnapshot.storage ?? await nodoGateway.publicStorage().catch(() => null);
+    // Mi is intentionally public and does not keep the private storage state
+    // mounted. Resolve the current public pool only when the user saves a
+    // profile, so profile browsing never pays for a storage request.
+    const publicStorage = await nodoGateway.publicStorage().catch(() => null);
     // Public storage is a global pool. Profile data, however, must be written
     // to a Public Nodo owned by this account so the owner can always replace
     // or remove it. Resolve ownership from the node registry instead of
@@ -701,9 +704,12 @@
     else nodo.stop();
     if (section === 'mi') {
       profile.start();
+      publicStorage.stop();
+    } else if (section === 'agordoj') {
       publicStorage.start();
       void loadRondoPublicStorage();
       void loadSessions();
+      profile.stop();
     }
     else {
       publicStorage.stop();
@@ -899,30 +905,11 @@
 
     {#if activeSection === 'mi' && authSnapshot.user}
       <ProfileSection
-        busy={isLoggingOut}
-        accountBusy={accountAction !== null}
-        error={authSnapshot.error}
-        onChangePassword={changePassword}
-        onChangeUsername={changeUsername}
         onSaveProfile={saveProfile}
-        onLogout={logout}
-        onListPublic={openPublicStorageBrowser}
-        {platform}
-        publicStorage={publicStorageSnapshot.storage}
-        publicStorageError={publicStorageSnapshot.error}
-        publicStorageLoading={publicStorageSnapshot.phase === 'loading'}
         profile={profileSnapshot.profile}
         profileError={profileSnapshot.error}
         profileLoading={profileSnapshot.phase === 'loading' || profileSnapshot.phase === 'idle'}
         profileSaving={profileSnapshot.phase === 'saving'}
-        rondoPublicStorage={rondoPublicStorage}
-        rondoPublicStorageError={rondoPublicStorageError}
-        rondoPublicStorageLoading={rondoPublicStorageLoading}
-        sessions={sessions}
-        sessionsError={sessionsError}
-        sessionsLoading={sessionsLoading}
-        terminatingSessionId={terminatingSessionId}
-        onTerminateSession={terminateSession}
         user={authSnapshot.user}
       />
     {:else if activeSection === 'regado' && authSnapshot.user?.role === 'superadmin'}
@@ -933,9 +920,16 @@
         onRefreshDashboard={() => regado.state.refreshDashboard()}
         onModerateUser={(userId, action) => regado.state.moderateUser(userId, action).then(() => undefined)}
       />
-    {:else if activeSection === 'agordoj'}
+    {:else if activeSection === 'agordoj' && authSnapshot.user}
       <SettingsSection
+        accountBusy={accountAction !== null}
+        accountError={authSnapshot.error}
+        busy={isLoggingOut}
         media={mediaSettingsSnapshot}
+        onChangePassword={changePassword}
+        onChangeUsername={changeUsername}
+        onListPublic={openPublicStorageBrowser}
+        onLogout={logout}
         onMediaReset={() => mediaSettings.state.reset()}
         onMicrophone={(deviceId) => mediaSettings.state.setMicrophone(deviceId)}
         onMicrophoneVolume={(volume) => mediaSettings.state.setMicrophoneVolume(volume)}
@@ -946,6 +940,19 @@
         onTheme={setTheme}
         onSpeaker={(deviceId) => mediaSettings.state.setSpeaker(deviceId)}
         onSpeakerVolume={(volume) => mediaSettings.state.setSpeakerVolume(volume)}
+        onTerminateSession={terminateSession}
+        platform={platform}
+        publicStorage={publicStorageSnapshot.storage}
+        publicStorageError={publicStorageSnapshot.error}
+        publicStorageLoading={publicStorageSnapshot.phase === 'loading'}
+        rondoPublicStorage={rondoPublicStorage}
+        rondoPublicStorageError={rondoPublicStorageError}
+        rondoPublicStorageLoading={rondoPublicStorageLoading}
+        sessions={sessions}
+        sessionsError={sessionsError}
+        sessionsLoading={sessionsLoading}
+        terminatingSessionId={terminatingSessionId}
+        user={authSnapshot.user}
       />
     {:else if activeSection === 'nodo'}
       <NodoSection

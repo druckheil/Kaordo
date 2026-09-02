@@ -391,7 +391,7 @@ describe('workspace navigation and objects', () => {
     expect(screen.getByRole('heading', { name: 'Files' })).toBeInTheDocument();
   });
 
-  it('shows the current account in Mi and logs out to the authentication screen', async () => {
+  it('shows the public profile in Mi and logs out from private Agordoj settings', async () => {
     const logout = vi.fn(() => Promise.resolve());
     const authGateway: AuthGateway = {
       ...authenticatedGateway(),
@@ -409,8 +409,10 @@ describe('workspace navigation and objects', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Mi' }));
     expect(screen.getByRole('heading', { name: 'Mi' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Nova_User' })).toBeInTheDocument();
-    expect(screen.getByText('user-1')).toBeInTheDocument();
+    expect(screen.getByText('Visible to everyone')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Sessions' })).not.toBeInTheDocument();
 
+    await fireEvent.click(screen.getByRole('button', { name: 'Open application settings' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
 
     expect(logout).toHaveBeenCalledOnce();
@@ -435,7 +437,7 @@ describe('workspace navigation and objects', () => {
       workspaceGateway: new TauriWorkspaceGateway(),
     });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Mi' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Open application settings' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Change username' }));
     expect(screen.getByRole('dialog', { name: 'Change username' })).toBeInTheDocument();
     await fireEvent.input(screen.getByLabelText('New username'), {
@@ -446,7 +448,7 @@ describe('workspace navigation and objects', () => {
     });
     await fireEvent.click(screen.getByRole('button', { name: 'Save username' }));
     expect(changeUsername).toHaveBeenCalledWith('Nova_User', 'Renamed_User', 'current password');
-    expect(await screen.findByRole('heading', { name: 'Renamed_User' })).toBeInTheDocument();
+    expect(await screen.findByText('Renamed_User')).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
     const passwordDialog = screen.getByRole('dialog', { name: 'Change password' });
@@ -465,7 +467,7 @@ describe('workspace navigation and objects', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change password' })).not.toBeInTheDocument());
   });
 
-  it('loads account sessions in Mi and terminates a remote session', async () => {
+  it('loads account sessions in Agordoj and terminates a remote session', async () => {
     const remoteSession: AuthSession = {
       clientKind: 'desktop',
       createdAt: 1_700_000_000,
@@ -500,7 +502,7 @@ describe('workspace navigation and objects', () => {
       workspaceGateway: new TauriWorkspaceGateway(),
     });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Mi' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Open application settings' }));
     const sessionList = await screen.findByRole('list', { name: 'Signed-in devices' });
     expect(listSessions).toHaveBeenCalledOnce();
     expect(within(sessionList).getByText('Living room PC')).toBeInTheDocument();
@@ -512,7 +514,7 @@ describe('workspace navigation and objects', () => {
     expect(within(sessionList).queryByText('Living room PC')).not.toBeInTheDocument();
   });
 
-  it('loads Public Nodo independently in Mi and shows its loading state', async () => {
+  it('loads Public Nodo independently in Agordoj and shows its loading state', async () => {
     const storage = deferred<PublicNodoStorage>();
     const nodoGateway = memoryNodoGateway();
     const publicStorage = vi.fn(() => storage.promise);
@@ -527,7 +529,7 @@ describe('workspace navigation and objects', () => {
       workspaceGateway: new TauriWorkspaceGateway(),
     });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Mi' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Open application settings' }));
     const storageCard = screen.getByRole('region', { name: 'Public Nodo' });
     expect(publicStorage).toHaveBeenCalled();
     expect(within(storageCard).getByRole('status')).toHaveTextContent('Loading…');

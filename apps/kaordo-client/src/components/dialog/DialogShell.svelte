@@ -13,7 +13,7 @@
     submittingLabel: string;
     title: string;
     titleId: string;
-    variant?: 'workspace' | 'panel';
+    variant?: 'workspace' | 'panel' | 'settings';
   };
 
   let {
@@ -70,11 +70,12 @@
   }
 </script>
 
-<div class="modal-layer">
+<div class="modal-layer" class:softui-modal-layer={variant === 'settings'}>
   <div class="modal-backdrop" aria-hidden="true"></div>
   <div
     class="create-workspace-dialog"
     class:create-panel-dialog={variant === 'panel'}
+    class:softui-dialog={variant === 'settings'}
     bind:this={dialogElement}
     role="dialog"
     aria-modal="true"
@@ -340,6 +341,149 @@
   .dialog-form :global(input:disabled) {
     cursor: wait;
     opacity: 0.66;
+  }
+
+  /* Account and public-profile dialogs use the same SoftUI surface language
+     as Mi and Agordoj. The workspace/panel dialogs keep their existing
+     treatment, while this variant provides a reusable private-settings shell. */
+  .softui-modal-layer {
+    --sui-bg: #e4e9f0;
+    --sui-bg-light: #edf1f7;
+    --sui-bg-dark: #d1d9e6;
+    --sui-primary: #5b54e0;
+    --sui-primary-hover: #4a44c4;
+    --sui-danger: #c95667;
+    --sui-text: #2d3748;
+    --sui-text-muted: #5a6a7e;
+    --sui-text-light: #6a7d94;
+    --sui-shadow-color: rgb(39 51 67 / 20%);
+    --sui-shadow-raised: 0 17px 38px var(--sui-shadow-color), -7px -7px 18px rgb(255 255 255 / 48%);
+    --sui-shadow-raised-sm: 0 5px 12px rgb(39 51 67 / 17%), -3px -3px 8px rgb(255 255 255 / 50%);
+    --sui-shadow-inset: inset 3px 3px 8px rgb(39 51 67 / 17%), inset -3px -3px 7px rgb(255 255 255 / 50%);
+    --sui-shadow-inset-sm: inset 2px 2px 6px rgb(39 51 67 / 17%), inset -2px -2px 5px rgb(255 255 255 / 50%);
+  }
+
+  :global(html[data-theme='dark']) .softui-modal-layer {
+    --sui-bg: #2a2d35;
+    --sui-bg-light: #31343c;
+    --sui-bg-dark: #23262d;
+    --sui-primary: #918cf2;
+    --sui-primary-hover: #aaa6ff;
+    --sui-danger: #e28a9e;
+    --sui-text: #e2e8f0;
+    --sui-text-muted: #aab4c5;
+    --sui-text-light: #8a94a6;
+    --sui-shadow-color: rgb(0 0 0 / 42%);
+    --sui-shadow-raised: 0 18px 40px var(--sui-shadow-color);
+    --sui-shadow-raised-sm: 0 6px 14px rgb(0 0 0 / 37%);
+    --sui-shadow-inset: inset 3px 3px 8px rgb(0 0 0 / 32%), inset -3px -3px 7px rgb(255 255 255 / 4%);
+    --sui-shadow-inset-sm: inset 2px 2px 6px rgb(0 0 0 / 32%), inset -2px -2px 5px rgb(255 255 255 / 4%);
+  }
+
+  .softui-modal-layer .modal-backdrop {
+    background: rgb(35 44 61 / 52%);
+    backdrop-filter: blur(7px);
+  }
+
+  .softui-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(468px, calc(100vw - 80px));
+    max-height: min(680px, calc(100vh - 64px));
+    overflow: hidden;
+    color: var(--sui-text);
+    background: var(--sui-bg);
+    border: 0;
+    border-radius: 24px;
+    box-shadow: var(--sui-shadow-raised);
+  }
+
+  .softui-dialog .dialog-heading {
+    flex: 0 0 auto;
+    min-height: 66px;
+    padding: 13px 17px 13px 19px;
+    background: linear-gradient(145deg, var(--sui-bg-light), var(--sui-bg));
+    border-bottom: 1px solid color-mix(in srgb, var(--sui-text-light) 16%, transparent);
+  }
+
+  .softui-dialog .dialog-title-group { gap: 11px; }
+  .softui-dialog .dialog-mark {
+    width: 42px;
+    height: 42px;
+    color: var(--sui-primary);
+    background: var(--sui-bg);
+    border: 0;
+    border-radius: 14px;
+    box-shadow: var(--sui-shadow-inset-sm);
+  }
+  .softui-dialog .dialog-eyebrow { color: var(--sui-primary); font-size: calc(8px * var(--text-scale)); }
+  .softui-dialog .dialog-heading h2 { color: var(--sui-text); font-size: calc(17px * var(--text-scale)); font-weight: 730; }
+  .softui-dialog .dialog-close {
+    color: var(--sui-text-muted);
+    background: var(--sui-bg);
+    border: 0;
+    border-radius: 50%;
+    box-shadow: var(--sui-shadow-raised-sm);
+    transition: color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  }
+  .softui-dialog .dialog-close:hover:not(:disabled) { color: var(--sui-primary); background: var(--sui-bg); border: 0; box-shadow: var(--sui-shadow-inset-sm); transform: translateY(-1px); }
+  .softui-dialog .dialog-close:active:not(:disabled) { transform: translateY(1px); }
+
+  .softui-dialog .dialog-form {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 18px 20px 20px;
+    scrollbar-color: color-mix(in srgb, var(--sui-primary) 48%, transparent) transparent;
+  }
+  .softui-dialog .dialog-form :global(.dialog-description) { max-width: none; color: var(--sui-text-muted); font-size: calc(10px * var(--text-scale)); line-height: 1.5; }
+  .softui-dialog .dialog-form :global(.dialog-field) { margin-top: 16px; }
+  .softui-dialog .dialog-form :global(.dialog-field label) { margin-bottom: 7px; color: var(--sui-text); font-size: calc(10px * var(--text-scale)); font-weight: 700; }
+  .softui-dialog .dialog-form :global(.dialog-field > p) { margin-top: 6px; color: var(--sui-text-light); font-size: calc(8px * var(--text-scale)); }
+  .softui-dialog .dialog-form :global(input),
+  .softui-dialog .dialog-form :global(textarea) {
+    width: 100%;
+    min-width: 0;
+    padding: 10px 12px;
+    color: var(--sui-text);
+    background: var(--sui-bg);
+    border: 0;
+    border-radius: 11px;
+    box-shadow: var(--sui-shadow-inset-sm);
+    outline: 0;
+    font: inherit;
+    font-size: calc(10px * var(--text-scale));
+    transition: box-shadow 140ms ease;
+  }
+  .softui-dialog .dialog-form :global(input) { height: 39px; }
+  .softui-dialog .dialog-form :global(textarea) { min-height: 94px; resize: vertical; line-height: 1.5; }
+  .softui-dialog .dialog-form :global(input:focus),
+  .softui-dialog .dialog-form :global(textarea:focus) { box-shadow: var(--sui-shadow-inset-sm), 0 0 0 3px color-mix(in srgb, var(--sui-primary) 18%, transparent); }
+  .softui-dialog .dialog-form :global(input::placeholder),
+  .softui-dialog .dialog-form :global(textarea::placeholder) { color: var(--sui-text-light); opacity: .76; }
+  .softui-dialog .dialog-form :global(.dialog-error) { margin-top: 12px; color: var(--sui-danger); background: color-mix(in srgb, var(--sui-danger) 10%, var(--sui-bg)); border: 0; border-radius: 10px; box-shadow: var(--sui-shadow-inset-sm); font-size: calc(9px * var(--text-scale)); }
+  .softui-dialog .dialog-actions { margin-top: 19px; padding-top: 15px; border-top: 1px solid color-mix(in srgb, var(--sui-text-light) 16%, transparent); }
+  .softui-dialog .secondary-action,
+  .softui-dialog .dialog-primary-action {
+    height: 37px;
+    border: 0;
+    border-radius: 11px;
+    box-shadow: var(--sui-shadow-raised-sm);
+    font-size: calc(10px * var(--text-scale));
+    transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  }
+  .softui-dialog .secondary-action { color: var(--sui-text-muted); background: var(--sui-bg); }
+  .softui-dialog .secondary-action:hover:not(:disabled) { color: var(--sui-primary); background: var(--sui-bg); border: 0; transform: translateY(-1px); }
+  .softui-dialog .secondary-action:active:not(:disabled) { box-shadow: var(--sui-shadow-inset-sm); transform: translateY(1px); }
+  .softui-dialog .dialog-primary-action { color: #fff; background: var(--sui-primary); border: 0; box-shadow: 4px 4px 12px color-mix(in srgb, var(--sui-primary) 35%, transparent); }
+  .softui-dialog .dialog-primary-action:hover:not(:disabled) { color: #fff; background: var(--sui-primary-hover); transform: translateY(-1px); }
+  .softui-dialog .dialog-primary-action:active:not(:disabled) { box-shadow: var(--sui-shadow-inset); transform: translateY(1px); }
+
+  @media (max-width: 560px) {
+    .softui-modal-layer { padding: 24px; }
+    .softui-dialog { width: min(100%, 468px); max-height: calc(100vh - 48px); border-radius: 20px; }
+    .softui-dialog .dialog-form { padding: 16px; }
   }
 
   @keyframes modal-backdrop-enter {

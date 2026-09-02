@@ -331,6 +331,10 @@
     }
     return error instanceof Error && error.message ? error.message : 'The media device could not be opened.';
   }
+
+  function rangeProgress(value: number, min: number, max: number): number {
+    return Math.min(100, Math.max(0, (value - min) / Math.max(1, max - min) * 100));
+  }
 </script>
 
 <section class="media-settings-card" aria-labelledby="media-title">
@@ -376,13 +380,13 @@
 
     <div class="level-field">
       <div><label for="microphone-volume">Microphone volume</label><output for="microphone-volume">{snapshot.microphoneVolume}%</output></div>
-      <input id="microphone-volume" min="0" max="200" step="5" type="range" value={snapshot.microphoneVolume} oninput={(event) => onMicrophoneVolume(Number(event.currentTarget.value))}/>
+      <input id="microphone-volume" class="sui-range" style={`--range-progress:${rangeProgress(snapshot.microphoneVolume, 0, 200)}%`} min="0" max="200" step="5" type="range" value={snapshot.microphoneVolume} oninput={(event) => onMicrophoneVolume(Number(event.currentTarget.value))}/>
       <small>100% is the natural input level</small>
     </div>
 
     <div class="level-field">
       <div><label for="speaker-volume">Speaker volume</label><output for="speaker-volume">{snapshot.speakerVolume}%</output></div>
-      <input id="speaker-volume" min="0" max="100" step="5" type="range" value={snapshot.speakerVolume} oninput={(event) => onSpeakerVolume(Number(event.currentTarget.value))}/>
+      <input id="speaker-volume" class="sui-range" style={`--range-progress:${rangeProgress(snapshot.speakerVolume, 0, 100)}%`} min="0" max="100" step="5" type="range" value={snapshot.speakerVolume} oninput={(event) => onSpeakerVolume(Number(event.currentTarget.value))}/>
       <small>Applied to everyone you hear in voice</small>
     </div>
   </div>
@@ -465,4 +469,130 @@
   .media-error { margin-top: 12px; padding: 9px 11px; color: #944b45; background: #fbefed; border: 1px solid #ebd1ce; border-radius: 8px; font-size: calc(9px * var(--text-scale)); }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid rgb(55 117 102 / 44%); outline-offset: 2px; }
   @media (max-width: 760px) { .device-grid, .test-grid { grid-template-columns: 1fr; } }
+
+  /* Media controls use the same SoftUI surface contract as Agordoj. Keep
+     these variables local so the card also remains legible when embedded in
+     another section or rendered in isolation by a story/test. */
+  .media-settings-card {
+    --sui-bg: #e4e9f0;
+    --sui-bg-light: #edf1f7;
+    --sui-bg-dark: #d1d9e6;
+    --sui-primary: #5b54e0;
+    --sui-primary-hover: #4a44c4;
+    --sui-success: #1fa96e;
+    --sui-danger: #c95667;
+    --sui-text: #2d3748;
+    --sui-text-muted: #5a6a7e;
+    --sui-text-light: #6a7d94;
+    --sui-shadow-raised: 0 9px 22px rgb(39 51 67 / 20%), -5px -5px 14px rgb(255 255 255 / 56%);
+    --sui-shadow-raised-sm: 0 4px 10px rgb(39 51 67 / 17%), -3px -3px 8px rgb(255 255 255 / 50%);
+    --sui-shadow-inset-sm: inset 2px 2px 6px rgb(39 51 67 / 17%), inset -2px -2px 5px rgb(255 255 255 / 50%);
+    margin-top: 14px;
+    color: var(--sui-text);
+    background: var(--sui-bg);
+    border: 0;
+    box-shadow: var(--sui-shadow-raised);
+  }
+
+  :global(html[data-theme='dark']) .media-settings-card {
+    --sui-bg: #2a2d35;
+    --sui-bg-light: #31343c;
+    --sui-bg-dark: #23262d;
+    --sui-primary: #918cf2;
+    --sui-primary-hover: #aaa6ff;
+    --sui-success: #54c99a;
+    --sui-danger: #e28a9e;
+    --sui-text: #e2e8f0;
+    --sui-text-muted: #aab4c5;
+    --sui-text-light: #8a94a6;
+    --sui-shadow-raised: 0 11px 25px rgb(0 0 0 / 42%);
+    --sui-shadow-raised-sm: 0 5px 12px rgb(0 0 0 / 36%);
+    --sui-shadow-inset-sm: inset 2px 2px 6px rgb(0 0 0 / 32%), inset -2px -2px 5px rgb(255 255 255 / 4%);
+  }
+
+  .media-settings-card .media-heading { border-bottom-color: color-mix(in srgb, var(--sui-text-light) 18%, transparent); }
+  .media-settings-card .setting-icon { color: var(--sui-primary); background: var(--sui-bg); border: 0; box-shadow: var(--sui-shadow-inset-sm); }
+  .media-settings-card h2, .media-settings-card .test-copy strong { color: var(--sui-text); }
+  .media-settings-card .media-heading p, .media-settings-card .test-copy span, .media-settings-card .camera-action span { color: var(--sui-text-light); }
+  .media-settings-card .reset-media,
+  .media-settings-card .access-row button,
+  .media-settings-card .test-panel button {
+    color: var(--sui-primary);
+    background: var(--sui-bg);
+    border: 0;
+    border-radius: 10px;
+    box-shadow: var(--sui-shadow-raised-sm);
+  }
+  .media-settings-card .reset-media:hover,
+  .media-settings-card .access-row button:hover,
+  .media-settings-card .test-panel button:hover:not(:disabled) { color: var(--sui-primary-hover); transform: translateY(-1px); }
+  .media-settings-card .reset-media:active,
+  .media-settings-card .access-row button:active,
+  .media-settings-card .test-panel button:active:not(:disabled) { box-shadow: var(--sui-shadow-inset-sm); transform: none; }
+  .media-settings-card select,
+  .media-settings-card .test-panel,
+  .media-settings-card .camera-preview {
+    color: var(--sui-text);
+    background: var(--sui-bg);
+    border: 0;
+    box-shadow: var(--sui-shadow-inset-sm);
+  }
+  .media-settings-card select { border-radius: 10px; }
+  .media-settings-card select:focus { border-color: var(--sui-primary); box-shadow: var(--sui-shadow-inset-sm), 0 0 0 2px color-mix(in srgb, var(--sui-primary) 20%, transparent); }
+  .media-settings-card .device-field > span,
+  .media-settings-card .level-field label { color: var(--sui-text-muted); }
+  .media-settings-card .level-field output { color: var(--sui-primary); }
+  .media-settings-card .level-field small { color: var(--sui-text-light); }
+  .media-settings-card .level-field input {
+    height: 20px;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+  .media-settings-card .level-field input::-webkit-slider-runnable-track {
+    height: 6px;
+    background: linear-gradient(90deg, var(--sui-primary) 0 var(--range-progress), var(--sui-bg-dark) var(--range-progress) 100%);
+    border-radius: 999px;
+    box-shadow: var(--sui-shadow-inset-sm);
+  }
+  .media-settings-card .level-field input::-webkit-slider-thumb {
+    width: 17px;
+    height: 17px;
+    margin-top: -5.5px;
+    appearance: none;
+    background: var(--sui-bg-light);
+    border: 2px solid var(--sui-primary);
+    border-radius: 50%;
+    box-shadow: var(--sui-shadow-raised-sm);
+  }
+  .media-settings-card .level-field input::-moz-range-track { height: 6px; background: var(--sui-bg-dark); border-radius: 999px; box-shadow: var(--sui-shadow-inset-sm); }
+  .media-settings-card .level-field input::-moz-range-progress { height: 6px; background: var(--sui-primary); border-radius: 999px; }
+  .media-settings-card .level-field input::-moz-range-thumb { width: 13px; height: 13px; background: var(--sui-bg-light); border: 2px solid var(--sui-primary); border-radius: 50%; box-shadow: var(--sui-shadow-raised-sm); }
+  .media-settings-card .access-row { color: var(--sui-text-muted); background: color-mix(in srgb, var(--sui-success) 8%, var(--sui-bg)); border: 0; box-shadow: var(--sui-shadow-inset-sm); }
+  .media-settings-card .access-row.error { color: var(--sui-danger); background: color-mix(in srgb, var(--sui-danger) 9%, var(--sui-bg)); }
+  .media-settings-card .test-grid { border-top-color: color-mix(in srgb, var(--sui-text-light) 18%, transparent); }
+  .media-settings-card .test-panel.active { border: 0; box-shadow: var(--sui-shadow-inset-sm), 0 0 0 2px color-mix(in srgb, var(--sui-success) 25%, transparent); }
+  .media-settings-card .microphone-meter { background: var(--sui-bg-dark); border: 0; box-shadow: var(--sui-shadow-inset-sm); }
+  .media-settings-card .microphone-meter i { background: linear-gradient(90deg, color-mix(in srgb, var(--sui-success) 58%, var(--sui-primary)), var(--sui-primary)); }
+  .media-settings-card .microphone-meter span { color: var(--sui-text-muted); }
+  .media-settings-card .camera-preview { color: var(--sui-text-light); }
+  .media-settings-card .camera-preview svg { stroke: var(--sui-primary); }
+  .media-settings-card .test-grid { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+  .media-settings-card .camera-preview {
+    width: 100%;
+    height: auto;
+    min-height: 150px;
+    max-height: 240px;
+    aspect-ratio: 16 / 9;
+  }
+  .media-settings-card .camera-preview video {
+    background: var(--sui-bg-dark);
+    object-fit: contain;
+  }
+  @media (max-width: 760px) { .media-settings-card .test-grid { grid-template-columns: 1fr; } }
+  .media-settings-card .test-panel button.stop { color: var(--sui-danger); background: color-mix(in srgb, var(--sui-danger) 9%, var(--sui-bg)); }
+  .media-settings-card .media-error { color: var(--sui-danger); background: color-mix(in srgb, var(--sui-danger) 10%, var(--sui-bg)); border: 0; box-shadow: var(--sui-shadow-inset-sm); }
+  .media-settings-card button:focus-visible,
+  .media-settings-card select:focus-visible,
+  .media-settings-card input:focus-visible { outline-color: color-mix(in srgb, var(--sui-primary) 45%, transparent); }
 </style>

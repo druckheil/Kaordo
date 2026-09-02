@@ -88,6 +88,7 @@
   submittingLabel={mode === 'username' ? 'Saving…' : 'Changing…'}
   title={mode === 'username' ? 'Change username' : 'Change password'}
   titleId="account-change-title"
+  variant="settings"
 >
   {#snippet icon()}
     {#if mode === 'username'}
