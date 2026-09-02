@@ -3,6 +3,8 @@ import type {
   ArrowAttachment,
   ArrowElement,
   CanvasElement,
+  TextElement,
+  TextRangeAnchor,
 } from '../domain/workspace';
 import type { CanvasPlacement } from '../domain/canvas';
 import { CANVAS_CARD_HEADER_HEIGHT } from './canvas';
@@ -180,6 +182,35 @@ export function canvasElementFrame(
   };
 }
 
+/**
+ * Resolves the visual box of a selected phrase in the coordinate space used
+ * by an arrow. The range is stored relative to its text element, so moving a
+ * text block keeps every explanation arrow attached without rewriting it.
+ */
+export function canvasTextRangeFrame(
+  element: TextElement,
+  range: TextRangeAnchor,
+  parentObjectId: string | undefined,
+  placements: readonly CanvasPlacement[],
+): CanvasFrame | null {
+  const frame = canvasElementFrame(element, placements);
+  if (!frame) return null;
+  return textRangeFrame(localFrame(frame, parentObjectId, placements), range);
+}
+
+/** Picks the side of a phrase closest to the explanation target. */
+export function textRangeSide(
+  frame: CanvasFrame,
+  target: ArrowPoint,
+): ArrowAnchorSide {
+  const centerX = (frame.left + frame.right) / 2;
+  const centerY = (frame.top + frame.bottom) / 2;
+  const deltaX = target.x - centerX;
+  const deltaY = target.y - centerY;
+  if (Math.abs(deltaX) >= Math.abs(deltaY)) return deltaX >= 0 ? 'right' : 'left';
+  return deltaY >= 0 ? 'bottom' : 'top';
+}
+
 export function canvasObjectFrame(placement: CanvasPlacement): CanvasFrame {
   return {
     bottom: placement.y + placement.height,
@@ -209,7 +240,11 @@ function resolvePoint(
       ? canvasObjectFrame(placement)
       : null;
   if (!globalFrame) return fallback;
-  return anchorPoint(localFrame(globalFrame, arrow.parentObjectId, placements), attachment);
+  const frame = localFrame(globalFrame, arrow.parentObjectId, placements);
+  if (element?.type === 'text' && attachment.textRange) {
+    return anchorPoint(textRangeFrame(frame, attachment.textRange), attachment);
+  }
+  return anchorPoint(frame, attachment);
 }
 
 function snapPoint(
@@ -324,6 +359,25 @@ function anchorPoint(frame: CanvasFrame, attachment: ArrowAttachment): ArrowPoin
   return { x: frame.left + (frame.right - frame.left) * offset, y: frame.bottom };
 }
 
+function textRangeFrame(frame: CanvasFrame, range: TextRangeAnchor): CanvasFrame {
+  const width = Math.max(1, frame.right - frame.left);
+  const height = Math.max(1, frame.bottom - frame.top);
+  const left = frame.left + clamp(range.x, 0, width);
+  const top = frame.top + clamp(range.y, 0, height);
+  const right = Math.min(frame.right, left + Math.max(1, range.width));
+  const bottom = Math.min(frame.bottom, top + Math.max(1, range.height));
+  return {
+    bottom: Math.max(top + 1, bottom),
+    left,
+    right: Math.max(left + 1, right),
+    top,
+  };
+}
+
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }

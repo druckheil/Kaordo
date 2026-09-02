@@ -94,6 +94,12 @@
   overflow: visible;
 }
 
+/* CardNestedCanvas toggles this class imperatively during a nested drag so
+   the lifted element can leave the panel even in WebViews without :has(). */
+.canvas-card--nested-element-moving {
+  overflow: visible;
+}
+
 .canvas-card-drag-handle:active {
   cursor: grabbing;
 }

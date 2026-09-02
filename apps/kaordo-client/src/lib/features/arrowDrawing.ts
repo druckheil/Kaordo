@@ -1,4 +1,4 @@
-import type { ArrowElement } from '../domain/workspace';
+import type { ArrowAttachment, ArrowElement } from '../domain/workspace';
 import { ARROW_MIN_LENGTH } from './arrowGeometry';
 
 export type ArrowDrawGesture = {
@@ -6,6 +6,7 @@ export type ArrowDrawGesture = {
   currentY: number;
   kind: 'draw-arrow';
   pointerId: number;
+  sourceAttachment?: ArrowAttachment;
   startX: number;
   startY: number;
 };
@@ -13,12 +14,14 @@ export type ArrowDrawGesture = {
 export function startArrowDraw(
   point: { x: number; y: number },
   pointerId: number,
+  sourceAttachment?: ArrowAttachment,
 ): ArrowDrawGesture {
   return {
     currentX: point.x,
     currentY: point.y,
     kind: 'draw-arrow',
     pointerId,
+    ...(sourceAttachment ? { sourceAttachment } : {}),
     startX: point.x,
     startY: point.y,
   };

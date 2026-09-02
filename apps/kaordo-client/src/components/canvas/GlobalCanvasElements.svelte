@@ -3,8 +3,11 @@
   import {
     canvasElementIdsForElement,
     type ArrowElement,
+    type ArrowAttachment,
     type CanvasElement,
     type RectangleElement,
+    type TextArrowSource,
+    type TextElement,
     type WorkspaceCanvasDocument,
   } from '../../lib/domain/workspace';
   import type { CanvasService } from '../../lib/services/CanvasService';
@@ -16,7 +19,12 @@
     startArrowDraw,
     type ArrowDrawGesture,
   } from '../../lib/features/arrowDrawing';
-  import { arrowPoints, snapArrow } from '../../lib/features/arrowGeometry';
+  import {
+    arrowPoints,
+    canvasTextRangeFrame,
+    snapArrow,
+    textRangeSide,
+  } from '../../lib/features/arrowGeometry';
   import type { ArrowHandle } from '../../lib/features/arrowLive';
   import {
     dispatchCanvasLiveEnd,
@@ -147,7 +155,11 @@
       event.stopPropagation();
       canvas.state.selectGlobalElement(null);
       const point = canvasPoint(event);
-      gesture = startArrowDraw(point, event.pointerId);
+      const source = sourceAtPoint(point, snapshot.textArrowSource);
+      if (snapshot.textArrowSource && !source) {
+        canvas.state.setTextArrowSource(null);
+      }
+      gesture = startArrowDraw(point, event.pointerId, source);
       updateArrowDraft(gesture);
       layer?.setPointerCapture?.(event.pointerId);
       return;
@@ -224,7 +236,11 @@
     if (event.button === 0 && snapshot.activeTool === 'arrow') {
       event.preventDefault();
       const point = canvasPoint(event);
-      gesture = startArrowDraw(point, event.pointerId);
+      const source = sourceAtPoint(point, snapshot.textArrowSource);
+      if (snapshot.textArrowSource && !source) {
+        canvas.state.setTextArrowSource(null);
+      }
+      gesture = startArrowDraw(point, event.pointerId, source);
       updateArrowDraft(gesture);
       layer?.setPointerCapture?.(event.pointerId);
       return;
@@ -295,7 +311,9 @@
       );
       return;
     }
-    canvas.state.setTool('select');
+    const keepTextArrowSource = finished.kind === 'draw-arrow' &&
+      Boolean(finished.sourceAttachment);
+    canvas.state.setTool(keepTextArrowSource ? 'arrow' : 'select');
     const currentDocument = canvas.state.canvasDocumentFor(workspaceId);
     const element = finished.kind === 'draw'
       ? drawnRectangle(finished, true, currentDocument.elements)
@@ -414,10 +432,19 @@
     draw: ArrowDrawGesture,
     elements: readonly CanvasElement[],
   ): ArrowElement {
-    const panel = panelAtPoint({
-      x: (draw.startX + draw.currentX) / 2,
-      y: (draw.startY + draw.currentY) / 2,
-    });
+    const sourceParentObjectId = draw.sourceAttachment?.objectId;
+    const sourcePlacement = sourceParentObjectId
+      ? snapshot.placements[workspaceId]?.find((candidate) => candidate.id === sourceParentObjectId)
+      : undefined;
+    const targetPanel = panelAtPoint({ x: draw.currentX, y: draw.currentY });
+    const panel = sourceParentObjectId
+      ? targetPanel?.id === sourceParentObjectId ? sourcePlacement : undefined
+      : draw.sourceAttachment
+        ? undefined
+        : panelAtPoint({
+          x: (draw.startX + draw.currentX) / 2,
+          y: (draw.startY + draw.currentY) / 2,
+        });
     const localDraw = panel
       ? {
           ...draw,
@@ -433,7 +460,64 @@
       snapshot.shapeStroke,
       panel?.id,
     );
+    if (draw.sourceAttachment) {
+      const sourceElement = elements.find(
+        (candidate): candidate is TextElement =>
+          candidate.id === draw.sourceAttachment?.elementId && candidate.type === 'text',
+      );
+      const range = draw.sourceAttachment.textRange;
+      const sourceFrame = sourceElement && range
+        ? canvasTextRangeFrame(
+            sourceElement,
+            range,
+            panel?.id,
+            snapshot.placements[workspaceId] ?? [],
+          )
+        : null;
+      if (sourceFrame) {
+        draw.sourceAttachment.side = textRangeSide(sourceFrame, {
+          x: localDraw.currentX,
+          y: localDraw.currentY,
+        });
+        draw.sourceAttachment.offset = 0.5;
+      }
+      arrow.startAttachment = { ...draw.sourceAttachment };
+      arrow.startX = localDraw.startX;
+      arrow.startY = localDraw.startY;
+    }
     return snapArrow(arrow, elements, snapshot.placements[workspaceId] ?? []);
+  }
+
+  function sourceAtPoint(
+    point: { x: number; y: number },
+    source: TextArrowSource | null,
+  ): ArrowAttachment | undefined {
+    if (!source) return undefined;
+    const element = document.elements.find(
+      (candidate): candidate is TextElement =>
+        candidate.id === source.elementId && candidate.type === 'text',
+    );
+    if (!element) return undefined;
+    const frame = canvasTextRangeFrame(
+      element,
+      source.anchor,
+      undefined,
+      snapshot.placements[workspaceId] ?? [],
+    );
+    if (!frame) return undefined;
+    const tolerance = 30;
+    const inside = point.x >= frame.left - tolerance &&
+      point.x <= frame.right + tolerance &&
+      point.y >= frame.top - tolerance &&
+      point.y <= frame.bottom + tolerance;
+    if (!inside) return undefined;
+    return {
+      elementId: source.elementId,
+      offset: 0.5,
+      side: textRangeSide(frame, point),
+      textRange: source.anchor,
+      ...(source.parentObjectId ? { objectId: source.parentObjectId } : {}),
+    };
   }
 
   function panelAtPoint(point: { x: number; y: number }):
@@ -756,6 +840,7 @@
     {:else if element.type === 'text'}
       <CanvasTextBlock
         {canvas}
+        arrowSource={snapshot.textArrowSource}
         editing={snapshot.editingTextId === element.id}
         element={element}
         moving={false}

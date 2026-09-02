@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { CanvasService } from '../../lib/services/CanvasService';
+  import type { CanvasService, TextFormatCommand } from '../../lib/services/CanvasService';
   import type { ArrowHeadMode, ArrowLineStyle } from '../../lib/domain/workspace';
   import { readCanvasMediaDimensions } from '../../lib/features/canvasMediaDimensions';
   import type { CanvasSnapshot, CanvasTool } from '../../lib/states/CanvasGState';
@@ -22,6 +22,17 @@
   const strokes = ['#397565', '#436c9e', '#967033', '#9a5148', '#76528e'];
   const textColors = ['#25332d', '#376f60', '#3f6591', '#9a5148', '#76528e'];
   const highlights = ['#fff1a8', '#dcece5', '#dce8f6', '#f3deda', 'transparent'];
+  const textFormats: Array<{
+    command: Extract<TextFormatCommand, 'bold' | 'italic' | 'underline' | 'strikeThrough'>;
+    glyph: string;
+    label: string;
+    shortcut: string;
+  }> = [
+    { command: 'bold', glyph: 'B', label: 'Bold', shortcut: 'Control+B Meta+B' },
+    { command: 'italic', glyph: 'I', label: 'Italic', shortcut: 'Control+I Meta+I' },
+    { command: 'underline', glyph: 'U', label: 'Underline', shortcut: 'Control+U Meta+U' },
+    { command: 'strikeThrough', glyph: 'S', label: 'Strikethrough', shortcut: 'Control+Shift+X Meta+Shift+X' },
+  ];
   const leftBarOptions = [0, 1, 2] as const;
   const arrowHeadModes: Array<[ArrowHeadMode, string, string]> = [
     ['end', 'End arrow', '→'],
@@ -36,6 +47,10 @@
 
   function chooseTool(tool: CanvasTool) {
     canvas.state.setTool(tool);
+  }
+
+  function shortQuote(quote: string): string {
+    return quote.length > 52 ? `${quote.slice(0, 49)}…` : quote;
   }
 
   async function chooseMedia(event: Event) {
@@ -139,22 +154,45 @@
 
   {#if selectedElement?.type === 'text'}
     <div class="tool-group text-format-group" aria-label="Text style">
-      {#each [
-        ['bold', 'Bold', 'B'],
-        ['italic', 'Italic', 'I'],
-        ['underline', 'Underline', 'U'],
-        ['strikeThrough', 'Strikethrough', 'S'],
-      ] as format}
+      {#each textFormats as format}
         <button
-          class="format-button format-button--{format[0]}"
+          class="format-button format-button--{format.command}"
           type="button"
-          aria-label={format[1]}
-          title={format[1]}
+          aria-label={format.label}
+          aria-keyshortcuts={format.shortcut}
+          title={`${format.label} · ${format.command === 'strikeThrough' ? 'Ctrl/⌘+Shift+X' : `Ctrl/⌘+${format.glyph}`}`}
           onpointerdown={(event) => event.preventDefault()}
-          onclick={() => void canvas.formatSelectedText(format[0] as 'bold' | 'italic' | 'underline' | 'strikeThrough')}
-        >{format[2]}</button>
+          onclick={() => void canvas.formatSelectedText(format.command)}
+        >{format.glyph}</button>
       {/each}
     </div>
+
+    <button
+      class="explain-selection-button"
+      type="button"
+      aria-label="Explain selected phrase with an arrow"
+      title={snapshot.editingTextId === selectedElement.id
+        ? 'Select a word or phrase, then draw one or more explanation arrows'
+        : 'Open this text block and select a word or phrase first'}
+      disabled={snapshot.editingTextId !== selectedElement.id}
+      onpointerdown={(event) => event.preventDefault()}
+      onclick={() => void canvas.startArrowFromTextSelection()}
+    >
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <path d="M3 5.5h8M3 9.5h5M3 13.5h4M11 11h6m-2.5-2.5L17 11l-2.5 2.5" />
+      </svg>
+      Explain selection
+    </button>
+
+    {#if snapshot.textArrowSource?.elementId === selectedElement.id}
+      <button
+        class="clear-explain-button"
+        type="button"
+        aria-label="Clear explanation phrase"
+        title="Clear the selected phrase source"
+        onclick={() => canvas.state.setTextArrowSource(null)}
+      >Clear source</button>
+    {/if}
 
     <div class="style-group size-group" aria-label="Font size">
       <span>Size</span>
@@ -312,10 +350,26 @@
           title={label}
           onclick={() => void canvas.setArrowLineStyle(style)}
         ><i class="line-style-preview line-style-preview--{style}" aria-hidden="true"></i></button>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {#if snapshot.textArrowSource}
+      <span class="phrase-source-chip" title="Several arrows can be drawn from this phrase">
+        From “{shortQuote(snapshot.textArrowSource.anchor.quote)}”
+      </span>
+      <button
+        class="clear-explain-button"
+        type="button"
+        aria-label="Clear explanation phrase"
+        title="Clear the selected phrase source"
+        onclick={() => canvas.state.setTextArrowSource(null)}
+      >Clear source</button>
+    {/if}
   {:else if snapshot.activeTool === 'arrow'}
-    <span class="text-tool-hint">Drag between points or elements to draw an arrow</span>
+    <span class="text-tool-hint">
+      {snapshot.textArrowSource
+        ? `Drag from “${shortQuote(snapshot.textArrowSource.anchor.quote)}” to explain it · draw more arrows from this phrase`
+        : 'Drag between points or elements to draw an arrow'}
+    </span>
   {:else}
     <div class="style-group" aria-label="Card fill">
       <span>Fill</span>
@@ -350,7 +404,9 @@
 
   <span class="canvas-toolbar-status">
     {selectedElement?.type === 'text'
-      ? snapshot.editingTextId ? 'Editing text' : 'Text selected'
+      ? snapshot.textArrowSource?.elementId === selectedElement.id
+        ? 'Phrase source armed'
+        : snapshot.editingTextId ? 'Editing text' : 'Text selected'
       : selectedElement?.type === 'media'
         ? 'Media selected'
       : selectedElement?.type === 'arrow'
@@ -475,6 +531,40 @@
   .format-button--strikeThrough { text-decoration: line-through; }
   .format-button:focus-visible { outline: 2px solid rgb(55 117 102 / 35%); outline-offset: 1px; }
   .text-format-group { padding-right: 2px; }
+  .explain-selection-button,
+  .clear-explain-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 27px;
+    padding: 0 8px;
+    color: #5e54d8;
+    background: rgb(99 91 224 / 9%);
+    border: 1px solid rgb(99 91 224 / 24%);
+    border-radius: 7px;
+    cursor: pointer;
+    font: inherit;
+    font-size: calc(9px * var(--text-scale));
+    font-weight: 680;
+    white-space: nowrap;
+  }
+
+  .explain-selection-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.45; }
+  .explain-selection-button:hover,
+  .clear-explain-button:hover { color: #4439c8; background: rgb(99 91 224 / 16%); border-color: rgb(99 91 224 / 42%); }
+  .explain-selection-button:disabled { color: #87918b; background: transparent; border-color: transparent; cursor: not-allowed; opacity: .62; }
+  .clear-explain-button { color: #85636a; background: transparent; border-color: rgb(133 99 106 / 22%); }
+  .phrase-source-chip {
+    max-width: 190px;
+    overflow: hidden;
+    color: #5e54d8;
+    font-size: calc(9px * var(--text-scale));
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .explain-selection-button:focus-visible,
+  .clear-explain-button:focus-visible { outline: 2px solid rgb(99 91 224 / 32%); outline-offset: 1px; }
   .text-tool-hint { padding: 0 5px; color: #6f7e76; font-size: calc(10px * var(--text-scale)); font-weight: 560; white-space: nowrap; }
   .size-group { gap: 2px; }
   .size-button { min-width: 27px; padding: 0 3px; font-variant-numeric: tabular-nums; }

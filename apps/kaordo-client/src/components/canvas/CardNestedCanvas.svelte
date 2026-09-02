@@ -3,9 +3,12 @@
   import type { CanvasPlacement } from '../../lib/domain/canvas';
   import {
     canvasElementIdsForElement,
+    type ArrowAttachment,
     type ArrowElement,
     type CanvasElement,
     type RectangleElement,
+    type TextArrowSource,
+    type TextElement,
     type WorkspaceCanvasDocument,
   } from '../../lib/domain/workspace';
   import {
@@ -15,7 +18,12 @@
     startArrowDraw,
     type ArrowDrawGesture,
   } from '../../lib/features/arrowDrawing';
-  import { arrowPoints, snapArrow } from '../../lib/features/arrowGeometry';
+  import {
+    arrowPoints,
+    canvasTextRangeFrame,
+    snapArrow,
+    textRangeSide,
+  } from '../../lib/features/arrowGeometry';
   import type { ArrowHandle } from '../../lib/features/arrowLive';
   import {
     dispatchCanvasLiveEnd,
@@ -66,6 +74,11 @@
     visualNodes: HTMLElement[];
   };
 
+  type DragOverflowNode = {
+    node: HTMLElement;
+    overflow: string;
+  };
+
   let { canvas, document, placement, snapshot, workspaceId }: Props = $props();
   let board = $state<HTMLDivElement>();
   let draftElement: HTMLSpanElement | undefined;
@@ -75,6 +88,7 @@
   let visualFrame: number | null = null;
   let pendingPoint: { x: number; y: number } | null = null;
   let lastRectanglePointerDown: { at: number; id: string } | null = null;
+  let dragOverflowNodes: DragOverflowNode[] = [];
   let elements = $derived(
     document.elements.filter(
       (element) => element.parentObjectId === placement.id,
@@ -131,7 +145,11 @@
       event.preventDefault();
       event.stopPropagation();
       const point = boardPoint(event, true);
-      gesture = startArrowDraw(point, event.pointerId);
+      const source = sourceAtPoint(point, snapshot.textArrowSource);
+      if (snapshot.textArrowSource && !source) {
+        canvas.state.setTextArrowSource(null);
+      }
+      gesture = startArrowDraw(point, event.pointerId, source);
       updateArrowDraft(gesture);
       board?.setPointerCapture?.(event.pointerId);
       return;
@@ -212,7 +230,11 @@
     if (event.button === 0 && snapshot.activeTool === 'arrow') {
       event.preventDefault();
       const point = boardPoint(event, true);
-      gesture = startArrowDraw(point, event.pointerId);
+      const source = sourceAtPoint(point, snapshot.textArrowSource);
+      if (snapshot.textArrowSource && !source) {
+        canvas.state.setTextArrowSource(null);
+      }
+      gesture = startArrowDraw(point, event.pointerId, source);
       updateArrowDraft(gesture);
       board?.setPointerCapture?.(event.pointerId);
       return;
@@ -233,6 +255,10 @@
       startY: point.y,
       visualNodes: findVisualNodes(element, elementIds),
     };
+    // The nested board normally clips its children to the panel. Keep the
+    // clipping disabled for the whole gesture so an element remains visible
+    // while it is being pulled out and is waiting to be re-parented globally.
+    beginDragOverflow();
     applyMoveVisual(gesture);
     board?.setPointerCapture?.(event.pointerId);
   }
@@ -283,7 +309,9 @@
       );
       return;
     }
-    canvas.state.setTool('select');
+    const keepTextArrowSource = finished.kind === 'draw-arrow' &&
+      Boolean(finished.sourceAttachment);
+    canvas.state.setTool(keepTextArrowSource ? 'arrow' : 'select');
     const currentDocument = canvas.state.canvasDocumentFor(workspaceId);
 
     const element = finished.kind === 'draw'
@@ -382,7 +410,65 @@
     elements: readonly CanvasElement[],
   ): ArrowElement {
     const arrow = arrowFromGesture(draw, createElementId(), snapshot.shapeStroke, placement.id);
+    if (draw.sourceAttachment) {
+      const sourceElement = elements.find(
+        (candidate): candidate is TextElement =>
+          candidate.id === draw.sourceAttachment?.elementId && candidate.type === 'text',
+      );
+      const range = draw.sourceAttachment.textRange;
+      const sourceFrame = sourceElement && range
+        ? canvasTextRangeFrame(
+            sourceElement,
+            range,
+            placement.id,
+            snapshot.placements[workspaceId] ?? [],
+          )
+        : null;
+      if (sourceFrame) {
+        draw.sourceAttachment.side = textRangeSide(sourceFrame, {
+          x: draw.currentX,
+          y: draw.currentY,
+        });
+        draw.sourceAttachment.offset = 0.5;
+      }
+      arrow.startAttachment = { ...draw.sourceAttachment };
+      arrow.startX = draw.startX;
+      arrow.startY = draw.startY;
+    }
     return snapArrow(arrow, elements, snapshot.placements[workspaceId] ?? []);
+  }
+
+  function sourceAtPoint(
+    point: { x: number; y: number },
+    source: TextArrowSource | null,
+  ): ArrowAttachment | undefined {
+    if (!source || source.parentObjectId !== placement.id) return undefined;
+    const element = document.elements.find(
+      (candidate): candidate is TextElement =>
+        candidate.id === source.elementId && candidate.type === 'text',
+    );
+    if (!element) return undefined;
+    const frame = canvasTextRangeFrame(
+      element,
+      source.anchor,
+      placement.id,
+      snapshot.placements[workspaceId] ?? [],
+    );
+    if (!frame) return undefined;
+    const tolerance = 30;
+    if (
+      point.x < frame.left - tolerance ||
+      point.x > frame.right + tolerance ||
+      point.y < frame.top - tolerance ||
+      point.y > frame.bottom + tolerance
+    ) return undefined;
+    return {
+      elementId: source.elementId,
+      objectId: placement.id,
+      offset: 0.5,
+      side: textRangeSide(frame, point),
+      textRange: source.anchor,
+    };
   }
 
   function movedElement(move: MoveGesture): CanvasElement {
@@ -542,6 +628,7 @@
     active: ArrowDrawGesture | RectangleDrawGesture | MoveGesture | null,
   ) {
     if (active?.kind === 'move') {
+      endDragOverflow();
       dispatchCanvasLiveEnd(active, document.elements);
       for (const node of active.visualNodes) {
         node.style.removeProperty('transform');
@@ -554,6 +641,43 @@
       draftElement.classList.remove('nested-rectangle--invalid');
     }
     if (draftArrow) draftArrow.style.display = 'none';
+  }
+
+  function beginDragOverflow() {
+    const nodes: HTMLElement[] = [];
+    let node: HTMLElement | null | undefined = board;
+    while (node) {
+      nodes.push(node);
+      if (node.classList.contains('canvas-surface')) break;
+      node = node.parentElement;
+    }
+    dragOverflowNodes = nodes.map((node) => ({
+      node,
+      overflow: node.style.overflow,
+    }));
+    for (const { node } of dragOverflowNodes) {
+      // Set the inline value as well as the class. The class keeps the
+      // appearance declarative, while the inline value works in WebViews
+      // where :has() selectors may be unavailable or delayed during a drag.
+      if (node === board) {
+        node.classList.add('card-nested-canvas--moving');
+      } else if (node.classList.contains('canvas-card')) {
+        node.classList.add('canvas-card--nested-element-moving');
+      }
+      node.style.overflow = 'visible';
+    }
+  }
+
+  function endDragOverflow() {
+    for (const { node, overflow } of dragOverflowNodes) {
+      if (node === board) {
+        node.classList.remove('card-nested-canvas--moving');
+      } else if (node.classList.contains('canvas-card')) {
+        node.classList.remove('canvas-card--nested-element-moving');
+      }
+      node.style.overflow = overflow;
+    }
+    dragOverflowNodes = [];
   }
 
   function updateDraft(draw: RectangleDrawGesture) {
@@ -688,6 +812,7 @@
     {:else if element.type === 'text'}
       <CanvasTextBlock
         {canvas}
+        arrowSource={snapshot.textArrowSource}
         editing={snapshot.editingTextId === element.id}
         element={element}
         maxWidth={Math.max(100, placement.width - element.x)}
@@ -779,6 +904,7 @@
 
   .card-nested-canvas--drawing { cursor: crosshair; }
   .card-nested-canvas--text { cursor: text; }
+  :global(.card-nested-canvas--moving) { overflow: visible; }
   .nested-rectangle {
     position: absolute;
     display: block;

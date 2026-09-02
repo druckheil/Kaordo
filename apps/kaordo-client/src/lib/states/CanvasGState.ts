@@ -5,6 +5,7 @@ import type {
 } from '../domain/canvas';
 import type {
   ObjectSummary,
+  TextArrowSource,
   WorkspaceCanvasDocument,
   WorkspaceDetail,
 } from '../domain/workspace';
@@ -37,6 +38,7 @@ export type CanvasSnapshot = {
   selectedGlobalElementId: string | null;
   shapeFill: string;
   shapeStroke: string;
+  textArrowSource: TextArrowSource | null;
   zooms: Record<string, number>;
 };
 
@@ -67,6 +69,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedGlobalElementId: null,
       shapeFill: '#dcece5',
       shapeStroke: '#397565',
+      textArrowSource: null,
       zooms: {},
     });
   }
@@ -87,6 +90,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedCardId: null,
       selectedElementId: null,
       selectedGlobalElementId: null,
+      textArrowSource: null,
     });
   }
 
@@ -165,7 +169,11 @@ export class CanvasGState extends GState<CanvasSnapshot> {
 
   prepareWorkspace(workspace: WorkspaceDetail): void {
     this.reconcile(workspace);
-    this.patch({ isCameraReady: false, isCanvasDocumentReady: false });
+    this.patch({
+      isCameraReady: false,
+      isCanvasDocumentReady: false,
+      textArrowSource: null,
+    });
     this.resetInteractions();
   }
 
@@ -178,6 +186,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedCardId: null,
       selectedElementId: null,
       selectedGlobalElementId: null,
+      textArrowSource: null,
     });
     this.resetInteractions();
   }
@@ -301,6 +310,12 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       )
         ? null
         : this.snapshot.selectedGlobalElementId,
+      textArrowSource:
+        this.snapshot.textArrowSource?.parentObjectId === objectId ||
+        (this.snapshot.textArrowSource?.elementId !== undefined &&
+          removedElementIds.has(this.snapshot.textArrowSource.elementId))
+          ? null
+          : this.snapshot.textArrowSource,
     });
   }
 
@@ -336,6 +351,9 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedGlobalElementId: this.snapshot.selectedGlobalElementId === elementId
         ? null
         : this.snapshot.selectedGlobalElementId,
+      textArrowSource: this.snapshot.textArrowSource?.elementId === elementId
+        ? null
+        : this.snapshot.textArrowSource,
     });
   }
 
@@ -520,7 +538,18 @@ export class CanvasGState extends GState<CanvasSnapshot> {
   }
 
   setTool(activeTool: CanvasTool): void {
-    if (this.snapshot.activeTool !== activeTool) this.patch({ activeTool });
+    const clearTextArrowSource = activeTool !== 'arrow' && this.snapshot.textArrowSource !== null;
+    if (this.snapshot.activeTool !== activeTool || clearTextArrowSource) {
+      this.patch({
+        activeTool,
+        ...(clearTextArrowSource ? { textArrowSource: null } : {}),
+      });
+    }
+  }
+
+  setTextArrowSource(source: TextArrowSource | null): void {
+    if (this.snapshot.textArrowSource === source) return;
+    this.patch({ textArrowSource: source });
   }
 
   setShapeFill(shapeFill: string): void {

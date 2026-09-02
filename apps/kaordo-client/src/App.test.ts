@@ -1816,6 +1816,132 @@ describe('workspace navigation and objects', () => {
     expect(await screen.findByRole('textbox', { name: 'Text editor' })).toBeInTheDocument();
   });
 
+  it('draws multiple explanation arrows from a selected text phrase', async () => {
+    const savedDocuments: Array<{ elements: Array<Record<string, unknown>> }> = [];
+    mockCommands({
+      load_canvas_document: () => JSON.stringify({
+        elements: [
+          {
+            color: '#25332d',
+            fontSize: 16,
+            height: 48,
+            html: 'Explain this phrase',
+            id: 'text-1',
+            textAlign: 'left',
+            type: 'text',
+            width: 260,
+            x: 100,
+            y: 100,
+          },
+          {
+            fill: '#dcece5',
+            height: 110,
+            id: 'rectangle-1',
+            radius: 10,
+            stroke: '#397565',
+            strokeWidth: 2,
+            type: 'rectangle',
+            width: 180,
+            x: 420,
+            y: 100,
+          },
+        ],
+        placements: [],
+        version: 1,
+      }),
+      open_workspace: () => openedResearch,
+      save_canvas_document: (args) => {
+        savedDocuments.push(JSON.parse(String(args?.documentJson)));
+      },
+    });
+    renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
+    await openResearchFile();
+
+    const text = await screen.findByRole('button', { name: 'Text: Explain this phrase' });
+    await fireEvent.pointerDown(text, { button: 0, clientX: 110, clientY: 110, pointerId: 80 });
+    await fireEvent.pointerUp(text, { button: 0, clientX: 110, clientY: 110, pointerId: 80 });
+    await fireEvent.pointerDown(text, { button: 0, clientX: 110, clientY: 110, pointerId: 81 });
+    await fireEvent.pointerUp(text, { button: 0, clientX: 110, clientY: 110, pointerId: 81 });
+
+    const editor = await screen.findByRole('textbox', { name: 'Text editor' });
+    const textNode = editor.firstChild;
+    expect(textNode).not.toBeNull();
+    if (!textNode) return;
+    const range = document.createRange();
+    range.setStart(textNode, 8);
+    range.setEnd(textNode, 14);
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ bottom: 124, height: 18, left: 108, right: 156, top: 106, width: 48 }),
+    });
+    const block = text.closest<HTMLElement>('.canvas-text-block');
+    expect(block).not.toBeNull();
+    if (!block) return;
+    vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
+      bottom: 160,
+      height: 60,
+      left: 100,
+      right: 360,
+      top: 100,
+      width: 260,
+      x: 100,
+      y: 100,
+      toJSON: () => ({}),
+    });
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    await fireEvent.mouseUp(editor);
+    await fireEvent.pointerDown(screen.getByRole('button', { name: 'Explain selected phrase with an arrow' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Explain selected phrase with an arrow' }));
+
+    expect(screen.getByRole('button', { name: 'Arrow tool' })).toHaveAttribute('aria-pressed', 'true');
+    expect(document.querySelector('.canvas-text-arrow-source')).not.toBeNull();
+
+    const drawingSurface = screen.getByRole('application', { name: 'Workspace canvas drawing surface' });
+    vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
+      bottom: 3200,
+      height: 3200,
+      left: 0,
+      right: 4800,
+      top: 0,
+      width: 4800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    await fireEvent.pointerDown(drawingSurface, {
+      button: 0,
+      clientX: 150,
+      clientY: 115,
+      pointerId: 82,
+    });
+    await fireEvent.pointerMove(drawingSurface, {
+      button: 0,
+      buttons: 1,
+      clientX: 440,
+      clientY: 150,
+      pointerId: 82,
+    });
+    await fireEvent.pointerUp(drawingSurface, {
+      button: 0,
+      clientX: 440,
+      clientY: 150,
+      pointerId: 82,
+    });
+    await waitFor(() => expect(savedDocuments.at(-1)?.elements).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        startAttachment: expect.objectContaining({
+          elementId: 'text-1',
+          textRange: expect.objectContaining({ quote: 'this p' }),
+        }),
+        type: 'arrow',
+      }),
+    ])));
+    expect(screen.getByRole('button', { name: 'Arrow tool' })).toHaveAttribute('aria-pressed', 'true');
+    delete (Range.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect;
+  });
+
   it('creates, edits, formats, lists, and saves text on the canvas', async () => {
     const savedDocuments: Array<{
       elements: Array<Record<string, unknown>>;
@@ -1887,6 +2013,121 @@ describe('workspace navigation and objects', () => {
       configurable: true,
       value: undefined,
     });
+  });
+
+  it('keeps the text selection while applying highlight and keyboard formatting shortcuts', async () => {
+    const execCommand = vi.fn((command: string, _showUi?: boolean, value?: string) => {
+      if (command === 'hiliteColor') {
+        const activeSelection = window.getSelection();
+        if (activeSelection?.rangeCount && !activeSelection.getRangeAt(0).collapsed) {
+          const range = activeSelection.getRangeAt(0);
+          const highlighted = document.createElement('span');
+          highlighted.style.backgroundColor = value ?? '';
+          highlighted.append(range.extractContents());
+          range.insertNode(highlighted);
+          activeSelection.removeAllRanges();
+          activeSelection.addRange(range);
+        }
+      }
+      return true;
+    });
+    const previousExecCommand = Object.getOwnPropertyDescriptor(document, 'execCommand');
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    });
+
+    try {
+      mockCommands({
+        load_canvas_document: () => JSON.stringify({
+          elements: [
+            {
+              color: '#25332d',
+              fontSize: 16,
+              height: 48,
+              html: 'Highlight this phrase',
+              id: 'text-1',
+              textAlign: 'left',
+              type: 'text',
+              width: 260,
+              x: 100,
+              y: 100,
+            },
+          ],
+          placements: [],
+          version: 1,
+        }),
+        open_workspace: () => openedResearch,
+      });
+      renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
+      await openResearchFile();
+
+      const text = await screen.findByRole('button', { name: 'Text: Highlight this phrase' });
+      await fireEvent.pointerDown(text, {
+        button: 0,
+        clientX: 110,
+        clientY: 110,
+        pointerId: 90,
+      });
+      await fireEvent.pointerUp(text, {
+        button: 0,
+        clientX: 110,
+        clientY: 110,
+        pointerId: 90,
+      });
+      await fireEvent.pointerDown(text, {
+        button: 0,
+        clientX: 110,
+        clientY: 110,
+        pointerId: 91,
+      });
+      await fireEvent.pointerUp(text, {
+        button: 0,
+        clientX: 110,
+        clientY: 110,
+        pointerId: 91,
+      });
+
+      const editor = await screen.findByRole('textbox', { name: 'Text editor' });
+      const textNode = editor.firstChild;
+      expect(textNode).not.toBeNull();
+      if (!textNode) return;
+      const range = document.createRange();
+      range.setStart(textNode, 10);
+      range.setEnd(textNode, 14);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      await fireEvent.mouseUp(editor);
+      expect(window.getSelection()?.toString()).toBe('this');
+
+      const highlight = screen.getByRole('button', { name: 'Highlight #fff1a8' });
+      await fireEvent.pointerDown(highlight);
+      await fireEvent.click(highlight);
+      expect(execCommand).toHaveBeenCalledWith('hiliteColor', false, '#fff1a8');
+      expect(window.getSelection()?.toString()).toBe('this');
+
+      const shortcuts: Array<[
+        key: string,
+        command: 'bold' | 'italic' | 'underline' | 'strikeThrough',
+        modifiers: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean },
+      ]> = [
+        ['b', 'bold', { ctrlKey: true }],
+        ['i', 'italic', { metaKey: true }],
+        ['u', 'underline', { ctrlKey: true }],
+        ['x', 'strikeThrough', { ctrlKey: true, shiftKey: true }],
+      ];
+      for (const [key, command, modifiers] of shortcuts) {
+        await fireEvent.keyDown(editor, { key, ...modifiers });
+        expect(execCommand).toHaveBeenLastCalledWith(command, false, undefined);
+        await waitFor(() => expect(window.getSelection()?.toString()).toBe('this'));
+      }
+    } finally {
+      if (previousExecCommand) {
+        Object.defineProperty(document, 'execCommand', previousExecCommand);
+      } else {
+        Reflect.deleteProperty(document, 'execCommand');
+      }
+    }
   });
 
   it('attaches newly created text to the rectangle under the pointer', async () => {
@@ -2055,6 +2296,8 @@ describe('workspace navigation and objects', () => {
     });
 
     const tray = screen.getByRole('application', { name: 'Project brief panel' });
+    const panel = tray.closest<HTMLElement>('.canvas-card');
+    expect(panel).not.toBeNull();
     vi.spyOn(tray, 'getBoundingClientRect').mockReturnValue({
       bottom: 586,
       height: 218,
@@ -2077,11 +2320,20 @@ describe('workspace navigation and objects', () => {
       clientY: 85,
       pointerId: 22,
     });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    expect(tray).toHaveClass('card-nested-canvas--moving');
+    expect(panel).toHaveClass('canvas-card--nested-element-moving');
+    expect(panel).toHaveStyle({ overflow: 'visible' });
+    expect((attachedRectangle.closest('.canvas-rectangle-shell') as HTMLElement | null)?.style.transform)
+      .toContain('translate3d');
     await fireEvent.pointerUp(attachedRectangle, {
       clientX: 35,
       clientY: 85,
       pointerId: 22,
     });
+    expect(tray).not.toHaveClass('card-nested-canvas--moving');
+    expect(panel).not.toHaveClass('canvas-card--nested-element-moving');
+    expect(panel).toHaveStyle({ overflow: '' });
 
     expect(await screen.findByRole('button', { name: 'Canvas card' }))
       .toBeInTheDocument();

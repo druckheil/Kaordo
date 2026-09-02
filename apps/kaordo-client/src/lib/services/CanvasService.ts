@@ -8,6 +8,8 @@ import type {
   ObjectDocument,
   ObjectSummary,
   RectangleElement,
+  TextArrowSource,
+  TextRangeAnchor,
   TextElement,
   WorkspaceCanvasDocument,
   WorkspaceDetail,
@@ -718,6 +720,36 @@ export class CanvasService {
       await tick();
     }
     this.#textEditors.get(selected.id)?.format(command, value);
+  }
+
+  async startArrowFromTextSelection(): Promise<boolean> {
+    const selected = this.selectedCanvasElement();
+    if (
+      selected?.type !== 'text' ||
+      this.state.snapshot.editingTextId !== selected.id
+    ) {
+      this.state.announce('Open a text block and select a word or phrase first.');
+      return false;
+    }
+    const editor = this.#textEditors.get(selected.id);
+    const anchor = editor?.getTextAnchor();
+    if (!anchor) {
+      this.state.announce('Select a word or phrase first.');
+      return false;
+    }
+    // Flush the draft before leaving edit mode so the quote and its offsets
+    // always describe the text that will be persisted with the arrow.
+    await editor?.commit();
+    const source: TextArrowSource = {
+      anchor,
+      elementId: selected.id,
+      ...(selected.parentObjectId ? { parentObjectId: selected.parentObjectId } : {}),
+    };
+    this.state.setTextArrowSource(source);
+    this.state.editText(null);
+    this.state.setTool('arrow');
+    this.state.announce(`Drag from “${anchor.quote}” to an explanation target.`);
+    return true;
   }
 
   async setTextFontSize(fontSize: number): Promise<void> {
@@ -1447,7 +1479,9 @@ export type TextFormatCommand =
   | 'underline';
 
 export type TextEditorController = {
+  commit(): Promise<void>;
   format(command: TextFormatCommand, value?: string): void;
+  getTextAnchor(): TextRangeAnchor | null;
 };
 
 function constrainObjectSize(

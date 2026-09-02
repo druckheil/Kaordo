@@ -2,6 +2,8 @@
   import { onDestroy, tick } from 'svelte';
   import {
     sanitizeTextHtml,
+    type TextArrowSource,
+    type TextRangeAnchor,
     textElementLabel,
     type TextElement,
   } from '../../lib/domain/workspace';
@@ -14,6 +16,7 @@
 
   type Props = {
     canvas: CanvasService;
+    arrowSource?: TextArrowSource | null;
     editing: boolean;
     element: TextElement;
     maxWidth?: number;
@@ -23,8 +26,14 @@
     workspaceId: string;
   };
 
+  type TextSelectionBookmark = {
+    end: number;
+    start: number;
+  };
+
   let {
     canvas,
+    arrowSource = null,
     editing,
     element,
     maxWidth = 900,
@@ -37,6 +46,8 @@
   let elementId = $derived(element.id);
   let draftHtml = $state('');
   let savedRange: Range | null = null;
+  let selectionRevision = 0;
+  let preservingFormatSelection = false;
   let autosaveTimer: number | null = null;
   let lastPointerDown: { at: number; id: string } | null = null;
   let resize = $state<{
@@ -45,6 +56,9 @@
     startWidth: number;
   } | null>(null);
   let resizedWidth = $state<number | null>(null);
+  let textArrowAnchor = $derived(
+    arrowSource?.elementId === element.id ? arrowSource.anchor : null,
+  );
 
   onDestroy(() => {
     if (autosaveTimer !== null) {
@@ -59,7 +73,11 @@
       draftHtml = element.html;
       return;
     }
-    const controller = { format };
+    const controller = {
+      commit: () => persistDraft(true),
+      format,
+      getTextAnchor: textAnchor,
+    };
     canvas.attachTextEditor(elementId, controller);
     void tick().then(() => {
       editor?.focus({ preventScroll: true });
@@ -153,15 +171,32 @@
       return;
     }
     if (!editing) return;
+    const shortcut = textFormatShortcut(event);
+    if (shortcut) {
+      event.preventDefault();
+      event.stopPropagation();
+      format(shortcut);
+      return;
+    }
     if (event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
       event.preventDefault();
       void finishEditing();
     }
   }
 
+  function textFormatShortcut(event: KeyboardEvent): TextFormatCommand | null {
+    if (event.isComposing || !(event.metaKey || event.ctrlKey) || event.altKey) return null;
+    const key = event.key.toLowerCase();
+    if (key === 'b' && !event.shiftKey) return 'bold';
+    if (key === 'i' && !event.shiftKey) return 'italic';
+    if (key === 'u' && !event.shiftKey) return 'underline';
+    if (key === 'x' && event.shiftKey) return 'strikeThrough';
+    return null;
+  }
+
   function handleInput() {
     draftHtml = editor?.innerHTML ?? '';
-    rememberSelection();
+    if (!preservingFormatSelection) rememberSelection();
     if (autosaveTimer !== null) window.clearTimeout(autosaveTimer);
     autosaveTimer = window.setTimeout(() => {
       autosaveTimer = null;
@@ -187,21 +222,207 @@
     const range = selection.getRangeAt(0);
     if (editor.contains(range.commonAncestorContainer)) {
       savedRange = range.cloneRange();
+      selectionRevision += 1;
     }
+  }
+
+  function selectionBookmark(range: Range): TextSelectionBookmark | null {
+    if (!editor) return null;
+    const start = textOffset(editor, range.startContainer, range.startOffset);
+    const end = textOffset(editor, range.endContainer, range.endOffset);
+    if (start === null || end === null) return null;
+    return {
+      end: Math.max(start, end),
+      start: Math.min(start, end),
+    };
+  }
+
+  function textAnchor(): TextRangeAnchor | null {
+    if (!editor) return null;
+    const range = savedRange ?? currentSelectionRange();
+    if (!range || range.collapsed || !editor.contains(range.commonAncestorContainer)) {
+      return null;
+    }
+    const text = editor.textContent ?? '';
+    const start = textOffset(editor, range.startContainer, range.startOffset);
+    const end = textOffset(editor, range.endContainer, range.endOffset);
+    if (start === null || end === null || end <= start) return null;
+    const rawQuote = text.slice(start, end);
+    const leadingWhitespace = rawQuote.search(/\S|$/);
+    const trailingWhitespace = rawQuote.length - rawQuote.replace(/\s+$/, '').length;
+    const startOffset = start + leadingWhitespace;
+    const endOffset = Math.max(startOffset, end - trailingWhitespace);
+    const quote = text.slice(startOffset, endOffset).replace(/\s+/g, ' ').trim();
+    if (!quote) return null;
+
+    const block = editor.closest<HTMLElement>('.canvas-text-block');
+    const blockRect = block?.getBoundingClientRect() ?? editor.getBoundingClientRect();
+    const selectionRect = typeof range.getBoundingClientRect === 'function'
+      ? range.getBoundingClientRect()
+      : {
+          bottom: blockRect.top,
+          height: 0,
+          left: blockRect.left,
+          right: blockRect.left,
+          top: blockRect.top,
+          width: 0,
+        };
+    const scale = Math.max(0.0001, canvasApplicationScale() * canvas.currentZoom());
+    const logicalHeight = Math.max(element.height, editor.scrollHeight || 0);
+    const fallbackWidth = Math.max(1, Math.min(element.width, quote.length * element.fontSize * 0.56));
+    const x = clamp((selectionRect.left - blockRect.left) / scale, 0, element.width);
+    const y = clamp((selectionRect.top - blockRect.top) / scale, 0, logicalHeight);
+    const width = Math.max(
+      1,
+      Math.min(
+        Math.max(1, element.width - x),
+        selectionRect.width > 0 ? selectionRect.width / scale : fallbackWidth,
+      ),
+    );
+    const height = Math.max(
+      1,
+      Math.min(
+        Math.max(1, logicalHeight - y),
+        selectionRect.height > 0 ? selectionRect.height / scale : element.fontSize * 1.42,
+      ),
+    );
+    return {
+      endOffset,
+      height,
+      quote,
+      startOffset,
+      width,
+      x,
+      y,
+    };
+  }
+
+  function currentSelectionRange(): Range | null {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return null;
+    const range = selection.getRangeAt(0);
+    return editor?.contains(range.commonAncestorContainer) ? range : null;
+  }
+
+  function textOffset(root: Node, target: Node, offset: number): number | null {
+    let total = 0;
+    let found = false;
+    const visit = (node: Node): void => {
+      if (found) return;
+      if (node === target) {
+        if (node.nodeType === 3) {
+          const limit = node.textContent?.length ?? 0;
+          total += Math.max(0, Math.min(offset, limit));
+        } else {
+          const limit = node.childNodes.length;
+          const childOffset = Math.max(0, Math.min(offset, limit));
+          for (let index = 0; index < childOffset; index += 1) {
+            total += node.childNodes[index]?.textContent?.length ?? 0;
+          }
+        }
+        found = true;
+        return;
+      }
+      if (node.nodeType === 3) {
+        total += node.textContent?.length ?? 0;
+        return;
+      }
+      for (const child of node.childNodes) visit(child);
+    };
+    visit(root);
+    return found ? total : null;
   }
 
   function format(command: TextFormatCommand, value?: string) {
     if (!editor) return;
+    const selectionRange = savedRange && editor.contains(savedRange.commonAncestorContainer)
+      ? savedRange.cloneRange()
+      : currentSelectionRange()?.cloneRange() ?? null;
+    const selection = selectionRange ? selectionBookmark(selectionRange) : null;
+    const formatRevision = selectionRevision;
     editor.focus({ preventScroll: true });
-    if (savedRange) {
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(savedRange);
+    if (!restoreSelection(selectionRange) && selection) restoreSelectionBookmark(selection);
+    preservingFormatSelection = true;
+    try {
+      document.execCommand(command, false, value);
+    } finally {
+      preservingFormatSelection = false;
     }
-    document.execCommand(command, false, value);
     draftHtml = editor.innerHTML;
-    rememberSelection();
-    void persistDraft(false);
+    if (!restoreSelectionBookmark(selection) && !restoreSelection(selectionRange)) rememberSelection();
+    preserveSelectionAfterUpdate(selection, formatRevision);
+    void persistDraft(false).then(() => {
+      preserveSelectionAfterUpdate(selection, formatRevision);
+    });
+  }
+
+  function restoreSelection(range: Range | null): boolean {
+    if (!editor || !range || !editor.contains(range.commonAncestorContainer)) return false;
+    const selection = window.getSelection();
+    if (!selection) return false;
+    try {
+      selection.removeAllRanges();
+      selection.addRange(range);
+      savedRange = range.cloneRange();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function restoreSelectionBookmark(bookmark: TextSelectionBookmark | null): boolean {
+    if (!editor || !bookmark) return false;
+    const start = textPointAtOffset(editor, bookmark.start);
+    const end = textPointAtOffset(editor, bookmark.end);
+    if (!start || !end) return false;
+    try {
+      const range = document.createRange();
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+      const selection = window.getSelection();
+      if (!selection) return false;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      savedRange = range.cloneRange();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function textPointAtOffset(
+    root: Node,
+    offset: number,
+  ): { node: Node; offset: number } | null {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let remaining = Math.max(0, offset);
+    let lastText: Node | null = null;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const length = node.textContent?.length ?? 0;
+      if (remaining <= length) return { node, offset: remaining };
+      remaining -= length;
+      lastText = node;
+    }
+    if (lastText) {
+      return { node: lastText, offset: lastText.textContent?.length ?? 0 };
+    }
+    return { node: root, offset: 0 };
+  }
+
+  function preserveSelectionAfterUpdate(
+    bookmark: TextSelectionBookmark | null,
+    revision: number,
+  ): void {
+    if (!bookmark) return;
+    void tick().then(() => {
+      if (
+        !editor ||
+        document.activeElement !== editor ||
+        selectionRevision !== revision
+      ) return;
+      restoreSelectionBookmark(bookmark);
+    });
   }
 
   async function finishEditing() {
@@ -253,13 +474,18 @@
   class:canvas-text-block--bars-one={element.leftBars === 1}
   class:canvas-text-block--bars-two={element.leftBars === 2}
   class:canvas-text-block--moving={moving}
+  class:canvas-text-block--arrow-source={textArrowAnchor !== null}
   class:canvas-text-block--selected={selected}
   data-canvas-element-id={element.id}
   style={style(element)}
   role="button"
   tabindex="0"
   aria-label={`Text: ${textElementLabel(element)}`}
-  title={editing ? 'Edit text · Esc or ⌘Enter to finish' : 'Drag to move · Double-click to edit'}
+  title={editing
+    ? 'Edit text · Esc or ⌘Enter to finish'
+    : textArrowAnchor
+      ? `Drag an explanation arrow from “${textArrowAnchor.quote}”`
+      : 'Drag to move · Double-click to edit'}
   onpointerdown={startInteraction}
   ondblclick={beginEditing}
   onkeydown={handleKeydown}
@@ -289,6 +515,13 @@
     },
   ])}
 >
+  {#if textArrowAnchor}
+    <span
+      class="canvas-text-arrow-source"
+      style={`left:${textArrowAnchor.x}px;top:${textArrowAnchor.y}px;width:${textArrowAnchor.width}px;height:${textArrowAnchor.height}px`}
+      aria-hidden="true"
+    ></span>
+  {/if}
   {#if editing}
     <div
       class="canvas-text-editor"
@@ -374,6 +607,26 @@
     cursor: text;
   }
 
+  .canvas-text-block--arrow-source {
+    background: rgb(99 91 224 / 7%);
+  }
+
+  .canvas-text-arrow-source {
+    position: absolute;
+    z-index: 0;
+    box-sizing: border-box;
+    min-width: 3px;
+    min-height: 1.2em;
+    border: 1px solid rgb(99 91 224 / 42%);
+    border-radius: 4px;
+    background: rgb(99 91 224 / 18%);
+    box-shadow:
+      0 2px 7px rgb(73 68 181 / 16%),
+      inset 0 1px rgb(255 255 255 / 55%);
+    pointer-events: none;
+    animation: canvas-text-arrow-source-pulse 1.8s ease-in-out infinite;
+  }
+
   .canvas-text-block--bars-one::before,
   .canvas-text-block--bars-two::before,
   .canvas-text-block--bars-two::after {
@@ -401,6 +654,8 @@
 
   .canvas-text-editor,
   .canvas-text-content {
+    position: relative;
+    z-index: 1;
     min-height: 1.5em;
     outline: none;
     white-space: pre-wrap;
@@ -452,5 +707,11 @@
 
   @media (prefers-reduced-motion: reduce) {
     .canvas-text-block { transition: none; }
+    .canvas-text-arrow-source { animation: none; }
+  }
+
+  @keyframes canvas-text-arrow-source-pulse {
+    0%, 100% { opacity: 0.72; }
+    50% { opacity: 1; }
   }
 </style>

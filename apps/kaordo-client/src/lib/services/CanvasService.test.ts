@@ -27,6 +27,86 @@ afterEach(() => {
 });
 
 describe('CanvasService interaction boundaries', () => {
+  it('arms an explanation source from the active text selection', async () => {
+    const state = new CanvasGState();
+    state.setCanvasDocument(workspace.id, {
+      elements: [{
+        color: '#25332d',
+        fontSize: 16,
+        height: 48,
+        html: 'verringern',
+        id: 'text-1',
+        textAlign: 'left',
+        type: 'text',
+        width: 220,
+        x: 60,
+        y: 80,
+      }],
+      placements: [],
+      version: 1,
+    });
+    state.selectGlobalElement('text-1');
+    state.editText('text-1');
+    const service = new CanvasService(state, () => workspace);
+    const anchor = {
+      endOffset: 10,
+      height: 20,
+      quote: 'verringern',
+      startOffset: 0,
+      width: 90,
+      x: 8,
+      y: 4,
+    };
+    const commit = vi.fn().mockResolvedValue(undefined);
+    service.attachTextEditor('text-1', {
+      commit,
+      format: vi.fn(),
+      getTextAnchor: () => anchor,
+    });
+
+    await expect(service.startArrowFromTextSelection()).resolves.toBe(true);
+    expect(commit).toHaveBeenCalledOnce();
+    expect(state.snapshot.textArrowSource).toEqual({
+      anchor,
+      elementId: 'text-1',
+    });
+    expect(state.snapshot.activeTool).toBe('arrow');
+    expect(state.snapshot.editingTextId).toBeNull();
+  });
+
+  it('requires a non-empty text selection before arming an explanation source', async () => {
+    const state = new CanvasGState();
+    state.setCanvasDocument(workspace.id, {
+      elements: [{
+        color: '#25332d',
+        fontSize: 16,
+        height: 48,
+        html: 'verringern',
+        id: 'text-1',
+        textAlign: 'left',
+        type: 'text',
+        width: 220,
+        x: 60,
+        y: 80,
+      }],
+      placements: [],
+      version: 1,
+    });
+    state.selectGlobalElement('text-1');
+    state.editText('text-1');
+    const service = new CanvasService(state, () => workspace);
+    service.attachTextEditor('text-1', {
+      commit: vi.fn().mockResolvedValue(undefined),
+      format: vi.fn(),
+      getTextAnchor: () => null,
+    });
+
+    await expect(service.startArrowFromTextSelection()).resolves.toBe(false);
+    expect(state.snapshot.textArrowSource).toBeNull();
+    expect(state.snapshot.activeTool).toBe('select');
+    expect(state.snapshot.editingTextId).toBe('text-1');
+  });
+
   it('reads stable viewport bounds once for a pointer drag', () => {
     const state = new CanvasGState();
     const service = new CanvasService(state, () => workspace);

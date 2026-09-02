@@ -28,11 +28,30 @@ export type RectangleElement = {
 
 export type ArrowAnchorSide = 'bottom' | 'left' | 'right' | 'top';
 
+/** A persisted range and visual box for a phrase inside a text element. */
+export type TextRangeAnchor = {
+  endOffset: number;
+  height: number;
+  quote: string;
+  startOffset: number;
+  width: number;
+  x: number;
+  y: number;
+};
+
+/** Ephemeral source selection used while drawing explanation arrows. */
+export type TextArrowSource = {
+  anchor: TextRangeAnchor;
+  elementId: string;
+  parentObjectId?: string;
+};
+
 export type ArrowAttachment = {
   elementId?: string;
   objectId?: string;
   offset: number;
   side: ArrowAnchorSide;
+  textRange?: TextRangeAnchor;
 };
 
 export type ArrowControlPoint = {
@@ -566,7 +585,33 @@ function normalizeArrowAttachment(value: unknown): ArrowAttachment | null {
   };
   if (typeof value.elementId === 'string') attachment.elementId = value.elementId;
   if (typeof value.objectId === 'string') attachment.objectId = value.objectId;
+  const textRange = normalizeTextRangeAnchor(value.textRange);
+  if (textRange) attachment.textRange = textRange;
   return attachment;
+}
+
+function normalizeTextRangeAnchor(value: unknown): TextRangeAnchor | null {
+  if (
+    !isRecord(value) ||
+    typeof value.quote !== 'string' ||
+    !isFiniteNumber(value.startOffset) ||
+    !isFiniteNumber(value.endOffset) ||
+    !isFiniteNumber(value.x) ||
+    !isFiniteNumber(value.y) ||
+    !isFiniteNumber(value.width) ||
+    !isFiniteNumber(value.height)
+  ) return null;
+  const startOffset = Math.max(0, Math.floor(value.startOffset));
+  const endOffset = Math.max(startOffset, Math.floor(value.endOffset));
+  return {
+    endOffset,
+    height: Math.max(1, value.height),
+    quote: value.quote.slice(0, 512),
+    startOffset,
+    width: Math.max(1, value.width),
+    x: value.x,
+    y: value.y,
+  };
 }
 
 function normalizeMedia(value: unknown): MediaElement | null {
