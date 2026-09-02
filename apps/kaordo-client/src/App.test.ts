@@ -348,6 +348,16 @@ describe('workspace navigation and objects', () => {
     expect(screen.getByRole('button', { name: 'Create Workspace' })).toBeInTheDocument();
   });
 
+  it('keeps the Klaro Library panel open without a close control', async () => {
+    renderApp({ autoloadWorkspaceLibrary: false });
+    await openKlaroSection();
+
+    expect(screen.getByRole('heading', { name: 'Files' })).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: /Workspace panel/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it('defaults to Public Nodo and can publish to a selected private Nodo', async () => {
     renderApp({ autoloadWorkspaceLibrary: false });
 
@@ -968,6 +978,29 @@ describe('workspace navigation and objects', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Build your knowledge canvas')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Inspector' })).not.toBeInTheDocument();
+  });
+
+  it('allows the Library panel to be toggled only while the Editor is open', async () => {
+    mockCommands({ open_workspace: () => openedResearch });
+    renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
+
+    await openResearchFile();
+
+    const shell = screen.getByRole('region', { name: 'Knowledge canvas' }).closest('main');
+    expect(shell).not.toBeNull();
+    const toggle = screen.getByRole('button', { name: 'Hide Library panel' });
+
+    await fireEvent.click(toggle);
+    expect(shell).toHaveClass('klaro-workspace-panel-closed');
+    expect(toggle).toHaveAccessibleName('Show Library panel');
+
+    await fireEvent.click(toggle);
+    expect(shell).not.toHaveClass('klaro-workspace-panel-closed');
+    expect(toggle).toHaveAccessibleName('Hide Library panel');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('heading', { name: 'Files' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Library panel/i })).not.toBeInTheDocument();
   });
 
   it('replaces the native context menu with actions for each target', async () => {

@@ -673,6 +673,7 @@
   }
 
   async function openFile(file: WorkspaceSummary) {
+    klaroWorkspacePanelOpen = true;
     await editor.openWorkspace(file);
   }
 
@@ -692,6 +693,7 @@
 
   async function closeFile() {
     editor.closeWorkspace();
+    klaroWorkspacePanelOpen = true;
     await tick();
     filesPanel?.focusTitle();
   }
@@ -819,21 +821,21 @@
       class="workspace-shell"
       class:workspace-shell--klaro={activeSection === 'klaro'}
       class:workspace-shell--with-objects={activeFile !== null}
-      class:klaro-workspace-panel-closed={!klaroWorkspacePanelOpen}
+      class:klaro-workspace-panel-closed={activeFile !== null && !klaroWorkspacePanelOpen}
       class:klaro-contents-panel-closed={!klaroContentsPanelOpen}
       class:app-section--hidden={activeSection !== 'klaro'}
       aria-label="Kaordo application workspace"
     >
       <h1 class="visually-hidden">Kaordo application workspace</h1>
 
-      {#if activeSection === 'klaro'}
+      {#if activeFile && activeSection === 'klaro'}
         <button
           class="klaro-side-panel-toggle klaro-side-panel-toggle--workspace"
           type="button"
           aria-controls="klaro-workspace-panel"
           aria-expanded={klaroWorkspacePanelOpen}
-          aria-label={klaroWorkspacePanelOpen ? 'Hide Workspace panel' : 'Show Workspace panel'}
-          title={klaroWorkspacePanelOpen ? 'Hide Workspace panel' : 'Show Workspace panel'}
+          aria-label={klaroWorkspacePanelOpen ? 'Hide Library panel' : 'Show Library panel'}
+          title={klaroWorkspacePanelOpen ? 'Hide Library panel' : 'Show Library panel'}
           onclick={toggleKlaroWorkspacePanel}
         >
           <svg viewBox="0 0 20 20" aria-hidden="true">
