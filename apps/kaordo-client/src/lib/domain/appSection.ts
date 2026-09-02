@@ -15,9 +15,9 @@ export const APP_SECTIONS: ReadonlyArray<AppSectionDefinition> = [
   { description: 'Personal data node', id: 'nodo', label: 'Nodo' },
   { description: 'Knowledge and encyclopedias', id: 'klaro', label: 'Klaro' },
   { description: 'Language tools and personal learning', id: 'ilo', label: 'Ilo' },
-  { description: 'Your profile', id: 'mi', label: 'Mi' },
   { description: 'Application appearance and scale', id: 'agordoj', label: 'Agordoj' },
   { description: 'Administration and service health', id: 'regado', label: 'Regado' },
+  { description: 'Your profile', id: 'mi', label: 'Mi' },
 ];
 
 export function appSectionsFor(role: AuthUser['role']): ReadonlyArray<AppSectionDefinition> {
