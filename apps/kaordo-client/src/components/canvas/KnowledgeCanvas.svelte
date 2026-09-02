@@ -3,6 +3,8 @@
   import type { CanvasService } from '../../lib/services/CanvasService';
   import type { WorkspaceDetail } from '../../lib/domain/workspace';
   import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../../lib/features/canvas';
+  import { readCanvasMediaDimensions } from '../../lib/features/canvasMediaDimensions';
+  import { clipboardMediaFiles } from '../../lib/features/clipboardMedia';
   import { openContextMenu } from '../../lib/ui/contextMenu';
   import CanvasCard from './CanvasCard.svelte';
   import CanvasOnboarding from './CanvasOnboarding.svelte';
@@ -91,7 +93,33 @@
       ? '1 panel could not be loaded.'
       : `${count} panels could not be loaded.`;
   }
+
+  function handlePaste(event: ClipboardEvent): void {
+    if (!snapshot.isCanvasDocumentReady || isEditableTarget(event.target)) return;
+    const files = clipboardMediaFiles(event.clipboardData);
+    if (!files.length) return;
+
+    event.preventDefault();
+    void addPastedMedia(files);
+  }
+
+  async function addPastedMedia(files: readonly File[]): Promise<void> {
+    const dimensions = await Promise.all(files.map(readCanvasMediaDimensions));
+    try {
+      await canvas.addCanvasMediaFiles(workspace.id, files, dimensions);
+    } catch {
+      canvas.state.announce('Media could not be added to the canvas.');
+    }
+  }
+
+  function isEditableTarget(target: EventTarget | null): boolean {
+    return target instanceof Element && Boolean(
+      target.closest('input, textarea, select, [contenteditable="true"]'),
+    );
+  }
 </script>
+
+<svelte:window onpaste={handlePaste} />
 
 <div class="canvas-stage">
   <CanvasToolbar
@@ -210,8 +238,9 @@
   {/if}
 
   <p id="canvas-instructions" class="visually-hidden">
-    Select a panel from Contents to place it on this scrollable canvas. Use an
-    panel's Place button for keyboard access, then use arrow keys to move it.
+    Select a panel from Contents to place it on this scrollable canvas. Paste
+    an image, GIF, video, or audio file from the clipboard to add it as media.
+    Use a panel's Place button for keyboard access, then use arrow keys to move it.
     Use the mouse wheel or pinch to zoom around the pointer position.
   </p>
   <p class="visually-hidden" role="status" aria-live="polite">

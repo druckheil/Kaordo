@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { CanvasService } from '../../lib/services/CanvasService';
   import type { ArrowHeadMode, ArrowLineStyle } from '../../lib/domain/workspace';
-  import { canvasMediaKind } from '../../lib/features/canvasMedia';
+  import { readCanvasMediaDimensions } from '../../lib/features/canvasMediaDimensions';
   import type { CanvasSnapshot, CanvasTool } from '../../lib/states/CanvasGState';
 
   type Props = {
@@ -43,7 +43,7 @@
     const files = [...(input.files ?? [])];
     input.value = '';
     if (!files.length) return;
-    const dimensions = await Promise.all(files.map(readMediaDimensions));
+    const dimensions = await Promise.all(files.map(readCanvasMediaDimensions));
     try {
       await canvas.addCanvasMediaFiles(workspaceId, files, dimensions);
     } catch {
@@ -51,41 +51,6 @@
     }
   }
 
-  function readMediaDimensions(file: File): Promise<{ height: number; width: number } | undefined> {
-    const kind = canvasMediaKind(file);
-    if (!kind || kind === 'audio') return Promise.resolve(undefined);
-    const url = URL.createObjectURL(file);
-    return new Promise((resolve) => {
-      const cleanup = () => URL.revokeObjectURL(url);
-      const timeout = window.setTimeout(() => { cleanup(); resolve(undefined); }, 1200);
-      if (kind === 'video') {
-        const video = document.createElement('video');
-        video.preload = 'metadata';
-        video.onloadedmetadata = () => {
-          window.clearTimeout(timeout);
-          const result = video.videoWidth > 0 && video.videoHeight > 0
-            ? { height: video.videoHeight, width: video.videoWidth }
-            : undefined;
-          cleanup();
-          resolve(result);
-        };
-        video.onerror = () => { window.clearTimeout(timeout); cleanup(); resolve(undefined); };
-        video.src = url;
-        return;
-      }
-      const image = new Image();
-      image.onload = () => {
-        window.clearTimeout(timeout);
-        const result = image.naturalWidth > 0 && image.naturalHeight > 0
-          ? { height: image.naturalHeight, width: image.naturalWidth }
-          : undefined;
-        cleanup();
-        resolve(result);
-      };
-      image.onerror = () => { window.clearTimeout(timeout); cleanup(); resolve(undefined); };
-      image.src = url;
-    });
-  }
 </script>
 
 <div class="canvas-toolbar" role="toolbar" aria-label="Canvas tools">
@@ -110,7 +75,7 @@
       class="tool-button"
       type="button"
       aria-label="Add media"
-      title="Attach image, GIF, video, or audio"
+      title="Attach image, GIF, video, or audio · Paste from clipboard"
       disabled={!snapshot.isCanvasDocumentReady}
       onclick={() => mediaInput?.click()}
     >
