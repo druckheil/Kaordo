@@ -188,8 +188,8 @@
       <label for={`kaordo-section-${section.id}`} title={section.description}>
         {#if section.id === 'fluo'}
           <svg class="section-tab__icon" viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M4 4.5h12v8H9l-3.5 3v-3H4z" />
-            <path d="M7 8h6M7 10.5h4" />
+            <circle cx="5" cy="15" r="1.25" fill="currentColor" stroke="none" />
+            <path d="M4.5 10.5a4.5 4.5 0 0 1 4.5 4.5M4.5 6a9 9 0 0 1 9.5 9" />
           </svg>
         {:else if section.id === 'ligo'}
           <svg class="section-tab__icon" viewBox="0 0 20 20" aria-hidden="true">
