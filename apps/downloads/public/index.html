@@ -3,132 +3,62 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Kaordo Open Beta — a calmer home for knowledge, conversations, social spaces, and your own data." />
-    <title>Kaordo — Open Beta</title>
+    <meta name="description" content="Kaordo is a small, free social network built around freedom of speech and your own space." />
+    <meta name="theme-color" content="#edf3ef" />
+    <title>Kaordo — A small, free social network</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
-    <main>
-      <nav>
-        <span class="brand">Kaordo</span>
-        <div class="nav-meta">
-          <span class="beta-chip"><i></i>Open Beta</span>
-          <span class="version">0.2.2</span>
-        </div>
-      </nav>
+  <body class="home-page">
+    <main class="home-shell">
+      <header class="home-topbar">
+        <a class="home-brand" href="/" aria-label="Kaordo home">Kaordo</a>
+        <a class="home-download" href="/download">Download <span aria-hidden="true">↗</span></a>
+      </header>
 
-      <section class="hero">
-        <p class="eyebrow"><span class="live-dot"></span>OPEN BETA · 0.2.2</p>
-        <h1>Your space for<br />what matters.</h1>
-        <p class="intro">Kaordo brings knowledge, conversations, social spaces, and your own distributed storage into one focused, local-first app.</p>
-        <div class="hero-actions">
-          <a class="hero-primary" href="#downloads">Download the beta <span>↓</span></a>
-          <a class="hero-secondary" href="#inside">Explore Kaordo <span>↓</span></a>
-        </div>
+      <section class="home-hero" aria-labelledby="home-title">
+        <div class="home-hero__glow" aria-hidden="true"></div>
+        <p class="home-kicker"><span class="home-kicker__dot" aria-hidden="true"></span>SMALL · FREE · SOCIAL</p>
+        <h1 id="home-title">Kaordo</h1>
+        <p class="home-description">A small, free social network built around freedom of speech and your own space.</p>
+        <a class="home-cta" href="/download">Get Kaordo <span aria-hidden="true">→</span></a>
       </section>
 
-      <section class="beta-note" aria-label="Open Beta status">
-        <div class="beta-mark" aria-hidden="true">β</div>
-        <div>
-          <p class="note-label">EARLY ACCESS</p>
-          <h2>Kaordo is now in Open Beta.</h2>
-          <p>Core flows are ready to try. Some features are still evolving, so feedback and real-world testing directly shape what comes next.</p>
+      <section class="home-rules" aria-labelledby="rules-title">
+        <div class="home-section-heading">
+          <p class="home-kicker">THE SHORT VERSION</p>
+          <h2 id="rules-title">A few simple rules.</h2>
+          <p>Speak freely, keep the system healthy, and remember that the people running a space have the final say.</p>
         </div>
-        <span class="note-side">Built local-first<br />Designed to grow</span>
-      </section>
 
-      <section class="inside" id="inside" aria-labelledby="inside-title">
-        <div class="section-heading inside-heading">
-          <div><p class="eyebrow">WHAT'S INSIDE</p><h2 id="inside-title">One home.<br />Different ways to connect.</h2></div>
-          <p>Everything stays clear, calm, and close to your data.</p>
-        </div>
-        <div class="feature-grid">
-          <article class="feature feature-wide">
-            <span class="feature-number">01</span>
-            <div><h3>Klaro</h3><p>A visual knowledge workspace for collecting ideas, files, and connected objects.</p></div>
-            <span class="feature-tag">Knowledge</span>
-          </article>
-          <article class="feature">
-            <span class="feature-number">02</span>
-            <div><h3>Ligo</h3><p>Local-first messaging with direct file exchange and resilient delivery.</p></div>
-            <span class="feature-tag">Messaging</span>
-          </article>
-          <article class="feature">
-            <span class="feature-number">03</span>
-            <div><h3>Fluo</h3><p>A social feed designed around your network and your storage choices.</p></div>
-            <span class="feature-tag">Social</span>
-          </article>
-          <article class="feature">
-            <span class="feature-number">04</span>
-            <div><h3>Nodo</h3><p>Turn an Android 12+ device or Ubuntu/Linux host into your own storage node.</p></div>
-            <span class="feature-tag">Your data</span>
-          </article>
-          <article class="feature">
-            <span class="feature-number">05</span>
-            <div><h3>Rondo</h3><p>Spaces, rooms, chat, and voice foundations are taking shape.</p></div>
-            <span class="feature-tag">In progress</span>
-          </article>
-        </div>
-      </section>
-
-      <section class="downloads" id="downloads" aria-labelledby="download-title">
-        <div class="section-heading">
-          <div><p class="eyebrow">OPEN BETA · VERSION 0.2.2</p><h2 id="download-title">Choose your platform</h2></div>
-          <p>Updated August 30, 2026</p>
-        </div>
-        <div class="cards">
-          <article>
-            <div class="platform-icon" aria-hidden="true">⌘</div>
-            <div><h3>Kaordo for macOS</h3><p>Universal build for Apple Silicon and Intel Macs.</p></div>
-            <a href="/downloads/Kaordo_0.2.2_macos_universal.dmg?build=0.2.2-493de01">Download DMG <span>↓</span></a>
-          </article>
-          <article>
-            <div class="platform-icon windows" aria-hidden="true">⊞</div>
-            <div><h3>Kaordo for Windows</h3><p>64-bit installer for Windows 10 and 11.</p></div>
-            <a href="/downloads/Kaordo_0.2.2_windows_x64-setup.exe?build=0.2.2-493de01">Download EXE <span>↓</span></a>
-          </article>
-          <article>
-            <div class="platform-icon nodo" aria-hidden="true">N</div>
-            <div><h3>Nodo for Android</h3><p>Turn an Android 12+ device into a Kaordo storage node.</p></div>
-            <a href="/downloads/Kaordo-Nodo_0.2.2_android.apk?build=0.2.2-493de01">Download APK <span>↓</span></a>
-          </article>
-          <article>
-            <div class="platform-icon linux" aria-hidden="true">⌘</div>
-            <div><h3>Nodo for Linux</h3><p>Lightweight headless Nodo for Ubuntu and other Linux x86_64 hosts. Includes HTTPS self-update.</p></div>
-            <div class="install-command">
-              <label for="linux-install-command">Install from terminal</label>
-        <textarea id="linux-install-command" readonly rows="3" spellcheck="false">mkdir -p ~/.local/bin && curl --fail --location --proto '=https' --tlsv1.2 -o ~/.local/bin/kaordo-nodo https://kaordo.pages.dev/downloads/Kaordo-Nodo_0.2.2_linux_x86_64 && chmod 0755 ~/.local/bin/kaordo-nodo && ~/.local/bin/kaordo-nodo login</textarea>
-              <button type="button" class="copy-command" data-copy-target="linux-install-command">Copy command</button>
+        <div class="home-rules__list">
+          <article class="home-rule home-rule--no">
+            <span class="home-rule__mark" aria-hidden="true">×</span>
+            <div>
+              <p class="home-rule__label">DON'T</p>
+              <h3>Overload the system or hack data.</h3>
             </div>
-            <a href="/downloads/Kaordo-Nodo_0.2.2_linux_x86_64">Download CLI <span>↓</span></a>
+          </article>
+          <article class="home-rule home-rule--yes">
+            <span class="home-rule__mark" aria-hidden="true">✓</span>
+            <div>
+              <p class="home-rule__label">YOU CAN</p>
+              <h3>Everything else — including insults and oppression.</h3>
+            </div>
+          </article>
+          <article class="home-rule home-rule--admin">
+            <span class="home-rule__mark" aria-hidden="true">⋯</span>
+            <div>
+              <p class="home-rule__label">ADMINISTRATORS</p>
+              <h3>May act at their own discretion.</h3>
+            </div>
           </article>
         </div>
-        <p class="download-footnote">The beta is free to use. Expect frequent updates while the platform grows.</p>
       </section>
 
-      <footer><span>© 2026 Kaordo</span><span>Private by design. Built to connect.</span></footer>
+      <footer class="home-footer">
+        <span>© 2026 Kaordo</span>
+        <span>Small by choice. Free by design.</span>
+      </footer>
     </main>
-    <script>
-      for (const button of document.querySelectorAll('[data-copy-target]')) {
-        const target = document.getElementById(button.dataset.copyTarget ?? '');
-        if (!(target instanceof HTMLTextAreaElement)) continue;
-        const label = button.textContent;
-        button.addEventListener('click', async () => {
-          let copied = false;
-          try {
-            if (navigator.clipboard?.writeText) {
-              await navigator.clipboard.writeText(target.value);
-              copied = true;
-            }
-          } catch {
-            copied = false;
-          }
-          target.focus();
-          target.select();
-          button.textContent = copied ? 'Copied' : 'Press Ctrl/Cmd+C';
-          window.setTimeout(() => { button.textContent = label; }, 1800);
-        });
-      }
-    </script>
   </body>
 </html>
