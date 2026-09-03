@@ -865,9 +865,11 @@ export class CanvasService {
       this.state.announce('Select a word or phrase first.');
       return false;
     }
-    // Flush the draft before leaving edit mode so the quote and its offsets
-    // always describe the text that will be persisted with the arrow.
-    await editor?.commit();
+    // Start flushing the draft before leaving edit mode so the quote and its
+    // offsets describe the text that will be persisted with the arrow. Keep
+    // the interaction state synchronous: the toolbar should switch to the
+    // arrow tool immediately while the coalesced document save completes.
+    const commit = editor?.commit();
     const source: TextArrowSource = {
       anchor,
       elementId: selected.id,
@@ -877,6 +879,7 @@ export class CanvasService {
     this.state.editText(null);
     this.state.setTool('arrow');
     this.state.announce(`Drag from “${anchor.quote}” to an explanation target.`);
+    await commit;
     return true;
   }
 

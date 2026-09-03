@@ -849,7 +849,7 @@
   box-shadow: var(--klaro-shadow-inset), 0 0 0 3px color-mix(in srgb, var(--klaro-primary) 17%, transparent) !important;
 }
 
-.workspace-shell--klaro :is(.canvas-text-placeholder, .canvas-text-editor--empty::before) {
+.workspace-shell--klaro :is(.canvas-text-placeholder, .canvas-text-editor--empty::before, .canvas-text-surface--empty::before) {
   color: var(--klaro-text-light) !important;
 }
 

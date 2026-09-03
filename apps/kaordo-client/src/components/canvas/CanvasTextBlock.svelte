@@ -31,6 +31,8 @@
     start: number;
   };
 
+  const TEXT_BLOCK_MIN_HEIGHT = 48;
+
   let {
     canvas,
     arrowSource = null,
@@ -49,6 +51,7 @@
   let selectionRevision = 0;
   let preservingFormatSelection = false;
   let autosaveTimer: number | null = null;
+  let finishing = false;
   let lastPointerDown: { at: number; id: string } | null = null;
   let resize = $state<{
     pointerId: number;
@@ -69,8 +72,10 @@
   });
 
   $effect(() => {
+    if (editor) editor.contentEditable = editing ? 'true' : 'false';
     if (!editing) {
       draftHtml = element.html;
+      savedRange = null;
       return;
     }
     const controller = {
@@ -195,6 +200,7 @@
   }
 
   function handleInput() {
+    if (!editing) return;
     draftHtml = editor?.innerHTML ?? '';
     if (!preservingFormatSelection) rememberSelection();
     if (autosaveTimer !== null) window.clearTimeout(autosaveTimer);
@@ -205,6 +211,7 @@
   }
 
   function handlePaste(event: ClipboardEvent) {
+    if (!editing) return;
     event.preventDefault();
     const rich = event.clipboardData?.getData('text/html');
     const plain = event.clipboardData?.getData('text/plain') ?? '';
@@ -218,7 +225,7 @@
 
   function rememberSelection() {
     const selection = window.getSelection();
-    if (!editor || !selection?.rangeCount) return;
+    if (!editing || !editor || !selection?.rangeCount) return;
     const range = selection.getRangeAt(0);
     if (editor.contains(range.commonAncestorContainer)) {
       savedRange = range.cloneRange();
@@ -426,19 +433,23 @@
   }
 
   async function finishEditing() {
+    if (finishing || !editing) return;
+    finishing = true;
     if (autosaveTimer !== null) {
       window.clearTimeout(autosaveTimer);
       autosaveTimer = null;
     }
-    await persistDraft(true);
-    canvas.state.editText(null);
+    try {
+      await persistDraft(true);
+      canvas.state.editText(null);
+    } finally {
+      finishing = false;
+    }
   }
 
   async function persistDraft(measure: boolean) {
     const html = sanitizeTextHtml(editor?.innerHTML ?? draftHtml);
-    const height = measure
-      ? Math.max(48, Math.ceil((editor?.scrollHeight ?? element.height) + 4))
-      : element.height;
+    const height = measure ? measuredBlockHeight() : element.height;
     try {
       await canvas.updateCanvasElement(workspaceId, {
         ...element,
@@ -449,6 +460,19 @@
     } catch {
       canvas.state.announce('Text changes could not be saved.');
     }
+  }
+
+  function measuredBlockHeight(): number {
+    const block = editor?.closest<HTMLElement>('.canvas-text-block');
+    const visualHeight = block?.getBoundingClientRect().height ?? 0;
+    if (Number.isFinite(visualHeight) && visualHeight > 0) {
+      const scale = Math.max(0.0001, canvasApplicationScale() * canvas.currentZoom());
+      return Math.max(TEXT_BLOCK_MIN_HEIGHT, Math.ceil(visualHeight / scale));
+    }
+    return Math.max(
+      TEXT_BLOCK_MIN_HEIGHT,
+      Math.ceil((editor?.scrollHeight ?? element.height) + 4),
+    );
   }
 
   function style(element: TextElement): string {
@@ -522,33 +546,29 @@
       aria-hidden="true"
     ></span>
   {/if}
-  {#if editing}
-    <div
-      class="canvas-text-editor"
-      class:canvas-text-editor--empty={!draftHtml}
-      contenteditable="true"
-      tabindex="0"
-      role="textbox"
-      aria-label="Text editor"
-      aria-multiline="true"
-      data-placeholder="Type something…"
-      bind:this={editor}
-      bind:innerHTML={draftHtml}
-      oninput={handleInput}
-      onkeyup={rememberSelection}
-      onmouseup={rememberSelection}
-      onpaste={handlePaste}
-      onblur={() => void finishEditing()}
-    ></div>
-  {:else}
-    <div class="canvas-text-content">
-      {#if element.html}
-        {@html element.html}
-      {:else}
-        <span class="canvas-text-placeholder">Untitled text</span>
-      {/if}
-    </div>
-  {/if}
+  <!-- The surface is a textbox only while editing; it is kept mounted so its
+       layout cannot change when the editor mode toggles. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div
+    class="canvas-text-surface"
+    class:canvas-text-editor={editing}
+    class:canvas-text-content={!editing}
+    class:canvas-text-editor--empty={editing && !draftHtml}
+    class:canvas-text-surface--empty={!draftHtml}
+    contenteditable="false"
+    tabindex={editing ? 0 : -1}
+    role={editing ? 'textbox' : undefined}
+    aria-label={editing ? 'Text editor' : undefined}
+    aria-multiline={editing ? 'true' : undefined}
+    data-placeholder={editing ? 'Type something…' : 'Untitled text'}
+    bind:this={editor}
+    bind:innerHTML={draftHtml}
+    oninput={handleInput}
+    onkeyup={rememberSelection}
+    onmouseup={rememberSelection}
+    onpaste={handlePaste}
+    onblur={() => void finishEditing()}
+  ></div>
   {#if selected && !editing && !moving}
     <button
       class="text-resize-handle"
@@ -652,13 +672,22 @@
     opacity: 0;
   }
 
+  .canvas-text-surface,
   .canvas-text-editor,
   .canvas-text-content {
+    display: block;
     position: relative;
     z-index: 1;
+    width: 100%;
+    min-width: 0;
     min-height: 1.5em;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    box-sizing: border-box;
     outline: none;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .canvas-text-editor {
@@ -672,15 +701,19 @@
     -webkit-user-select: text;
   }
 
-  .canvas-text-editor--empty::before {
+  .canvas-text-surface--empty::before {
     color: #9aa59f;
     content: attr(data-placeholder);
     pointer-events: none;
   }
 
-  .canvas-text-placeholder {
-    color: #9aa59f;
+  .canvas-text-content.canvas-text-surface--empty::before {
     font-style: italic;
+  }
+
+  .canvas-text-surface :global(p),
+  .canvas-text-surface :global(div) {
+    margin: 0;
   }
 
   .text-resize-handle {
