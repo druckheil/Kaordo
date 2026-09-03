@@ -495,6 +495,19 @@ impl SpaceStorage {
         limit: usize,
         cursor: Option<usize>,
     ) -> io::Result<(Vec<Post>, Option<usize>)> {
+        self.page_posts_by_author(limit, cursor, None)
+    }
+
+    /// Reads a stable cursor page, optionally restricting results to one
+    /// public author. The cursor still advances through the complete sorted
+    /// index so pages never repeat or skip rows when other authors are mixed
+    /// into the same Nodo.
+    pub fn page_posts_by_author(
+        &self,
+        limit: usize,
+        cursor: Option<usize>,
+        author: Option<&str>,
+    ) -> io::Result<(Vec<Post>, Option<usize>)> {
         if !(1..=50).contains(&limit) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -507,10 +520,17 @@ impl SpaceStorage {
                 .cmp(&a.created_at)
                 .then_with(|| b.id.cmp(&a.id))
         });
-        let start = cursor.unwrap_or(0).min(posts.len());
-        let end = (start + limit).min(posts.len());
-        let next = (end < posts.len()).then_some(end);
-        Ok((posts[start..end].to_vec(), next))
+        let mut offset = cursor.unwrap_or(0).min(posts.len());
+        let mut page = Vec::with_capacity(limit);
+        while offset < posts.len() && page.len() < limit {
+            let post = &posts[offset];
+            offset += 1;
+            if author.is_none_or(|expected| post.author.eq_ignore_ascii_case(expected)) {
+                page.push(post.clone());
+            }
+        }
+        let next = (offset < posts.len()).then_some(offset);
+        Ok((page, next))
     }
 
     pub fn posts(&self) -> io::Result<Vec<Post>> {
@@ -1457,6 +1477,51 @@ mod tests {
                 .create_post(&too_long, "alice", None)
                 .is_err()
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn author_pages_filter_without_losing_the_cursor_position() {
+        let root = temporary_root();
+        let storage = NodeStorage::open(&root, 0, 1024 * 1024).unwrap();
+        for (author, body, id) in [
+            ("alice", "Alice one", "123e4567-e89b-42d3-a456-426614174010"),
+            ("bob", "Bob one", "123e4567-e89b-42d3-a456-426614174011"),
+            ("alice", "Alice two", "123e4567-e89b-42d3-a456-426614174012"),
+            ("carol", "Carol one", "123e4567-e89b-42d3-a456-426614174013"),
+        ] {
+            storage
+                .space(Space::Private)
+                .create_post(
+                    &Post {
+                        attachments: vec![],
+                        author: author.to_owned(),
+                        body: body.to_owned(),
+                        created_at: 1,
+                        id: id.to_owned(),
+                        quote: None,
+                        public_reservation_id: None,
+                    },
+                    author,
+                    None,
+                )
+                .unwrap();
+        }
+
+        let (first, first_cursor) = storage
+            .space(Space::Private)
+            .page_posts_by_author(1, None, Some("ALICE"))
+            .unwrap();
+        let (second, _) = storage
+            .space(Space::Private)
+            .page_posts_by_author(1, first_cursor, Some("alice"))
+            .unwrap();
+
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].author, "alice");
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].author, "alice");
+        assert_ne!(first[0].id, second[0].id);
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -14,6 +14,7 @@
     expanded?: boolean;
     fluoState: FluoGState;
     onOpen?: () => void;
+    onOpenProfile?: (username: string) => void;
     onOpenQuote?: (quote: FluoQuote) => void;
     onQuote?: () => void;
     post: FluoPost;
@@ -25,6 +26,7 @@
     expanded = false,
     fluoState,
     onOpen,
+    onOpenProfile,
     onOpenQuote,
     onQuote,
     post,
@@ -59,7 +61,7 @@
     },
   ])}
 >
-  <FluoAuthorIdentity {active} author={post.author} {fluoState} />
+  <FluoAuthorIdentity {active} author={post.author} {fluoState} {onOpenProfile} />
   <div class="post-content">
     <header>
       <strong>{post.author}</strong>
@@ -121,6 +123,7 @@
         {active}
         {fluoState}
         onOpen={onOpenQuote ? () => onOpenQuote(post.quote!) : undefined}
+        {onOpenProfile}
         quote={post.quote}
         registerMedia={registerMedia}
       />

@@ -13,7 +13,7 @@ export type ProfileCommit = {
 };
 
 /**
- * Public profile metadata is looked up in batches for Fluo authors.  The
+ * Public profile metadata is looked up in batches for Fluo authors. The
  * allocation id is intentionally omitted: it is only needed by the owner
  * while replacing their profile and is not part of the public directory.
  */

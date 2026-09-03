@@ -128,6 +128,25 @@ class FluoPostStoreTest {
     }
 
     @Test
+    fun `author pages filter without losing the cursor position`() {
+        val uploads = TusUploadStore(temporary.root, 64 * 1_024)
+        val posts = FluoPostStore(temporary.root, uploads, "owner")
+        posts.create("alice", "Alice one", emptyList())
+        posts.create("bob", "Bob one", emptyList())
+        posts.create("alice", "Alice two", emptyList())
+        posts.create("carol", "Carol one", emptyList())
+
+        val first = posts.page(1, null, "ALICE")
+        val second = posts.page(1, first.nextCursor, "alice")
+
+        assertEquals(1, first.posts.size)
+        assertEquals("alice", first.posts.single().author)
+        assertEquals(1, second.posts.size)
+        assertEquals("alice", second.posts.single().author)
+        assertTrue(first.posts.single().id != second.posts.single().id)
+    }
+
+    @Test
     fun `public reservation can back only one post`() {
         val uploads = TusUploadStore(temporary.root, 4_096)
         val posts = FluoPostStore(temporary.root, uploads, "owner")

@@ -66,6 +66,17 @@ export interface FluoGateway {
     cursor: string | null,
     limit: number,
   ): Promise<FluoFeedPage>;
+  /**
+   * Lists one author's posts across every downloadable Nodo space using the
+   * same resumable feed session as the global timeline. Optional keeps
+   * lightweight test gateways compatible.
+   */
+  listAuthorFeedPage?(
+    author: string,
+    nodeIds: readonly string[],
+    cursor: string | null,
+    limit: number,
+  ): Promise<FluoFeedPage>;
   listFeedStates(nodeIds: readonly string[]): Promise<FluoNodeFeedState[]>;
   loadMedia(
     nodeId: string,

@@ -33,15 +33,21 @@ class FluoPostStore(
     }
 
     @Synchronized
-    fun list(): List<Post> = readPage(MAX_POSTS, null).posts
+    fun list(): List<Post> = readPage(MAX_POSTS, null, null).posts
 
     @Synchronized
     fun page(limit: Int, cursor: Long? = null): Page {
-        require(limit in 1..MAX_PAGE_SIZE)
-        return readPage(limit, cursor)
+        return page(limit, cursor, null)
     }
 
-    private fun readPage(limit: Int, cursor: Long?): Page {
+    @Synchronized
+    fun page(limit: Int, cursor: Long?, author: String?): Page {
+        require(limit in 1..MAX_PAGE_SIZE)
+        require(author == null || author.length in 1..32 && !hasControls(author))
+        return readPage(limit, cursor, author)
+    }
+
+    private fun readPage(limit: Int, cursor: Long?, author: String?): Page {
         if (!indexFile.isFile) {
             val rebuiltCount = rebuildIndex()
             if (rebuiltCount != postCount) {
@@ -64,7 +70,9 @@ class FluoPostStore(
                 if (!ID.matches(id)) continue
                 val file = postFile(id)
                 if (!file.isFile || file.length() > MAX_POST_FILE_BYTES) continue
-                runCatching { parse(JSONObject(file.readText())) }.getOrNull()?.let(posts::add)
+                runCatching { parse(JSONObject(file.readText())) }.getOrNull()?.let { post ->
+                    if (author == null || post.author.equals(author, ignoreCase = true)) posts += post
+                }
             }
             return Page(posts, offset.takeIf { it > 0 })
         }

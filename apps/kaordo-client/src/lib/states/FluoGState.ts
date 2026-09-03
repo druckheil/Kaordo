@@ -68,6 +68,13 @@ export type FluoGStateOptions = {
   cacheStorage?: Storage;
   createId?: () => string;
   createObjectUrl?: (blob: Blob) => string;
+  /** Limits this state to one author's posts across downloadable spaces. */
+  feedAuthor?: string | null;
+  /** Downloadable Nodo ids to search for the author. */
+  feedNodeIds?: readonly string[];
+  /** Reuses already resolved nodes when creating a secondary feed view. */
+  initialNodes?: readonly NodoNode[];
+  onSnapshot?: (snapshot: Readonly<FluoSnapshot>) => void;
   onStorageChanged?: (nodeId: string, space: 'private' | 'public') => void | Promise<void>;
   revokeObjectUrl?: (url: string) => void;
   registry?: NodoRegistry;
@@ -81,7 +88,10 @@ export class FluoGState extends GState<FluoSnapshot> {
   readonly #createId: () => string;
   readonly #createObjectUrl: (blob: Blob) => string;
   readonly #gateway: FluoGateway;
+  readonly #feedAuthor: string | null;
+  readonly #initialNodes: NodoNode[];
   readonly #nodes: NodoGateway;
+  readonly #onSnapshot: ((snapshot: Readonly<FluoSnapshot>) => void) | null;
   readonly #onStorageChanged: ((nodeId: string, space: 'private' | 'public') => void | Promise<void>) | null;
   readonly #registry: NodoRegistry;
   readonly #revokeObjectUrl: (url: string) => void;
@@ -92,6 +102,7 @@ export class FluoGState extends GState<FluoSnapshot> {
   #feedCursor: string | null = null;
   #feedWarmupPending = false;
   #feedNodeIds: string[] = [];
+  #authorFeedNodeIds: string[] = [];
   #feedStates = new Map<string, FluoNodeFeedState>();
   #mediaCache = new Map<string, CachedFluoMedia>();
   #mediaRequests = new Map<string, Promise<string | null>>();
@@ -151,7 +162,11 @@ export class FluoGState extends GState<FluoSnapshot> {
       uploadProgress: null,
     });
     this.#gateway = gateway;
+    this.#feedAuthor = options.feedAuthor ? normalizeAuthorUsername(options.feedAuthor) : null;
+    this.#authorFeedNodeIds = uniqueNodeIds(options.feedNodeIds ?? []);
+    this.#initialNodes = [...(options.initialNodes ?? [])];
     this.#nodes = nodes;
+    this.#onSnapshot = options.onSnapshot ?? null;
     this.#cacheOwnerId = cacheOwnerId;
     this.#selectionStorage = selectionStorage;
     this.#feedCache = new FluoFeedCache({ storage: options.cacheStorage });
@@ -161,6 +176,64 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#createId = options.createId ?? createLocalId;
     this.#createObjectUrl = options.createObjectUrl ?? ((blob) => URL.createObjectURL(blob));
     this.#revokeObjectUrl = options.revokeObjectUrl ?? ((url) => URL.revokeObjectURL(url));
+  }
+
+  /**
+   * Creates a short-lived state for the public profile view while reusing the
+   * authenticated gateways. The scoped state has its own cursor, hash map and
+   * media cache, so opening a profile never mutates the global timeline.
+   */
+  createAuthorFeedState(
+    username: string,
+    feedNodeIds: readonly string[],
+    onSnapshot?: (snapshot: Readonly<FluoSnapshot>) => void,
+  ): FluoGState {
+    return new FluoGState(this.#gateway, this.#nodes, {
+      createId: this.#createId,
+      createObjectUrl: this.#createObjectUrl,
+      feedAuthor: username,
+      feedNodeIds,
+      initialNodes: this.snapshot.nodes,
+      onSnapshot,
+      registry: new NodoRegistry(),
+      revokeObjectUrl: this.#revokeObjectUrl,
+      scheduleCacheWrite: this.#scheduleCacheWrite,
+      selectionStorage: null,
+    });
+  }
+
+  /** Returns the last coordinator-selected downloadable feed nodes. */
+  getFeedNodeIds(): readonly string[] {
+    return [...this.#feedNodeIds];
+  }
+
+  /**
+   * Extends an author-scoped feed with a node discovered by a live global
+   * post. The global node directory is intentionally cached and can lag a
+   * newly available Nodo, so the profile view can adopt that node without
+   * recreating the state (and losing its scroll or media cache).
+   */
+  addAuthorFeedNodeIds(nodeIds: readonly string[]): boolean {
+    if (!this.#feedAuthor || !nodeIds.length) return false;
+    const next = uniqueNodeIds([...this.#authorFeedNodeIds, ...nodeIds]);
+    if (next.length === this.#authorFeedNodeIds.length &&
+        next.every((nodeId, index) => nodeId === this.#authorFeedNodeIds[index])) {
+      return false;
+    }
+    this.#authorFeedNodeIds = next;
+    return true;
+  }
+
+  /** Releases a discarded scoped feed without resetting gateways shared with
+   * the global timeline. Global states continue to use clearCache(). */
+  dispose(): void {
+    this.exit();
+    this.resetInMemoryFeed(false);
+  }
+
+  protected override publish(snapshot: FluoSnapshot): void {
+    super.publish(snapshot);
+    this.#onSnapshot?.(this.snapshot);
   }
 
   override enter(): void {
@@ -204,14 +277,14 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.resetInMemoryFeed();
   }
 
-  private resetInMemoryFeed(): void {
+  private resetInMemoryFeed(resetGateway = true): void {
     this.#lifecycleId += 1;
     this.#requestId += 1;
     this.#persistGeneration += 1;
     this.#cancelPersist?.();
     this.#cancelPersist = null;
     this.#persistScheduled = false;
-    this.#gateway.resetSession?.();
+    if (resetGateway) this.#gateway.resetSession?.();
     this.#feedCursor = null;
     this.#feedWarmupPending = false;
     this.#feedNodeIds = [];
@@ -227,7 +300,7 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.clearAuthorProfileState();
     this.cancelLikeHydration();
     this.#mediaGeneration += 1;
-    this.#nodes.resetSession?.();
+    if (resetGateway) this.#nodes.resetSession?.();
     this.#mediaRequests.clear();
     this.#mediaDimensions.clear();
     this.clearMediaCache();
@@ -299,16 +372,20 @@ export class FluoGState extends GState<FluoSnapshot> {
       storageError: null,
     });
     try {
-      const bootstrap = this.#nodes.fluoBootstrap
-        ? await this.#nodes.fluoBootstrap()
-        : null;
-      const [nodes, feedNodeIds, publicStorage] = bootstrap
-        ? [bootstrap.nodes, bootstrap.nodeIds, bootstrap.publicStorage]
-        : await Promise.all([
-            this.#nodes.listNodes(),
-            this.#nodes.listFeedNodeIds(),
-            this.#nodes.publicStorage(),
-          ]);
+      const bootstrap = this.#feedAuthor
+        ? null
+        : this.#nodes.fluoBootstrap
+          ? await this.#nodes.fluoBootstrap()
+          : null;
+      const [nodes, feedNodeIds, publicStorage] = this.#feedAuthor
+        ? [this.#initialNodes, this.#authorFeedNodeIds, null]
+        : bootstrap
+          ? [bootstrap.nodes, bootstrap.nodeIds, bootstrap.publicStorage]
+          : await Promise.all([
+              this.#nodes.listNodes(),
+              this.#nodes.listFeedNodeIds(),
+              this.#nodes.publicStorage(),
+            ]);
       if (requestId !== this.#requestId) return;
       this.#nodesResolved = true;
       this.#registry.replace(nodes);
@@ -321,12 +398,17 @@ export class FluoGState extends GState<FluoSnapshot> {
       // the Node metadata responds; media is still loaded by FluoMedia later.
       const initialPage = hasCachedFeed
         ? null
-        : this.#gateway.listFeedPage(feedNodeIds, null, INITIAL_FEED_PAGE_SIZE);
+        : this.requestFeedPage(feedNodeIds, null, INITIAL_FEED_PAGE_SIZE);
       // A state probe is useful for subsequent visits, but it must not block
       // the first metadata page. Older Nodo versions can answer this endpoint
       // slowly (or not expose it at all), while the post list is enough to
       // render the timeline immediately.
-      const statesPromise = this.loadFeedStates(feedNodeIds);
+      // Author timelines have no durable feed cache or node-state
+      // reconciliation. Avoid one extra state request per Nodo; the author
+      // page itself is the authoritative read for this short-lived view.
+      const statesPromise = this.#feedAuthor
+        ? Promise.resolve<FluoNodeFeedState[]>([])
+        : this.loadFeedStates(feedNodeIds);
 
       if (!hasCachedFeed && initialPage) {
         const page = await initialPage;
@@ -391,11 +473,14 @@ export class FluoGState extends GState<FluoSnapshot> {
         return;
       }
 
-      this.#gateway.resetSession?.();
+      // The author view shares the gateway with the global timeline. Its
+      // scoped session is keyed independently, so resetting here would erase
+      // a user's active global cursor while they browse a profile.
+      if (!this.#feedAuthor) this.#gateway.resetSession?.();
       this.#feedCursor = null;
       this.#feedWarmupPending = false;
       this.#pageSize = INITIAL_FEED_PAGE_SIZE;
-      let page = await this.#gateway.listFeedPage(
+      let page = await this.requestFeedPage(
         feedNodeIds,
         null,
         this.#pageSize,
@@ -417,7 +502,7 @@ export class FluoGState extends GState<FluoSnapshot> {
           oldestCachedCreatedAt !== null &&
           (lastFetchedCreatedAt === null || lastFetchedCreatedAt >= oldestCachedCreatedAt)) {
         const previousCursor = page.cursor;
-        const nextPage = await this.#gateway.listFeedPage(feedNodeIds, previousCursor, this.#pageSize);
+        const nextPage = await this.requestFeedPage(feedNodeIds, previousCursor, this.#pageSize);
         if (requestId !== this.#requestId) return;
         const nextPosts = nextPage.posts.map((post) => this.hydrateFeedPost(post));
         fetched.push(...nextPosts);
@@ -517,6 +602,29 @@ export class FluoGState extends GState<FluoSnapshot> {
       });
     this.#feedStatesInFlight = { key, lifecycleId, promise: shared };
     return shared;
+  }
+
+  private requestFeedPage(
+    nodeIds: readonly string[],
+    cursor: string | null,
+    limit: number,
+  ): Promise<import('../gateways/FluoGateway').FluoFeedPage> {
+    if (this.#feedAuthor && this.#gateway.listAuthorFeedPage) {
+      const loader = this.#gateway.listAuthorFeedPage;
+      return loader.call(this.#gateway, this.#feedAuthor, nodeIds, cursor, limit);
+    }
+    const loader = this.#gateway.listFeedPage;
+    const page = loader.call(this.#gateway, nodeIds, cursor, limit);
+    if (!this.#feedAuthor) return page;
+    // Keep custom/older gateways safe: author-scoped views must never expose
+    // another user's post just because they do not implement the optional
+    // server-side filter yet. The cursor remains the gateway's cursor, so a
+    // later request can continue past filtered rows.
+    return page.then((value) => ({
+      ...value,
+      posts: value.posts.filter((post) =>
+        post.author.trim().toLowerCase() === this.#feedAuthor),
+    }));
   }
 
   private scheduleAuthorProfileFlush(): void {
@@ -631,14 +739,14 @@ export class FluoGState extends GState<FluoSnapshot> {
     try {
       const startedAt = performance.now();
       let cursor = this.#feedCursor;
-      let page = await this.#gateway.listFeedPage(this.#feedNodeIds, cursor, this.#pageSize);
+      let page = await this.requestFeedPage(this.#feedNodeIds, cursor, this.#pageSize);
       const known = new Set(this.snapshot.posts.map(postKey));
       let additions = page.posts.map((post) => this.hydrateFeedPost(post)).filter((post) => !known.has(postKey(post)));
       additions.forEach((post) => known.add(postKey(post)));
       let hasMore = page.hasMore;
       while (this.#feedWarmupPending && !additions.length && page.hasMore && page.cursor) {
         const previousCursor = page.cursor;
-        page = await this.#gateway.listFeedPage(this.#feedNodeIds, previousCursor, this.#pageSize);
+        page = await this.requestFeedPage(this.#feedNodeIds, previousCursor, this.#pageSize);
         if (!page.posts.length && page.cursor === previousCursor) {
           hasMore = page.hasMore;
           break;
@@ -679,7 +787,7 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   /**
-   * Resolves one author's public profile through a coalesced batch. Avatars
+   * Resolves one author's profile through a coalesced batch. Avatars
    * mount with virtualized rows, so a page with many authors still results in
    * one bounded directory request instead of one request per card or hover.
    */
@@ -1662,6 +1770,10 @@ function createLocalId(): string {
 function normalizeCacheOwner(ownerId: string | null): string | null {
   const normalized = ownerId?.trim();
   return normalized || null;
+}
+
+function uniqueNodeIds(nodeIds: readonly string[]): string[] {
+  return [...new Set(nodeIds.filter((nodeId) => typeof nodeId === 'string' && nodeId.trim()))];
 }
 
 function normalizeAuthorUsername(username: string): string | null {

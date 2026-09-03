@@ -32,6 +32,7 @@
     scrollElement?: HTMLElement;
     fluoState: FluoGState;
     onOpenPost?: (post: FluoPost) => void;
+    onOpenProfile?: (username: string) => void;
     onOpenQuotedPost?: (quote: FluoQuote) => void;
     onQuote?: (post: FluoPost) => void;
   };
@@ -65,6 +66,7 @@
     scrollElement,
     fluoState,
     onOpenPost,
+    onOpenProfile,
     onOpenQuotedPost,
     onQuote,
   }: Props = $props();
@@ -451,6 +453,7 @@
           {post}
           {fluoState}
           onOpen={onOpenPost ? () => onOpenPost(post) : undefined}
+          {onOpenProfile}
           onOpenQuote={onOpenQuotedPost}
           onQuote={onQuote ? () => onQuote(post) : undefined}
           registerMedia={(load) => registerMedia(postKey(post), load)}

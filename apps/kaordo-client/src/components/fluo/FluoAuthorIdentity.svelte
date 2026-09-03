@@ -8,6 +8,7 @@
     author: string;
     compact?: boolean;
     fluoState: FluoGState;
+    onOpenProfile?: (username: string) => void;
   };
 
   let {
@@ -15,6 +16,7 @@
     author,
     compact = false,
     fluoState,
+    onOpenProfile,
   }: Props = $props();
 
   let profile = $state<FluoAuthorProfile | null>(null);
@@ -75,6 +77,11 @@
   function toggle(event: MouseEvent): void {
     event.stopPropagation();
     cancelClose();
+    if (onOpenProfile) {
+      open = false;
+      onOpenProfile(author);
+      return;
+    }
     open = !open;
   }
 
@@ -112,7 +119,7 @@
   <button
     class="author-avatar"
     type="button"
-    aria-label={`Show ${displayName}'s public profile`}
+    aria-label={`${onOpenProfile ? 'Open' : 'Show'} ${displayName}'s public profile`}
     aria-expanded={open}
     onclick={toggle}
     onkeydown={stopPropagation}

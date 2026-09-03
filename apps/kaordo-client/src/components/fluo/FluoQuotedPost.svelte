@@ -10,6 +10,7 @@
     active?: boolean;
     fluoState: FluoGState;
     onOpen?: () => void;
+    onOpenProfile?: (username: string) => void;
     quote: FluoQuote;
     registerMedia: (load: () => Promise<void>) => () => void;
   };
@@ -18,6 +19,7 @@
     active = true,
     fluoState,
     onOpen,
+    onOpenProfile,
     quote,
     registerMedia,
   }: Props = $props();
@@ -65,7 +67,7 @@
   </header>
 
   <div class="quoted-post__author">
-    <FluoAuthorIdentity active={active} author={quote.author} compact {fluoState} />
+    <FluoAuthorIdentity active={active} author={quote.author} compact {fluoState} {onOpenProfile} />
     <strong>{quote.author}</strong>
     <span class="quoted-post__username">@{quote.author.toLowerCase()}</span>
     <i aria-hidden="true">·</i>

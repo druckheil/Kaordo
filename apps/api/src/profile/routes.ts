@@ -62,8 +62,8 @@ export async function getProfile(request: Request, env: Env): Promise<Response> 
 
 /**
  * Returns only public profile pointers for the requested Fluo authors. The
- * profile document and media remain on the author's Public Nodo; batching the
- * directory lookup keeps one feed page to a single compact D1 request.
+ * profile document and media remain on the author's profile Nodo; batching
+ * the directory lookup keeps one feed page to a single compact D1 request.
  */
 export async function listPublicProfiles(request: Request, env: Env): Promise<Response> {
   const session = await authenticate(request, env);

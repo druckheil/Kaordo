@@ -506,11 +506,14 @@ fn handle_connection(stream: TcpStream, runtime: &Arc<NodeRuntime>) -> io::Resul
             }
             let limit = query_usize(&request, "limit", 20, 1..=50)?;
             let cursor = query_usize_opt(&request, "cursor")?;
+            let author = query_author_opt(&request)?;
             let storage = runtime.storage.read().map_err(lock_error)?;
-            let (posts, next) = storage
-                .space(space)
-                .page_posts(limit, cursor)
-                .map_err(internal_error)?;
+            let selected = storage.space(space);
+            let (posts, next) = match author.as_deref() {
+                Some(author) => selected.page_posts_by_author(limit, cursor, Some(author)),
+                None => selected.page_posts(limit, cursor),
+            }
+            .map_err(internal_error)?;
             return response_json(
                 &mut output,
                 200,
@@ -1719,6 +1722,16 @@ fn query_usize_opt(request: &Request, name: &str) -> io::Result<Option<usize>> {
                 .map_err(|_| bad_request("Cursor is invalid."))
         })
         .transpose()
+}
+
+fn query_author_opt(request: &Request) -> io::Result<Option<String>> {
+    let Some(value) = request.query.get("author") else {
+        return Ok(None);
+    };
+    if !(1..=32).contains(&value.chars().count()) || value.chars().any(char::is_control) {
+        return Err(bad_request("Author filter is invalid."));
+    }
+    Ok(Some(value.clone()))
 }
 fn valid_id(value: &str) -> bool {
     uuid::Uuid::parse_str(value).is_ok() && value.len() == 36

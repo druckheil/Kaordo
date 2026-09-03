@@ -57,7 +57,8 @@ const EMPTY_FLUO_LIKES_GATEWAY: FluoLikesGateway = {
 
 export class NodeFluoGateway implements FluoGateway {
   private readonly connections = new Map<string, Promise<NodeConnection>>();
-  private feedSession: FeedSession | null = null;
+  /** Keep independent cursors for the global and author-scoped timelines. */
+  private readonly feedSessions = new Map<string, FeedSession>();
 
   constructor(
     private readonly nodes: NodoGateway,
@@ -66,7 +67,7 @@ export class NodeFluoGateway implements FluoGateway {
   ) {}
 
   resetSession(): void {
-    this.feedSession = null;
+    this.feedSessions.clear();
     this.connections.clear();
   }
 
@@ -82,18 +83,42 @@ export class NodeFluoGateway implements FluoGateway {
     cursor: string | null,
     limit: number,
   ): Promise<FluoFeedPage> {
+    return this.listFeedPageForScope(null, nodeIds, cursor, limit);
+  }
+
+  async listAuthorFeedPage(
+    author: string,
+    nodeIds: readonly string[],
+    cursor: string | null,
+    limit: number,
+  ): Promise<FluoFeedPage> {
+    const normalizedAuthor = author.trim().toLowerCase();
+    if (!normalizedAuthor) return { cursor: null, hasMore: false, posts: [] };
+    return this.listFeedPageForScope(normalizedAuthor, nodeIds, cursor, limit);
+  }
+
+  private async listFeedPageForScope(
+    author: string | null,
+    nodeIds: readonly string[],
+    cursor: string | null,
+    limit: number,
+  ): Promise<FluoFeedPage> {
     const uniqueNodeIds = [...new Set(nodeIds)];
     if (!uniqueNodeIds.length) return { cursor: null, hasMore: false, posts: [] };
     const key = uniqueNodeIds.slice().sort().join(',');
-    if (!cursor || !this.feedSession || this.feedSession.id !== cursor || this.feedSession.key !== key) {
-      this.feedSession = await FeedSession.open(
+    const scopeKey = `${author ? `author:${author}:` : 'global:'}${key}`;
+    let session = cursor ? this.feedSessions.get(scopeKey) : undefined;
+    if (!session || session.id !== cursor || session.key !== key) {
+      session = await FeedSession.open(
         (nodeId) => this.connection(nodeId),
         uniqueNodeIds,
         key,
+        author,
       );
+      this.feedSessions.set(scopeKey, session);
     }
-    const page = await this.feedSession.next(Math.max(1, Math.min(50, limit)));
-    if (!page.hasMore) this.feedSession = null;
+    const page = await session.next(Math.max(1, Math.min(50, limit)));
+    if (!page.hasMore) this.feedSessions.delete(scopeKey);
     return page;
   }
 
@@ -424,9 +449,11 @@ async function listSpacePosts(
   space: FluoSpace,
   cursor: string | null,
   limit: number,
+  author?: string | null,
 ): Promise<{ nextCursor: string | null; posts: NodePost[] }> {
   const query = new URLSearchParams({ limit: String(limit) });
   if (cursor) query.set('cursor', cursor);
+  if (author) query.set('author', author);
   const page = await connection.json<{ nextCursor?: string | null; posts: NodePost[] }>(
     `${SPACE_PATHS[space].posts}?${query}`,
   );
@@ -537,12 +564,14 @@ class FeedSession {
     readonly id: string,
     readonly key: string,
     private readonly sources: FeedSource[],
+    private readonly author: string | null,
   ) {}
 
   static async open(
     connect: (nodeId: string) => Promise<NodeConnection>,
     nodeIds: string[],
     key: string,
+    author: string | null,
   ): Promise<FeedSession> {
     const opened = await Promise.allSettled(nodeIds.map(async (nodeId) => ({
       connection: await connect(nodeId),
@@ -556,7 +585,7 @@ class FeedSession {
     return new FeedSession(`feed-${++feedSessionSequence}`, key, reachable.flatMap(({ connection, nodeId }) => [
       { buffer: [], connection, cursor: null, exhausted: false, nodeId, space: 'private' },
       { buffer: [], connection, cursor: null, exhausted: false, nodeId, space: 'public' },
-    ]));
+    ]), author);
   }
 
   async next(limit: number): Promise<FluoFeedPage> {
@@ -572,6 +601,11 @@ class FeedSession {
             (post.createdAt === current.createdAt && post.id > current.id)) return candidate;
         return newest;
       }, null);
+      // An author-scoped page can contain no matching posts even though a
+      // source still has older pages. Keep filling until a matching post is
+      // found or every source is exhausted instead of returning a premature
+      // end-of-feed marker.
+      if (!source && this.sources.some(({ exhausted }) => !exhausted)) continue;
       const post = source?.buffer.shift();
       if (!source || !post) break;
       posts.push(remotePost(source.nodeId, source.space, post));
@@ -582,10 +616,16 @@ class FeedSession {
 
   private async fill(source: FeedSource, limit: number): Promise<void> {
     try {
-      const page = await listSpacePosts(source.connection, source.space, source.cursor, limit);
-      source.buffer.push(...page.posts);
+      const page = await listSpacePosts(source.connection, source.space, source.cursor, limit, this.author);
+      const previousCursor = source.cursor;
+      source.buffer.push(...this.author
+        ? page.posts.filter((post) => post.author.trim().toLowerCase() === this.author)
+        : page.posts);
       source.cursor = page.nextCursor;
-      source.exhausted = page.nextCursor === null;
+      // A cursor that does not advance cannot produce new rows. Treat the
+      // source as exhausted even when a legacy Nodo returned a repeated page;
+      // otherwise an author filter could keep requesting the same page.
+      source.exhausted = page.nextCursor === null || previousCursor === page.nextCursor;
     } catch (error) {
       if (error instanceof NodeRequestError && error.status === 404 && source.space === 'public') {
         source.exhausted = true;
@@ -1006,7 +1046,7 @@ function base64(value: string): string {
   return btoa(binary);
 }
 
-/** Runs independent public-profile reads without opening an unbounded number
+/** Runs independent profile reads without opening an unbounded number
  * of Nodo connections when a virtualized page mounts many authors at once. */
 async function mapConcurrent<T, R>(
   values: readonly T[],

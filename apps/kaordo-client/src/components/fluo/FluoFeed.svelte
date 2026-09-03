@@ -1,10 +1,16 @@
 <script lang="ts">
-  import { tick } from 'svelte';
-  import { fluoPostKey as postIdentity, type FluoPost, type FluoQuote } from '../../lib/domain/fluo';
+  import { onDestroy, tick } from 'svelte';
+  import {
+    fluoPostKey as postIdentity,
+    type FluoAuthorProfile,
+    type FluoPost,
+    type FluoQuote,
+  } from '../../lib/domain/fluo';
   import type { FluoGState, FluoSnapshot } from '../../lib/states/FluoGState';
   import { PUBLIC_FLUO_DESTINATION } from '../../lib/gateways/FluoGateway';
   import FluoComposer from './FluoComposer.svelte';
   import FluoPostPage from './FluoPostPage.svelte';
+  import PublicProfilePage from './PublicProfilePage.svelte';
   import FluoTimeline from './FluoTimeline.svelte';
 
   type Props = {
@@ -20,15 +26,29 @@
   let postHistory = $state<string[]>([]);
   let composerOpen = $state(false);
   let composerQuote = $state<FluoPost | null>(null);
+  let publicProfileUsername = $state<string | null>(null);
+  let publicProfile = $state<FluoAuthorProfile | null>(null);
+  let publicProfileLoading = $state(false);
+  let publicProfileError = $state<string | null>(null);
+  let publicProfileFeedState = $state<FluoGState | null>(null);
+  let publicProfileSnapshot = $state<Readonly<FluoSnapshot> | null>(null);
+  let publicProfileRequestId = 0;
+  let publicProfileSyncPostKey: string | null = null;
   let selectedNode = $derived(snapshot.nodes.find(({ id }) => id === snapshot.selectedNodeId));
   let publicAvailable = $derived(Boolean(snapshot.publicStorage?.nodeCandidates.length));
   let openPost = $derived(snapshot.posts.find((post) => postIdentity(post) === openPostKey) ?? null);
   let postBackLabel = $derived(postHistory.length > 1 ? 'Back to quoted post' : 'Back to timeline');
 
+  onDestroy(() => {
+    publicProfileRequestId += 1;
+    publicProfileFeedState?.dispose();
+  });
+
   $effect(() => {
     if (!active) {
       openPostKey = null;
       postHistory = [];
+      if (publicProfileUsername || publicProfileFeedState) closePublicProfile();
       if (!snapshot.isPublishing) {
         composerOpen = false;
         composerQuote = null;
@@ -47,6 +67,32 @@
         openPostKey = null;
       }
     }
+  });
+
+  // A post can be published while its author's profile is open. The global
+  // state receives that optimistic row immediately, while the profile has a
+  // deliberately independent cursor. Refresh the scoped state once for the
+  // new feed row so the page stays current without sharing cursor state or
+  // replacing the profile timeline snapshot by hand.
+  $effect(() => {
+    const username = publicProfileUsername;
+    const scopedState = publicProfileFeedState;
+    if (!username || !scopedState) {
+      publicProfileSyncPostKey = null;
+      return;
+    }
+    const latestAuthorPost = snapshot.posts.find((post) =>
+      post.author.trim().toLowerCase() === username);
+    if (!latestAuthorPost) return;
+    const key = postIdentity(latestAuthorPost);
+    if (scopedState.snapshot.posts.some((post) => postIdentity(post) === key)) {
+      if (publicProfileSyncPostKey === key) publicProfileSyncPostKey = null;
+      return;
+    }
+    if (publicProfileSyncPostKey === key) return;
+    publicProfileSyncPostKey = key;
+    scopedState.addAuthorFeedNodeIds([latestAuthorPost.nodeId]);
+    void scopedState.refreshFeed();
   });
 
   function openComposer(quote: FluoPost | null = null): void {
@@ -94,9 +140,66 @@
     openComposer(post);
   }
 
+  async function openPublicProfile(author: string): Promise<void> {
+    const username = author.trim().toLowerCase();
+    if (!/^[a-z0-9](?:[a-z0-9_]{1,30}[a-z0-9])?$/u.test(username)) return;
+    const requestId = ++publicProfileRequestId;
+    publicProfileFeedState?.dispose();
+    publicProfileFeedState = null;
+    publicProfileSnapshot = null;
+    publicProfileSyncPostKey = null;
+    publicProfileUsername = username;
+    publicProfile = null;
+    publicProfileError = null;
+    publicProfileLoading = true;
+    openPostKey = null;
+    postHistory = [];
+    try {
+      const loaded = await fluoState.loadAuthorProfile(username);
+      if (requestId !== publicProfileRequestId) return;
+      publicProfile = loaded;
+      const feedNodeIds = fluoState.getFeedNodeIds();
+      const liveAuthorNodeIds = snapshot.posts
+        .filter((post) => post.author.trim().toLowerCase() === username)
+        .map((post) => post.nodeId);
+      const scopedState = fluoState.createAuthorFeedState(
+        username,
+        uniqueNodeIds([...feedNodeIds, ...liveAuthorNodeIds]),
+        (nextSnapshot) => {
+          if (requestId === publicProfileRequestId) publicProfileSnapshot = nextSnapshot;
+        },
+      );
+      publicProfileFeedState = scopedState;
+      publicProfileSnapshot = scopedState.snapshot;
+      scopedState.enter();
+    } catch (error) {
+      if (requestId === publicProfileRequestId) {
+        publicProfileError = error instanceof Error ? error.message : 'Public profile is unavailable.';
+      }
+    } finally {
+      if (requestId === publicProfileRequestId) publicProfileLoading = false;
+    }
+  }
+
+  function closePublicProfile(): void {
+    publicProfileRequestId += 1;
+    publicProfileFeedState?.dispose();
+    publicProfileFeedState = null;
+    publicProfileSnapshot = null;
+    publicProfileSyncPostKey = null;
+    publicProfileUsername = null;
+    publicProfile = null;
+    publicProfileLoading = false;
+    publicProfileError = null;
+  }
+
   function openQuotedPost(quote: FluoQuote): void {
     const target = snapshot.posts.find((post) => postIdentity(post) === postIdentity(quote));
     if (target) openPostPage(target, true);
+  }
+
+  function uniqueNodeIds(nodeIds: readonly string[]): string[] {
+    return [...new Set(nodeIds.filter((nodeId) => typeof nodeId === 'string' && nodeId.trim()))];
   }
 
 </script>
@@ -161,9 +264,10 @@
           isLoading={snapshot.isLoading}
           isLoadingMore={snapshot.isLoadingMore}
           isRefreshing={snapshot.isRefreshing}
-          {active}
+          active={active && !publicProfileUsername}
           {fluoState}
           onOpenPost={openPostPage}
+          onOpenProfile={openPublicProfile}
           onOpenQuotedPost={openQuotedPost}
           onQuote={openQuoteComposer}
           posts={snapshot.posts}
@@ -208,9 +312,25 @@
     {fluoState}
     backLabel={postBackLabel}
     onClose={closePostPage}
+    onOpenProfile={openPublicProfile}
     onOpenQuotedPost={openQuotedPost}
     onQuote={openQuoteComposer}
     post={openPost}
+  />
+{/if}
+
+{#if publicProfileUsername}
+  <PublicProfilePage
+    active={active}
+    fluoState={publicProfileFeedState}
+    onBack={closePublicProfile}
+    onOpenProfile={openPublicProfile}
+    onQuote={openQuoteComposer}
+    profile={publicProfile}
+    profileError={publicProfileError}
+    profileLoading={publicProfileLoading}
+    snapshot={publicProfileSnapshot}
+    username={publicProfileUsername}
   />
 {/if}
 

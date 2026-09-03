@@ -210,6 +210,16 @@ class NodeHttpServerTest {
             val publicRead = request(port, "GET", "/v1/spaces/public/fluo/posts", OWNER_TICKET, null)
             assertEquals("visitor", JSONObject(publicRead.second).getJSONArray("posts")
                 .getJSONObject(0).getString("author"))
+            val authorRead = request(
+                port, "GET", "/v1/spaces/public/fluo/posts?author=VISITOR", OWNER_TICKET, null,
+            )
+            assertEquals(1, JSONObject(authorRead.second).getJSONArray("posts").length())
+            assertEquals("visitor", JSONObject(authorRead.second).getJSONArray("posts")
+                .getJSONObject(0).getString("author"))
+            val invalidAuthor = request(
+                port, "GET", "/v1/spaces/public/fluo/posts?author=${"a".repeat(33)}", OWNER_TICKET, null,
+            )
+            assertEquals(400, invalidAuthor.first)
 
             val ownerOnlyClear = request(port, "DELETE", "/v1/storage", VISITOR_TICKET, null)
             assertEquals(403, ownerOnlyClear.first)

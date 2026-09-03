@@ -8,12 +8,13 @@
     backLabel?: string;
     fluoState: FluoGState;
     onClose: () => void;
+    onOpenProfile?: (username: string) => void;
     onOpenQuotedPost?: (quote: FluoQuote) => void;
     onQuote?: (post: FluoPost) => void;
     post: FluoPost;
   };
 
-  let { backLabel = 'Back to timeline', fluoState, onClose, onOpenQuotedPost, onQuote, post }: Props = $props();
+  let { backLabel = 'Back to timeline', fluoState, onClose, onOpenProfile, onOpenQuotedPost, onQuote, post }: Props = $props();
   let backButton = $state<HTMLButtonElement>();
 
   onMount(() => {
@@ -44,6 +45,7 @@
           active
           expanded
           {fluoState}
+          {onOpenProfile}
           onOpenQuote={onOpenQuotedPost}
           onQuote={onQuote ? () => onQuote(post) : undefined}
           {post}

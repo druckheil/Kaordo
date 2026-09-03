@@ -505,7 +505,14 @@ class NodeHttpServer(
                 return
             }
         }
-        val page = posts.page(limit, cursor)
+        val author = request.query["author"]?.let { value ->
+            if (value.length !in 1..32 || value.any { it.code < 32 || it.code == 127 }) {
+                writeJson(output, 400, "Bad Request", JSONObject().put("error", "Author filter is invalid."))
+                return
+            }
+            value
+        }
+        val page = posts.page(limit, cursor, author)
         writeJson(output, 200, "OK", JSONObject()
             .put("posts", org.json.JSONArray(page.posts.map(::postJson)))
             .put("nextCursor", page.nextCursor?.toString()))

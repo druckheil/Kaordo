@@ -37,7 +37,7 @@ export type FluoQuote = {
 };
 
 /**
- * A public author's profile as rendered by Fluo. Media stays a direct,
+ * An author's public profile as rendered by Fluo. Media stays a direct,
  * short-lived Nodo stream URL; profile text is kept small and optional so a
  * missing profile never prevents a post from rendering.
  */

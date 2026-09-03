@@ -186,6 +186,38 @@ describe('NodeFluoGateway', () => {
     expect(mediaRequests).toEqual([]);
   });
 
+  it('keeps paging until an author-scoped session finds a matching post', async () => {
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith('/v1/status')) return json({ status: 'online' });
+      if (url.includes('/v1/fluo/posts?')) {
+        const cursor = new URL(url).searchParams.get('cursor');
+        return cursor === null
+          ? json({ nextCursor: 'older', posts: [nodePostWithAuthor('other', 30, 'someone')] })
+          : json({ nextCursor: null, posts: [nodePostWithAuthor('mine', 20, 'druckheil')] });
+      }
+      if (url.includes('/v1/spaces/public/fluo/posts?')) {
+        return json({ nextCursor: null, posts: [nodePostWithAuthor('public-mine', 25, 'druckheil')] });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    const page = await new NodeFluoGateway(new AccessGateway()).listAuthorFeedPage(
+      'DRUCKHEIL',
+      [NODE_ID],
+      null,
+      2,
+    );
+
+    expect(page.posts.map(({ body }) => body)).toEqual(['public-mine', 'mine']);
+    expect(page.hasMore).toBe(false);
+    expect(requests.some((url) => url.includes('cursor=older'))).toBe(true);
+    expect(requests.some((url) => url.includes('/v1/fluo/posts?'))).toBe(true);
+    expect(requests.some((url) => url.includes('/v1/spaces/public/fluo/posts?'))).toBe(true);
+  });
+
   it('returns an authenticated direct stream URL for video without pre-downloading it', async () => {
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -561,6 +593,10 @@ function json(value: unknown, status = 200): Response {
 }
 
 function nodePost(body: string, createdAt: number) {
+  return nodePostWithAuthor(body, createdAt, 'druckheil');
+}
+
+function nodePostWithAuthor(body: string, createdAt: number, author: string) {
   return {
     attachments: [{
       id: `123e4567-e89b-42d3-a456-4266141740${createdAt}`,
@@ -569,7 +605,7 @@ function nodePost(body: string, createdAt: number) {
       name: `${body}.png`,
       size: 1,
     }],
-    author: 'druckheil',
+    author,
     body,
     createdAt,
     id: `123e4567-e89b-42d3-a456-4266141741${createdAt}`,
