@@ -146,12 +146,29 @@
         else liveEndDelta = delta;
         return;
       }
-      liveStartDelta = matchesAttachment(arrow.startAttachment, detail)
+      const startAttached = matchesAttachment(arrow.startAttachment, detail);
+      const endAttached = matchesAttachment(arrow.endAttachment, detail);
+      liveStartDelta = startAttached
         ? { deltaX: detail.deltaX, deltaY: detail.deltaY }
         : { deltaX: 0, deltaY: 0 };
-      liveEndDelta = matchesAttachment(arrow.endAttachment, detail)
+      liveEndDelta = endAttached
         ? { deltaX: detail.deltaX, deltaY: detail.deltaY }
         : { deltaX: 0, deltaY: 0 };
+      if (startAttached || endAttached) {
+        const hasResponsiveTextControlPoint =
+          arrow.controlPoints.length === 1 &&
+          Boolean(arrow.startAttachment?.textRange || arrow.endAttachment?.textRange);
+        liveControlDeltas = hasResponsiveTextControlPoint
+          ? {}
+          : Object.fromEntries(
+              arrow.controlPoints.map((_, index) => [index, {
+                deltaX: detail.deltaX,
+                deltaY: detail.deltaY,
+              }]),
+            );
+      } else {
+        liveControlDeltas = {};
+      }
   }
 
   function liveDetailKey(detail: ArrowLiveDragDetail): string {

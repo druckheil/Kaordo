@@ -64,6 +64,15 @@ export function openContextMenu(
   label: string,
   items: ContextMenuItem[],
 ): void {
+  // On macOS a Ctrl/Cmd-click is reported as a context-menu event. Those
+  // modifiers are reserved for canvas gestures (including keeping an arrow
+  // endpoint attached to a text range), so never open the app menu for them.
+  if (event.ctrlKey || event.metaKey) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeContextMenu();
+    return;
+  }
   if (shouldUseNativeContextMenu(event)) {
     closeContextMenu();
     return;

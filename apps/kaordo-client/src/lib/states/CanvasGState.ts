@@ -16,6 +16,7 @@ import {
   CANVAS_DEFAULT_ZOOM,
   clampCanvasZoom,
 } from '../features/canvas';
+import { translateAttachedArrowGeometry } from '../features/elementAttachment';
 import { GState } from '../state/GState';
 
 export type CanvasSnapshot = {
@@ -393,10 +394,32 @@ export class CanvasGState extends GState<CanvasSnapshot> {
         )
       : [...current, placement];
 
+    const deltaX = previous ? placement.x - previous.x : 0;
+    const deltaY = previous ? placement.y - previous.y : 0;
+    const currentDocument = this.canvasDocumentFor(workspaceId);
+    const movedElements = previous
+      ? translateAttachedArrowGeometry(
+          currentDocument.elements,
+          {
+            elementIds: canvasElementIdsForObject(currentDocument, object.id),
+            excludeParentObjectId: object.id,
+            objectId: object.id,
+          },
+          deltaX,
+          deltaY,
+        )
+      : currentDocument.elements;
+    const canvasDocument = movedElements === currentDocument.elements
+      ? currentDocument
+      : { ...currentDocument, elements: movedElements };
+
     this.patch({
       announcement: wasPlaced
         ? `${object.title} moved to ${point.x}, ${point.y} on the canvas.`
         : `${object.title} added to the canvas at ${point.x}, ${point.y}.`,
+      canvasDocuments: canvasDocument === currentDocument
+        ? this.snapshot.canvasDocuments
+        : { ...this.snapshot.canvasDocuments, [workspaceId]: canvasDocument },
       placements: { ...this.snapshot.placements, [workspaceId]: placements },
     });
     if (!wasPlaced) this.markEntering(workspaceId, object.id);

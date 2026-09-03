@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { CanvasPlacement } from '../domain/canvas';
-import type { RectangleElement, TextElement } from '../domain/workspace';
+import type {
+  ArrowElement,
+  RectangleElement,
+  TextElement,
+} from '../domain/workspace';
 import { CANVAS_CARD_HEADER_HEIGHT } from './canvas';
-import { moveTextWithRectangle, settleCanvasElement } from './elementAttachment';
+import {
+  moveTextWithRectangle,
+  settleCanvasElement,
+  translateAttachedArrowGeometry,
+} from './elementAttachment';
 
 const tray: CanvasPlacement = {
   document: { elements: [], version: 1 },
@@ -107,5 +115,94 @@ describe('canvas element attachment', () => {
       y: 546,
     });
     expect(moved).not.toHaveProperty('parentObjectId');
+  });
+
+  it('translates every control point when an attached element moves', () => {
+    const arrow: ArrowElement = {
+      controlPoints: [
+        { x: 140, y: 80 },
+        { x: 190, y: 120 },
+      ],
+      endX: 280,
+      endY: 160,
+      endAttachment: {
+        offset: 0.5,
+        side: 'left',
+      },
+      headMode: 'end',
+      height: 100,
+      id: 'arrow-1',
+      startX: 100,
+      startY: 80,
+      startAttachment: {
+        elementId: rectangle.id,
+        offset: 0.25,
+        side: 'right',
+      },
+      stroke: '#397565',
+      strokeWidth: 2,
+      type: 'arrow',
+      lineStyle: 'solid',
+      width: 180,
+      x: 100,
+      y: 80,
+    };
+
+    const moved = translateAttachedArrowGeometry(
+      [arrow],
+      { elementIds: new Set([rectangle.id]) },
+      32,
+      18,
+    )[0];
+
+    expect(moved).toMatchObject({
+      controlPoints: [
+        { x: 172, y: 98 },
+        { x: 222, y: 138 },
+      ],
+      startX: 132,
+      startY: 98,
+      endX: 280,
+      endY: 160,
+    });
+  });
+
+  it('does not translate arrows rendered inside a moved object', () => {
+    const arrow: ArrowElement = {
+      controlPoints: [{ x: 140, y: 80 }, { x: 190, y: 120 }],
+      endX: 280,
+      endY: 160,
+      headMode: 'end',
+      height: 100,
+      id: 'nested-arrow-1',
+      parentObjectId: tray.id,
+      startX: 100,
+      startY: 80,
+      startAttachment: {
+        objectId: tray.id,
+        offset: 0.25,
+        side: 'right',
+      },
+      stroke: '#397565',
+      strokeWidth: 2,
+      type: 'arrow',
+      lineStyle: 'solid',
+      width: 180,
+      x: 100,
+      y: 80,
+    };
+
+    const moved = translateAttachedArrowGeometry(
+      [arrow],
+      {
+        elementIds: new Set([rectangle.id]),
+        excludeParentObjectId: tray.id,
+        objectId: tray.id,
+      },
+      32,
+      18,
+    )[0];
+
+    expect(moved).toBe(arrow);
   });
 });

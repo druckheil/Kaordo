@@ -21,11 +21,13 @@
   } from '../../lib/features/arrowDrawing';
   import {
     arrowPoints,
+    canvasElementFrame,
     canvasTextRangeFrame,
     canvasTextRangeFrames,
     snapArrow,
     textRangeAnchorPoint,
     textRangeAttachment,
+    textRangeAttachmentAtPoint,
   } from '../../lib/features/arrowGeometry';
   import type { ArrowHandle } from '../../lib/features/arrowLive';
   import {
@@ -41,6 +43,7 @@
     moveMediaWithRectangle,
     moveTextWithRectangle,
     settleCanvasElement,
+    translateAttachedArrowGeometry,
   } from '../../lib/features/elementAttachment';
   import {
     continueRectangleDraw,
@@ -74,6 +77,8 @@
     kind: 'move';
     /** Shift keeps an arrow endpoint at the released point inside a target. */
     preciseArrowPoint?: boolean;
+    /** Ctrl/Cmd keeps a text-range endpoint attached while it follows its edge. */
+    preserveTextAttachment?: boolean;
     pointerId: number;
     startX: number;
     startY: number;
@@ -325,6 +330,11 @@
         element.type === 'arrow' &&
         (arrowHandle === 'start' || arrowHandle === 'end') &&
         event.shiftKey,
+      preserveTextAttachment:
+        element.type === 'arrow' &&
+        (arrowHandle === 'start' || arrowHandle === 'end') &&
+        hasTextRangeAttachment(element, arrowHandle) &&
+        isAttachmentPreservingModifier(event),
       pointerId: event.pointerId,
       startX: point.x,
       startY: point.y,
@@ -356,6 +366,7 @@
     }
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     captureShiftPointMode(gesture, event);
+    captureTextAttachmentMode(gesture, event);
     event.preventDefault();
     pendingPoint = boardPoint(latestPointerEvent(event), gesture.kind !== 'move');
     if (visualFrame !== null) return;
@@ -371,6 +382,7 @@
     cancelVisualFrame();
     if (active) {
       captureShiftPointMode(active, event);
+      captureTextAttachmentMode(active, event);
       pendingPoint = boardPoint(latestPointerEvent(event), active.kind !== 'move');
       flushGestureVisual();
     }
@@ -427,6 +439,19 @@
             ? moveTextWithRectangle(candidate, previousRectangle, nextRectangle)
             : moveMediaWithRectangle(candidate, previousRectangle, nextRectangle)
           : candidate,
+      );
+    }
+    if (
+      finished.kind === 'move' &&
+      finished.element.type !== 'arrow' &&
+      element.type !== 'arrow'
+    ) {
+      const delta = movedElementDelta(finished.element, element);
+      updatedElements = translateAttachedArrowGeometry(
+        updatedElements,
+        { elementIds: new Set(finished.elementIds) },
+        delta.x,
+        delta.y,
       );
     }
     const savePromise = canvas.saveWorkspaceCanvasDocument(workspaceId, {
@@ -663,6 +688,24 @@
     ) < 1;
   }
 
+  function movedElementDelta(
+    previous: CanvasElement,
+    next: CanvasElement,
+  ): { x: number; y: number } {
+    const placements = snapshot.placements[workspaceId] ?? [];
+    const previousFrame = canvasElementFrame(previous, placements);
+    const nextFrame = canvasElementFrame(next, placements);
+    return previousFrame && nextFrame
+      ? {
+          x: nextFrame.left - previousFrame.left,
+          y: nextFrame.top - previousFrame.top,
+        }
+      : {
+          x: next.x - previous.x,
+          y: next.y - previous.y,
+        };
+  }
+
   function sourceAtPoint(
     point: { x: number; y: number },
     source: TextArrowSource | null,
@@ -733,6 +776,74 @@
     return textRangeAnchorPoint(frames, attachment);
   }
 
+  function isAttachmentPreservingModifier(event: PointerEvent): boolean {
+    return event.ctrlKey || event.metaKey;
+  }
+
+  function attachmentForEndpoint(
+    arrow: ArrowElement,
+    handle: 'start' | 'end',
+  ): ArrowAttachment | undefined {
+    return handle === 'start' ? arrow.startAttachment : arrow.endAttachment;
+  }
+
+  function hasTextRangeAttachment(
+    arrow: ArrowElement,
+    handle: ArrowHandle,
+  ): boolean {
+    return typeof handle !== 'number' &&
+      Boolean(attachmentForEndpoint(arrow, handle)?.elementId &&
+        attachmentForEndpoint(arrow, handle)?.textRange);
+  }
+
+  function projectTextAttachment(
+    arrow: ArrowElement,
+    handle: 'start' | 'end',
+    target: { x: number; y: number },
+  ): { attachment: ArrowAttachment; point: { x: number; y: number } } | null {
+    const attachment = attachmentForEndpoint(arrow, handle);
+    if (!attachment?.elementId || !attachment.textRange) return null;
+    const element = document.elements.find(
+      (candidate): candidate is TextElement =>
+        candidate.id === attachment.elementId && candidate.type === 'text',
+    );
+    if (!element) return null;
+    const placements = snapshot.placements[workspaceId] ?? [];
+    const frame = canvasTextRangeFrame(
+      element,
+      attachment.textRange,
+      placement.id,
+      placements,
+      canvas.currentZoom(),
+    );
+    if (!frame) return null;
+    const frames = canvasTextRangeFrames(
+      element,
+      attachment.textRange,
+      placement.id,
+      placements,
+      canvas.currentZoom(),
+    ) ?? [frame];
+    const nextAttachment = textRangeAttachmentAtPoint(frames, target, attachment);
+    return {
+      attachment: nextAttachment,
+      point: textRangeAnchorPoint(frames, nextAttachment),
+    };
+  }
+
+  function constrainedTextArrowPoint(move: MoveGesture): { x: number; y: number } | null {
+    if (
+      !move.preserveTextAttachment ||
+      move.element.type !== 'arrow' ||
+      (move.arrowHandle !== 'start' && move.arrowHandle !== 'end')
+    ) return null;
+    return projectTextAttachment(
+      move.element,
+      move.arrowHandle,
+      { x: move.currentX, y: move.currentY },
+    )?.point ?? null;
+  }
+
   function movedElement(move: MoveGesture): CanvasElement {
     const deltaX = move.currentX - move.startX;
     const deltaY = move.currentY - move.startY;
@@ -752,8 +863,31 @@
             ? { startX: move.currentX, startY: move.currentY }
             : { endX: move.currentX, endY: move.currentY }),
       };
-      if (move.arrowHandle === 'start') delete moved.startAttachment;
-      else if (move.arrowHandle === 'end') delete moved.endAttachment;
+      if (move.arrowHandle === 'start') {
+        const projection = move.preserveTextAttachment
+          ? projectTextAttachment(move.element, 'start', {
+              x: move.currentX,
+              y: move.currentY,
+            })
+          : null;
+        if (projection) {
+          moved.startAttachment = projection.attachment;
+          moved.startX = projection.point.x;
+          moved.startY = projection.point.y;
+        } else if (!move.preserveTextAttachment) delete moved.startAttachment;
+      } else if (move.arrowHandle === 'end') {
+        const projection = move.preserveTextAttachment
+          ? projectTextAttachment(move.element, 'end', {
+              x: move.currentX,
+              y: move.currentY,
+            })
+          : null;
+        if (projection) {
+          moved.endAttachment = projection.attachment;
+          moved.endX = projection.point.x;
+          moved.endY = projection.point.y;
+        } else if (!move.preserveTextAttachment) delete moved.endAttachment;
+      }
       return moved;
     }
     return {
@@ -856,9 +990,25 @@
     }
   }
 
+  function captureTextAttachmentMode(
+    active: ArrowDrawGesture | RectangleDrawGesture | MoveGesture,
+    event: PointerEvent,
+  ): void {
+    if (
+      !isAttachmentPreservingModifier(event) ||
+      active.kind !== 'move' ||
+      active.element.type !== 'arrow' ||
+      (active.arrowHandle !== 'start' && active.arrowHandle !== 'end')
+    ) return;
+    if (hasTextRangeAttachment(active.element, active.arrowHandle)) {
+      active.preserveTextAttachment = true;
+    }
+  }
+
   function applyMoveVisual(move: MoveGesture) {
-    const x = move.currentX - move.startX;
-    const y = move.currentY - move.startY;
+    const point = constrainedTextArrowPoint(move);
+    const x = point ? point.x - move.startX : move.currentX - move.startX;
+    const y = point ? point.y - move.startY : move.currentY - move.startY;
     const transform = `translate3d(${x}px, ${y}px, 0)`;
     dispatchCanvasLiveMove(move, document.elements, x, y);
     for (const node of move.visualNodes) {

@@ -317,6 +317,39 @@ export function textRangeAttachment(
 }
 
 /**
+ * Keeps a text-range endpoint attached while it is being repositioned. The
+ * pointer is projected onto the nearest edge of the selected range (or its
+ * nearest wrapped fragment), and only the semantic side/offset is changed.
+ * This makes Ctrl/Cmd-drag useful for moving an explanation along a phrase
+ * without falling back to a free point or detaching the arrow.
+ */
+export function textRangeAttachmentAtPoint(
+  frames: readonly CanvasFrame[],
+  target: ArrowPoint,
+  attachment: ArrowAttachment,
+): ArrowAttachment {
+  if (frames.length === 0) return attachment;
+  const nearest = frames.reduce<{
+    distance: number;
+    offset: number;
+    side: ArrowAnchorSide;
+  } | null>((best, frame) => {
+    const candidate = nearestAnchor(target, frame);
+    return !best || candidate.distance < best.distance ? candidate : best;
+  }, null);
+  if (!nearest) return attachment;
+  const next = {
+    ...attachment,
+    offset: nearest.offset,
+    side: nearest.side,
+  };
+  // A normalized point is only meaningful for a free in-frame attachment;
+  // retaining it on a text-range attachment would make old data ambiguous.
+  delete next.point;
+  return next;
+}
+
+/**
  * Picks the fragment nearest to an existing attachment. The side and offset
  * are persisted, so this remains deterministic after a resize or a font
  * change while still following the line containing the selected word.

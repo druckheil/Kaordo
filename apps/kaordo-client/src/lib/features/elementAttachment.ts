@@ -1,11 +1,82 @@
 import type { CanvasPlacement } from '../domain/canvas';
 import type {
+  ArrowAttachment,
   CanvasElement,
   MediaElement,
   RectangleElement,
   TextElement,
 } from '../domain/workspace';
 import { CANVAS_CARD_HEADER_HEIGHT, CANVAS_HEIGHT, CANVAS_WIDTH } from './canvas';
+
+export type ArrowMoveTarget = {
+  elementIds?: ReadonlySet<string>;
+  objectId?: string;
+  /** Arrows rendered inside a moved object already move with its DOM frame. */
+  excludeParentObjectId?: string;
+};
+
+/**
+ * Translates the persisted geometry of arrows attached to a moved target.
+ *
+ * Attached endpoints are resolved from their target on render, but control
+ * points are absolute within the arrow's coordinate space. Keeping the
+ * control points (and endpoint fallbacks) in the same translated space avoids
+ * bends being left behind while an attached element or panel moves.
+ */
+export function translateAttachedArrowGeometry(
+  elements: CanvasElement[],
+  target: ArrowMoveTarget,
+  deltaX: number,
+  deltaY: number,
+): CanvasElement[] {
+  if (
+    (deltaX === 0 && deltaY === 0) ||
+    (!target.objectId && !target.elementIds?.size)
+  ) {
+    return elements;
+  }
+
+  let changed = false;
+  const translated = elements.map((element) => {
+    if (
+      element.type !== 'arrow' ||
+      (target.excludeParentObjectId &&
+        element.parentObjectId === target.excludeParentObjectId)
+    ) {
+      return element;
+    }
+    const startAttached = attachmentMatchesMove(element.startAttachment, target);
+    const endAttached = attachmentMatchesMove(element.endAttachment, target);
+    if (!startAttached && !endAttached) return element;
+
+    changed = true;
+    return {
+      ...element,
+      ...(startAttached
+        ? { startX: element.startX + deltaX, startY: element.startY + deltaY }
+        : {}),
+      ...(endAttached
+        ? { endX: element.endX + deltaX, endY: element.endY + deltaY }
+        : {}),
+      controlPoints: element.controlPoints.map((point) => ({
+        x: point.x + deltaX,
+        y: point.y + deltaY,
+      })),
+    };
+  });
+  return changed ? translated : elements;
+}
+
+function attachmentMatchesMove(
+  attachment: ArrowAttachment | undefined,
+  target: ArrowMoveTarget,
+): boolean {
+  if (!attachment) return false;
+  return Boolean(
+    (target.objectId && attachment.objectId === target.objectId) ||
+    (attachment.elementId && target.elementIds?.has(attachment.elementId)),
+  );
+}
 
 export function settleCanvasElement(
   element: CanvasElement,

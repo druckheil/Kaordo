@@ -11,6 +11,7 @@ import {
   canvasTextRangeFrame,
   snapArrow,
   textRangeAnchorPoint,
+  textRangeAttachmentAtPoint,
   textRangeSide,
 } from './arrowGeometry';
 import { CANVAS_CARD_HEADER_HEIGHT } from './canvas';
@@ -187,6 +188,26 @@ describe('text explanation arrow geometry', () => {
       offset: 0.84,
       side: 'right',
     })).toEqual({ x: 170, y: 35.28 });
+  });
+
+  it('projects a Ctrl-drag onto the nearest edge of a wrapped selection', () => {
+    const frames = [
+      { bottom: 18, left: 10, right: 70, top: 0 },
+      { bottom: 42, left: 10, right: 170, top: 24 },
+    ];
+    const attachment = {
+      elementId: text.id,
+      offset: 0.5,
+      point: { x: 0.5, y: 0.5 },
+      side: 'right' as const,
+      textRange: range,
+    };
+    const next = textRangeAttachmentAtPoint(frames, { x: 166, y: 38 }, attachment);
+    expect(next.elementId).toBe(text.id);
+    expect(next.textRange).toEqual(range);
+    expect(next.side).toBe('right');
+    expect(next.offset).toBeCloseTo(14 / 18);
+    expect(next.point).toBeUndefined();
   });
 
   it('prefers live DOM geometry after the text block is resized', () => {
