@@ -6,6 +6,8 @@ export type ArrowDrawGesture = {
   currentY: number;
   kind: 'draw-arrow';
   pointerId: number;
+  /** Gesture armed from Explain Selection and completed by a target click. */
+  armedFromSelection?: boolean;
   sourceAttachment?: ArrowAttachment;
   startX: number;
   startY: number;

@@ -28,12 +28,26 @@ export type RectangleElement = {
 
 export type ArrowAnchorSide = 'bottom' | 'left' | 'right' | 'top';
 
-/** A persisted range and visual box for a phrase inside a text element. */
+/** A persisted identity and logical position for one word in a text element. */
+export type TextWordAnchor = {
+  endOffset: number;
+  id: string;
+  startOffset: number;
+  text: string;
+};
+
+/**
+ * A persisted range and legacy visual fallback for a phrase inside a text
+ * element. The word list keeps the selected phrase inspectable and gives
+ * future text-layout code stable per-word identities; x/y/width/height remain
+ * for backwards compatibility with older workspace documents.
+ */
 export type TextRangeAnchor = {
   endOffset: number;
   height: number;
   quote: string;
   startOffset: number;
+  words?: TextWordAnchor[];
   width: number;
   x: number;
   y: number;
@@ -72,6 +86,8 @@ export type ArrowElement = {
   height: number;
   id: string;
   parentObjectId?: string;
+  /** Whether a text-range source should be outlined on the canvas. */
+  showTextOutline?: boolean;
   startAttachment?: ArrowAttachment;
   startX: number;
   startY: number;
@@ -539,6 +555,7 @@ function normalizeArrow(value: unknown): ArrowElement | null {
     y: value.y,
   };
   if (typeof value.parentObjectId === 'string') arrow.parentObjectId = value.parentObjectId;
+  if (value.showTextOutline === true) arrow.showTextOutline = true;
   const startAttachment = normalizeArrowAttachment(value.startAttachment);
   if (startAttachment) arrow.startAttachment = startAttachment;
   const endAttachment = normalizeArrowAttachment(value.endAttachment);
@@ -603,11 +620,41 @@ function normalizeTextRangeAnchor(value: unknown): TextRangeAnchor | null {
   ) return null;
   const startOffset = Math.max(0, Math.floor(value.startOffset));
   const endOffset = Math.max(startOffset, Math.floor(value.endOffset));
+  const seenWordIds = new Set<string>();
+  const words = Array.isArray(value.words)
+    ? value.words.flatMap((word) => {
+        if (
+          !isRecord(word) ||
+          typeof word.id !== 'string' ||
+          typeof word.text !== 'string' ||
+          !isFiniteNumber(word.startOffset) ||
+          !isFiniteNumber(word.endOffset)
+        ) return [];
+        const id = word.id.trim().slice(0, 160);
+        const wordStart = Math.max(0, Math.floor(word.startOffset));
+        const wordEnd = Math.min(wordStart + 512, Math.floor(word.endOffset));
+        if (
+          !id ||
+          seenWordIds.has(id) ||
+          wordEnd <= wordStart ||
+          wordEnd <= startOffset ||
+          wordStart >= endOffset
+        ) return [];
+        seenWordIds.add(id);
+        return [{
+          endOffset: wordEnd,
+          id,
+          startOffset: wordStart,
+          text: word.text.slice(0, 160),
+        }];
+      }).slice(0, 128)
+    : [];
   return {
     endOffset,
     height: Math.max(1, value.height),
     quote: value.quote.slice(0, 512),
     startOffset,
+    ...(words.length > 0 ? { words } : {}),
     width: Math.max(1, value.width),
     x: value.x,
     y: value.y,

@@ -10,6 +10,7 @@ import {
   clampCanvasZoom,
   pointerToCanvas,
 } from '../features/canvas';
+import { notifyAllTextLayoutsChanged } from '../features/textLayout';
 import { CanvasGState } from '../states/CanvasGState';
 
 export type CanvasBounds = Pick<DOMRect, 'bottom' | 'left' | 'right' | 'top'>;
@@ -42,6 +43,7 @@ export class CanvasViewportService {
   #wheelGesture: 'mouse' | 'trackpad' | null = null;
   #wheelGestureAt = 0;
   #zoomFrame: number | null = null;
+  #textLayoutFrame: number | null = null;
   #zoomWillChangeTimer: number | null = null;
 
   constructor(
@@ -61,6 +63,7 @@ export class CanvasViewportService {
     if (!element) {
       this.cancelScheduledCameraCapture();
       this.cancelZoomAnimation();
+      this.cancelTextLayoutRefresh();
       this.clearZoomWillChange();
     }
   }
@@ -429,6 +432,7 @@ export class CanvasViewportService {
         surface.style.removeProperty('will-change');
       }, ZOOM_WILL_CHANGE_MS);
     }
+    this.scheduleTextLayoutRefresh();
     viewport.scrollLeft = canvasAnchor.x * next - anchor.x;
     viewport.scrollTop = canvasAnchor.y * next - anchor.y;
   }
@@ -439,6 +443,33 @@ export class CanvasViewportService {
     }
     this.#zoomFrame = null;
     this.#pendingZoom = null;
+  }
+
+  /**
+   * Range rectangles are reported in visual coordinates. Invalidate them in
+   * the frame after the compositor has applied the new canvas scale; reading
+   * them synchronously with `setZoom` can otherwise divide old rectangles by
+   * the new zoom and make word-bound arrows drift until the file is reopened.
+   */
+  private scheduleTextLayoutRefresh(): void {
+    if (this.#textLayoutFrame !== null) {
+      window.cancelAnimationFrame?.(this.#textLayoutFrame);
+      this.#textLayoutFrame = null;
+    }
+    if (typeof window.requestAnimationFrame !== 'function') {
+      notifyAllTextLayoutsChanged();
+      return;
+    }
+    this.#textLayoutFrame = window.requestAnimationFrame(() => {
+      this.#textLayoutFrame = null;
+      notifyAllTextLayoutsChanged();
+    });
+  }
+
+  private cancelTextLayoutRefresh(): void {
+    if (this.#textLayoutFrame === null) return;
+    window.cancelAnimationFrame?.(this.#textLayoutFrame);
+    this.#textLayoutFrame = null;
   }
 
   private clearZoomWillChange(): void {

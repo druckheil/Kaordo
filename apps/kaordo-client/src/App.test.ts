@@ -1849,6 +1849,66 @@ describe('workspace navigation and objects', () => {
     expect(await screen.findByRole('textbox', { name: 'Text editor' })).toBeInTheDocument();
   });
 
+  it('resizes a text block in both directions and keeps the new size', async () => {
+    const savedDocuments: Array<{ elements: Array<Record<string, unknown>> }> = [];
+    mockCommands({
+      load_canvas_document: () => JSON.stringify({
+        elements: [
+          {
+            color: '#25332d',
+            fontSize: 16,
+            height: 80,
+            html: 'Resizable text',
+            id: 'text-1',
+            textAlign: 'left',
+            type: 'text',
+            width: 260,
+            x: 100,
+            y: 100,
+          },
+        ],
+        placements: [],
+        version: 1,
+      }),
+      open_workspace: () => openedResearch,
+      save_canvas_document: (args) => {
+        savedDocuments.push(JSON.parse(String(args?.documentJson)));
+      },
+    });
+    renderApp({ autoloadWorkspaceLibrary: false, files: [researchFile] });
+    await openResearchFile();
+
+    const text = await screen.findByRole('button', { name: 'Text: Resizable text' });
+    await fireEvent.pointerDown(text, { button: 0, clientX: 110, clientY: 110, pointerId: 72 });
+    await fireEvent.pointerUp(text, { button: 0, clientX: 110, clientY: 110, pointerId: 72 });
+    const handle = await screen.findByRole('button', { name: 'Resize text width and height' });
+    await fireEvent.pointerDown(handle, {
+      button: 0,
+      clientX: 360,
+      clientY: 180,
+      pointerId: 73,
+    });
+    await fireEvent.pointerMove(handle, {
+      button: 0,
+      buttons: 1,
+      clientX: 400,
+      clientY: 210,
+      pointerId: 73,
+    });
+    await fireEvent.pointerUp(handle, {
+      button: 0,
+      clientX: 400,
+      clientY: 210,
+      pointerId: 73,
+    });
+
+    await waitFor(() => {
+      expect(savedDocuments.at(-1)?.elements).toEqual(expect.arrayContaining([
+        expect.objectContaining({ height: 110, id: 'text-1', width: 300 }),
+      ]));
+    });
+  });
+
   it('draws multiple explanation arrows from a selected text phrase', async () => {
     const savedDocuments: Array<{ elements: Array<Record<string, unknown>> }> = [];
     mockCommands({
@@ -1929,7 +1989,7 @@ describe('workspace navigation and objects', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Explain selected phrase with an arrow' }));
 
     expect(screen.getByRole('button', { name: 'Arrow tool' })).toHaveAttribute('aria-pressed', 'true');
-    expect(document.querySelector('.canvas-text-arrow-source')).not.toBeNull();
+    expect(document.querySelector('.canvas-text-arrow-highlight')).not.toBeNull();
 
     const drawingSurface = screen.getByRole('application', { name: 'Workspace canvas drawing surface' });
     vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
@@ -1966,7 +2026,19 @@ describe('workspace navigation and objects', () => {
       expect.objectContaining({
         startAttachment: expect.objectContaining({
           elementId: 'text-1',
-          textRange: expect.objectContaining({ quote: 'this p' }),
+          textRange: expect.objectContaining({
+            quote: 'this p',
+            words: expect.arrayContaining([
+              expect.objectContaining({
+                id: expect.stringMatching(/^word-/),
+                text: 'this',
+              }),
+              expect.objectContaining({
+                id: expect.stringMatching(/^word-/),
+                text: 'phrase',
+              }),
+            ]),
+          }),
         }),
         type: 'arrow',
       }),

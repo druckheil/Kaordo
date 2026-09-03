@@ -18,8 +18,10 @@
     maxHeight?: number;
     maxWidth?: number;
     moving?: boolean;
-    onContextMenu?: (event: MouseEvent) => void;
+    onContextMenu?: (event: MouseEvent, view?: () => void) => void;
     onStartMove: (event: PointerEvent, element: MediaElement) => void;
+    /** Treat a click on the media surface as an Explain Selection target. */
+    explanationTargetMode?: boolean;
     selected: boolean;
     workspaceId: string;
   };
@@ -32,6 +34,7 @@
     moving = false,
     onContextMenu,
     onStartMove,
+    explanationTargetMode = false,
     selected,
     workspaceId,
   }: Props = $props();
@@ -45,7 +48,6 @@
   let audioVolume = $state(1);
   let pendingMove = $state<PendingMove | null>(null);
   let pendingMoveCaptureTarget: HTMLElement | null = null;
-  let suppressImageClick = false;
   let mediaLoadVersion = 0;
   let loadedMediaKey: string | null = null;
   let resize = $state<ResizeGesture | null>(null);
@@ -99,6 +101,10 @@
       startHandleMove(event);
       return;
     }
+    if (explanationTargetMode && !isInteractiveTarget(event.target)) {
+      onStartMove(event, element);
+      return;
+    }
     if ((element.kind === 'image' || element.kind === 'gif') && isImageTarget(event.target)) {
       beginImageMove(event);
       return;
@@ -128,8 +134,6 @@
     );
     if (distance < 4) return;
     clearPendingMove();
-    suppressImageClick = true;
-    window.setTimeout(() => { suppressImageClick = false; }, 350);
     event.preventDefault();
     event.stopPropagation();
     onStartMove(event, element);
@@ -154,16 +158,6 @@
     event.stopPropagation();
     canvas.state.selectGlobalElement(element.id);
     onStartMove(event, element);
-  }
-
-  function handleImageClick(event: MouseEvent) {
-    if (suppressImageClick) {
-      event.preventDefault();
-      event.stopPropagation();
-      suppressImageClick = false;
-      return;
-    }
-    showPhotoViewer = true;
   }
 
   function startResize(event: PointerEvent) {
@@ -342,21 +336,25 @@
   onpointermove={continueInteraction}
   onpointerup={finishInteraction}
   onpointercancel={finishInteraction}
-  oncontextmenu={onContextMenu}
+  oncontextmenu={(event) => onContextMenu?.(
+    event,
+    element.kind === 'image' || element.kind === 'gif'
+      ? () => { showPhotoViewer = true; }
+      : undefined,
+  )}
 >
   {#if loadState === 'loading'}
     <div class="canvas-media-loading" aria-label="Loading media"><span></span></div>
   {:else if loadState === 'error' || !mediaUrl}
     <div class="canvas-media-error">Media unavailable</div>
   {:else if element.kind === 'image' || element.kind === 'gif'}
-    <button
+    <div
       class="canvas-media-image"
-      type="button"
-      aria-label={`Open ${element.name}`}
-      onclick={handleImageClick}
+      role="img"
+      aria-label={element.name}
     >
       <img src={mediaUrl} alt={element.name} decoding="async" draggable="false" />
-    </button>
+    </div>
   {:else if element.kind === 'video'}
     <div class="canvas-media-video" role="group">
       <KaordoVideoPlayer active={!moving} mimeType={element.mimeType} preload="metadata" src={mediaUrl} title={element.name} />
@@ -442,7 +440,7 @@
   .canvas-media-loading { display: grid; background: linear-gradient(110deg, #e8efeb 28%, #f8fbf9 42%, #e8efeb 56%); background-size: 200% 100%; animation: media-shimmer 1.2s linear infinite; place-items: center; }
   .canvas-media-loading span { width: 22px; height: 22px; border: 2px solid rgb(63 120 101 / 25%); border-top-color: #4b8b76; border-radius: 50%; animation: media-spin 700ms linear infinite; }
   .canvas-media-error { display: grid; color: #9d5b55; background: #f8e9e7; font-size: calc(11px * var(--text-scale)); place-items: center; }
-  .canvas-media-image { display: block; padding: 0; overflow: hidden; background: #edf2ef; border: 0; cursor: zoom-in; }
+  .canvas-media-image { display: block; padding: 0; overflow: hidden; background: #edf2ef; border: 0; cursor: grab; }
   .canvas-media-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
   .canvas-media-video { overflow: hidden; background: #172620; }
   .canvas-media-video :global(.kaordo-video-player) { min-height: 0; }

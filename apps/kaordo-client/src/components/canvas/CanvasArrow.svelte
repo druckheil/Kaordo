@@ -13,6 +13,10 @@
     type ArrowHandle,
     type ArrowLiveDragDetail,
   } from '../../lib/features/arrowLive';
+  import {
+    ALL_TEXT_LAYOUTS,
+    subscribeTextLayoutChanged,
+  } from '../../lib/features/textLayout';
 
   type Props = {
     arrow: ArrowElement;
@@ -22,6 +26,7 @@
     onStartPointMove: (event: PointerEvent, arrow: ArrowElement, handle: ArrowHandle) => void;
     placements: readonly CanvasPlacement[];
     selected: boolean;
+    zoom?: number;
   };
 
   let {
@@ -32,24 +37,35 @@
     onStartPointMove,
     placements,
     selected,
+    zoom = 1,
   }: Props = $props();
   let liveStartDelta = $state({ deltaX: 0, deltaY: 0 });
   let liveEndDelta = $state({ deltaX: 0, deltaY: 0 });
   let liveControlDeltas = $state<Record<number, { deltaX: number; deltaY: number }>>({});
   let pendingLiveDrags = new Map<string, ArrowLiveDragDetail>();
   let liveFrame: number | null = null;
+  let textLayoutRevision = $state(0);
   let points = $derived.by(() => {
-    const base = arrowPoints(arrow, elements, placements);
+    textLayoutRevision;
+    const base = arrowPoints(arrow, elements, placements, zoom);
+    const start = {
+      x: base.start.x + liveStartDelta.deltaX,
+      y: base.start.y + liveStartDelta.deltaY,
+    };
+    const end = {
+      x: base.end.x + liveEndDelta.deltaX,
+      y: base.end.y + liveEndDelta.deltaY,
+    };
+    const hasTextRangeAttachment = Boolean(
+      arrow.startAttachment?.textRange || arrow.endAttachment?.textRange,
+    );
+    const controlPoints = arrow.controlPoints.length === 1 && hasTextRangeAttachment
+      ? [responsiveTextControlPoint(arrow.controlPoints[0], arrow, start, end)]
+      : arrow.controlPoints;
     return {
-      end: {
-        x: base.end.x + liveEndDelta.deltaX,
-        y: base.end.y + liveEndDelta.deltaY,
-      },
-      start: {
-        x: base.start.x + liveStartDelta.deltaX,
-        y: base.start.y + liveStartDelta.deltaY,
-      },
-      controlPoints: arrow.controlPoints.map((point, index) => ({
+      end,
+      start,
+      controlPoints: controlPoints.map((point, index) => ({
         x: point.x + (liveControlDeltas[index]?.deltaX ?? 0),
         y: point.y + (liveControlDeltas[index]?.deltaY ?? 0),
       })),
@@ -80,8 +96,22 @@
     };
 
     window.addEventListener(ARROW_LIVE_DRAG_EVENT, handleLiveDrag);
+    const refreshFrame = window.requestAnimationFrame?.(() => {
+      textLayoutRevision += 1;
+    }) ?? null;
+    const unsubscribeTextLayout = subscribeTextLayoutChanged((elementId) => {
+      if (
+        elementId === ALL_TEXT_LAYOUTS ||
+        arrow.startAttachment?.elementId === elementId ||
+        arrow.endAttachment?.elementId === elementId
+      ) {
+        textLayoutRevision += 1;
+      }
+    });
     return () => {
       window.removeEventListener(ARROW_LIVE_DRAG_EVENT, handleLiveDrag);
+      unsubscribeTextLayout();
+      if (refreshFrame !== null) window.cancelAnimationFrame?.(refreshFrame);
       if (liveFrame !== null) cancelAnimationFrame(liveFrame);
       liveFrame = null;
       pendingLiveDrags.clear();
@@ -177,6 +207,29 @@
 
   function localPoint(point: ArrowPoint): ArrowPoint {
     return { x: point.x - bounds.left, y: point.y - bounds.top };
+  }
+
+  function responsiveTextControlPoint(
+    point: ArrowPoint,
+    source: ArrowElement,
+    start: ArrowPoint,
+    end: ArrowPoint,
+  ): ArrowPoint {
+    const midpoint = {
+      x: (source.startX + source.endX) / 2,
+      y: (source.startY + source.endY) / 2,
+    };
+    // New arrows use an implicit midpoint. Recompute that point when a text
+    // range wraps or moves so the curve never trails behind the selection.
+    if (Math.hypot(point.x - midpoint.x, point.y - midpoint.y) < 1) {
+      return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    }
+    // A user-adjusted control point is intentional. Translate it by the
+    // average endpoint movement instead of silently erasing the custom bend.
+    return {
+      x: point.x + ((start.x - source.startX) + (end.x - source.endX)) / 2,
+      y: point.y + ((start.y - source.startY) + (end.y - source.endY)) / 2,
+    };
   }
 </script>
 
@@ -284,10 +337,9 @@
     stroke: transparent;
     stroke-width: 16px;
     pointer-events: stroke;
-    cursor: grab;
+    cursor: pointer;
   }
 
-  .canvas-arrow-hit:active { cursor: grabbing; }
   .canvas-arrow-line { opacity: 0.9; pointer-events: none; }
   .canvas-arrow-line--selected { filter: drop-shadow(0 2px 3px rgb(42 72 60 / 18%)); }
 

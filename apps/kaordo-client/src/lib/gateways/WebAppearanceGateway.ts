@@ -5,6 +5,7 @@ import {
   type AppearancePreferences,
   type AppTheme,
 } from '../domain/appearance';
+import { notifyAllTextLayoutsChanged } from '../features/textLayout';
 import type { AppearanceGateway } from './AppearanceGateway';
 
 const STORAGE_KEY = 'kaordo.appearance.v1';
@@ -56,6 +57,14 @@ export function applyTextScale(scale: number): void {
 function applyWebScale(scale: number): void {
   document.documentElement.dataset.scaleMode = 'css';
   document.documentElement.style.setProperty('--app-scale', String(scale));
+  // CSS zoom changes the visual coordinates returned by Range. Refresh text
+  // anchors after the browser applies the new root scale so arrows do not
+  // retain a rectangle measured at the previous application size.
+  if (typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(() => notifyAllTextLayoutsChanged());
+  } else {
+    notifyAllTextLayoutsChanged();
+  }
 }
 
 function isAppearance(value: unknown): value is Omit<AppearancePreferences, 'textScale'> & { textScale?: unknown } {

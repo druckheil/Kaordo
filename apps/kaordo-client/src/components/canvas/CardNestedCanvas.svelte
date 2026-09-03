@@ -8,6 +8,7 @@
     type CanvasElement,
     type RectangleElement,
     type TextArrowSource,
+    type TextRangeAnchor,
     type TextElement,
     type WorkspaceCanvasDocument,
   } from '../../lib/domain/workspace';
@@ -21,8 +22,10 @@
   import {
     arrowPoints,
     canvasTextRangeFrame,
+    canvasTextRangeFrames,
     snapArrow,
-    textRangeSide,
+    textRangeAnchorPoint,
+    textRangeAttachment,
   } from '../../lib/features/arrowGeometry';
   import type { ArrowHandle } from '../../lib/features/arrowLive';
   import {
@@ -86,17 +89,34 @@
   let draftArrowLine: SVGLineElement | undefined;
   let gesture: ArrowDrawGesture | RectangleDrawGesture | MoveGesture | null = null;
   let visualFrame: number | null = null;
+  let explanationCursorFrame: number | null = null;
+  let pendingExplanationCursor: { x: number; y: number } | null = null;
   let pendingPoint: { x: number; y: number } | null = null;
   let lastRectanglePointerDown: { at: number; id: string } | null = null;
+  let zoom = $derived(snapshot.zooms[workspaceId] ?? 1);
   let dragOverflowNodes: DragOverflowNode[] = [];
   let elements = $derived(
     document.elements.filter(
       (element) => element.parentObjectId === placement.id,
     ),
   );
+  let textArrowHighlights = $derived(
+    document.elements.flatMap((element) => {
+      if (
+        element.type !== 'arrow' ||
+        !element.showTextOutline ||
+        !element.startAttachment?.elementId
+      ) return [];
+      const anchor = element.startAttachment.textRange;
+      return anchor
+        ? [{ anchor, color: element.stroke, elementId: element.startAttachment.elementId }]
+        : [];
+    }),
+  );
 
   onDestroy(() => {
     cancelVisualFrame();
+    if (explanationCursorFrame !== null) window.cancelAnimationFrame?.(explanationCursorFrame);
     clearGestureVisual(gesture);
   });
 
@@ -114,8 +134,27 @@
       : { x, y };
   }
 
+  function globalPoint(point: { x: number; y: number }): { x: number; y: number } {
+    return {
+      x: placement.x + point.x,
+      y: placement.y + CANVAS_CARD_HEADER_HEIGHT + point.y,
+    };
+  }
+
   function startDraw(event: PointerEvent) {
     canvas.state.selectCard(placement.id);
+    if (
+      event.button === 0 &&
+      snapshot.activeTool === 'arrow' &&
+      snapshot.textArrowSource &&
+      snapshot.isCanvasDocumentReady &&
+      snapshot.textArrowSource.parentObjectId === placement.id
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      beginArmedExplanationInteraction(boardPoint(event, true), event);
+      return;
+    }
     if (
       event.button === 0 &&
       snapshot.activeTool === 'text' &&
@@ -172,10 +211,22 @@
     element: CanvasElement,
     arrowHandle?: ArrowHandle,
   ) {
-    // Images/GIFs use a short drag threshold so a click can still open the
-    // viewer. Their promoted pointermove has button=-1 by browser design.
+    // Images/GIFs use a short drag threshold so a click remains a normal
+    // selection while preserving a smooth drag. Their promoted pointermove
+    // has button=-1 by browser design.
     const deferredMediaDrag = element.type === 'media' && event.type === 'pointermove';
     if (event.button !== 0 && !deferredMediaDrag) return;
+    if (
+      event.button === 0 &&
+      snapshot.activeTool === 'arrow' &&
+      snapshot.textArrowSource?.parentObjectId === placement.id &&
+      snapshot.isCanvasDocumentReady
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      beginArmedExplanationInteraction(boardPoint(event, true), event);
+      return;
+    }
     const now = performance.now();
     const isDoubleClick = element.type === 'rectangle' && (
       event.detail >= 2 ||
@@ -239,6 +290,13 @@
       board?.setPointerCapture?.(event.pointerId);
       return;
     }
+    // An arrow is edited through its endpoint/control-point handles only.
+    // Clicking the stroke still selects it, but never starts a whole-arrow
+    // drag that would detach both of its semantic attachments.
+    if (element.type === 'arrow' && arrowHandle === undefined) {
+      event.preventDefault();
+      return;
+    }
     if (snapshot.activeTool !== 'select') return;
     event.preventDefault();
     const point = boardPoint(event);
@@ -270,6 +328,15 @@
   }
 
   function continueGesture(event: PointerEvent) {
+    if (
+      !gesture &&
+      snapshot.activeTool === 'arrow' &&
+      snapshot.textArrowSource &&
+      snapshot.isCanvasDocumentReady
+    ) {
+      queueExplanationCursor(globalPoint(boardPoint(latestPointerEvent(event), true)));
+      return;
+    }
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     event.preventDefault();
     pendingPoint = boardPoint(latestPointerEvent(event), gesture.kind !== 'move');
@@ -310,7 +377,8 @@
       return;
     }
     const keepTextArrowSource = finished.kind === 'draw-arrow' &&
-      Boolean(finished.sourceAttachment);
+      Boolean(finished.sourceAttachment) &&
+      !finished.armedFromSelection;
     canvas.state.setTool(keepTextArrowSource ? 'arrow' : 'select');
     const currentDocument = canvas.state.canvasDocumentFor(workspaceId);
 
@@ -372,6 +440,86 @@
     }
   }
 
+  function completeArmedExplanationArrow(
+    point: { x: number; y: number },
+    event: PointerEvent,
+  ): void {
+    const source = snapshot.textArrowSource;
+    if (!source || source.parentObjectId !== placement.id) return;
+    const sourceElement = document.elements.find(
+      (candidate): candidate is TextElement =>
+        candidate.id === source.elementId && candidate.type === 'text',
+    );
+    const frame = sourceElement
+      ? canvasTextRangeFrame(
+          sourceElement,
+          source.anchor,
+          placement.id,
+          snapshot.placements[workspaceId] ?? [],
+          canvas.currentZoom(),
+        )
+      : null;
+    if (!sourceElement || !frame) {
+      canvas.state.announce('The selected phrase is no longer available.');
+      canvas.state.setTextArrowSource(null);
+      return;
+    }
+    const sourceAttachment: ArrowAttachment = {
+      elementId: source.elementId,
+      objectId: placement.id,
+      ...textRangeAttachment(frame, point),
+      textRange: source.anchor,
+    };
+    const frames = canvasTextRangeFrames(
+      sourceElement,
+      source.anchor,
+      placement.id,
+      snapshot.placements[workspaceId] ?? [],
+      canvas.currentZoom(),
+    ) ?? [frame];
+    const draw = {
+      ...continueArrowDraw(
+        startArrowDraw(textRangeAnchorPoint(frames, sourceAttachment), event.pointerId, sourceAttachment),
+        point,
+      ),
+      armedFromSelection: true,
+    } satisfies ArrowDrawGesture;
+    const candidate = drawnArrow(draw, document.elements);
+    if (
+      !candidate.endAttachment ||
+      candidate.endAttachment.elementId === source.elementId
+    ) {
+      canvas.state.setTextArrowCursor(globalPoint(point));
+      canvas.state.announce('Click a card, text block, panel, or media element to connect the arrow.');
+      return;
+    }
+    gesture = draw;
+    pendingPoint = point;
+    void finishGesture(event);
+  }
+
+  /** Start a source drag when the pointer is on the highlighted phrase; a
+   * click anywhere else is treated as the convenient target-click flow. */
+  function beginArmedExplanationInteraction(
+    point: { x: number; y: number },
+    event: PointerEvent,
+  ): void {
+    const source = snapshot.textArrowSource;
+    const sourceAttachment = sourceAtPoint(point, source);
+    if (sourceAttachment) {
+      canvas.state.setTextArrowCursor(null);
+      gesture = startArrowDraw(
+        sourceAttachmentPoint(sourceAttachment, point),
+        event.pointerId,
+        sourceAttachment,
+      );
+      updateArrowDraft(gesture);
+      board?.setPointerCapture?.(event.pointerId);
+      return;
+    }
+    completeArmedExplanationArrow(point, event);
+  }
+
   function cancelGesture(event: PointerEvent) {
     if (gesture?.pointerId !== event.pointerId) return;
     cancelVisualFrame();
@@ -422,20 +570,74 @@
             range,
             placement.id,
             snapshot.placements[workspaceId] ?? [],
+            canvas.currentZoom(),
           )
         : null;
-      if (sourceFrame) {
-        draw.sourceAttachment.side = textRangeSide(sourceFrame, {
-          x: draw.currentX,
-          y: draw.currentY,
-        });
-        draw.sourceAttachment.offset = 0.5;
-      }
-      arrow.startAttachment = { ...draw.sourceAttachment };
-      arrow.startX = draw.startX;
-      arrow.startY = draw.startY;
+      const sourceFrames = sourceElement && range && sourceFrame
+        ? canvasTextRangeFrames(
+            sourceElement,
+            range,
+            placement.id,
+            snapshot.placements[workspaceId] ?? [],
+            canvas.currentZoom(),
+          ) ?? [sourceFrame]
+        : [];
+      const sourceAttachment = sourceFrame
+        ? {
+            ...draw.sourceAttachment,
+            ...textRangeAttachment(sourceFrame, {
+              x: draw.currentX,
+              y: draw.currentY,
+            }),
+          }
+        : draw.sourceAttachment;
+      // Keep the source gesture immutable; only the committed arrow gets the
+      // side/offset chosen for its destination.
+      arrow.startAttachment = { ...sourceAttachment };
+      const sourcePoint = sourceFrames.length > 0
+        ? textRangeAnchorPoint(sourceFrames, sourceAttachment)
+        : { x: draw.startX, y: draw.startY };
+      arrow.startX = sourcePoint.x;
+      arrow.startY = sourcePoint.y;
     }
-    return snapArrow(arrow, elements, snapshot.placements[workspaceId] ?? []);
+    const implicitTextControlPoint = Boolean(
+      draw.sourceAttachment?.textRange &&
+      arrow.controlPoints.length === 1 &&
+      isControlPointMidpoint(arrow.controlPoints[0], arrow.startX, arrow.startY, arrow.endX, arrow.endY),
+    );
+    const snapped = snapArrow(
+      arrow,
+      elements,
+      snapshot.placements[workspaceId] ?? [],
+      canvas.currentZoom(),
+    );
+    if (!implicitTextControlPoint || snapped.controlPoints.length !== 1) return snapped;
+    const points = arrowPoints(
+      snapped,
+      elements,
+      snapshot.placements[workspaceId] ?? [],
+      canvas.currentZoom(),
+    );
+    return {
+      ...snapped,
+      controlPoints: [{
+        x: (points.start.x + points.end.x) / 2,
+        y: (points.start.y + points.end.y) / 2,
+      }],
+    };
+  }
+
+  function isControlPointMidpoint(
+    point: { x: number; y: number },
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+  ): boolean {
+    return Math.hypot(
+      point.x - (startX + endX) / 2,
+      point.y - (startY + endY) / 2,
+    ) < 1;
   }
 
   function sourceAtPoint(
@@ -453,68 +655,82 @@
       source.anchor,
       placement.id,
       snapshot.placements[workspaceId] ?? [],
+      canvas.currentZoom(),
     );
     if (!frame) return undefined;
     const tolerance = 30;
-    if (
-      point.x < frame.left - tolerance ||
-      point.x > frame.right + tolerance ||
-      point.y < frame.top - tolerance ||
-      point.y > frame.bottom + tolerance
-    ) return undefined;
+    const frames = canvasTextRangeFrames(
+      element,
+      source.anchor,
+      placement.id,
+      snapshot.placements[workspaceId] ?? [],
+      canvas.currentZoom(),
+    ) ?? [frame];
+    const inside = frames.some((candidate) =>
+      point.x >= candidate.left - tolerance &&
+      point.x <= candidate.right + tolerance &&
+      point.y >= candidate.top - tolerance &&
+      point.y <= candidate.bottom + tolerance,
+    );
+    if (!inside) return undefined;
     return {
       elementId: source.elementId,
       objectId: placement.id,
-      offset: 0.5,
-      side: textRangeSide(frame, point),
+      ...textRangeAttachment(frame, point),
       textRange: source.anchor,
     };
+  }
+
+  /** Resolve the drag origin to the visible edge of the selected phrase. */
+  function sourceAttachmentPoint(
+    attachment: ArrowAttachment,
+    fallback: { x: number; y: number },
+  ): { x: number; y: number } {
+    if (!attachment.textRange || !attachment.elementId) return fallback;
+    const element = document.elements.find(
+      (candidate): candidate is TextElement =>
+        candidate.id === attachment.elementId && candidate.type === 'text',
+    );
+    if (!element) return fallback;
+    const frame = canvasTextRangeFrame(
+      element,
+      attachment.textRange,
+      placement.id,
+      snapshot.placements[workspaceId] ?? [],
+      canvas.currentZoom(),
+    );
+    if (!frame) return fallback;
+    const frames = canvasTextRangeFrames(
+      element,
+      attachment.textRange,
+      placement.id,
+      snapshot.placements[workspaceId] ?? [],
+      canvas.currentZoom(),
+    ) ?? [frame];
+    return textRangeAnchorPoint(frames, attachment);
   }
 
   function movedElement(move: MoveGesture): CanvasElement {
     const deltaX = move.currentX - move.startX;
     const deltaY = move.currentY - move.startY;
     if (move.element.type === 'arrow') {
-      if (move.arrowHandle !== undefined) {
-        const moved: ArrowElement = {
-          ...move.element,
-          ...(typeof move.arrowHandle === 'number'
-            ? {
-                controlPoints: move.element.controlPoints.map((point, index) =>
-                  index === move.arrowHandle
-                    ? { x: move.currentX, y: move.currentY }
-                    : point,
-                ),
-              }
-            : move.arrowHandle === 'start'
-              ? { startX: move.currentX, startY: move.currentY }
-              : { endX: move.currentX, endY: move.currentY }),
-        };
-        if (move.arrowHandle === 'start') delete moved.startAttachment;
-        else if (move.arrowHandle === 'end') delete moved.endAttachment;
-        return moved;
-      }
-      if (Math.hypot(deltaX, deltaY) < 0.5) return move.element;
-      const resolved = arrowPoints(
-        move.element,
-        document.elements,
-        snapshot.placements[workspaceId] ?? [],
-      );
+      if (move.arrowHandle === undefined) return move.element;
       const moved: ArrowElement = {
         ...move.element,
-        endX: resolved.end.x + deltaX,
-        endY: resolved.end.y + deltaY,
-        startX: resolved.start.x + deltaX,
-        startY: resolved.start.y + deltaY,
-        controlPoints: move.element.controlPoints.map((point) => ({
-          x: point.x + deltaX,
-          y: point.y + deltaY,
-        })),
-        x: move.element.x + deltaX,
-        y: move.element.y + deltaY,
+        ...(typeof move.arrowHandle === 'number'
+          ? {
+              controlPoints: move.element.controlPoints.map((point, index) =>
+                index === move.arrowHandle
+                  ? { x: move.currentX, y: move.currentY }
+                  : point,
+              ),
+            }
+          : move.arrowHandle === 'start'
+            ? { startX: move.currentX, startY: move.currentY }
+            : { endX: move.currentX, endY: move.currentY }),
       };
-      delete moved.startAttachment;
-      delete moved.endAttachment;
+      if (move.arrowHandle === 'start') delete moved.startAttachment;
+      else if (move.arrowHandle === 'end') delete moved.endAttachment;
       return moved;
     }
     return {
@@ -531,6 +747,7 @@
         moved,
         document.elements,
         snapshot.placements[workspaceId] ?? [],
+        canvas.currentZoom(),
       );
     }
     const globalX = placement.x + moved.x;
@@ -598,9 +815,7 @@
     const transform = `translate3d(${x}px, ${y}px, 0)`;
     dispatchCanvasLiveMove(move, document.elements, x, y);
     for (const node of move.visualNodes) {
-      if (node.classList.contains('canvas-arrow') && (move.arrowHandle !== undefined || move.element.type !== 'arrow')) {
-        continue;
-      }
+      if (node.classList.contains('canvas-arrow')) continue;
       node.style.transform = transform;
       node.style.willChange = 'transform';
       // Keep attached content above the card while both are lifted into the
@@ -703,6 +918,26 @@
     visualFrame = null;
   }
 
+  function queueExplanationCursor(point: { x: number; y: number }): void {
+    pendingExplanationCursor = point;
+    if (explanationCursorFrame !== null) return;
+    if (typeof window.requestAnimationFrame !== 'function') {
+      pendingExplanationCursor = null;
+      canvas.state.setTextArrowCursor(point);
+      return;
+    }
+    explanationCursorFrame = window.requestAnimationFrame(() => {
+      explanationCursorFrame = null;
+      const next = pendingExplanationCursor;
+      pendingExplanationCursor = null;
+      if (
+        next &&
+        canvas.state.snapshot.textArrowSource &&
+        canvas.state.snapshot.activeTool === 'arrow'
+      ) canvas.state.setTextArrowCursor(next);
+    });
+  }
+
   function rectangleStyle(element: RectangleElement): string {
     return [
       `left:${element.x}px`,
@@ -732,6 +967,12 @@
 
   function clamp(value: number, minimum: number, maximum: number): number {
     return Math.max(minimum, Math.min(Math.max(minimum, maximum), value));
+  }
+
+  function textArrowHighlightsFor(elementId: string): Array<{ anchor: TextRangeAnchor; color: string }> {
+    return textArrowHighlights
+      .filter((highlight) => highlight.elementId === elementId)
+      .map(({ anchor, color }) => ({ anchor, color }));
   }
 </script>
 
@@ -808,27 +1049,42 @@
         onStartPointMove={startMove}
         placements={snapshot.placements[workspaceId] ?? []}
         selected={snapshot.selectedGlobalElementId === element.id}
+        {zoom}
       />
     {:else if element.type === 'text'}
       <CanvasTextBlock
         {canvas}
+        arrowHighlights={textArrowHighlightsFor(element.id)}
         arrowSource={snapshot.textArrowSource}
         editing={snapshot.editingTextId === element.id}
         element={element}
+        maxHeight={Math.max(
+          48,
+          placement.height - CANVAS_CARD_HEADER_HEIGHT - element.y,
+          element.height,
+        )}
         maxWidth={Math.max(100, placement.width - element.x)}
         moving={false}
         onStartMove={startMove}
         selected={snapshot.selectedGlobalElementId === element.id}
+        {zoom}
         {workspaceId}
       />
     {:else}
       <CanvasMediaElement
         {canvas}
         element={element}
+        explanationTargetMode={snapshot.activeTool === 'arrow' && Boolean(snapshot.textArrowSource)}
         maxHeight={Math.max(72, placement.height - CANVAS_CARD_HEADER_HEIGHT - element.y)}
         maxWidth={Math.max(120, placement.width - element.x)}
         moving={false}
-        onContextMenu={(event) => openContextMenu(event, element.name, [
+        onContextMenu={(event, view) => openContextMenu(event, element.name, [
+          ...(view ? [{
+            action: view,
+            icon: 'view' as const,
+            id: 'view-media',
+            label: 'View',
+          }] : []),
           {
             action: () => canvas.state.selectGlobalElement(element.id),
             icon: 'select',

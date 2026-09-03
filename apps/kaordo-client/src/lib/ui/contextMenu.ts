@@ -8,7 +8,8 @@ export type ContextMenuIcon =
   | 'open'
   | 'rectangle'
   | 'select'
-  | 'text';
+  | 'text'
+  | 'view';
 
 export type ContextMenuItem = {
   action: () => void | Promise<void>;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import {
     sanitizeTextHtml,
     type TextArrowSource,
@@ -11,19 +11,32 @@
     CanvasService,
     TextFormatCommand,
   } from '../../lib/services/CanvasService';
-  import { canvasApplicationScale } from '../../lib/features/canvas';
+  import { CANVAS_HEIGHT, canvasApplicationScale } from '../../lib/features/canvas';
+  import {
+    ALL_TEXT_LAYOUTS,
+    measureTextRangeFragments,
+    notifyTextLayoutChanged,
+    subscribeTextLayoutChanged,
+    textOffset,
+    textPointAtOffset,
+    textWordsForSelection,
+  } from '../../lib/features/textLayout';
+  import type { TextRangeFrame } from '../../lib/features/textLayout';
   import { openContextMenu } from '../../lib/ui/contextMenu';
 
   type Props = {
+    arrowHighlights?: readonly TextArrowHighlight[];
     canvas: CanvasService;
     arrowSource?: TextArrowSource | null;
     editing: boolean;
     element: TextElement;
+    maxHeight?: number;
     maxWidth?: number;
     moving?: boolean;
     onStartMove: (event: PointerEvent, element: TextElement) => void;
     selected: boolean;
     workspaceId: string;
+    zoom?: number;
   };
 
   type TextSelectionBookmark = {
@@ -31,18 +44,27 @@
     start: number;
   };
 
+  export type TextArrowHighlight = {
+    anchor: TextRangeAnchor;
+    color: string;
+  };
+
   const TEXT_BLOCK_MIN_HEIGHT = 48;
+  const TEXT_BLOCK_MIN_WIDTH = 100;
 
   let {
+    arrowHighlights = [],
     canvas,
     arrowSource = null,
     editing,
     element,
+    maxHeight = CANVAS_HEIGHT,
     maxWidth = 900,
     moving = false,
     onStartMove,
     selected,
     workspaceId,
+    zoom = 1,
   }: Props = $props();
   let editor = $state<HTMLDivElement>();
   let elementId = $derived(element.id);
@@ -56,14 +78,75 @@
   let resize = $state<{
     pointerId: number;
     startClientX: number;
+    startClientY: number;
+    startHeight: number;
     startWidth: number;
   } | null>(null);
   let resizedWidth = $state<number | null>(null);
+  let resizedHeight = $state<number | null>(null);
+  let layoutRefreshFrame: number | null = null;
+  let textLayoutRevision = $state(0);
   let textArrowAnchor = $derived(
     arrowSource?.elementId === element.id ? arrowSource.anchor : null,
   );
+  let textArrowHighlightEntries = $derived.by(() => {
+    const entries = [...arrowHighlights];
+    if (
+      textArrowAnchor &&
+      !entries.some((entry) => sameTextRange(entry.anchor, textArrowAnchor))
+    ) {
+      entries.unshift({ anchor: textArrowAnchor, color: '#635be0' });
+    }
+    return entries.map((entry, index) => ({
+      ...entry,
+      active: textArrowAnchor !== null && sameTextRange(entry.anchor, textArrowAnchor),
+      key: `${entry.anchor.startOffset}:${entry.anchor.endOffset}:${index}`,
+    }));
+  });
+  let textArrowHighlightFrames = $derived.by(() => {
+    textLayoutRevision;
+    return textArrowHighlightEntries.flatMap((entry) => {
+      const scale = Math.max(0.0001, canvasApplicationScale() * zoom);
+      const frames = editor
+        ? measureTextRangeFragments(editor, entry.anchor, scale)
+        : null;
+      const resolved = frames?.length
+        ? frames
+        : [fallbackTextRangeFrame(entry.anchor)];
+      return resolved.map((frame, index) => ({
+        ...entry,
+        frame,
+        key: `${entry.key}:${index}`,
+      }));
+    });
+  });
+
+  onMount(() => {
+    const notify = () => {
+      notifyTextLayoutChanged(element.id);
+    };
+    const unsubscribe = subscribeTextLayoutChanged((changedElementId) => {
+      if (changedElementId === ALL_TEXT_LAYOUTS || changedElementId === element.id) {
+        textLayoutRevision += 1;
+      }
+    });
+    const block = editor?.closest<HTMLElement>('.canvas-text-block') ?? editor;
+    const observer = typeof ResizeObserver === 'function' && block
+      ? new ResizeObserver(notify)
+      : null;
+    if (observer && block) observer.observe(block);
+    notify();
+    return () => {
+      observer?.disconnect();
+      unsubscribe();
+    };
+  });
 
   onDestroy(() => {
+    if (layoutRefreshFrame !== null) {
+      window.cancelAnimationFrame?.(layoutRefreshFrame);
+      layoutRefreshFrame = null;
+    }
     if (autosaveTimer !== null) {
       window.clearTimeout(autosaveTimer);
       autosaveTimer = null;
@@ -76,6 +159,7 @@
     if (!editing) {
       draftHtml = element.html;
       savedRange = null;
+      void tick().then(() => notifyTextLayoutChanged(element.id));
       return;
     }
     const controller = {
@@ -125,9 +209,12 @@
     resize = {
       pointerId: event.pointerId,
       startClientX: event.clientX,
+      startClientY: event.clientY,
+      startHeight: element.height,
       startWidth: element.width,
     };
     resizedWidth = element.width;
+    resizedHeight = element.height;
   }
 
   function continueResize(event: PointerEvent) {
@@ -135,14 +222,19 @@
     event.preventDefault();
     event.stopPropagation();
     const applicationScale = canvasApplicationScale();
+    const scale = Math.max(0.0001, applicationScale * canvas.currentZoom());
     resizedWidth = clamp(
       resize.startWidth +
-        (event.clientX - resize.startClientX) /
-          applicationScale /
-          canvas.currentZoom(),
-      100,
-      Math.max(100, maxWidth),
+        (event.clientX - resize.startClientX) / scale,
+      TEXT_BLOCK_MIN_WIDTH,
+      Math.max(TEXT_BLOCK_MIN_WIDTH, maxWidth),
     );
+    resizedHeight = clamp(
+      resize.startHeight + (event.clientY - resize.startClientY) / scale,
+      TEXT_BLOCK_MIN_HEIGHT,
+      Math.max(TEXT_BLOCK_MIN_HEIGHT, maxHeight),
+    );
+    scheduleTextLayoutRefresh();
   }
 
   function finishResize(event: PointerEvent) {
@@ -150,24 +242,63 @@
     event.preventDefault();
     event.stopPropagation();
     const width = Math.round(resizedWidth ?? element.width);
+    const height = Math.round(resizedHeight ?? element.height);
     resize = null;
-    resizedWidth = null;
     const handle = event.currentTarget as HTMLElement;
     if (handle.hasPointerCapture?.(event.pointerId)) {
       handle.releasePointerCapture(event.pointerId);
     }
-    void canvas.updateCanvasElement(workspaceId, { ...element, width })
-      .catch(() => canvas.state.announce('Text width could not be saved.'));
+    void canvas.updateCanvasElement(workspaceId, { ...element, height, width })
+      .then(() => {
+        resizedWidth = null;
+        resizedHeight = null;
+        scheduleTextLayoutRefresh();
+      })
+      .catch(() => {
+        resizedWidth = null;
+        resizedHeight = null;
+        canvas.state.announce('Text block size could not be saved.');
+        scheduleTextLayoutRefresh();
+      });
   }
 
   function resizeWithKeyboard(event: KeyboardEvent) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    const horizontal = event.key === 'ArrowLeft' || event.key === 'ArrowRight';
+    const vertical = event.key === 'ArrowUp' || event.key === 'ArrowDown';
+    if (!horizontal && !vertical) return;
     event.preventDefault();
     event.stopPropagation();
-    const delta = (event.shiftKey ? 40 : 12) * (event.key === 'ArrowRight' ? 1 : -1);
-    const width = Math.round(clamp(element.width + delta, 100, Math.max(100, maxWidth)));
-    void canvas.updateCanvasElement(workspaceId, { ...element, width })
-      .catch(() => canvas.state.announce('Text width could not be saved.'));
+    const delta = event.shiftKey ? 40 : 12;
+    const width = horizontal
+      ? Math.round(clamp(
+          element.width + delta * (event.key === 'ArrowRight' ? 1 : -1),
+          TEXT_BLOCK_MIN_WIDTH,
+          Math.max(TEXT_BLOCK_MIN_WIDTH, maxWidth),
+        ))
+      : element.width;
+    const height = vertical
+      ? Math.round(clamp(
+          element.height + delta * (event.key === 'ArrowDown' ? 1 : -1),
+          TEXT_BLOCK_MIN_HEIGHT,
+          Math.max(TEXT_BLOCK_MIN_HEIGHT, maxHeight),
+        ))
+      : element.height;
+    void canvas.updateCanvasElement(workspaceId, { ...element, height, width })
+      .then(() => scheduleTextLayoutRefresh())
+      .catch(() => canvas.state.announce('Text block size could not be saved.'));
+  }
+
+  function scheduleTextLayoutRefresh(): void {
+    if (typeof window === 'undefined') return;
+    if (typeof window.requestAnimationFrame !== 'function') {
+      notifyTextLayoutChanged(element.id);
+      return;
+    }
+    if (layoutRefreshFrame !== null) return;
+    layoutRefreshFrame = window.requestAnimationFrame(() => {
+      layoutRefreshFrame = null;
+      notifyTextLayoutChanged(element.id);
+    });
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -202,6 +333,7 @@
   function handleInput() {
     if (!editing) return;
     draftHtml = editor?.innerHTML ?? '';
+    notifyTextLayoutChanged(element.id);
     if (!preservingFormatSelection) rememberSelection();
     if (autosaveTimer !== null) window.clearTimeout(autosaveTimer);
     autosaveTimer = window.setTimeout(() => {
@@ -274,7 +406,7 @@
           top: blockRect.top,
           width: 0,
         };
-    const scale = Math.max(0.0001, canvasApplicationScale() * canvas.currentZoom());
+    const scale = Math.max(0.0001, canvasApplicationScale() * zoom);
     const logicalHeight = Math.max(element.height, editor.scrollHeight || 0);
     const fallbackWidth = Math.max(1, Math.min(element.width, quote.length * element.fontSize * 0.56));
     const x = clamp((selectionRect.left - blockRect.left) / scale, 0, element.width);
@@ -298,6 +430,7 @@
       height,
       quote,
       startOffset,
+      words: textWordsForSelection(text, startOffset, endOffset, element.id),
       width,
       x,
       y,
@@ -309,35 +442,6 @@
     if (!selection?.rangeCount) return null;
     const range = selection.getRangeAt(0);
     return editor?.contains(range.commonAncestorContainer) ? range : null;
-  }
-
-  function textOffset(root: Node, target: Node, offset: number): number | null {
-    let total = 0;
-    let found = false;
-    const visit = (node: Node): void => {
-      if (found) return;
-      if (node === target) {
-        if (node.nodeType === 3) {
-          const limit = node.textContent?.length ?? 0;
-          total += Math.max(0, Math.min(offset, limit));
-        } else {
-          const limit = node.childNodes.length;
-          const childOffset = Math.max(0, Math.min(offset, limit));
-          for (let index = 0; index < childOffset; index += 1) {
-            total += node.childNodes[index]?.textContent?.length ?? 0;
-          }
-        }
-        found = true;
-        return;
-      }
-      if (node.nodeType === 3) {
-        total += node.textContent?.length ?? 0;
-        return;
-      }
-      for (const child of node.childNodes) visit(child);
-    };
-    visit(root);
-    return found ? total : null;
   }
 
   function format(command: TextFormatCommand, value?: string) {
@@ -356,6 +460,7 @@
       preservingFormatSelection = false;
     }
     draftHtml = editor.innerHTML;
+    notifyTextLayoutChanged(element.id);
     if (!restoreSelectionBookmark(selection) && !restoreSelection(selectionRange)) rememberSelection();
     preserveSelectionAfterUpdate(selection, formatRevision);
     void persistDraft(false).then(() => {
@@ -395,26 +500,6 @@
     } catch {
       return false;
     }
-  }
-
-  function textPointAtOffset(
-    root: Node,
-    offset: number,
-  ): { node: Node; offset: number } | null {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let remaining = Math.max(0, offset);
-    let lastText: Node | null = null;
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      const length = node.textContent?.length ?? 0;
-      if (remaining <= length) return { node, offset: remaining };
-      remaining -= length;
-      lastText = node;
-    }
-    if (lastText) {
-      return { node: lastText, offset: lastText.textContent?.length ?? 0 };
-    }
-    return { node: root, offset: 0 };
   }
 
   function preserveSelectionAfterUpdate(
@@ -457,6 +542,7 @@
         html,
       });
       draftHtml = html;
+      notifyTextLayoutChanged(element.id);
     } catch {
       canvas.state.announce('Text changes could not be saved.');
     }
@@ -465,13 +551,17 @@
   function measuredBlockHeight(): number {
     const block = editor?.closest<HTMLElement>('.canvas-text-block');
     const visualHeight = block?.getBoundingClientRect().height ?? 0;
+    const contentHeight = (editor?.scrollHeight ?? 0) + 4;
     if (Number.isFinite(visualHeight) && visualHeight > 0) {
-      const scale = Math.max(0.0001, canvasApplicationScale() * canvas.currentZoom());
-      return Math.max(TEXT_BLOCK_MIN_HEIGHT, Math.ceil(visualHeight / scale));
+      const scale = Math.max(0.0001, canvasApplicationScale() * zoom);
+      return Math.max(
+        TEXT_BLOCK_MIN_HEIGHT,
+        Math.ceil(Math.max(visualHeight / scale, contentHeight)),
+      );
     }
     return Math.max(
       TEXT_BLOCK_MIN_HEIGHT,
-      Math.ceil((editor?.scrollHeight ?? element.height) + 4),
+      Math.ceil(Math.max(element.height, contentHeight)),
     );
   }
 
@@ -480,7 +570,7 @@
       `left:${element.x}px`,
       `top:${element.y}px`,
       `width:${resizedWidth ?? element.width}px`,
-      `min-height:${element.height}px`,
+      `min-height:${resizedHeight ?? element.height}px`,
       `color:${element.color}`,
       `font-size:${element.fontSize}px`,
       `text-align:${element.textAlign}`,
@@ -490,6 +580,20 @@
   function clamp(value: number, minimum: number, maximum: number): number {
     return Math.max(minimum, Math.min(maximum, value));
   }
+
+  function fallbackTextRangeFrame(anchor: TextRangeAnchor): TextRangeFrame {
+    return {
+      height: Math.max(1, anchor.height),
+      width: Math.max(1, anchor.width),
+      x: anchor.x,
+      y: anchor.y,
+    };
+  }
+
+  function sameTextRange(left: TextRangeAnchor, right: TextRangeAnchor): boolean {
+    return left.startOffset === right.startOffset &&
+      left.endOffset === right.endOffset;
+  }
 </script>
 
 <div
@@ -498,7 +602,7 @@
   class:canvas-text-block--bars-one={element.leftBars === 1}
   class:canvas-text-block--bars-two={element.leftBars === 2}
   class:canvas-text-block--moving={moving}
-  class:canvas-text-block--arrow-source={textArrowAnchor !== null}
+  class:canvas-text-block--arrow-source={textArrowHighlightFrames.length > 0}
   class:canvas-text-block--selected={selected}
   data-canvas-element-id={element.id}
   style={style(element)}
@@ -508,7 +612,7 @@
   title={editing
     ? 'Edit text · Esc or ⌘Enter to finish'
     : textArrowAnchor
-      ? `Drag an explanation arrow from “${textArrowAnchor.quote}”`
+      ? `Drag from or click an explanation target for “${textArrowAnchor.quote}”`
       : 'Drag to move · Double-click to edit'}
   onpointerdown={startInteraction}
   ondblclick={beginEditing}
@@ -539,13 +643,14 @@
     },
   ])}
 >
-  {#if textArrowAnchor}
+  {#each textArrowHighlightFrames as highlight (highlight.key)}
     <span
-      class="canvas-text-arrow-source"
-      style={`left:${textArrowAnchor.x}px;top:${textArrowAnchor.y}px;width:${textArrowAnchor.width}px;height:${textArrowAnchor.height}px`}
+      class="canvas-text-arrow-highlight canvas-text-arrow-source"
+      class:canvas-text-arrow-highlight--active={highlight.active}
+      style={`--canvas-arrow-color:${highlight.color};left:${highlight.frame.x}px;top:${highlight.frame.y}px;width:${highlight.frame.width}px;height:${highlight.frame.height}px`}
       aria-hidden="true"
     ></span>
-  {/if}
+  {/each}
   <!-- The surface is a textbox only while editing; it is kept mounted so its
        layout cannot change when the editor mode toggles. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -573,15 +678,15 @@
     <button
       class="text-resize-handle"
       type="button"
-      aria-label="Resize text width"
-      title="Drag to resize · Arrow keys resize"
+      aria-label="Resize text width and height"
+      title="Drag to resize width and height · Arrow keys resize"
       onpointerdown={startResize}
       onpointermove={continueResize}
       onpointerup={finishResize}
       onpointercancel={finishResize}
       onkeydown={resizeWithKeyboard}
     >
-      <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 9h8M2 9l2-2M2 9l2 2M10 9 8 7m2 2-2 2" /></svg>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 12 7-7M8 12l4-4M11 12l1-1" /></svg>
     </button>
   {/if}
 </div>
@@ -631,19 +736,23 @@
     background: rgb(99 91 224 / 7%);
   }
 
+  .canvas-text-arrow-highlight,
   .canvas-text-arrow-source {
     position: absolute;
     z-index: 0;
     box-sizing: border-box;
     min-width: 3px;
-    min-height: 1.2em;
-    border: 1px solid rgb(99 91 224 / 42%);
+    min-height: 1px;
+    border: 2px solid var(--canvas-arrow-color, #635be0);
     border-radius: 4px;
-    background: rgb(99 91 224 / 18%);
+    background: color-mix(in srgb, var(--canvas-arrow-color, #635be0) 16%, transparent);
     box-shadow:
-      0 2px 7px rgb(73 68 181 / 16%),
+      0 2px 7px color-mix(in srgb, var(--canvas-arrow-color, #635be0) 18%, transparent),
       inset 0 1px rgb(255 255 255 / 55%);
     pointer-events: none;
+  }
+
+  .canvas-text-arrow-highlight--active {
     animation: canvas-text-arrow-source-pulse 1.8s ease-in-out infinite;
   }
 
@@ -729,18 +838,18 @@
     border: 1px solid #9dbcae;
     border-radius: 6px;
     box-shadow: 0 4px 10px rgb(35 67 54 / 12%);
-    cursor: ew-resize;
+    cursor: nwse-resize;
     place-items: center;
     touch-action: none;
   }
 
   .text-resize-handle:hover { background: #e7f1ed; }
   .text-resize-handle:focus-visible { outline: 2px solid rgb(55 117 102 / 36%); outline-offset: 2px; }
-  .text-resize-handle svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.15; }
+  .text-resize-handle svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.35; }
 
   @media (prefers-reduced-motion: reduce) {
     .canvas-text-block { transition: none; }
-    .canvas-text-arrow-source { animation: none; }
+    .canvas-text-arrow-highlight--active { animation: none; }
   }
 
   @keyframes canvas-text-arrow-source-pulse {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CanvasPlacement } from '../domain/canvas';
 import type {
   ArrowElement,
@@ -9,6 +9,7 @@ import type {
 import {
   arrowPoints,
   canvasTextRangeFrame,
+  textRangeAnchorPoint,
   textRangeSide,
 } from './arrowGeometry';
 import { CANVAS_CARD_HEADER_HEIGHT } from './canvas';
@@ -49,6 +50,13 @@ const range: TextRangeAnchor = {
 };
 
 describe('text explanation arrow geometry', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    delete (Range.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect;
+    delete (Range.prototype as { getClientRects?: unknown }).getClientRects;
+    vi.restoreAllMocks();
+  });
+
   it('resolves a phrase box in global and panel-local coordinates', () => {
     expect(canvasTextRangeFrame(text, range, undefined, [placement])).toEqual({
       bottom: placement.y + CANVAS_CARD_HEADER_HEIGHT + text.y + range.y + range.height,
@@ -122,6 +130,55 @@ describe('text explanation arrow geometry', () => {
     expect(points.end).toEqual({
       x: target.x,
       y: target.y + target.height / 2,
+    });
+  });
+
+  it('anchors to the nearest wrapped fragment without leaving the selection', () => {
+    const fragments = [
+      { bottom: 18, left: 10, right: 70, top: 0 },
+      { bottom: 42, left: 10, right: 170, top: 24 },
+    ];
+    expect(textRangeAnchorPoint(fragments, {
+      elementId: text.id,
+      offset: 0.84,
+      side: 'right',
+    })).toEqual({ x: 170, y: 35.28 });
+  });
+
+  it('prefers live DOM geometry after the text block is resized', () => {
+    const block = document.createElement('div');
+    block.className = 'canvas-text-block';
+    const surface = document.createElement('div');
+    surface.className = 'canvas-text-surface';
+    surface.dataset.canvasElementId = text.id;
+    surface.textContent = 'verringern';
+    block.append(surface);
+    document.body.append(block);
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        bottom: 264,
+        height: 24,
+        left: 148,
+        right: 268,
+        top: 240,
+        width: 120,
+      }),
+    });
+    vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
+      bottom: 320,
+      height: 80,
+      left: 100,
+      right: 500,
+      top: 200,
+      width: 400,
+    } as DOMRect);
+
+    expect(canvasTextRangeFrame(text, range, placement.id, [placement], 2)).toEqual({
+      bottom: text.y + 20 + 12,
+      left: text.x + 24,
+      right: text.x + 24 + 60,
+      top: text.y + 20,
     });
   });
 });

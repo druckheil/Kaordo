@@ -172,7 +172,7 @@
       type="button"
       aria-label="Explain selected phrase with an arrow"
       title={snapshot.editingTextId === selectedElement.id
-        ? 'Select a word or phrase, then draw one or more explanation arrows'
+        ? 'Select a word or phrase, then drag from it or click an object to explain it'
         : 'Open this text block and select a word or phrase first'}
       disabled={snapshot.editingTextId !== selectedElement.id}
       onpointerdown={(event) => event.preventDefault()}
@@ -189,7 +189,7 @@
         class="clear-explain-button"
         type="button"
         aria-label="Clear explanation phrase"
-        title="Clear the selected phrase source"
+        title="Cancel explanation arrow"
         onclick={() => canvas.state.setTextArrowSource(null)}
       >Clear source</button>
     {/if}
@@ -352,22 +352,38 @@
         ><i class="line-style-preview line-style-preview--{style}" aria-hidden="true"></i></button>
         {/each}
       </div>
+    {#if selectedElement.startAttachment?.textRange || selectedElement.endAttachment?.textRange}
+      <button
+        class:format-button--active={selectedElement.showTextOutline === true}
+        class="format-button arrow-outline-toggle"
+        type="button"
+        aria-label="Show source phrase outline"
+        aria-pressed={selectedElement.showTextOutline === true}
+        title={selectedElement.showTextOutline === true
+          ? 'Hide source phrase outline'
+          : 'Show source phrase outline'}
+        onclick={() => void canvas.setArrowTextOutline(selectedElement.showTextOutline !== true)}
+      >
+        <span class="outline-toggle-icon" aria-hidden="true"></span>
+        Outline
+      </button>
+    {/if}
     {#if snapshot.textArrowSource}
-      <span class="phrase-source-chip" title="Several arrows can be drawn from this phrase">
+      <span class="phrase-source-chip" title="Drag from or click an object to explain this phrase">
         From “{shortQuote(snapshot.textArrowSource.anchor.quote)}”
       </span>
       <button
         class="clear-explain-button"
         type="button"
         aria-label="Clear explanation phrase"
-        title="Clear the selected phrase source"
+        title="Cancel explanation arrow"
         onclick={() => canvas.state.setTextArrowSource(null)}
       >Clear source</button>
     {/if}
   {:else if snapshot.activeTool === 'arrow'}
     <span class="text-tool-hint">
       {snapshot.textArrowSource
-        ? `Drag from “${shortQuote(snapshot.textArrowSource.anchor.quote)}” to explain it · draw more arrows from this phrase`
+        ? `Drag from or click an explanation target for “${shortQuote(snapshot.textArrowSource.anchor.quote)}”`
         : 'Drag between points or elements to draw an arrow'}
     </span>
   {:else}
@@ -604,6 +620,8 @@
   .arrow-style-group > span { margin-right: 2px; color: #7a867f; font-size: calc(9px * var(--text-scale)); }
   .arrow-head-button { min-width: 28px; padding: 0 4px; font-size: calc(15px * var(--text-scale)); line-height: 1; }
   .arrow-line-style-button { min-width: 29px; padding: 0 4px; }
+  .arrow-outline-toggle { gap: 5px; min-width: 67px; padding: 0 7px; }
+  .outline-toggle-icon { width: 11px; height: 11px; border: 2px solid currentColor; border-radius: 3px; box-sizing: border-box; }
   .line-style-preview { display: block; width: 18px; height: 2px; background: currentColor; border-radius: 999px; }
   .line-style-preview--dashed { background: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 8px); }
   .line-style-preview--dotted { height: 4px; background: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 5px); }

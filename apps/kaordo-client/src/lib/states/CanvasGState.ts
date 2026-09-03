@@ -39,6 +39,7 @@ export type CanvasSnapshot = {
   shapeFill: string;
   shapeStroke: string;
   textArrowSource: TextArrowSource | null;
+  textArrowCursor: CanvasPoint | null;
   zooms: Record<string, number>;
 };
 
@@ -70,6 +71,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       shapeFill: '#dcece5',
       shapeStroke: '#397565',
       textArrowSource: null,
+      textArrowCursor: null,
       zooms: {},
     });
   }
@@ -91,6 +93,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedElementId: null,
       selectedGlobalElementId: null,
       textArrowSource: null,
+      textArrowCursor: null,
     });
   }
 
@@ -173,6 +176,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       isCameraReady: false,
       isCanvasDocumentReady: false,
       textArrowSource: null,
+      textArrowCursor: null,
     });
     this.resetInteractions();
   }
@@ -187,6 +191,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedElementId: null,
       selectedGlobalElementId: null,
       textArrowSource: null,
+      textArrowCursor: null,
     });
     this.resetInteractions();
   }
@@ -316,6 +321,9 @@ export class CanvasGState extends GState<CanvasSnapshot> {
           removedElementIds.has(this.snapshot.textArrowSource.elementId))
           ? null
           : this.snapshot.textArrowSource,
+      textArrowCursor: this.snapshot.textArrowSource?.parentObjectId === objectId
+        ? null
+        : this.snapshot.textArrowCursor,
     });
   }
 
@@ -354,6 +362,9 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       textArrowSource: this.snapshot.textArrowSource?.elementId === elementId
         ? null
         : this.snapshot.textArrowSource,
+      textArrowCursor: this.snapshot.textArrowSource?.elementId === elementId
+        ? null
+        : this.snapshot.textArrowCursor,
     });
   }
 
@@ -534,22 +545,33 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedElementId: elementId ? null : this.snapshot.selectedElementId,
       selectedGlobalElementId:
         elementId ?? this.snapshot.selectedGlobalElementId,
+      ...(elementId
+        ? { textArrowCursor: null, textArrowSource: null }
+        : {}),
     });
   }
 
   setTool(activeTool: CanvasTool): void {
     const clearTextArrowSource = activeTool !== 'arrow' && this.snapshot.textArrowSource !== null;
-    if (this.snapshot.activeTool !== activeTool || clearTextArrowSource) {
+    const clearTextArrowCursor = activeTool !== 'arrow' && this.snapshot.textArrowCursor !== null;
+    if (this.snapshot.activeTool !== activeTool || clearTextArrowSource || clearTextArrowCursor) {
       this.patch({
         activeTool,
         ...(clearTextArrowSource ? { textArrowSource: null } : {}),
+        ...(clearTextArrowCursor ? { textArrowCursor: null } : {}),
       });
     }
   }
 
   setTextArrowSource(source: TextArrowSource | null): void {
-    if (this.snapshot.textArrowSource === source) return;
-    this.patch({ textArrowSource: source });
+    if (this.snapshot.textArrowSource === source && this.snapshot.textArrowCursor === null) return;
+    this.patch({ textArrowSource: source, textArrowCursor: null });
+  }
+
+  setTextArrowCursor(point: CanvasPoint | null): void {
+    const previous = this.snapshot.textArrowCursor;
+    if (previous?.x === point?.x && previous?.y === point?.y) return;
+    this.patch({ textArrowCursor: point });
   }
 
   setShapeFill(shapeFill: string): void {

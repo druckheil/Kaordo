@@ -878,7 +878,7 @@ export class CanvasService {
     this.state.setTextArrowSource(source);
     this.state.editText(null);
     this.state.setTool('arrow');
-    this.state.announce(`Drag from “${anchor.quote}” to an explanation target.`);
+    this.state.announce(`Drag from the highlighted phrase or click an explanation target for “${anchor.quote}”.`);
     await commit;
     return true;
   }
@@ -957,6 +957,21 @@ export class CanvasService {
     await this.updateCanvasElement(workspace.id, { ...selected, lineStyle });
   }
 
+  async setArrowTextOutline(showTextOutline: boolean): Promise<void> {
+    const selected = this.selectedCanvasElement();
+    const workspace = this.#getWorkspace();
+    if (
+      !workspace ||
+      selected?.type !== 'arrow' ||
+      !selected.startAttachment?.textRange &&
+      !selected.endAttachment?.textRange
+    ) return;
+    const updated = { ...selected };
+    if (showTextOutline) updated.showTextOutline = true;
+    else delete updated.showTextOutline;
+    await this.updateCanvasElement(workspace.id, updated);
+  }
+
   async addArrowControlPoint(): Promise<void> {
     const selected = this.selectedCanvasElement();
     const workspace = this.#getWorkspace();
@@ -964,7 +979,12 @@ export class CanvasService {
     if (selected.controlPoints.length >= 32) return;
     const document = this.state.canvasDocumentFor(workspace.id);
     const placements = this.state.placementsFor(workspace.id);
-    const resolved = arrowPoints(selected, document.elements, placements);
+    const resolved = arrowPoints(
+      selected,
+      document.elements,
+      placements,
+      this.currentZoom(),
+    );
     const anchors = [resolved.start, ...selected.controlPoints, resolved.end];
     let segmentIndex = 0;
     let longestSegment = -1;

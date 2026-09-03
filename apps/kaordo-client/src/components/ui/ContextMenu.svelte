@@ -95,6 +95,7 @@
       case 'rectangle': return 'M4 5h12v10H4z';
       case 'select': return 'm5 3 9 8-4.1.7L8 16 5 3Z';
       case 'text': return 'M5 5V3h10v2m-5-2v14m-3 0h6';
+      case 'view': return 'M2.5 10s2.7-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.7 4.5-7.5 4.5S2.5 10 2.5 10Zm7.5-2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z';
     }
   }
 </script>
