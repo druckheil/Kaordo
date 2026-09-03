@@ -386,14 +386,16 @@
   .profile-banner__label { position: relative; z-index: 2; color: rgb(255 255 255 / 86%); font-size: calc(10px * var(--text-scale)); font-weight: 680; letter-spacing: .08em; text-transform: uppercase; }
 
   .profile-hero__body { position: relative; z-index: 2; padding: 0 24px 24px; }
-  .profile-identity { display: flex; align-items: flex-end; gap: 15px; min-width: 0; margin-top: -43px; }
+  .profile-identity { display: flex; align-items: flex-start; gap: 15px; min-width: 0; margin-top: -43px; }
   .profile-avatar { position: relative; z-index: 3; display: grid; width: 92px; height: 92px; flex: none; overflow: hidden; color: #fff; background: var(--sui-primary); border: 6px solid var(--sui-bg); border-radius: 27px; box-shadow: var(--sui-shadow-raised-lg); font-size: 28px; font-weight: 740; place-items: center; }
   .profile-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  .profile-identity__copy { min-width: 0; padding-bottom: 4px; }
+  /* Keep the avatar overlap, but place all identity text below the banner so
+     it always uses the solid profile surface for contrast. */
+  .profile-identity__copy { position: relative; z-index: 4; min-width: 0; padding-top: 48px; }
   .profile-kicker { color: var(--sui-primary); font-size: calc(8px * var(--text-scale)); font-weight: 730; letter-spacing: .13em; text-transform: uppercase; }
   .profile-identity h2 { margin-top: 4px; overflow: hidden; color: var(--sui-text); font-size: calc(25px * var(--text-scale)); font-weight: 720; letter-spacing: -.035em; text-overflow: ellipsis; white-space: nowrap; }
   .profile-identity__copy p { margin-top: 3px; color: var(--sui-text-muted); font-size: calc(11px * var(--text-scale)); }
-  .profile-status { display: inline-flex; align-items: center; gap: 6px; max-width: 150px; margin-left: auto; margin-bottom: 10px; padding: 7px 10px; overflow: hidden; color: var(--sui-text-muted); background: var(--sui-bg-light); border-radius: 999px; box-shadow: var(--sui-shadow-inset-sm); font-size: calc(9px * var(--text-scale)); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+  .profile-status { display: inline-flex; align-self: flex-end; align-items: center; gap: 6px; max-width: 150px; margin-left: auto; margin-bottom: 10px; padding: 7px 10px; overflow: hidden; color: var(--sui-text-muted); background: var(--sui-bg-light); border-radius: 999px; box-shadow: var(--sui-shadow-inset-sm); font-size: calc(9px * var(--text-scale)); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
   .profile-status i { width: 7px; height: 7px; flex: none; background: var(--sui-success); border-radius: 50%; box-shadow: 0 0 0 4px color-mix(in srgb, var(--sui-success) 15%, transparent); }
   .profile-headline { margin-top: 20px; color: var(--sui-text); font-size: calc(15px * var(--text-scale)); font-weight: 650; line-height: 1.4; }
   .profile-description { max-width: 680px; margin-top: 8px; color: var(--sui-text-muted); font-size: calc(11px * var(--text-scale)); line-height: 1.62; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -429,6 +431,7 @@
     .profile-hero__body { padding-inline: 16px; }
     .profile-avatar { width: 74px; height: 74px; border-radius: 22px; border-width: 5px; font-size: 23px; }
     .profile-identity { gap: 10px; margin-top: -34px; }
+    .profile-identity__copy { padding-top: 36px; }
     .profile-identity h2 { font-size: calc(19px * var(--text-scale)); }
     .profile-status { max-width: 112px; margin-bottom: 6px; }
     .profile-feed-card { padding-inline: 12px; }

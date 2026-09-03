@@ -43,7 +43,11 @@ export type FluoQuote = {
  */
 export type FluoAuthorProfile = {
   accentColor?: 'mint' | 'ocean' | 'sunset' | 'violet' | null;
+  /** Stable immutable file identity used to reuse profile media across metadata refreshes. */
+  avatarHash?: string | null;
   avatarUrl: string | null;
+  /** Stable immutable file identity used to reuse profile media across metadata refreshes. */
+  bannerHash?: string | null;
   bannerUrl: string | null;
   description: string;
   headline: string;

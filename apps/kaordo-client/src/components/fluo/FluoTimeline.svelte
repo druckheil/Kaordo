@@ -492,6 +492,10 @@
     width: 100%;
   }
 
+  /* Each translated virtual row is its own stacking context. Raise the row,
+     not only the avatar, so a profile popover can cross the next card. */
+  :global(.virtual-post:has(.author-profile--open)) { z-index: 100; }
+
   .feed-page-loader {
     display: flex;
     align-items: center;

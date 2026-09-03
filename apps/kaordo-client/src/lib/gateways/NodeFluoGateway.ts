@@ -179,13 +179,17 @@ export class NodeFluoGateway implements FluoGateway {
       const banner = pointer.bannerFileId
         ? { fileId: pointer.bannerFileId, mimeType: pointer.bannerMimeType ?? 'image/*' }
         : document.banner;
+      const avatarHash = profileMediaHash(pointer.nodeId, avatar);
+      const bannerHash = profileMediaHash(pointer.nodeId, banner);
       const [avatarUrl, bannerUrl] = await Promise.all([
-        this.profileMediaUrl(connection, avatar),
-        this.profileMediaUrl(connection, banner),
+        this.profileMediaUrl(connection, avatar, avatarHash),
+        this.profileMediaUrl(connection, banner, bannerHash),
       ]);
       return {
         accentColor: document.accentColor ?? null,
+        avatarHash,
         avatarUrl,
+        bannerHash,
         bannerUrl,
         description: document.description,
         headline: document.headline ?? '',
@@ -203,12 +207,17 @@ export class NodeFluoGateway implements FluoGateway {
   private async profileMediaUrl(
     connection: NodeConnection,
     media: Pick<StoredProfileMediaReference, 'fileId' | 'mimeType'> | null | undefined,
+    hash: string | null,
   ): Promise<string | null> {
     if (!media?.fileId) return null;
     try {
-      return await connection.streamUrl(
+      const streamUrl = await connection.streamUrl(
         `${SPACE_PATHS.public.content}/${encodeURIComponent(media.fileId)}`,
       );
+      // Completed Nodo files are immutable and served with a year-long ETag
+      // cache. Keep the content identity in the URL so a profile edit gets a
+      // new browser cache entry while unchanged avatars/banners stay warm.
+      return hash ? `${streamUrl}&v=${encodeURIComponent(hash)}` : streamUrl;
     } catch {
       return null;
     }
@@ -671,6 +680,16 @@ function emptyFeedState(nodeId: string): FluoNodeFeedState {
       public: { postCount: 0, stateHash: null },
     },
   };
+}
+
+function profileMediaHash(
+  nodeId: string,
+  media: Pick<StoredProfileMediaReference, 'fileId'> | null | undefined,
+): string | null {
+  if (!media?.fileId) return null;
+  // Nodo upload IDs are immutable after completion. Including the node avoids
+  // collisions if two hosts happen to generate the same UUID independently.
+  return `${nodeId}:${media.fileId}`;
 }
 
 export class NodeConnection {

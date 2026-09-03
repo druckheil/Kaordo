@@ -112,6 +112,8 @@ export class FluoGState extends GState<FluoSnapshot> {
   #mediaCacheClock = 0;
   #mediaDimensions = new Map<string, { height: number; width: number }>();
   #authorProfiles = new Map<string, CachedAuthorProfile>();
+  #authorMediaCache = new Map<string, CachedAuthorMedia>();
+  #authorMediaCacheClock = 0;
   #authorProfileRequests = new Map<string, AuthorProfileRequest>();
   #authorProfileQueue = new Set<string>();
   #authorProfileFlushScheduled = false;
@@ -304,6 +306,8 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#mediaRequests.clear();
     this.#mediaDimensions.clear();
     this.clearMediaCache();
+    this.#authorMediaCache.clear();
+    this.#authorMediaCacheClock = 0;
     this.revokeUrls(this.snapshot.posts.flatMap((post) => post.attachments));
     this.revokeUrls(this.snapshot.draftAttachments, false);
     this.publish({
@@ -662,7 +666,7 @@ export class FluoGState extends GState<FluoSnapshot> {
       const byUsername = new Map<string, FluoAuthorProfile>();
       for (const profile of profiles) {
         const key = normalizeAuthorUsername(profile.username);
-        if (key) byUsername.set(key, profile);
+        if (key) byUsername.set(key, this.cacheAuthorMedia(profile));
       }
       const expiresAt = Date.now() + AUTHOR_PROFILE_CACHE_MS;
       for (const key of keys) {
@@ -692,6 +696,37 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#authorProfiles.clear();
     this.#authorProfileFlushScheduled = false;
     this.#authorProfileFlushInFlight = null;
+  }
+
+  /** Reuses the direct stream URL while the immutable profile file is warm. */
+  private cacheAuthorMedia(profile: FluoAuthorProfile): FluoAuthorProfile {
+    const avatarUrl = this.cacheAuthorMediaUrl(profile.avatarHash, profile.avatarUrl);
+    const bannerUrl = this.cacheAuthorMediaUrl(profile.bannerHash, profile.bannerUrl);
+    if (avatarUrl === profile.avatarUrl && bannerUrl === profile.bannerUrl) return profile;
+    return { ...profile, avatarUrl, bannerUrl };
+  }
+
+  private cacheAuthorMediaUrl(hash: string | null | undefined, url: string | null): string | null {
+    if (!hash || !url) return url;
+    const now = Date.now();
+    const cached = this.#authorMediaCache.get(hash);
+    if (cached && cached.expiresAt > now && sameMediaOrigin(cached.url, url)) {
+      cached.lastUsed = ++this.#authorMediaCacheClock;
+      return cached.url;
+    }
+    this.#authorMediaCache.set(hash, {
+      expiresAt: now + AUTHOR_MEDIA_CACHE_MS,
+      lastUsed: ++this.#authorMediaCacheClock,
+      url,
+    });
+    while (this.#authorMediaCache.size > MAX_AUTHOR_MEDIA_CACHE_ENTRIES) {
+      const oldest = [...this.#authorMediaCache.entries()]
+        .reduce<[string, CachedAuthorMedia] | null>((candidate, entry) =>
+          !candidate || entry[1].lastUsed < candidate[1].lastUsed ? entry : candidate, null);
+      if (!oldest) break;
+      this.#authorMediaCache.delete(oldest[0]);
+    }
+    return url;
   }
 
   private persistFeedCache(): void {
@@ -1624,6 +1659,12 @@ type CachedAuthorProfile = {
   profile: FluoAuthorProfile | null;
 };
 
+type CachedAuthorMedia = {
+  expiresAt: number;
+  lastUsed: number;
+  url: string;
+};
+
 type AuthorProfileRequest = {
   promise: Promise<FluoAuthorProfile | null>;
   resolve: (profile: FluoAuthorProfile | null) => void;
@@ -1679,6 +1720,14 @@ function readableError(error: unknown): string {
     : 'The selected Nodo could not be reached.';
 }
 
+function sameMediaOrigin(left: string, right: string): boolean {
+  try {
+    return new URL(left).origin === new URL(right).origin;
+  } catch {
+    return false;
+  }
+}
+
 const INITIAL_FEED_PAGE_SIZE = 24;
 const MAX_MEDIA_CACHE_BYTES = 96 * 1_024 * 1_024;
 const MAX_MEDIA_DIMENSION = 100_000;
@@ -1688,6 +1737,8 @@ const LIKE_BATCH_SIZE = 100;
 const LIKE_HYDRATION_DELAY_MS = 180;
 const LIKE_STATE_FRESHNESS_MS = 30_000;
 const AUTHOR_PROFILE_CACHE_MS = 2 * 60_000;
+const AUTHOR_MEDIA_CACHE_MS = 30 * 60_000;
+const MAX_AUTHOR_MEDIA_CACHE_ENTRIES = 256;
 const AUTHOR_PROFILE_BATCH_SIZE = 50;
 const AUTHOR_USERNAME_PATTERN = /^[a-z0-9](?:[a-z0-9_]{1,30}[a-z0-9])?$/u;
 const NODE_SELECTION_KEY_PREFIX = 'kaordo.fluo-node.v1.';
