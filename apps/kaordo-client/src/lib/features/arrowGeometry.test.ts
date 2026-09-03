@@ -9,6 +9,7 @@ import type {
 import {
   arrowPoints,
   canvasTextRangeFrame,
+  snapArrow,
   textRangeAnchorPoint,
   textRangeSide,
 } from './arrowGeometry';
@@ -131,6 +132,49 @@ describe('text explanation arrow geometry', () => {
       x: target.x,
       y: target.y + target.height / 2,
     });
+  });
+
+  it('keeps a Shift endpoint at its released point inside a target', () => {
+    const target: RectangleElement = {
+      fill: '#dcece5',
+      height: 100,
+      id: 'card-point-target',
+      radius: 10,
+      stroke: '#397565',
+      strokeWidth: 2,
+      type: 'rectangle',
+      width: 200,
+      x: 100,
+      y: 100,
+    };
+    const arrow: ArrowElement = {
+      controlPoints: [{ x: 70, y: 120 }],
+      endX: 180,
+      endY: 150,
+      headMode: 'end',
+      height: 30,
+      id: 'arrow-point',
+      startX: 20,
+      startY: 120,
+      stroke: '#397565',
+      strokeWidth: 2.5,
+      type: 'arrow',
+      lineStyle: 'solid',
+      width: 160,
+      x: 20,
+      y: 120,
+    };
+
+    const snapped = snapArrow(arrow, [target], [], 1, { preserveEndPoint: true });
+    expect(snapped.endAttachment).toEqual({
+      elementId: target.id,
+      offset: 0.4,
+      point: { x: 0.4, y: 0.5 },
+      side: 'top',
+    });
+    expect(arrowPoints(snapped, [target], []).end).toEqual({ x: 180, y: 150 });
+    expect(snapped.endX).toBe(180);
+    expect(snapped.endY).toBe(150);
   });
 
   it('anchors to the nearest wrapped fragment without leaving the selection', () => {

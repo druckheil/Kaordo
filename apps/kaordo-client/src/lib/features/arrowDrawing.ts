@@ -8,6 +8,8 @@ export type ArrowDrawGesture = {
   pointerId: number;
   /** Gesture armed from Explain Selection and completed by a target click. */
   armedFromSelection?: boolean;
+  /** Keep the endpoint at the released point instead of snapping to an edge. */
+  precisePoint?: boolean;
   sourceAttachment?: ArrowAttachment;
   startX: number;
   startY: number;

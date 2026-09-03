@@ -71,6 +71,8 @@
     element: CanvasElement;
     elementIds: readonly string[];
     kind: 'move';
+    /** Shift keeps an arrow endpoint at the released point inside a target. */
+    preciseArrowPoint?: boolean;
     pointerId: number;
     startX: number;
     startY: number;
@@ -141,6 +143,16 @@
     };
   }
 
+  function createArrowDrawGesture(
+    point: { x: number; y: number },
+    event: PointerEvent,
+    source?: ArrowAttachment,
+  ): ArrowDrawGesture {
+    const draw = startArrowDraw(point, event.pointerId, source);
+    if (event.shiftKey) draw.precisePoint = true;
+    return draw;
+  }
+
   function startDraw(event: PointerEvent) {
     canvas.state.selectCard(placement.id);
     if (
@@ -188,7 +200,7 @@
       if (snapshot.textArrowSource && !source) {
         canvas.state.setTextArrowSource(null);
       }
-      gesture = startArrowDraw(point, event.pointerId, source);
+      gesture = createArrowDrawGesture(point, event, source);
       updateArrowDraft(gesture);
       board?.setPointerCapture?.(event.pointerId);
       return;
@@ -285,7 +297,7 @@
       if (snapshot.textArrowSource && !source) {
         canvas.state.setTextArrowSource(null);
       }
-      gesture = startArrowDraw(point, event.pointerId, source);
+      gesture = createArrowDrawGesture(point, event, source);
       updateArrowDraft(gesture);
       board?.setPointerCapture?.(event.pointerId);
       return;
@@ -308,6 +320,10 @@
       element,
       elementIds,
       kind: 'move',
+      preciseArrowPoint:
+        element.type === 'arrow' &&
+        (arrowHandle === 'start' || arrowHandle === 'end') &&
+        event.shiftKey,
       pointerId: event.pointerId,
       startX: point.x,
       startY: point.y,
@@ -338,6 +354,7 @@
       return;
     }
     if (!gesture || gesture.pointerId !== event.pointerId) return;
+    captureShiftPointMode(gesture, event);
     event.preventDefault();
     pendingPoint = boardPoint(latestPointerEvent(event), gesture.kind !== 'move');
     if (visualFrame !== null) return;
@@ -352,6 +369,7 @@
     const active = gesture;
     cancelVisualFrame();
     if (active) {
+      captureShiftPointMode(active, event);
       pendingPoint = boardPoint(latestPointerEvent(event), active.kind !== 'move');
       flushGestureVisual();
     }
@@ -479,7 +497,7 @@
     ) ?? [frame];
     const draw = {
       ...continueArrowDraw(
-        startArrowDraw(textRangeAnchorPoint(frames, sourceAttachment), event.pointerId, sourceAttachment),
+        createArrowDrawGesture(textRangeAnchorPoint(frames, sourceAttachment), event, sourceAttachment),
         point,
       ),
       armedFromSelection: true,
@@ -508,9 +526,9 @@
     const sourceAttachment = sourceAtPoint(point, source);
     if (sourceAttachment) {
       canvas.state.setTextArrowCursor(null);
-      gesture = startArrowDraw(
+      gesture = createArrowDrawGesture(
         sourceAttachmentPoint(sourceAttachment, point),
-        event.pointerId,
+        event,
         sourceAttachment,
       );
       updateArrowDraft(gesture);
@@ -610,6 +628,10 @@
       elements,
       snapshot.placements[workspaceId] ?? [],
       canvas.currentZoom(),
+      {
+        preserveEndPoint: draw.precisePoint,
+        preserveStartPoint: draw.precisePoint,
+      },
     );
     if (!implicitTextControlPoint || snapped.controlPoints.length !== 1) return snapped;
     const points = arrowPoints(
@@ -743,11 +765,17 @@
   function settleMovedElement(move: MoveGesture): CanvasElement {
     const moved = movedElement(move);
     if (moved.type === 'arrow') {
+      const snapOptions = move.arrowHandle === 'start'
+        ? { preserveStartPoint: move.preciseArrowPoint }
+        : move.arrowHandle === 'end'
+          ? { preserveEndPoint: move.preciseArrowPoint }
+          : {};
       return snapArrow(
         moved,
         document.elements,
         snapshot.placements[workspaceId] ?? [],
         canvas.currentZoom(),
+        snapOptions,
       );
     }
     const globalX = placement.x + moved.x;
@@ -807,6 +835,24 @@
       Object.assign(active, continueArrowDraw(active, point));
       updateArrowDraft(active);
     } else applyMoveVisual(active);
+  }
+
+  function captureShiftPointMode(
+    active: ArrowDrawGesture | RectangleDrawGesture | MoveGesture,
+    event: PointerEvent,
+  ): void {
+    if (!event.shiftKey) return;
+    if (active.kind === 'draw-arrow') {
+      active.precisePoint = true;
+      return;
+    }
+    if (
+      active.kind === 'move' &&
+      active.element.type === 'arrow' &&
+      (active.arrowHandle === 'start' || active.arrowHandle === 'end')
+    ) {
+      active.preciseArrowPoint = true;
+    }
   }
 
   function applyMoveVisual(move: MoveGesture) {

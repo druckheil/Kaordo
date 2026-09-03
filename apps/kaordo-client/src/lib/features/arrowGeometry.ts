@@ -26,6 +26,16 @@ export type CanvasFrame = {
 export const ARROW_MIN_LENGTH = 12;
 export const ARROW_SNAP_DISTANCE = 28;
 
+/**
+ * Controls how an endpoint is attached when it is released. The default
+ * keeps the original edge-snap behavior; point mode stores the released
+ * position as normalized coordinates inside the target frame.
+ */
+export type ArrowSnapOptions = {
+  preserveEndPoint?: boolean;
+  preserveStartPoint?: boolean;
+};
+
 export function arrowPoints(
   arrow: ArrowElement,
   elements: readonly CanvasElement[],
@@ -122,6 +132,7 @@ export function snapArrow(
   elements: readonly CanvasElement[],
   placements: readonly CanvasPlacement[],
   visualZoom = 1,
+  options: ArrowSnapOptions = {},
 ): ArrowElement {
   const next = { ...arrow };
   const start = validAttachment(arrow.startAttachment, elements, placements)
@@ -131,6 +142,7 @@ export function snapArrow(
         arrow,
         elements,
         placements,
+        options.preserveStartPoint ? 'point' : 'edge',
       );
   const end = validAttachment(arrow.endAttachment, elements, placements)
     ? arrow.endAttachment
@@ -139,6 +151,7 @@ export function snapArrow(
         arrow,
         elements,
         placements,
+        options.preserveEndPoint ? 'point' : 'edge',
       );
   if (start) {
     next.startAttachment = start;
@@ -395,8 +408,9 @@ function snapPoint(
   arrow: ArrowElement,
   elements: readonly CanvasElement[],
   placements: readonly CanvasPlacement[],
+  mode: 'edge' | 'point' = 'edge',
 ): ArrowAttachment | null {
-  let nearest: { attachment: ArrowAttachment; distance: number } | null = null;
+  let nearest: { area: number; attachment: ArrowAttachment; distance: number } | null = null;
   for (const element of elements) {
     if (element.id === arrow.id || element.type === 'arrow') continue;
     if (arrow.parentObjectId && element.parentObjectId !== arrow.parentObjectId) continue;
@@ -405,11 +419,18 @@ function snapPoint(
     const local = localFrame(frame, arrow.parentObjectId, placements);
     const candidate = nearestAnchor(point, local);
     const inside = pointInFrame(point, local);
-    if (candidate.distance > ARROW_SNAP_DISTANCE && !inside) continue;
-    const distance = inside ? 0 : candidate.distance;
-    if (!nearest || distance < nearest.distance) {
+    if (mode === 'point' ? !inside : candidate.distance > ARROW_SNAP_DISTANCE && !inside) continue;
+    const distance = mode === 'point' || inside ? 0 : candidate.distance;
+    const area = frameArea(local);
+    if (isBetterSnapCandidate(nearest, distance, area, mode === 'point')) {
       nearest = {
-        attachment: { elementId: element.id, offset: candidate.offset, side: candidate.side },
+        area,
+        attachment: {
+          elementId: element.id,
+          offset: candidate.offset,
+          ...(mode === 'point' ? { point: normalizedPoint(point, local) } : {}),
+          side: candidate.side,
+        },
         distance,
       };
     }
@@ -419,17 +440,50 @@ function snapPoint(
       const frame = canvasObjectFrame(placement);
       const candidate = nearestAnchor(point, frame);
       const inside = pointInFrame(point, frame);
-      if (candidate.distance > ARROW_SNAP_DISTANCE && !inside) continue;
-      const distance = inside ? 0 : candidate.distance;
-      if (!nearest || distance < nearest.distance) {
+      if (mode === 'point' ? !inside : candidate.distance > ARROW_SNAP_DISTANCE && !inside) continue;
+      const distance = mode === 'point' || inside ? 0 : candidate.distance;
+      const area = frameArea(frame);
+      if (isBetterSnapCandidate(nearest, distance, area, mode === 'point')) {
         nearest = {
-          attachment: { objectId: placement.id, offset: candidate.offset, side: candidate.side },
+          area,
+          attachment: {
+            objectId: placement.id,
+            offset: candidate.offset,
+            ...(mode === 'point' ? { point: normalizedPoint(point, frame) } : {}),
+            side: candidate.side,
+          },
           distance,
         };
       }
     }
   }
   return nearest?.attachment ?? null;
+}
+
+function isBetterSnapCandidate(
+  current: { area: number; attachment: ArrowAttachment; distance: number } | null,
+  distance: number,
+  area: number,
+  preferSpecific: boolean,
+): boolean {
+  if (!current) return true;
+  if (distance !== current.distance) return distance < current.distance;
+  if (!preferSpecific) return false;
+  // When a point is inside multiple overlapping targets, attach to the most
+  // specific (smallest) frame instead of whichever item happens to be listed
+  // first in the document.
+  return area < current.area;
+}
+
+function frameArea(frame: CanvasFrame): number {
+  return Math.max(1, frame.right - frame.left) * Math.max(1, frame.bottom - frame.top);
+}
+
+function normalizedPoint(point: ArrowPoint, frame: CanvasFrame): { x: number; y: number } {
+  return {
+    x: clamp01((point.x - frame.left) / Math.max(1, frame.right - frame.left)),
+    y: clamp01((point.y - frame.top) / Math.max(1, frame.bottom - frame.top)),
+  };
 }
 
 function pointInFrame(point: ArrowPoint, frame: CanvasFrame): boolean {
@@ -489,6 +543,12 @@ function nearestAnchor(
 }
 
 export function arrowAnchorPoint(frame: CanvasFrame, attachment: ArrowAttachment): ArrowPoint {
+  if (attachment.point && !attachment.textRange) {
+    return {
+      x: frame.left + (frame.right - frame.left) * clamp01(attachment.point.x),
+      y: frame.top + (frame.bottom - frame.top) * clamp01(attachment.point.y),
+    };
+  }
   const offset = clamp01(attachment.offset);
   if (attachment.side === 'left') {
     return { x: frame.left, y: frame.top + (frame.bottom - frame.top) * offset };

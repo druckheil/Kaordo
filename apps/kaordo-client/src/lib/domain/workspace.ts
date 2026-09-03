@@ -60,10 +60,18 @@ export type TextArrowSource = {
   parentObjectId?: string;
 };
 
+/** A normalized point inside the frame an arrow endpoint is attached to. */
+export type ArrowAttachmentPoint = {
+  x: number;
+  y: number;
+};
+
 export type ArrowAttachment = {
   elementId?: string;
   objectId?: string;
   offset: number;
+  /** Optional normalized in-frame anchor used by Shift-drag placement. */
+  point?: ArrowAttachmentPoint;
   side: ArrowAnchorSide;
   textRange?: TextRangeAnchor;
 };
@@ -602,6 +610,16 @@ function normalizeArrowAttachment(value: unknown): ArrowAttachment | null {
   };
   if (typeof value.elementId === 'string') attachment.elementId = value.elementId;
   if (typeof value.objectId === 'string') attachment.objectId = value.objectId;
+  if (
+    isRecord(value.point) &&
+    isFiniteNumber(value.point.x) &&
+    isFiniteNumber(value.point.y)
+  ) {
+    attachment.point = {
+      x: Math.max(0, Math.min(1, value.point.x)),
+      y: Math.max(0, Math.min(1, value.point.y)),
+    };
+  }
   const textRange = normalizeTextRangeAnchor(value.textRange);
   if (textRange) attachment.textRange = textRange;
   return attachment;
