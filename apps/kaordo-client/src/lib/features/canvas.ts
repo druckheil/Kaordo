@@ -12,6 +12,8 @@ export const CANVAS_CARD_HEIGHT = 286;
 export const CANVAS_CARD_MIN_WIDTH = 160;
 export const CANVAS_CARD_MIN_HEIGHT = 120;
 export const CANVAS_CARD_HEADER_HEIGHT = 48;
+/** Maximum logical width available when resizing a canvas text block. */
+export const CANVAS_TEXT_MAX_WIDTH = 1800;
 export const POINTER_DRAG_THRESHOLD = 6;
 export const CANVAS_DEFAULT_ZOOM = 1;
 export const CANVAS_MIN_ZOOM = 0.25;

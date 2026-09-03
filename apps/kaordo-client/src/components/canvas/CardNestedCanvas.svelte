@@ -35,6 +35,7 @@
   import {
     canvasApplicationScale,
     CANVAS_CARD_HEADER_HEIGHT,
+    CANVAS_TEXT_MAX_WIDTH,
   } from '../../lib/features/canvas';
   import {
     moveMediaWithRectangle,
@@ -1109,7 +1110,10 @@
           placement.height - CANVAS_CARD_HEADER_HEIGHT - element.y,
           element.height,
         )}
-        maxWidth={Math.max(100, placement.width - element.x)}
+        maxWidth={Math.min(
+          CANVAS_TEXT_MAX_WIDTH,
+          Math.max(100, placement.width - element.x),
+        )}
         moving={false}
         onStartMove={startMove}
         selected={snapshot.selectedGlobalElementId === element.id}

@@ -11,7 +11,11 @@
     CanvasService,
     TextFormatCommand,
   } from '../../lib/services/CanvasService';
-  import { CANVAS_HEIGHT, canvasApplicationScale } from '../../lib/features/canvas';
+  import {
+    CANVAS_HEIGHT,
+    CANVAS_TEXT_MAX_WIDTH,
+    canvasApplicationScale,
+  } from '../../lib/features/canvas';
   import {
     ALL_TEXT_LAYOUTS,
     measureTextRangeFragments,
@@ -59,7 +63,7 @@
     editing,
     element,
     maxHeight = CANVAS_HEIGHT,
-    maxWidth = 900,
+    maxWidth = CANVAS_TEXT_MAX_WIDTH,
     moving = false,
     onStartMove,
     selected,

@@ -36,6 +36,7 @@
   import {
     CANVAS_CARD_HEADER_HEIGHT,
     CANVAS_HEIGHT,
+    CANVAS_TEXT_MAX_WIDTH,
     canvasApplicationScale,
   } from '../../lib/features/canvas';
   import {
@@ -1170,6 +1171,7 @@
         editing={snapshot.editingTextId === element.id}
         element={element}
         maxHeight={Math.max(48, CANVAS_HEIGHT - element.y, element.height)}
+        maxWidth={CANVAS_TEXT_MAX_WIDTH}
         moving={false}
         onStartMove={startMove}
         selected={snapshot.selectedGlobalElementId === element.id}
