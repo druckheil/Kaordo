@@ -73,8 +73,8 @@ export class CanvasService {
   ) => Promise<ObjectSummary>;
   readonly #viewport: CanvasViewportService;
   readonly state: CanvasGState;
-  readonly #canvasSaves = new Map<string, Promise<void>>();
-  readonly #objectSaves = new Map<string, Promise<ObjectSummary>>();
+  readonly #canvasSaveStates = new Map<string, CanvasSaveState>();
+  readonly #objectSaveStates = new Map<string, ObjectSaveState>();
   readonly #pendingPlacements = new Map<string, CanvasPlacement>();
   readonly #persistedCanvasDocuments = new Map<
     string,
@@ -148,14 +148,130 @@ export class CanvasService {
     );
   }
 
+  private createCanvasSaveState(workspaceId: string): CanvasSaveState {
+    const state: CanvasSaveState = { active: null, drain: null, pending: null };
+    this.#canvasSaveStates.set(workspaceId, state);
+    return state;
+  }
+
+  private ensureCanvasSaveDrain(workspaceId: string, state: CanvasSaveState): void {
+    if (state.drain) return;
+    const run = async (): Promise<void> => {
+      try {
+        while (state.pending) {
+          const batch = state.pending;
+          state.pending = null;
+          state.active = batch;
+          try {
+            await this.#saveCanvasDocument(workspaceId, batch.document);
+            this.#persistedCanvasDocuments.set(workspaceId, copyCanvasDocument(batch.document));
+            batch.waiters.forEach(({ resolve }) => resolve());
+          } catch (error) {
+            // Do not roll back a newer in-memory snapshot. It is already queued
+            // and will be persisted by the next iteration of this drain.
+            if (
+              !state.pending &&
+              this.state.canvasDocumentFor(workspaceId) === batch.stateDocument
+            ) {
+              this.state.setCanvasDocument(
+                workspaceId,
+                this.#persistedCanvasDocuments.get(workspaceId) ?? {
+                  elements: [],
+                  placements: [],
+                  version: 1,
+                },
+              );
+            }
+            rejectSaveWaiters(batch.waiters, error);
+          } finally {
+            state.active = null;
+          }
+        }
+      } catch (error) {
+        // A state/subscriber error should not strand promises or leave a
+        // permanently busy save queue. Reject the active and queued callers;
+        // a later edit can start a fresh drain.
+        if (state.active) rejectSaveWaiters(state.active.waiters, error);
+        if (state.pending) rejectSaveWaiters(state.pending.waiters, error);
+        state.active = null;
+        state.pending = null;
+      }
+    };
+    let drain: Promise<void>;
+    drain = run().then(async () => {
+      if (state.drain !== drain) return;
+      state.drain = null;
+      if (state.pending) {
+        this.ensureCanvasSaveDrain(workspaceId, state);
+        const next = state.drain;
+        if (next) await next;
+      } else if (this.#canvasSaveStates.get(workspaceId) === state) {
+        this.#canvasSaveStates.delete(workspaceId);
+      }
+    });
+    state.drain = drain;
+  }
+
+  private createObjectSaveState(key: string): ObjectSaveState {
+    const state: ObjectSaveState = { active: null, drain: null, pending: null };
+    this.#objectSaveStates.set(key, state);
+    return state;
+  }
+
+  private ensureObjectSaveDrain(
+    workspaceId: string,
+    objectId: string,
+    key: string,
+    state: ObjectSaveState,
+  ): void {
+    if (state.drain) return;
+    const run = async (): Promise<void> => {
+      try {
+        while (state.pending) {
+          const batch = state.pending;
+          state.pending = null;
+          state.active = batch;
+          try {
+            const updated = await this.#updateObjectDocument(workspaceId, objectId, batch.document);
+            this.state.updateObject(workspaceId, updated);
+            batch.waiters.forEach(({ resolve }) => resolve());
+          } catch (error) {
+            rejectSaveWaiters(batch.waiters, error);
+          } finally {
+            state.active = null;
+          }
+        }
+      } catch (error) {
+        if (state.active) rejectSaveWaiters(state.active.waiters, error);
+        if (state.pending) rejectSaveWaiters(state.pending.waiters, error);
+        state.active = null;
+        state.pending = null;
+      }
+    };
+    let drain: Promise<void>;
+    drain = run().then(async () => {
+      if (state.drain !== drain) return;
+      state.drain = null;
+      if (state.pending) {
+        this.ensureObjectSaveDrain(workspaceId, objectId, key, state);
+        const next = state.drain;
+        if (next) await next;
+      } else if (this.#objectSaveStates.get(key) === state) {
+        this.#objectSaveStates.delete(key);
+      }
+    });
+    state.drain = drain;
+  }
+
   async saveWorkspaceCanvasDocument(
     workspaceId: string,
     document: WorkspaceCanvasDocument,
   ): Promise<void> {
     const currentDocument = this.state.canvasDocumentFor(workspaceId);
     const persistedDocument = this.#persistedCanvasDocuments.get(workspaceId);
+    const saveState = this.#canvasSaveStates.get(workspaceId);
     if (
-      !this.#canvasSaves.has(workspaceId) &&
+      !saveState &&
       persistedDocument &&
       sameCanvasDocument(persistedDocument, document)
     ) return;
@@ -163,35 +279,22 @@ export class CanvasService {
       this.recordHistoryBeforeChange(workspaceId);
     }
     this.state.setCanvasDocument(workspaceId, document);
-    const previous = this.#canvasSaves.get(workspaceId);
-    const operation = (previous?.catch(() => undefined) ?? Promise.resolve())
-      .then(() => this.#saveCanvasDocument(workspaceId, document))
-      .then(() => {
-        this.#persistedCanvasDocuments.set(workspaceId, copyCanvasDocument(document));
-      });
-    this.#canvasSaves.set(workspaceId, operation);
-    try {
-      await operation;
-    } catch (error) {
-      if (
-        this.#canvasSaves.get(workspaceId) === operation &&
-        this.state.canvasDocumentFor(workspaceId) === document
-      ) {
-        this.state.setCanvasDocument(
-          workspaceId,
-          this.#persistedCanvasDocuments.get(workspaceId) ?? {
-            elements: [],
-            placements: [],
-            version: 1,
-          },
-        );
+    const snapshot = copyCanvasDocument(document);
+    const state = saveState ?? this.createCanvasSaveState(workspaceId);
+    return new Promise<void>((resolve, reject) => {
+      const active = state.active;
+      if (active && sameCanvasDocument(active.document, snapshot)) {
+        active.waiters.push({ reject, resolve });
+      } else if (state.pending && sameCanvasDocument(state.pending.document, snapshot)) {
+        state.pending.waiters.push({ reject, resolve });
+      } else {
+        // A newer snapshot supersedes a queued one. Its waiters can share the
+        // newer write because that document contains all preceding changes.
+        const waiters = state.pending?.waiters ?? [];
+        state.pending = { document: snapshot, stateDocument: document, waiters: [...waiters, { reject, resolve }] };
       }
-      throw error;
-    } finally {
-      if (this.#canvasSaves.get(workspaceId) === operation) {
-        this.#canvasSaves.delete(workspaceId);
-      }
-    }
+      this.ensureCanvasSaveDrain(workspaceId, state);
+    });
   }
 
   async saveObjectDocument(
@@ -216,37 +319,62 @@ export class CanvasService {
       this.recordHistoryBeforeChange(workspaceId);
     }
     const key = `${workspaceId}:${objectId}`;
-    const previous = this.#objectSaves.get(key);
-    const operation = (previous?.catch(() => undefined) ?? Promise.resolve())
-      .then(() => this.#updateObjectDocument(workspaceId, objectId, document));
-    this.#objectSaves.set(key, operation);
-    try {
-      const updated = await operation;
-      this.state.updateObject(workspaceId, updated);
-    } finally {
-      if (this.#objectSaves.get(key) === operation) this.#objectSaves.delete(key);
-    }
+    const snapshot = copyObjectDocument(document);
+    const saveState = this.#objectSaveStates.get(key) ?? this.createObjectSaveState(key);
+    return new Promise<void>((resolve, reject) => {
+      const active = saveState.active;
+      if (active && sameObjectDocument(active.document, snapshot)) {
+        active.waiters.push({ reject, resolve });
+      } else if (saveState.pending && sameObjectDocument(saveState.pending.document, snapshot)) {
+        saveState.pending.waiters.push({ reject, resolve });
+      } else {
+        const waiters = saveState.pending?.waiters ?? [];
+        saveState.pending = { document: snapshot, waiters: [...waiters, { reject, resolve }] };
+      }
+      this.ensureObjectSaveDrain(workspaceId, objectId, key, saveState);
+    });
   }
 
   async deleteWorkspaceObject(
     workspaceId: string,
     objectId: string,
   ): Promise<boolean> {
-    await this.#objectSaves.get(`${workspaceId}:${objectId}`)?.catch(() => undefined);
+    await this.#objectSaveStates.get(`${workspaceId}:${objectId}`)?.drain?.catch(() => undefined);
     return this.#deleteObject(workspaceId, objectId);
   }
 
   async settleWorkspaceWrites(workspaceId: string): Promise<void> {
-    const writes: Promise<unknown>[] = [];
-    const canvasWrite = this.#canvasSaves.get(workspaceId);
-    if (canvasWrite) writes.push(canvasWrite);
-    for (const [key, write] of this.#objectSaves) {
-      if (key.startsWith(`${workspaceId}:`)) writes.push(write);
+    while (true) {
+      const writes: Promise<unknown>[] = [];
+      const canvasWrite = this.#canvasSaveStates.get(workspaceId)?.drain;
+      if (canvasWrite) writes.push(canvasWrite);
+      for (const [key, state] of this.#objectSaveStates) {
+        if (key.startsWith(`${workspaceId}:`) && state.drain) writes.push(state.drain);
+      }
+      if (!writes.length) return;
+      await Promise.allSettled(writes);
+      if (!this.#canvasSaveStates.has(workspaceId) &&
+          ![...this.#objectSaveStates.keys()].some((key) => key.startsWith(`${workspaceId}:`))) {
+        return;
+      }
     }
-    await Promise.allSettled(writes);
   }
 
   forgetWorkspace(workspaceId: string): void {
+    const canvasSaveState = this.#canvasSaveStates.get(workspaceId);
+    if (canvasSaveState?.pending) {
+      rejectSaveWaiters(canvasSaveState.pending.waiters, new Error('Workspace was closed before the canvas save completed.'));
+      canvasSaveState.pending = null;
+    }
+    if (canvasSaveState && !canvasSaveState.active && !canvasSaveState.drain) {
+      this.#canvasSaveStates.delete(workspaceId);
+    }
+    for (const [key, saveState] of this.#objectSaveStates) {
+      if (!key.startsWith(`${workspaceId}:`) || !saveState.pending) continue;
+      rejectSaveWaiters(saveState.pending.waiters, new Error('Workspace was closed before the panel save completed.'));
+      saveState.pending = null;
+      if (!saveState.active && !saveState.drain) this.#objectSaveStates.delete(key);
+    }
     this.#persistedCanvasDocuments.delete(workspaceId);
     this.#history.delete(workspaceId);
     this.#historyCheckpointWorkspaces.delete(workspaceId);
@@ -1467,6 +1595,34 @@ type CanvasHistoryState = {
   past: CanvasHistorySnapshot[];
 };
 
+type SaveWaiter = {
+  reject: (reason?: unknown) => void;
+  resolve: () => void;
+};
+
+type CanvasSaveBatch = {
+  document: WorkspaceCanvasDocument;
+  stateDocument: WorkspaceCanvasDocument;
+  waiters: SaveWaiter[];
+};
+
+type CanvasSaveState = {
+  active: CanvasSaveBatch | null;
+  drain: Promise<void> | null;
+  pending: CanvasSaveBatch | null;
+};
+
+type ObjectSaveBatch = {
+  document: ObjectDocument;
+  waiters: SaveWaiter[];
+};
+
+type ObjectSaveState = {
+  active: ObjectSaveBatch | null;
+  drain: Promise<void> | null;
+  pending: ObjectSaveBatch | null;
+};
+
 const MAX_HISTORY_ENTRIES = 100;
 const MAX_MEDIA_MEMORY_BYTES = 256 * 1024 * 1024;
 
@@ -1483,6 +1639,10 @@ export type TextEditorController = {
   format(command: TextFormatCommand, value?: string): void;
   getTextAnchor(): TextRangeAnchor | null;
 };
+
+function rejectSaveWaiters(waiters: readonly SaveWaiter[], reason: unknown): void {
+  waiters.forEach(({ reject }) => reject(reason));
+}
 
 function constrainObjectSize(
   placement: Pick<CanvasPlacement, 'x' | 'y'>,

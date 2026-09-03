@@ -1,5 +1,5 @@
 import type { LigoGateway } from './gateways/LigoGateway';
-import type { NodoGateway } from './gateways/NodoGateway';
+import type { FluoBootstrap, NodoGateway } from './gateways/NodoGateway';
 import { NodeLigoTransport } from './gateways/NodeLigoTransport';
 import { createLigoFileArchive } from './services/LigoFileArchive';
 import { createLigoLocalStore } from './services/LigoLocalStore';
@@ -26,8 +26,17 @@ export class LigoController {
     // in-flight read means both projections still resolve from one Worker
     // request instead of independently calling /api/nodes and
     // /api/fluo/public-storage.
+    let bootstrapInFlight: Promise<FluoBootstrap> | null = null;
     const loadBootstrap = nodes.fluoBootstrap
-      ? () => nodes.fluoBootstrap!()
+      ? (): Promise<FluoBootstrap> => {
+        if (bootstrapInFlight) return bootstrapInFlight;
+        const request = nodes.fluoBootstrap!.call(nodes);
+        const shared = request.finally(() => {
+          if (bootstrapInFlight === shared) bootstrapInFlight = null;
+        });
+        bootstrapInFlight = shared;
+        return shared;
+      }
       : null;
     this.state = new LigoGState(
       gateway,

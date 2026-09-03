@@ -25,6 +25,7 @@ import {
 import type { NodoGateway } from './NodoGateway';
 import type { ProfileDirectoryGateway, PublicProfilePointer } from './ProfileGateway';
 import { nodoOrigin, orderedNodoCandidates } from './NodoRoute';
+import { allSettledConcurrent, mapConcurrent } from '../services/async';
 
 const TUS_VERSION = '1.0.0';
 const WIRE_CHUNK_LENGTH_HEADER = ['x-veri', 'dimensio-chunk-length'].join('');
@@ -38,6 +39,7 @@ const RELAY_CHUNK_SIZE = 8 * 1024 * 1024;
 const CONNECTION_IDLE_MILLISECONDS = 90 * 60_000;
 const PROFILE_DOCUMENT_MAX_BYTES = 32 * 1024;
 const PROFILE_LOAD_CONCURRENCY = 6;
+const NODE_REQUEST_CONCURRENCY = 6;
 export type NodoUploadFile = { blob: Blob; mimeType: string; name: string; size: number };
 let feedSessionSequence = 0;
 
@@ -124,7 +126,7 @@ export class NodeFluoGateway implements FluoGateway {
 
   async listFeedStates(nodeIds: readonly string[]): Promise<FluoNodeFeedState[]> {
     const uniqueNodeIds = [...new Set(nodeIds)];
-    return Promise.all(uniqueNodeIds.map(async (nodeId) => {
+    const results = await allSettledConcurrent(uniqueNodeIds, NODE_REQUEST_CONCURRENCY, async (nodeId) => {
       try {
         const state = await this.withNode(nodeId, (connection) =>
           connection.json<NodeFeedStateWire>('/v1/fluo/state'),
@@ -136,7 +138,10 @@ export class NodeFluoGateway implements FluoGateway {
         // backward-compatible.
         return emptyFeedState(nodeId);
       }
-    }));
+    });
+    return results.map((result, index) =>
+      result.status === 'fulfilled' ? result.value : emptyFeedState(uniqueNodeIds[index]!),
+    );
   }
 
   listLikeStates(targets: readonly FluoLikeTarget[]): Promise<FluoLikeState[]> {
@@ -466,6 +471,9 @@ async function listSpacePosts(
   const page = await connection.json<{ nextCursor?: string | null; posts: NodePost[] }>(
     `${SPACE_PATHS[space].posts}?${query}`,
   );
+  if (!Array.isArray(page.posts)) {
+    throw new Error('Nodo returned an invalid Fluo post page.');
+  }
   return { nextCursor: page.nextCursor ?? null, posts: page.posts };
 }
 
@@ -582,10 +590,10 @@ class FeedSession {
     key: string,
     author: string | null,
   ): Promise<FeedSession> {
-    const opened = await Promise.allSettled(nodeIds.map(async (nodeId) => ({
+    const opened = await allSettledConcurrent(nodeIds, NODE_REQUEST_CONCURRENCY, async (nodeId) => ({
       connection: await connect(nodeId),
       nodeId,
-    })));
+    }));
     const reachable = opened.filter((result): result is PromiseFulfilledResult<{
       connection: NodeConnection;
       nodeId: string;
@@ -601,7 +609,9 @@ class FeedSession {
     const posts: RemoteFluoPost[] = [];
     while (posts.length < limit) {
       const empty = this.sources.filter(({ buffer, exhausted }) => !buffer.length && !exhausted);
-      if (empty.length) await Promise.all(empty.map((source) => this.fill(source, limit)));
+      if (empty.length) {
+        await mapConcurrent(empty, NODE_REQUEST_CONCURRENCY, (source) => this.fill(source, limit));
+      }
       const source = this.sources.reduce<FeedSource | null>((newest, candidate) => {
         const post = candidate.buffer[0];
         if (!post) return newest;
@@ -744,7 +754,19 @@ export class NodeConnection {
     timeout = 15_000,
   ): Promise<T> {
     const response = await this.fetch(path, init, timeout);
-    return await response.json().catch(() => null) as T;
+    const raw = await response.text();
+    // DELETE/204 responses legitimately have no body. Treat those as an
+    // empty acknowledgement, but never turn malformed JSON into `null` — a
+    // silent null would make callers dereference an invalid protocol response
+    // and could keep a feed source retrying forever.
+    if (!raw.trim()) return {} as T;
+    try {
+      const value: unknown = JSON.parse(raw);
+      if (value === null || typeof value !== 'object') throw new Error('not an object');
+      return value as T;
+    } catch {
+      throw new Error('Nodo returned an invalid JSON response.');
+    }
   }
 
   async blob(path: string, mimeType: string, timeout: number): Promise<Blob> {
@@ -1063,28 +1085,6 @@ function base64(value: string): string {
   let binary = '';
   for (const byte of new TextEncoder().encode(value)) binary += String.fromCharCode(byte);
   return btoa(binary);
-}
-
-/** Runs independent profile reads without opening an unbounded number
- * of Nodo connections when a virtualized page mounts many authors at once. */
-async function mapConcurrent<T, R>(
-  values: readonly T[],
-  concurrency: number,
-  mapper: (value: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let nextIndex = 0;
-  const worker = async (): Promise<void> => {
-    while (true) {
-      const index = nextIndex++;
-      if (index >= values.length) return;
-      results[index] = await mapper(values[index]!, index);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(Math.max(1, concurrency), values.length) }, () => worker()),
-  );
-  return results;
 }
 
 function safeProfileWebsite(value: string | undefined): string {

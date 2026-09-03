@@ -9,6 +9,7 @@ import {
 import type { NodoGateway } from '../gateways/NodoGateway';
 import { GState } from '../state/GState';
 import { NodoRegistry } from '../services/NodoRegistry';
+import { mapConcurrent } from '../services/async';
 
 export type NodoOperation = { nodeId: string; type: 'clear' | 'clear-private' | 'delete' | 'policy' | 'rename' | 'spaces' | 'test' };
 
@@ -24,6 +25,7 @@ const NODE_USAGE_CACHE_MS = 15_000;
 const NODE_REFRESH_DEADLINE_MS = 9_000;
 const NODE_LIST_DEADLINE_MS = 5_000;
 const NODE_USAGE_DEADLINE_MS = 3_500;
+const NODE_USAGE_CONCURRENCY = 4;
 
 export type NodoSnapshot = {
   error: string | null;
@@ -116,7 +118,7 @@ export class NodoGState extends GState<NodoSnapshot> {
       const nodes = await bounded(
         this.#gateway.listNodes(),
         Math.min(NODE_LIST_DEADLINE_MS, remaining(refreshDeadline)),
-        'Nodo list refresh timed out after 10 seconds.',
+        'Nodo list refresh timed out.',
       );
       if (requestId !== this.#requestId) return;
       this.#lastRefreshAt = Date.now();
@@ -125,7 +127,7 @@ export class NodoGState extends GState<NodoSnapshot> {
       // ago are reflected immediately without adding polling traffic.
       const refreshed = background
         ? nodes
-        : await Promise.all(nodes.map(async (node) => {
+        : await mapConcurrent(nodes, NODE_USAGE_CONCURRENCY, async (node) => {
           const refreshedAt = this.#lastUsageRefreshAt.get(node.id) ?? 0;
           if (!force && Date.now() - refreshedAt < NODE_USAGE_CACHE_MS) return node;
           try {
@@ -138,7 +140,7 @@ export class NodoGState extends GState<NodoSnapshot> {
           } catch {
             return node;
           }
-          }));
+          });
       if (requestId !== this.#requestId) return;
       this.#registry.replace(refreshed);
       this.publish({ ...this.snapshot, error: null, nodes: [...this.#registry.nodes], phase: 'ready' });

@@ -62,7 +62,10 @@
     sectionForRole,
   } from './lib/services/AppPreferences';
   import { NodoRegistry } from './lib/services/NodoRegistry';
+  import { allSettledConcurrent } from './lib/services/async';
   import { closeContextMenu, shouldUseNativeContextMenu } from './lib/ui/contextMenu';
+
+  const STORAGE_NODE_REQUEST_CONCURRENCY = 4;
 
   const EMPTY_NODO_GATEWAY: NodoGateway = {
     accessNode: async () => { throw new Error('Nodo access is unavailable.'); },
@@ -254,10 +257,12 @@
   let rondoPublicStorageLoading = $state(false);
   let rondoPublicStorageError = $state<string | null>(null);
   let rondoPublicStorageRequestId = 0;
+  let rondoPublicStorageInFlight: Promise<void> | null = null;
   let sessions = $state<AuthSession[]>([]);
   let sessionsLoading = $state(false);
   let sessionsError = $state<string | null>(null);
   let sessionsRequestId = 0;
+  let sessionsInFlight: Promise<void> | null = null;
   let terminatingSessionId = $state<string | null>(null);
   let ligoSnapshot = $state(ligo.state.snapshot);
   let profileSnapshot = $state(profile.state.snapshot);
@@ -318,7 +323,11 @@
     try {
       if (target.kind === 'public') {
         const nodeIds = await nodoGateway.listFeedNodeIds();
-        const results = await Promise.allSettled(nodeIds.map((nodeId) => nodoGateway.listStorageItems(nodeId, 'public')));
+        const results = await allSettledConcurrent(
+          nodeIds,
+          STORAGE_NODE_REQUEST_CONCURRENCY,
+          (nodeId) => nodoGateway.listStorageItems(nodeId, 'public'),
+        );
         const successful = results.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
         if (!successful.length && results.length > 0 && results.every((result) => result.status === 'rejected')) {
           throw new Error('No Public Nodo is reachable from this network.');
@@ -377,38 +386,54 @@
   }
 
   async function loadRondoPublicStorage(): Promise<void> {
+    if (rondoPublicStorageInFlight) return rondoPublicStorageInFlight;
     const requestId = ++rondoPublicStorageRequestId;
     rondoPublicStorageLoading = true;
     rondoPublicStorageError = null;
-    try {
-      const bootstrap = await rondoGateway.bootstrap();
-      if (requestId !== rondoPublicStorageRequestId) return;
-      rondoPublicStorage = summarizeRondoPublicStorage(bootstrap);
-    } catch (error) {
-      if (requestId === rondoPublicStorageRequestId) {
-        rondoPublicStorage = null;
-        rondoPublicStorageError = error instanceof Error && error.message.trim() ? error.message : 'Rondo storage is unavailable.';
+    const request = (async () => {
+      try {
+        const bootstrap = await rondoGateway.bootstrap();
+        if (requestId !== rondoPublicStorageRequestId) return;
+        rondoPublicStorage = summarizeRondoPublicStorage(bootstrap);
+      } catch (error) {
+        if (requestId === rondoPublicStorageRequestId) {
+          rondoPublicStorage = null;
+          rondoPublicStorageError = error instanceof Error && error.message.trim() ? error.message : 'Rondo storage is unavailable.';
+        }
+      } finally {
+        if (requestId === rondoPublicStorageRequestId) rondoPublicStorageLoading = false;
       }
-    } finally {
-      if (requestId === rondoPublicStorageRequestId) rondoPublicStorageLoading = false;
-    }
+    })();
+    const shared = request.finally(() => {
+      if (rondoPublicStorageInFlight === shared) rondoPublicStorageInFlight = null;
+    });
+    rondoPublicStorageInFlight = shared;
+    return shared;
   }
 
   async function loadSessions(): Promise<void> {
+    if (sessionsInFlight) return sessionsInFlight;
     const requestId = ++sessionsRequestId;
     sessionsLoading = true;
     sessionsError = null;
-    try {
-      const result = await authGateway.listSessions();
-      if (requestId !== sessionsRequestId) return;
-      sessions = result;
-    } catch (error) {
-      if (requestId !== sessionsRequestId) return;
-      sessions = [];
-      sessionsError = error instanceof Error && error.message.trim() ? error.message : 'Sessions could not be loaded.';
-    } finally {
-      if (requestId === sessionsRequestId) sessionsLoading = false;
-    }
+    const request = (async () => {
+      try {
+        const result = await authGateway.listSessions();
+        if (requestId !== sessionsRequestId) return;
+        sessions = result;
+      } catch (error) {
+        if (requestId !== sessionsRequestId) return;
+        sessions = [];
+        sessionsError = error instanceof Error && error.message.trim() ? error.message : 'Sessions could not be loaded.';
+      } finally {
+        if (requestId === sessionsRequestId) sessionsLoading = false;
+      }
+    })();
+    const shared = request.finally(() => {
+      if (sessionsInFlight === shared) sessionsInFlight = null;
+    });
+    sessionsInFlight = shared;
+    return shared;
   }
 
   async function terminateSession(sessionId: string, current: boolean): Promise<void> {
@@ -481,10 +506,15 @@
       profile.reset();
       publicStorage.reset();
       rondoPublicStorageRequestId += 1;
+      // Do not let a request started for the previous account be reused after
+      // a fast logout/login transition. The underlying fetch may finish, but
+      // its result is invalid for the new authenticated namespace.
+      rondoPublicStorageInFlight = null;
       rondoPublicStorage = null;
       rondoPublicStorageError = null;
       rondoPublicStorageLoading = false;
       sessionsRequestId += 1;
+      sessionsInFlight = null;
       sessions = [];
       sessionsError = null;
       sessionsLoading = false;
@@ -620,8 +650,11 @@
   async function saveProfile(values: ProfileEditValues): Promise<boolean> {
     // Mi is intentionally public and does not keep the private storage state
     // mounted. Resolve the current public pool only when the user saves a
-    // profile, so profile browsing never pays for a storage request.
-    const publicStorage = await nodoGateway.publicStorage().catch(() => null);
+    // profile, so profile browsing never pays for a storage request. Reuse
+    // the state-owned cache/in-flight request instead of bypassing it with a
+    // second coordinator call.
+    await publicStorage.state.refresh();
+    const publicPool = publicStorage.state.snapshot.storage;
     // Public storage is a global pool. Profile data, however, must be written
     // to a Public Nodo owned by this account so the owner can always replace
     // or remove it. Resolve ownership from the node registry instead of
@@ -634,7 +667,7 @@
         .filter((node) => node.online && node.policy.allowUploads && node.spaces.public.quotaBytes > 0)
         .map((node) => node.id),
     );
-    const candidates = publicStorage?.nodeCandidates.filter(
+    const candidates = publicPool?.nodeCandidates.filter(
       (node) => ownedNodeIds.has(node.nodeId) && node.availableBytes > 0,
     ) ?? [];
     const selectedNodeId = candidates.find((node) => node.nodeId === profileSnapshot.profile?.nodeId)?.nodeId
@@ -644,7 +677,14 @@
       profile.state.setError('An online Public Nodo with available space is required to save your profile.');
       return false;
     }
-    return profile.state.save(values, selectedNodeId);
+    const saved = await profile.state.save(values, selectedNodeId);
+    if (saved && authSnapshot.user?.username) {
+      // The profile preview cache is shared with Fluo. Invalidate only the
+      // edited author so the next hover/public-page render sees the new media
+      // without flushing unrelated author metadata.
+      editor.fluoState.clearAuthorProfileCache(authSnapshot.user.username);
+    }
+    return saved;
   }
 
   async function retryWorkspaceLibrary() {

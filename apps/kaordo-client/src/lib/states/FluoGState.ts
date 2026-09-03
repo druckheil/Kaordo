@@ -254,7 +254,10 @@ export class FluoGState extends GState<FluoSnapshot> {
     this.#likeRequests.clear();
     this.#likeDesiredStates.clear();
     this.#likeMutationEpochs.clear();
-    this.clearAuthorProfileState();
+    // Keep the short-lived author cache warm while switching between Fluo and
+    // a profile. Only cancel requests tied to the old lifecycle; clearing the
+    // cache here made every tab switch download the same profile media again.
+    this.cancelAuthorProfileRequests();
     this.cancelLikeHydration();
     this.#unsubscribeRegistry?.();
     this.#unsubscribeRegistry = null;
@@ -690,12 +693,16 @@ export class FluoGState extends GState<FluoSnapshot> {
   }
 
   private clearAuthorProfileState(): void {
+    this.cancelAuthorProfileRequests();
+    this.#authorProfiles.clear();
+    this.#authorProfileFlushInFlight = null;
+  }
+
+  private cancelAuthorProfileRequests(): void {
     for (const pending of this.#authorProfileRequests.values()) pending.resolve(null);
     this.#authorProfileRequests.clear();
     this.#authorProfileQueue.clear();
-    this.#authorProfiles.clear();
     this.#authorProfileFlushScheduled = false;
-    this.#authorProfileFlushInFlight = null;
   }
 
   /** Reuses the direct stream URL while the immutable profile file is warm. */

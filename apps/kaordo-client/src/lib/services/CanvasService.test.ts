@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WorkspaceDetail } from '../domain/workspace';
+import type { WorkspaceCanvasDocument, WorkspaceDetail } from '../domain/workspace';
 import { CanvasGState } from '../states/CanvasGState';
 import { CanvasService } from './CanvasService';
 import { CanvasViewportService } from './CanvasViewportService';
@@ -350,6 +350,59 @@ describe('CanvasService interaction boundaries', () => {
       placements: [],
       version: 1,
     });
+  });
+
+  it('coalesces queued canvas snapshots and persists the latest one', async () => {
+    const resolvers: Array<() => void> = [];
+    const savedDocuments: WorkspaceCanvasDocument[] = [];
+    const saveCanvasDocument = vi.fn(async (_workspaceId: string, document: WorkspaceCanvasDocument) => {
+      savedDocuments.push(document);
+      await new Promise<void>((resolve) => resolvers.push(resolve));
+    });
+    const state = new CanvasGState();
+    state.setCanvasDocument(workspace.id, { elements: [], placements: [], version: 1 });
+    const service = new CanvasService(
+      state,
+      () => workspace,
+      undefined,
+      undefined,
+      saveCanvasDocument,
+    );
+    const firstDocument = {
+      elements: [{
+        fill: '#ffffff',
+        height: 90,
+        id: 'rectangle-1',
+        radius: 10,
+        stroke: '#000000',
+        strokeWidth: 2,
+        type: 'rectangle' as const,
+        width: 140,
+        x: 100,
+        y: 120,
+      }],
+      placements: [],
+      version: 1 as const,
+    };
+    const secondDocument = {
+      ...firstDocument,
+      elements: [{ ...firstDocument.elements[0], width: 220 }],
+    };
+    const thirdDocument = {
+      ...secondDocument,
+      elements: [{ ...secondDocument.elements[0], height: 180 }],
+    };
+
+    const first = service.saveWorkspaceCanvasDocument(workspace.id, firstDocument);
+    const second = service.saveWorkspaceCanvasDocument(workspace.id, secondDocument);
+    const third = service.saveWorkspaceCanvasDocument(workspace.id, thirdDocument);
+    expect(saveCanvasDocument).toHaveBeenCalledTimes(1);
+
+    resolvers.shift()?.();
+    await vi.waitFor(() => expect(saveCanvasDocument).toHaveBeenCalledTimes(2));
+    expect(savedDocuments[1]).toEqual(thirdDocument);
+    resolvers.shift()?.();
+    await Promise.all([first, second, third]);
   });
 
   it('removes nested media when a panel is deleted', async () => {
