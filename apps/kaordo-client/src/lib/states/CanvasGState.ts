@@ -16,6 +16,11 @@ import {
   CANVAS_DEFAULT_ZOOM,
   clampCanvasZoom,
 } from '../features/canvas';
+import type {
+  CanvasSelection,
+  CanvasSelectionOptions,
+} from '../features/canvasSelection';
+import { selectionKey } from '../features/canvasSelection';
 import { translateAttachedArrowGeometry } from '../features/elementAttachment';
 import { GState } from '../state/GState';
 
@@ -34,6 +39,8 @@ export type CanvasSnapshot = {
   isPanning: boolean;
   resizingObjectId: string | null;
   placements: Record<string, CanvasPlacement[]>;
+  /** Explicit panel/element selection; descendants are derived by renderers. */
+  selectedItems: CanvasSelection[];
   selectedCardId: string | null;
   selectedElementId: string | null;
   selectedGlobalElementId: string | null;
@@ -66,6 +73,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       isPanning: false,
       placements: {},
       resizingObjectId: null,
+      selectedItems: [],
       selectedCardId: null,
       selectedElementId: null,
       selectedGlobalElementId: null,
@@ -90,6 +98,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       isDropTarget: false,
       isPanning: false,
       resizingObjectId: null,
+      selectedItems: [],
       selectedCardId: null,
       selectedElementId: null,
       selectedGlobalElementId: null,
@@ -176,6 +185,10 @@ export class CanvasGState extends GState<CanvasSnapshot> {
     this.patch({
       isCameraReady: false,
       isCanvasDocumentReady: false,
+      selectedItems: [],
+      selectedCardId: null,
+      selectedElementId: null,
+      selectedGlobalElementId: null,
       textArrowSource: null,
       textArrowCursor: null,
     });
@@ -188,6 +201,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       editingTextId: null,
       isCameraReady: false,
       isCanvasDocumentReady: false,
+      selectedItems: [],
       selectedCardId: null,
       selectedElementId: null,
       selectedGlobalElementId: null,
@@ -266,6 +280,24 @@ export class CanvasGState extends GState<CanvasSnapshot> {
   removeObject(workspaceId: string, objectId: string): void {
     const document = this.canvasDocumentFor(workspaceId);
     const removedElementIds = canvasElementIdsForObject(document, objectId);
+    let selectedItems = this.snapshot.selectedItems.filter((selection) =>
+      !(selection.kind === 'panel' && selection.id === objectId) &&
+      !(selection.kind === 'element' && removedElementIds.has(selection.id)),
+    );
+    const selectedGlobalWasRemoved = document.elements.some(
+      (element) =>
+        element.id === this.snapshot.selectedGlobalElementId &&
+        (removedElementIds.has(element.id) ||
+          (element.type === 'arrow' &&
+            (element.startAttachment?.objectId === objectId ||
+              element.endAttachment?.objectId === objectId))),
+    );
+    if (selectedGlobalWasRemoved && this.snapshot.selectedGlobalElementId) {
+      selectedItems = selectedItems.filter((selection) =>
+        selection.id !== this.snapshot.selectedGlobalElementId,
+      );
+    }
+    const selectedPrimary = selectedItems.at(-1);
     this.patch({
       canvasDocuments: {
         ...this.snapshot.canvasDocuments,
@@ -297,25 +329,16 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       )
         ? null
         : this.snapshot.editingTextId,
+      selectedItems,
       placements: {
         ...this.snapshot.placements,
         [workspaceId]: this.placementsFor(workspaceId).filter(
           (placement) => placement.id !== objectId,
         ),
       },
-      selectedCardId: this.snapshot.selectedCardId === objectId
-        ? null
-        : this.snapshot.selectedCardId,
-      selectedGlobalElementId: document.elements.some(
-        (element) =>
-          element.id === this.snapshot.selectedGlobalElementId &&
-          (removedElementIds.has(element.id) ||
-            (element.type === 'arrow' &&
-              (element.startAttachment?.objectId === objectId ||
-                element.endAttachment?.objectId === objectId))),
-      )
-        ? null
-        : this.snapshot.selectedGlobalElementId,
+      selectedCardId: selectedPrimary?.kind === 'panel' ? selectedPrimary.id : null,
+      selectedElementId: selectedPrimary?.kind === 'element' ? selectedPrimary.id : null,
+      selectedGlobalElementId: selectedPrimary?.kind === 'element' ? selectedPrimary.id : null,
       textArrowSource:
         this.snapshot.textArrowSource?.parentObjectId === objectId ||
         (this.snapshot.textArrowSource?.elementId !== undefined &&
@@ -330,6 +353,10 @@ export class CanvasGState extends GState<CanvasSnapshot> {
 
   removeCanvasElement(workspaceId: string, elementId: string): void {
     const document = this.canvasDocumentFor(workspaceId);
+    const selectedItems = this.snapshot.selectedItems.filter((selection) =>
+      !(selection.kind === 'element' && selection.id === elementId),
+    );
+    const selectedPrimary = selectedItems.at(-1);
     this.patch({
       canvasDocuments: {
         ...this.snapshot.canvasDocuments,
@@ -357,9 +384,10 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       editingTextId: this.snapshot.editingTextId === elementId
         ? null
         : this.snapshot.editingTextId,
-      selectedGlobalElementId: this.snapshot.selectedGlobalElementId === elementId
-        ? null
-        : this.snapshot.selectedGlobalElementId,
+      selectedItems,
+      selectedCardId: selectedPrimary?.kind === 'panel' ? selectedPrimary.id : null,
+      selectedElementId: selectedPrimary?.kind === 'element' ? selectedPrimary.id : null,
+      selectedGlobalElementId: selectedPrimary?.kind === 'element' ? selectedPrimary.id : null,
       textArrowSource: this.snapshot.textArrowSource?.elementId === elementId
         ? null
         : this.snapshot.textArrowSource,
@@ -424,6 +452,92 @@ export class CanvasGState extends GState<CanvasSnapshot> {
     });
     if (!wasPlaced) this.markEntering(workspaceId, object.id);
     return placement;
+  }
+
+  /** Move several placed panels by one shared delta while translating any
+   * arrows attached to the group exactly once. */
+  movePlacements(
+    workspaceId: string,
+    moves: readonly { placement: CanvasPlacement; point: CanvasPoint }[],
+  ): CanvasPlacement[] {
+    if (moves.length === 0) return [];
+    const current = this.placementsFor(workspaceId);
+    const currentById = new Map(current.map((placement) => [placement.id, placement]));
+    const unique = new Map<string, { placement: CanvasPlacement; point: CanvasPoint }>();
+    for (const move of moves) unique.set(move.placement.id, move);
+    const moved = [...unique.values()].map(({ placement, point }) => ({
+      ...(currentById.get(placement.id) ?? placement),
+      x: point.x,
+      y: point.y,
+    }));
+    if (moved.length === 0) return [];
+
+    const deltas = moved.map((placement) => {
+      const previous = currentById.get(placement.id);
+      return {
+        x: previous ? placement.x - previous.x : 0,
+        y: previous ? placement.y - previous.y : 0,
+      };
+    });
+    const firstDelta = deltas[0]!;
+    const sharedDelta = deltas.every((delta) =>
+      delta.x === firstDelta.x && delta.y === firstDelta.y,
+    ) ? firstDelta : null;
+    const document = this.canvasDocumentFor(workspaceId);
+    let elements = document.elements;
+    if (sharedDelta && (sharedDelta.x !== 0 || sharedDelta.y !== 0)) {
+      const objectIds = new Set(moved.map((placement) => placement.id));
+      const elementIds = new Set<string>();
+      for (const objectId of objectIds) {
+        for (const elementId of canvasElementIdsForObject(document, objectId)) {
+          elementIds.add(elementId);
+        }
+      }
+      elements = translateAttachedArrowGeometry(
+        elements,
+        {
+          elementIds,
+          excludeElementIds: elementIds,
+          objectIds,
+        },
+        sharedDelta.x,
+        sharedDelta.y,
+      );
+    } else {
+      for (const [index, placement] of moved.entries()) {
+        const delta = deltas[index]!;
+        if (delta.x === 0 && delta.y === 0) continue;
+        const elementIds = canvasElementIdsForObject(document, placement.id);
+        elements = translateAttachedArrowGeometry(
+          elements,
+          {
+            elementIds,
+            excludeElementIds: elementIds,
+            objectId: placement.id,
+          },
+          delta.x,
+          delta.y,
+        );
+      }
+    }
+    const movedById = new Map(moved.map((placement) => [placement.id, placement]));
+    const placements = current.map((placement) => movedById.get(placement.id) ?? placement);
+    for (const placement of moved) {
+      if (!currentById.has(placement.id)) placements.push(placement);
+    }
+    this.patch({
+      announcement: moved.length === 1
+        ? `${moved[0]!.title} moved to ${moved[0]!.x}, ${moved[0]!.y} on the canvas.`
+        : `${moved.length} panels moved on the canvas.`,
+      canvasDocuments: elements === document.elements
+        ? this.snapshot.canvasDocuments
+        : { ...this.snapshot.canvasDocuments, [workspaceId]: { ...document, elements } },
+      placements: { ...this.snapshot.placements, [workspaceId]: placements },
+    });
+    for (const placement of moved) {
+      if (!currentById.has(placement.id)) this.markEntering(workspaceId, placement.id);
+    }
+    return moved;
   }
 
   announceAlreadyPlaced(object: ObjectSummary): void {
@@ -514,60 +628,44 @@ export class CanvasGState extends GState<CanvasSnapshot> {
     }
   }
 
-  selectCard(cardId: string | null): void {
-    if (
-      this.snapshot.selectedCardId !== cardId ||
-      this.snapshot.selectedGlobalElementId !== null
-    ) {
-      this.patch({
-        editingTextId: null,
-        selectedCardId: cardId,
-        selectedElementId: null,
-        selectedGlobalElementId: null,
-      });
+  selectCard(
+    cardId: string | null,
+    options: CanvasSelectionOptions = {},
+  ): void {
+    if (!cardId) {
+      this.clearSelection();
+      return;
     }
+    this.selectItem({ id: cardId, kind: 'panel' }, options);
   }
 
-  selectElement(cardId: string, elementId: string): void {
-    if (
-      this.snapshot.selectedCardId !== cardId ||
-      this.snapshot.selectedElementId !== elementId
-    ) {
-      this.patch({
-        editingTextId: null,
-        selectedCardId: cardId,
-        selectedElementId: elementId,
-        selectedGlobalElementId: null,
-      });
-    }
+  selectElement(
+    cardId: string,
+    elementId: string,
+    options: CanvasSelectionOptions = {},
+  ): void {
+    // `cardId` remains part of the legacy API; element IDs are workspace-wide
+    // and are the only identity needed by the selection model.
+    void cardId;
+    this.selectItem({ id: elementId, kind: 'element' }, options);
   }
 
-  selectGlobalElement(elementId: string | null): void {
-    if (
-      this.snapshot.selectedGlobalElementId !== elementId ||
-      this.snapshot.selectedCardId !== null ||
-      this.snapshot.selectedElementId !== null
-    ) {
-      this.patch({
-        editingTextId:
-          this.snapshot.editingTextId === elementId
-            ? this.snapshot.editingTextId
-            : null,
-        selectedCardId: null,
-        selectedElementId: null,
-        selectedGlobalElementId: elementId,
-      });
+  selectGlobalElement(
+    elementId: string | null,
+    options: CanvasSelectionOptions = {},
+  ): void {
+    if (!elementId) {
+      this.clearSelection();
+      return;
     }
+    this.selectItem({ id: elementId, kind: 'element' }, options);
   }
 
   editText(elementId: string | null): void {
+    if (elementId) this.selectGlobalElement(elementId);
     this.patch({
       activeTool: elementId ? 'select' : this.snapshot.activeTool,
       editingTextId: elementId,
-      selectedCardId: elementId ? null : this.snapshot.selectedCardId,
-      selectedElementId: elementId ? null : this.snapshot.selectedElementId,
-      selectedGlobalElementId:
-        elementId ?? this.snapshot.selectedGlobalElementId,
       ...(elementId
         ? { textArrowCursor: null, textArrowSource: null }
         : {}),
@@ -628,6 +726,73 @@ export class CanvasGState extends GState<CanvasSnapshot> {
     });
   }
 
+  selectedPanelIds(): string[] {
+    return this.snapshot.selectedItems
+      .filter((selection) => selection.kind === 'panel')
+      .map((selection) => selection.id);
+  }
+
+  selectedElementIds(): string[] {
+    return this.snapshot.selectedItems
+      .filter((selection) => selection.kind === 'element')
+      .map((selection) => selection.id);
+  }
+
+  private clearSelection(): void {
+    if (
+      this.snapshot.selectedItems.length === 0 &&
+      this.snapshot.selectedCardId === null &&
+      this.snapshot.selectedElementId === null &&
+      this.snapshot.selectedGlobalElementId === null &&
+      this.snapshot.editingTextId === null
+    ) return;
+    this.patch({
+      editingTextId: null,
+      selectedItems: [],
+      selectedCardId: null,
+      selectedElementId: null,
+      selectedGlobalElementId: null,
+    });
+  }
+
+  private selectItem(
+    item: CanvasSelection,
+    options: CanvasSelectionOptions,
+  ): void {
+    const current = this.snapshot.selectedItems;
+    const key = selectionKey(item);
+    const additive = options.additive === true;
+    const hasItem = current.some((selection) => selectionKey(selection) === key);
+    const selectedItems = additive
+      ? hasItem
+        ? current.filter((selection) => selectionKey(selection) !== key)
+        : [...current, item]
+      : [item];
+    const primary = selectedItems.at(-1);
+    const selectedCardId = primary?.kind === 'panel' ? primary.id : null;
+    const selectedElementId = primary?.kind === 'element' ? primary.id : null;
+    const selectedGlobalElementId = selectedElementId;
+    const editingTextId = primary?.kind === 'element' &&
+      primary.id === this.snapshot.editingTextId &&
+      selectedItems.length === 1
+      ? this.snapshot.editingTextId
+      : null;
+    if (
+      sameSelection(current, selectedItems) &&
+      this.snapshot.selectedCardId === selectedCardId &&
+      this.snapshot.selectedElementId === selectedElementId &&
+      this.snapshot.selectedGlobalElementId === selectedGlobalElementId &&
+      this.snapshot.editingTextId === editingTextId
+    ) return;
+    this.patch({
+      editingTextId,
+      selectedItems,
+      selectedCardId,
+      selectedElementId,
+      selectedGlobalElementId,
+    });
+  }
+
   private markEntering(workspaceId: string, objectId: string): void {
     const key = entryKey(workspaceId, objectId);
     this.patch({
@@ -648,4 +813,14 @@ export class CanvasGState extends GState<CanvasSnapshot> {
 
 function entryKey(workspaceId: string, objectId: string): string {
   return `${workspaceId}:${objectId}`;
+}
+
+function sameSelection(
+  left: readonly CanvasSelection[],
+  right: readonly CanvasSelection[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((selection, index) =>
+    selectionKey(selection) === selectionKey(right[index]!),
+  );
 }

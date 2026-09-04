@@ -5,8 +5,9 @@ import type {
 } from '../domain/canvas';
 import { applicationScale } from '../ui/applicationScale';
 
-export const CANVAS_WIDTH = 4800;
-export const CANVAS_HEIGHT = 3200;
+/** Logical workspace dimensions. Keep these large enough for long-lived files. */
+export const CANVAS_WIDTH = 48_000;
+export const CANVAS_HEIGHT = 32_000;
 export const CANVAS_CARD_WIDTH = 360;
 export const CANVAS_CARD_HEIGHT = 286;
 export const CANVAS_CARD_MIN_WIDTH = 160;

@@ -8,6 +8,10 @@
     CANVAS_MEDIA_MIN_WIDTH,
   } from '../../lib/features/canvasMedia';
   import { canvasApplicationScale } from '../../lib/features/canvas';
+  import {
+    isCanvasSelectionActive,
+    isCanvasSelectionModifier,
+  } from '../../lib/features/canvasSelection';
   import type { CanvasService } from '../../lib/services/CanvasService';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
   import PhotoViewer from '../ui/PhotoViewer.svelte';
@@ -114,7 +118,6 @@
   }
 
   function beginImageMove(event: PointerEvent) {
-    canvas.state.selectGlobalElement(element.id);
     pendingMove = {
       pointerId: event.pointerId,
       startClientX: event.clientX,
@@ -141,6 +144,17 @@
 
   function finishInteraction(event: PointerEvent) {
     if (!pendingMove || pendingMove.pointerId !== event.pointerId) return;
+    const keepGroup = isCanvasSelectionActive(
+      canvas.state.snapshot.selectedItems,
+      { id: element.id, kind: 'element' },
+    );
+    if (keepGroup && isCanvasSelectionModifier(event)) {
+      canvas.state.selectGlobalElement(element.id, { additive: true });
+    } else if (!keepGroup) {
+      canvas.state.selectGlobalElement(element.id, {
+        additive: isCanvasSelectionModifier(event),
+      });
+    }
     clearPendingMove();
   }
 
@@ -156,7 +170,6 @@
     if (event.button !== 0 || moving) return;
     event.preventDefault();
     event.stopPropagation();
-    canvas.state.selectGlobalElement(element.id);
     onStartMove(event, element);
   }
 

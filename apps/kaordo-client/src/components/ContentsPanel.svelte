@@ -8,6 +8,12 @@
     WorkspaceDetail,
   } from '../lib/domain/workspace';
   import { textElementLabel } from '../lib/domain/workspace';
+  import {
+    isCanvasElementHighlighted,
+    isCanvasPanelHighlighted,
+    isCanvasSelectionModifier,
+    type CanvasSelectionOptions,
+  } from '../lib/features/canvasSelection';
   import type { CanvasService } from '../lib/services/CanvasService';
   import type { CanvasSnapshot } from '../lib/states/CanvasGState';
   import { openContextMenu } from '../lib/ui/contextMenu';
@@ -31,6 +37,7 @@
     label: string;
     object: ObjectSummary;
     placed: boolean;
+    selected: boolean;
   };
 
   type CardNode = {
@@ -116,13 +123,16 @@
     newPanelButton?.focus();
   }
 
-  function focusNode(node: ContentNode): void {
+  function focusNode(
+    node: ContentNode,
+    options: CanvasSelectionOptions = {},
+  ): void {
     if (!workspace) return;
     if (node.kind === 'panel') {
-      canvas.handleObjectSourceClick(node.object);
+      canvas.handleObjectSourceClick(node.object, options);
       return;
     }
-    void canvas.focusCanvasElement(workspace.id, node.element.id);
+    void canvas.focusCanvasElement(workspace.id, node.element.id, options);
   }
 
   function isTreeNodeExpanded(node: ContentTreeNode): boolean {
@@ -144,7 +154,7 @@
       return;
     }
 
-    focusNode(node);
+    focusNode(node, { additive: isCanvasSelectionModifier(event) });
   }
 
   function handleNodeKeydown(event: KeyboardEvent, node: ContentNode): void {
@@ -161,6 +171,12 @@
           icon: node.placed ? 'focus' : 'open',
           id: node.placed ? 'focus-panel' : 'place-panel',
           label: node.placed ? 'Focus on Canvas' : 'Place on Canvas',
+        },
+        {
+          action: () => canvas.centerSelection({ kind: 'panel', id: node.id }),
+          icon: 'focus',
+          id: 'center-panel',
+          label: 'Back to center',
         },
         {
           action: async () => {
@@ -186,6 +202,12 @@
         icon: 'focus',
         id: `focus-${node.kind}`,
         label: 'Focus on Canvas',
+      },
+      {
+        action: () => canvas.centerSelection({ kind: 'element', id: element.id }),
+        icon: 'focus',
+        id: `center-${node.kind}`,
+        label: 'Back to center',
       },
       ...(isCard
         ? [{
@@ -261,7 +283,7 @@
         key: `text:${element.id}`,
         kind: 'text',
         label: textElementLabel(element),
-        selected: snapshot.selectedGlobalElementId === element.id,
+        selected: isCanvasElementHighlighted(element, snapshot.selectedItems, elements),
       });
     };
 
@@ -275,7 +297,7 @@
         key: `media:${element.id}`,
         kind: 'media',
         label: element.name,
-        selected: snapshot.selectedGlobalElementId === element.id,
+        selected: isCanvasElementHighlighted(element, snapshot.selectedItems, elements),
       });
     };
 
@@ -289,7 +311,7 @@
         key: `arrow:${element.id}`,
         kind: 'arrow',
         label: 'Arrow',
-        selected: snapshot.selectedGlobalElementId === element.id,
+        selected: isCanvasElementHighlighted(element, snapshot.selectedItems, elements),
       });
     };
 
@@ -304,7 +326,7 @@
         key: `card:${element.id}`,
         kind: 'card',
         label: `Card ${cardNumber}`,
-        selected: snapshot.selectedGlobalElementId === element.id,
+        selected: isCanvasElementHighlighted(element, snapshot.selectedItems, elements),
       });
       for (const child of elements) {
         if (child.type === 'text' && child.parentElementId === element.id) {
@@ -324,6 +346,7 @@
         label: object.title,
         object,
         placed: placedIds.has(object.id),
+        selected: isCanvasPanelHighlighted(object.id, snapshot.selectedItems),
       });
       for (const element of elements) {
         if (
@@ -436,7 +459,7 @@
           role="treeitem"
           aria-level={node.depth + 1}
           aria-expanded={node.children.length > 0 ? isTreeNodeExpanded(node) : undefined}
-          aria-selected={node.kind !== 'panel' ? node.selected : undefined}
+          aria-selected={node.selected}
         >
           <button
             class="content-node sui-tree-label sui-raised"
@@ -445,9 +468,9 @@
             class:content-node--text={node.kind === 'text'}
             class:content-node--media={node.kind === 'media'}
             class:content-node--arrow={node.kind === 'arrow'}
-            class:content-node--selected={node.kind !== 'panel' && node.selected}
+            class:content-node--selected={node.selected}
             class:content-node--placed={node.kind === 'panel' && node.placed}
-            class:active={node.kind !== 'panel' ? node.selected : node.placed}
+            class:active={node.selected || (node.kind === 'panel' && node.placed)}
             type="button"
             aria-label={node.kind === 'panel'
               ? `${node.placed ? 'Focus' : 'Place'} ${node.label} on canvas`
@@ -503,7 +526,12 @@
       {/each}
     {/snippet}
 
-    <ul class="contents-tree sui-tree" role="tree" aria-label="Contents in this workspace">
+    <ul
+      class="contents-tree sui-tree"
+      role="tree"
+      aria-label="Contents in this workspace"
+      aria-multiselectable="true"
+    >
       {@render renderTree(contentTree)}
     </ul>
   {:else}
@@ -571,11 +599,21 @@
   }
 
   .sui-tree-label:active,
-  .content-node--selected,
   .content-node--placed {
     color: #285a4e;
     background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%);
     box-shadow: inset 2px 2px 5px rgb(39 51 67 / 20%);
+    transform: translateY(1px);
+  }
+
+  .sui-tree-label.content-node--selected,
+  .sui-tree-label.content-node--selected:hover,
+  .sui-tree-label.content-node--selected:active {
+    color: #21382f;
+    background: color-mix(in srgb, var(--panel) 72%, #527a6c 28%);
+    box-shadow:
+      inset 3px 3px 7px rgb(39 51 67 / 24%),
+      inset -1px -1px 2px rgb(255 255 255 / 58%);
     transform: translateY(1px);
   }
 

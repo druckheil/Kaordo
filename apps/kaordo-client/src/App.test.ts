@@ -18,6 +18,7 @@ import type {
   WorkspaceDetail,
   WorkspaceSummary,
 } from './lib/domain/workspace';
+import { CANVAS_HEIGHT, CANVAS_WIDTH } from './lib/features/canvas';
 import { TauriWorkspaceGateway } from './lib/gateways/TauriWorkspaceGateway';
 import { WebWorkspaceGateway } from './lib/gateways/WebWorkspaceGateway';
 
@@ -1100,15 +1101,15 @@ describe('workspace navigation and objects', () => {
       await openResearchFile();
 
       const canvas = screen.getByRole('region', { name: 'Knowledge canvas' });
-      expect(canvas.scrollLeft).toBe(2000);
-      expect(canvas.scrollTop).toBe(1300);
+      expect(canvas.scrollLeft).toBe(CANVAS_WIDTH / 2 - 400);
+      expect(canvas.scrollTop).toBe(CANVAS_HEIGHT / 2 - 300);
       expect(document.querySelector('.canvas-surface')).toHaveStyle({
-        height: '3200px',
-        width: '4800px',
+        height: `${CANVAS_HEIGHT}px`,
+        width: `${CANVAS_WIDTH}px`,
       });
       expect(document.querySelector('.canvas-origin')).toHaveStyle({
-        left: '2400px',
-        top: '1600px',
+        left: `${CANVAS_WIDTH / 2}px`,
+        top: `${CANVAS_HEIGHT / 2}px`,
       });
 
       await fireEvent.keyDown(
@@ -1119,7 +1120,7 @@ describe('workspace navigation and objects', () => {
         '[data-canvas-object-id="object-1"]',
       );
       expect(card?.parentElement).toHaveStyle({
-        transform: 'translate3d(2220px, 1457px, 0)',
+        transform: `translate3d(${CANVAS_WIDTH / 2 - 180}px, ${CANVAS_HEIGHT / 2 - 143}px, 0)`,
       });
     } finally {
       restoreViewportSize();
@@ -1424,12 +1425,12 @@ describe('workspace navigation and objects', () => {
       name: 'Workspace canvas drawing surface',
     });
     vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
-      bottom: 3200,
-      height: 3200,
+      bottom: CANVAS_HEIGHT,
+      height: CANVAS_HEIGHT,
       left: 0,
-      right: 4800,
+      right: CANVAS_WIDTH,
       top: 0,
-      width: 4800,
+      width: CANVAS_WIDTH,
       x: 0,
       y: 0,
       toJSON: () => ({}),
@@ -1493,12 +1494,12 @@ describe('workspace navigation and objects', () => {
       name: 'Workspace canvas drawing surface',
     });
     vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
-      bottom: 3200,
-      height: 3200,
+      bottom: CANVAS_HEIGHT,
+      height: CANVAS_HEIGHT,
       left: 0,
-      right: 4800,
+      right: CANVAS_WIDTH,
       top: 0,
-      width: 4800,
+      width: CANVAS_WIDTH,
       x: 0,
       y: 0,
       toJSON: () => ({}),
@@ -1583,12 +1584,12 @@ describe('workspace navigation and objects', () => {
       name: 'Workspace canvas drawing surface',
     });
     vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
-      bottom: 3200,
-      height: 3200,
+      bottom: CANVAS_HEIGHT,
+      height: CANVAS_HEIGHT,
       left: 0,
-      right: 4800,
+      right: CANVAS_WIDTH,
       top: 0,
-      width: 4800,
+      width: CANVAS_WIDTH,
       x: 0,
       y: 0,
       toJSON: () => ({}),
@@ -1737,12 +1738,12 @@ describe('workspace navigation and objects', () => {
       name: 'Workspace canvas drawing surface',
     });
     vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
-      bottom: 3200,
-      height: 3200,
+      bottom: CANVAS_HEIGHT,
+      height: CANVAS_HEIGHT,
       left: 0,
-      right: 4800,
+      right: CANVAS_WIDTH,
       top: 0,
-      width: 4800,
+      width: CANVAS_WIDTH,
       x: 0,
       y: 0,
       toJSON: () => ({}),
@@ -1993,12 +1994,12 @@ describe('workspace navigation and objects', () => {
 
     const drawingSurface = screen.getByRole('application', { name: 'Workspace canvas drawing surface' });
     vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
-      bottom: 3200,
-      height: 3200,
+      bottom: CANVAS_HEIGHT,
+      height: CANVAS_HEIGHT,
       left: 0,
-      right: 4800,
+      right: CANVAS_WIDTH,
       top: 0,
-      width: 4800,
+      width: CANVAS_WIDTH,
       x: 0,
       y: 0,
       toJSON: () => ({}),
@@ -2070,12 +2071,12 @@ describe('workspace navigation and objects', () => {
       name: 'Workspace canvas drawing surface',
     });
     vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
-      bottom: 3200,
-      height: 3200,
+      bottom: CANVAS_HEIGHT,
+      height: CANVAS_HEIGHT,
       left: 0,
-      right: 4800,
+      right: CANVAS_WIDTH,
       top: 0,
-      width: 4800,
+      width: CANVAS_WIDTH,
       x: 0,
       y: 0,
       toJSON: () => ({}),
@@ -2274,12 +2275,12 @@ describe('workspace navigation and objects', () => {
       name: 'Workspace canvas drawing surface',
     });
     vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
-      bottom: 3200,
-      height: 3200,
+      bottom: CANVAS_HEIGHT,
+      height: CANVAS_HEIGHT,
       left: 0,
-      right: 4800,
+      right: CANVAS_WIDTH,
       top: 0,
-      width: 4800,
+      width: CANVAS_WIDTH,
       x: 0,
       y: 0,
       toJSON: () => ({}),
@@ -2353,12 +2354,12 @@ describe('workspace navigation and objects', () => {
       name: 'Workspace canvas drawing surface',
     });
     vi.spyOn(drawingSurface, 'getBoundingClientRect').mockReturnValue({
-      bottom: 3200,
-      height: 3200,
+      bottom: CANVAS_HEIGHT,
+      height: CANVAS_HEIGHT,
       left: 0,
-      right: 4800,
+      right: CANVAS_WIDTH,
       top: 0,
-      width: 4800,
+      width: CANVAS_WIDTH,
       x: 0,
       y: 0,
       toJSON: () => ({}),

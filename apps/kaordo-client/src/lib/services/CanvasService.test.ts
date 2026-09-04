@@ -3,7 +3,7 @@ import type { WorkspaceCanvasDocument, WorkspaceDetail } from '../domain/workspa
 import { CanvasGState } from '../states/CanvasGState';
 import { CanvasService } from './CanvasService';
 import { CanvasViewportService } from './CanvasViewportService';
-import { pointerToCanvas } from '../features/canvas';
+import { CANVAS_HEIGHT, CANVAS_WIDTH, pointerToCanvas } from '../features/canvas';
 
 const workspace: WorkspaceDetail = {
   id: 'workspace-1',
@@ -278,8 +278,8 @@ describe('CanvasService interaction boundaries', () => {
     expect(zoom).toBeCloseTo(Math.exp(0.12), 5);
     expect((viewport.scrollLeft + 160) / zoom).toBeCloseTo(1160, 5);
     expect((viewport.scrollTop + 120) / zoom).toBeCloseTo(920, 5);
-    expect(zoomSpace.style.width).toBe(`${4800 * zoom}px`);
-    expect(zoomSpace.style.height).toBe(`${3200 * zoom}px`);
+    expect(zoomSpace.style.width).toBe(`${CANVAS_WIDTH * zoom}px`);
+    expect(zoomSpace.style.height).toBe(`${CANVAS_HEIGHT * zoom}px`);
     expect(surface.style.transform).toBe(`scale(${zoom})`);
   });
 

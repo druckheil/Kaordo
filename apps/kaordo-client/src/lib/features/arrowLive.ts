@@ -11,6 +11,8 @@ export type ArrowLiveDragDetail = {
   elementId?: string;
   /** All descendants that moved with elementId in this frame. */
   elementIds?: readonly string[];
+  /** Panels that moved together in this frame. */
+  objectIds?: readonly string[];
   objectId?: string;
   phase: 'end' | 'move';
 };

@@ -409,6 +409,24 @@
   transform: none;
 }
 
+.workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected,
+.workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected:hover,
+.workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected:active {
+  color: var(--klaro-text) !important;
+  background: color-mix(in srgb, var(--klaro-bg-dark) 62%, var(--klaro-primary) 38%) !important;
+  box-shadow:
+    var(--klaro-shadow-inset-sm),
+    0 0 0 2px color-mix(in srgb, var(--klaro-primary) 34%, transparent) !important;
+  transform: none;
+}
+
+.workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected .sui-tree-toggle,
+.workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected .sui-tree-icon,
+.workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected .content-node-copy small,
+.workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected .content-node-status {
+  color: var(--klaro-text) !important;
+}
+
 .workspace-shell--klaro .contents-tree .sui-tree-toggle,
 .workspace-shell--klaro .contents-tree .sui-tree-toggle-spacer {
   display: inline-flex;
@@ -1144,6 +1162,23 @@ html[data-theme='dark'] .workspace-shell--klaro :is(.content-node--selected, .co
   color: var(--klaro-primary) !important;
   background: var(--klaro-bg) !important;
   box-shadow: var(--klaro-shadow-inset) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected,
+html[data-theme='dark'] .workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected:hover,
+html[data-theme='dark'] .workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected:active {
+  color: var(--klaro-text) !important;
+  background: color-mix(in srgb, var(--klaro-bg-dark) 62%, var(--klaro-primary) 38%) !important;
+  box-shadow:
+    var(--klaro-shadow-inset-sm),
+    0 0 0 2px color-mix(in srgb, var(--klaro-primary) 46%, transparent) !important;
+}
+
+html[data-theme='dark'] .workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected .sui-tree-toggle,
+html[data-theme='dark'] .workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected .sui-tree-icon,
+html[data-theme='dark'] .workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected .content-node-copy small,
+html[data-theme='dark'] .workspace-shell--klaro .contents-tree .sui-tree-label.content-node.content-node--selected .content-node-status {
+  color: var(--klaro-text) !important;
 }
 
 html[data-theme='dark'] .workspace-shell--klaro .content-node {

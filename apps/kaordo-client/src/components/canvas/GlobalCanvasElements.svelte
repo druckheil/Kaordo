@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
+  import type { CanvasPlacement } from '../../lib/domain/canvas';
   import {
     canvasElementIdsForElement,
     type ArrowElement,
@@ -39,14 +40,21 @@
     CANVAS_CARD_HEADER_HEIGHT,
     CANVAS_HEIGHT,
     CANVAS_TEXT_MAX_WIDTH,
+    CANVAS_WIDTH,
+    POINTER_DRAG_THRESHOLD,
     canvasApplicationScale,
   } from '../../lib/features/canvas';
   import {
-    moveMediaWithRectangle,
-    moveTextWithRectangle,
     settleCanvasElement,
     translateAttachedArrowGeometry,
   } from '../../lib/features/elementAttachment';
+  import {
+    isCanvasElementHighlighted,
+    isCanvasSelectionActive,
+    isCanvasSelectionModifier,
+    selectedElementRoots,
+    translateCanvasElement,
+  } from '../../lib/features/canvasSelection';
   import {
     continueRectangleDraw,
     isRectangleDrawValid,
@@ -74,7 +82,10 @@
     currentY: number;
     element: CanvasElement;
     elementIds: readonly string[];
+    groupElementIds: readonly string[];
+    groupRoots: readonly CanvasElement[];
     kind: 'move';
+    selectionToggle?: boolean;
     /** Shift keeps an arrow endpoint at the released point inside a target. */
     preciseArrowPoint?: boolean;
     /** Ctrl/Cmd keeps a text-range endpoint attached while it follows its edge. */
@@ -212,10 +223,10 @@
       const bounds = layer?.getBoundingClientRect();
       const zoom = canvas.state.zoomFor(workspaceId);
       const applicationScale = canvasApplicationScale();
-      const canvasWidth = (bounds?.width || 4800 * applicationScale * zoom) /
+      const canvasWidth = (bounds?.width || CANVAS_WIDTH * applicationScale * zoom) /
         applicationScale /
         zoom;
-      const canvasHeight = (bounds?.height || 3200 * applicationScale * zoom) /
+      const canvasHeight = (bounds?.height || CANVAS_HEIGHT * applicationScale * zoom) /
         applicationScale /
         zoom;
       canvas.createTextElement(workspaceId, {
@@ -304,7 +315,16 @@
       canvas.editRectangleText(workspaceId, element);
       return;
     }
-    canvas.state.selectGlobalElement(element.id);
+    const keepGroup = isCanvasSelectionActive(
+      canvas.state.snapshot.selectedItems,
+      { id: element.id, kind: 'element' },
+    );
+    if (!keepGroup) {
+      canvas.state.selectGlobalElement(element.id, {
+        // Ctrl/Cmd/Shift adds this element to the current selection.
+        additive: isCanvasSelectionModifier(event),
+      });
+    }
     event.stopPropagation();
     if (event.button === 0 && snapshot.activeTool === 'text') {
       event.preventDefault();
@@ -356,14 +376,32 @@
     if (snapshot.activeTool !== 'select') return;
     event.preventDefault();
     const point = canvasPoint(event);
-    const elementIds = [...canvasElementIdsForElement(document.elements, element.id)];
+    const boardElements = document.elements.filter((candidate) => !candidate.parentObjectId);
+    const groupRoots = element.type === 'arrow' || arrowHandle !== undefined
+      ? [element]
+      : selectedElementRoots(
+          canvas.state.snapshot.selectedItems,
+          boardElements,
+          element,
+        );
+    const groupElementIds = new Set<string>();
+    for (const root of groupRoots) {
+      for (const id of canvasElementIdsForElement(document.elements, root.id)) {
+        groupElementIds.add(id);
+      }
+    }
     gesture = {
       arrowHandle,
       currentX: point.x,
       currentY: point.y,
       element,
-      elementIds,
+      elementIds: [...groupElementIds],
+      groupElementIds: [...groupElementIds],
+      groupRoots,
       kind: 'move',
+      selectionToggle: keepGroup &&
+        arrowHandle === undefined &&
+        isCanvasSelectionModifier(event),
       preciseArrowPoint:
         element.type === 'arrow' &&
         (arrowHandle === 'start' || arrowHandle === 'end') &&
@@ -376,7 +414,7 @@
       pointerId: event.pointerId,
       startX: point.x,
       startY: point.y,
-      visualNodes: findVisualNodes(element, elementIds),
+      visualNodes: findVisualNodes(element, [...groupElementIds]),
     };
     applyMoveVisual(gesture);
     layer?.setPointerCapture?.(event.pointerId);
@@ -428,7 +466,6 @@
     if (layer?.hasPointerCapture?.(event.pointerId)) {
       layer.releasePointerCapture(event.pointerId);
     }
-    gesture = null;
     if (
       (finished.kind === 'draw' && !isRectangleDrawValid(finished)) ||
       (finished.kind === 'draw-arrow' && !isArrowDrawValid(finished))
@@ -441,50 +478,60 @@
       );
       return;
     }
+    if (
+      finished.kind === 'move' &&
+      finished.selectionToggle &&
+      Math.hypot(finished.currentX - finished.startX, finished.currentY - finished.startY) < POINTER_DRAG_THRESHOLD
+    ) {
+      clearGestureVisual(finished);
+      canvas.state.selectGlobalElement(finished.element.id, { additive: true });
+      return;
+    }
     const keepTextArrowSource = finished.kind === 'draw-arrow' &&
       Boolean(finished.sourceAttachment) &&
       !finished.armedFromSelection;
     canvas.state.setTool(keepTextArrowSource ? 'arrow' : 'select');
     const currentDocument = canvas.state.canvasDocumentFor(workspaceId);
-    const element = finished.kind === 'draw'
-      ? drawnRectangle(finished, true, currentDocument.elements)
-      : finished.kind === 'draw-arrow'
-        ? drawnArrow(finished, currentDocument.elements)
-        : settleMovedElement(finished);
-    canvas.state.selectGlobalElement(element.id);
+    const created = finished.kind === 'move'
+      ? null
+      : finished.kind === 'draw'
+        ? drawnRectangle(finished, true, currentDocument.elements)
+        : drawnArrow(finished, currentDocument.elements);
+    const settled = finished.kind === 'move'
+      ? settleMoveGroup(finished, currentDocument.elements)
+      : { elements: [created!], primary: created! };
+    const element = settled.primary;
+    const movedById = new Map(settled.elements.map((candidate) => [candidate.id, candidate]));
+    if (finished.kind !== 'move') canvas.state.selectGlobalElement(element.id);
     const exists = currentDocument.elements.some((candidate) => candidate.id === element.id);
-    let updatedElements = exists
-      ? currentDocument.elements.map((candidate) =>
-          candidate.id === element.id ? element : candidate,
-        )
-      : [...currentDocument.elements, element];
-    if (
-      finished.kind === 'move' &&
-      finished.element.type === 'rectangle' &&
-      element.type === 'rectangle'
-    ) {
-      const previousRectangle = finished.element;
-      const nextRectangle = element;
-      updatedElements = updatedElements.map((candidate) =>
-        (candidate.type === 'text' || candidate.type === 'media') &&
-        candidate.parentElementId === previousRectangle.id
-          ? candidate.type === 'text'
-            ? moveTextWithRectangle(candidate, previousRectangle, nextRectangle)
-            : moveMediaWithRectangle(candidate, previousRectangle, nextRectangle)
-          : candidate,
-      );
-    }
-    if (
-      finished.kind === 'move' &&
-      finished.element.type !== 'arrow' &&
-      element.type !== 'arrow'
-    ) {
-      const delta = movedElementDelta(finished.element, element);
+    let updatedElements = currentDocument.elements.map((candidate) =>
+      movedById.get(candidate.id) ?? candidate,
+    );
+    if (!exists) updatedElements = [...updatedElements, ...settled.elements];
+    const moveDelta = settled.delta;
+    if (finished.kind === 'move' && moveDelta) {
+      const movedIds = new Set(finished.groupElementIds);
+      updatedElements = updatedElements.map((candidate) => {
+        if (!movedIds.has(candidate.id) || movedById.has(candidate.id)) return candidate;
+        const parentId = 'parentElementId' in candidate
+          ? candidate.parentElementId
+          : undefined;
+        const parent = parentId ? movedById.get(parentId) : undefined;
+        return rebaseMovedDescendant(
+          candidate,
+          parent,
+          moveDelta,
+          snapshot.placements[workspaceId] ?? [],
+        );
+      });
       updatedElements = translateAttachedArrowGeometry(
         updatedElements,
-        { elementIds: new Set(finished.elementIds) },
-        delta.x,
-        delta.y,
+        {
+          elementIds: movedIds,
+          excludeElementIds: movedIds,
+        },
+        moveDelta.x,
+        moveDelta.y,
       );
     }
     const savePromise = canvas.saveWorkspaceCanvasDocument(workspaceId, {
@@ -620,10 +667,10 @@
     const zoom = canvas.state.zoomFor(workspaceId);
     const applicationScale = canvasApplicationScale();
     const geometry = rectangleGeometry(draw, {
-      boundsHeight: (bounds?.height || 3200 * applicationScale * zoom) /
+      boundsHeight: (bounds?.height || CANVAS_HEIGHT * applicationScale * zoom) /
         applicationScale /
         zoom,
-      boundsWidth: (bounds?.width || 4800 * applicationScale * zoom) /
+      boundsWidth: (bounds?.width || CANVAS_WIDTH * applicationScale * zoom) /
         applicationScale /
         zoom,
       clickHeight: 90,
@@ -996,14 +1043,14 @@
       x: clamp(
         move.element.x + deltaX,
         0,
-        (bounds?.width || 4800 * applicationScale * zoom) /
+        (bounds?.width || CANVAS_WIDTH * applicationScale * zoom) /
           applicationScale /
           zoom - move.element.width,
       ),
       y: clamp(
         move.element.y + deltaY,
         0,
-        (bounds?.height || 3200 * applicationScale * zoom) /
+        (bounds?.height || CANVAS_HEIGHT * applicationScale * zoom) /
           applicationScale /
           zoom - move.element.height,
       ),
@@ -1033,6 +1080,90 @@
       canvas.state.canvasDocumentFor(workspaceId).elements,
       snapshot.placements[workspaceId] ?? [],
     );
+  }
+
+  type SettledMoveGroup = {
+    delta?: { x: number; y: number };
+    elements: CanvasElement[];
+    primary: CanvasElement;
+  };
+
+  function settleMoveGroup(
+    move: MoveGesture,
+    currentElements: readonly CanvasElement[],
+  ): SettledMoveGroup {
+    const roots = move.groupRoots.length > 0 ? move.groupRoots : [move.element];
+    if (roots.length === 1) {
+      const primary = settleMovedElement(move);
+      return {
+        delta: move.element.type === 'arrow'
+          ? undefined
+          : movedElementDelta(move.element, primary),
+        elements: [primary],
+        primary,
+      };
+    }
+    const requestedX = move.currentX - move.startX;
+    const requestedY = move.currentY - move.startY;
+    let minimumX = Number.NEGATIVE_INFINITY;
+    let maximumX = Number.POSITIVE_INFINITY;
+    let minimumY = Number.NEGATIVE_INFINITY;
+    let maximumY = Number.POSITIVE_INFINITY;
+    for (const root of roots) {
+      minimumX = Math.max(minimumX, -root.x);
+      maximumX = Math.min(maximumX, CANVAS_WIDTH - root.x - root.width);
+      minimumY = Math.max(minimumY, -root.y);
+      maximumY = Math.min(maximumY, CANVAS_HEIGHT - root.y - root.height);
+    }
+    const delta = {
+      x: clamp(requestedX, minimumX, maximumX),
+      y: clamp(requestedY, minimumY, maximumY),
+    };
+    const placements = snapshot.placements[workspaceId] ?? [];
+    const settledRoots = roots.map((root) => {
+      const moved = translateCanvasElement(root, delta.x, delta.y);
+      return settleCanvasElement(
+        moved,
+        moved.x,
+        moved.y,
+        [...currentElements],
+        placements,
+      );
+    });
+    const primary = settledRoots.find((candidate) => candidate.id === move.element.id) ??
+      settledRoots[0]!;
+    return { delta, elements: settledRoots, primary };
+  }
+
+  /** Keep descendants in the same visual place when a moved card changes
+   * between global and panel-local coordinates. */
+  function rebaseMovedDescendant(
+    element: CanvasElement,
+    parent: CanvasElement | undefined,
+    delta: { x: number; y: number },
+    placements: readonly CanvasPlacement[],
+  ): CanvasElement {
+    const shifted = translateCanvasElement(element, delta.x, delta.y);
+    if (
+      parent?.type !== 'rectangle' ||
+      (shifted.type !== 'text' && shifted.type !== 'media')
+    ) return shifted;
+    const previousFrame = canvasElementFrame(element, placements);
+    if (!previousFrame) return shifted;
+    const globalX = previousFrame.left + delta.x;
+    const globalY = previousFrame.top + delta.y;
+    if (!parent.parentObjectId) {
+      shifted.x = globalX;
+      shifted.y = globalY;
+      delete shifted.parentObjectId;
+      return shifted;
+    }
+    const placement = placements.find((candidate) => candidate.id === parent.parentObjectId);
+    if (!placement) return shifted;
+    shifted.x = globalX - placement.x;
+    shifted.y = globalY - placement.y - CANVAS_CARD_HEADER_HEIGHT;
+    shifted.parentObjectId = parent.parentObjectId;
+    return shifted;
   }
 
   function findVisualNodes(
@@ -1268,6 +1399,12 @@
             label: 'Select Card',
           },
           {
+            action: () => canvas.centerSelection({ kind: 'element', id: element.id }),
+            icon: 'focus',
+            id: 'center-card',
+            label: 'Back to center',
+          },
+          {
             action: () => canvas.state.setTool('text'),
             icon: 'text',
             id: 'text-tool',
@@ -1284,7 +1421,7 @@
         ])}
         onDoubleClick={(event, rectangle) => beginRectangleEditing(event, rectangle)}
         onStartMove={startMove}
-        selected={snapshot.selectedGlobalElementId === element.id}
+        selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
         workspaceId={workspaceId}
       />
     {:else if element.type === 'arrow'}
@@ -1299,6 +1436,12 @@
             label: 'Select Arrow',
           },
           {
+            action: () => canvas.centerSelection({ kind: 'element', id: element.id }),
+            icon: 'focus',
+            id: 'center-arrow',
+            label: 'Back to center',
+          },
+          {
             action: () => canvas.deleteCanvasElement(workspaceId, element.id),
             confirmation: 'Delete this arrow?',
             danger: true,
@@ -1310,7 +1453,7 @@
         onStartMove={startMove}
         onStartPointMove={startMove}
         placements={snapshot.placements[workspaceId] ?? []}
-        selected={snapshot.selectedGlobalElementId === element.id}
+        selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
         {zoom}
       />
     {:else if element.type === 'text'}
@@ -1324,7 +1467,7 @@
         maxWidth={CANVAS_TEXT_MAX_WIDTH}
         moving={false}
         onStartMove={startMove}
-        selected={snapshot.selectedGlobalElementId === element.id}
+        selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
         {zoom}
         {workspaceId}
       />
@@ -1348,6 +1491,12 @@
             label: 'Select Media',
           },
           {
+            action: () => canvas.centerSelection({ kind: 'element', id: element.id }),
+            icon: 'focus',
+            id: 'center-media',
+            label: 'Back to center',
+          },
+          {
             action: () => canvas.deleteCanvasElement(workspaceId, element.id),
             confirmation: 'Delete this media?',
             danger: true,
@@ -1357,7 +1506,7 @@
           },
         ])}
         onStartMove={startMove}
-        selected={snapshot.selectedGlobalElementId === element.id}
+        selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
         {workspaceId}
       />
     {/if}
@@ -1378,7 +1527,7 @@
     bind:this={draftArrow}
     class="canvas-arrow canvas-arrow--draft"
     style="display:none"
-    viewBox={`0 0 4800 3200`}
+    viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
     aria-hidden="true"
   >
     <defs>

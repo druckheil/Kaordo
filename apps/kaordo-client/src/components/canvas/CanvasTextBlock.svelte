@@ -638,6 +638,12 @@
       label: 'Edit Text',
     },
     {
+      action: () => canvas.centerSelection({ kind: 'element', id: element.id }),
+      icon: 'focus',
+      id: 'center-text',
+      label: 'Back to center',
+    },
+    {
       action: () => canvas.deleteCanvasElement(workspaceId, element.id),
       confirmation: 'Delete this text?',
       danger: true,

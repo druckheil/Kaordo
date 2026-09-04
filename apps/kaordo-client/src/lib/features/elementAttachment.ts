@@ -10,9 +10,13 @@ import { CANVAS_CARD_HEADER_HEIGHT, CANVAS_HEIGHT, CANVAS_WIDTH } from './canvas
 
 export type ArrowMoveTarget = {
   elementIds?: ReadonlySet<string>;
+  /** Multiple panels can be translated in one gesture. */
+  objectIds?: ReadonlySet<string>;
   objectId?: string;
   /** Arrows rendered inside a moved object already move with its DOM frame. */
   excludeParentObjectId?: string;
+  /** Arrows that are part of the moved hierarchy already receive the delta. */
+  excludeElementIds?: ReadonlySet<string>;
 };
 
 /**
@@ -31,7 +35,7 @@ export function translateAttachedArrowGeometry(
 ): CanvasElement[] {
   if (
     (deltaX === 0 && deltaY === 0) ||
-    (!target.objectId && !target.elementIds?.size)
+    (!target.objectId && !target.objectIds?.size && !target.elementIds?.size)
   ) {
     return elements;
   }
@@ -42,6 +46,7 @@ export function translateAttachedArrowGeometry(
       element.type !== 'arrow' ||
       (target.excludeParentObjectId &&
         element.parentObjectId === target.excludeParentObjectId)
+      || (target.excludeElementIds && target.excludeElementIds.has(element.id))
     ) {
       return element;
     }
@@ -74,6 +79,7 @@ function attachmentMatchesMove(
   if (!attachment) return false;
   return Boolean(
     (target.objectId && attachment.objectId === target.objectId) ||
+    (target.objectIds && attachment.objectId && target.objectIds.has(attachment.objectId)) ||
     (attachment.elementId && target.elementIds?.has(attachment.elementId)),
   );
 }

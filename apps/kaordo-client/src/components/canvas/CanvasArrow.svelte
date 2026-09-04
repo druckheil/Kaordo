@@ -189,17 +189,26 @@
     if (!attachment) return false;
     // Nested arrows already move with their parent panel. Applying the panel
     // delta a second time would make the endpoint jump twice as far.
-    if (detail.objectId && arrow.parentObjectId === detail.objectId) return false;
-    if (attachment.objectId && attachment.objectId === detail.objectId) return true;
+    if (
+      (detail.objectId && arrow.parentObjectId === detail.objectId) ||
+      (detail.objectIds?.length && arrow.parentObjectId && detail.objectIds.includes(arrow.parentObjectId))
+    ) return false;
+    if (
+      attachment.objectId &&
+      (attachment.objectId === detail.objectId || detail.objectIds?.includes(attachment.objectId))
+    ) return true;
     if (
       attachment.elementId &&
       (attachment.elementId === detail.elementId ||
         detail.elementIds?.includes(attachment.elementId))
     ) return true;
+    if (detail.objectId && attachment.elementId && elementBelongsToObject(attachment.elementId, detail.objectId)) {
+      return true;
+    }
     return Boolean(
-      detail.objectId &&
-      attachment.elementId &&
-      elementBelongsToObject(attachment.elementId, detail.objectId),
+      detail.objectIds?.some((objectId) =>
+        attachment.elementId && elementBelongsToObject(attachment.elementId, objectId),
+      ),
     );
   }
 

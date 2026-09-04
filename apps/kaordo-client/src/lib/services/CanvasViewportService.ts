@@ -420,7 +420,7 @@ export class CanvasViewportService {
     }
     if (surface) {
       // Promote the large surface only while zooming. Keeping a permanent
-      // 4800×3200 compositor layer makes native scrolling compete for GPU
+      // The large compositor layer makes native scrolling compete for GPU
       // memory, especially in scaled Tauri windows.
       surface.style.willChange = 'transform';
       surface.style.transform = `scale(${next})`;

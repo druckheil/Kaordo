@@ -21,7 +21,15 @@ import {
   serializeObjectDocument,
   serializeWorkspaceCanvasDocument,
 } from '../domain/workspace';
+import type {
+  CanvasSelection,
+  CanvasSelectionOptions,
+} from '../features/canvasSelection';
 import {
+  selectedElementRoots,
+} from '../features/canvasSelection';
+import {
+  CANVAS_CARD_HEADER_HEIGHT,
   CANVAS_CARD_MIN_HEIGHT,
   CANVAS_CARD_MIN_WIDTH,
   CANVAS_HEIGHT,
@@ -33,7 +41,11 @@ import {
   canvasMediaKind,
   canvasMediaMimeType,
 } from '../features/canvasMedia';
-import { arrowPoints } from '../features/arrowGeometry';
+import { arrowBounds, arrowPoints, canvasElementFrame } from '../features/arrowGeometry';
+import {
+  settleCanvasElement,
+  translateAttachedArrowGeometry,
+} from '../features/elementAttachment';
 import { CanvasGState } from '../states/CanvasGState';
 import { CanvasDragService } from './CanvasDragService';
 import { CanvasViewportService } from './CanvasViewportService';
@@ -907,13 +919,135 @@ export class CanvasService {
     await this.updateCanvasElement(workspace.id, updated);
   }
 
-  async focusTextElement(workspaceId: string, elementId: string): Promise<void> {
-    await this.focusCanvasElement(workspaceId, elementId);
+  async focusTextElement(
+    workspaceId: string,
+    elementId: string,
+    options: CanvasSelectionOptions = {},
+  ): Promise<void> {
+    await this.focusCanvasElement(workspaceId, elementId, options);
   }
 
-  async focusCanvasElement(workspaceId: string, elementId: string): Promise<void> {
-    this.state.selectGlobalElement(elementId);
+  async focusCanvasElement(
+    workspaceId: string,
+    elementId: string,
+    options: CanvasSelectionOptions = {},
+  ): Promise<void> {
+    this.state.selectGlobalElement(elementId, options);
     await this.#viewport.focusCanvasElement(workspaceId, elementId);
+  }
+
+  /** Move the current selection to the logical canvas center as one group. */
+  async centerSelection(target?: CanvasSelection): Promise<void> {
+    const workspace = this.#getWorkspace();
+    if (!workspace) return;
+    const selected = this.state.snapshot.selectedItems;
+    const targetKey = target ? `${target.kind}:${target.id}` : null;
+    const hasTarget = targetKey !== null && selected.some(
+      (item) => `${item.kind}:${item.id}` === targetKey,
+    );
+    const effectiveSelection = target && !hasTarget ? [target] : selected;
+    if (target && !hasTarget) {
+      if (target.kind === 'panel') this.state.selectCard(target.id);
+      else this.state.selectGlobalElement(target.id);
+    }
+    const center = {
+      x: CANVAS_WIDTH / 2,
+      y: CANVAS_HEIGHT / 2,
+    };
+    const placements = this.state.placementsFor(workspace.id);
+    const panelIds = new Set(
+      effectiveSelection
+        .filter((item) => item.kind === 'panel')
+        .map((item) => item.id),
+    );
+    const selectedPlacements = placements.filter((placement) =>
+      panelIds.has(placement.id),
+    );
+    if (panelIds.size > 0 && selectedPlacements.length === 0) {
+      this.state.announce('Place the panel on the canvas before centering it.');
+      return;
+    }
+    if (selectedPlacements.length > 0) {
+      const bounds = boundsForPlacements(selectedPlacements);
+      const delta = centeredGroupDelta(bounds, center, CANVAS_WIDTH, CANVAS_HEIGHT);
+      const moved = this.state.movePlacements(
+        workspace.id,
+        selectedPlacements.map((placement) => ({
+          placement,
+          point: { x: placement.x + delta.x, y: placement.y + delta.y },
+        })),
+      );
+      for (const placement of moved) this.persistPlacement(placement);
+      this.state.announce(
+        moved.length === 1
+          ? `${moved[0]!.title} moved to the canvas center.`
+          : `${moved.length} panels moved to the canvas center.`,
+      );
+      await this.#viewport.focusCard(workspace.id, moved[0]!.id, 'center');
+      return;
+    }
+
+    const document = this.state.canvasDocumentFor(workspace.id);
+    const roots = selectedElementRoots(effectiveSelection, document.elements);
+    const movedIds = new Set<string>();
+    for (const root of roots) {
+      movedIds.add(root.id);
+      for (const element of document.elements) {
+        if (isDescendantElement(element.id, root.id, document.elements)) {
+          movedIds.add(element.id);
+        }
+      }
+    }
+    const bounds = boundsForElements(
+      document.elements.filter((element) => movedIds.has(element.id)),
+      placements,
+      document.elements,
+    );
+    if (!bounds) {
+      this.state.announce('Select a panel or canvas element before centering it.');
+      return;
+    }
+    const delta = centeredGroupDelta(bounds, center, CANVAS_WIDTH, CANVAS_HEIGHT);
+    const movedRoots = roots.map((root) => {
+      const moved = moveElementByDelta(root, delta.x, delta.y);
+      if (moved.type === 'arrow') return moved;
+      const frame = canvasElementFrame(root, placements);
+      return settleCanvasElement(
+        moved,
+        (frame?.left ?? root.x) + delta.x,
+        (frame?.top ?? root.y) + delta.y,
+        [...document.elements],
+        placements,
+      );
+    });
+    const movedById = new Map(movedRoots.map((element) => [element.id, element]));
+    let updatedElements = document.elements.map((element) => {
+      const movedRoot = movedById.get(element.id);
+      if (movedRoot) return movedRoot;
+      if (!movedIds.has(element.id)) return element;
+      const parentId = 'parentElementId' in element
+        ? element.parentElementId
+        : undefined;
+      return rebaseMovedDescendant(
+        element,
+        parentId ? movedById.get(parentId) : undefined,
+        delta,
+        placements,
+      );
+    });
+    updatedElements = translateAttachedArrowGeometry(
+      updatedElements,
+      { elementIds: movedIds, excludeElementIds: movedIds },
+      delta.x,
+      delta.y,
+    );
+    await this.saveWorkspaceCanvasDocument(workspace.id, {
+      ...document,
+      elements: updatedElements,
+    });
+    this.state.announce('Selected elements moved to the canvas center.');
+    const first = roots[0];
+    if (first) await this.#viewport.focusCanvasElement(workspace.id, first.id);
   }
 
   async setRectangleFill(color: string): Promise<void> {
@@ -1180,7 +1314,11 @@ export class CanvasService {
       .some((placement) => placement.id === objectId);
   }
 
-  handleObjectSourceClick(object: ObjectSummary): void {
+  handleObjectSourceClick(
+    object: ObjectSummary,
+    options: CanvasSelectionOptions = {},
+  ): void {
+    this.state.selectCard(object.id, options);
     this.#drag.handleObjectSourceClick(object);
   }
 
@@ -1188,11 +1326,16 @@ export class CanvasService {
     this.#drag.handleObjectSourceKeydown(event, object);
   }
 
-  startObjectPointerDrag(event: PointerEvent, object: ObjectSummary): void {
+  startObjectPointerDrag(
+    event: PointerEvent,
+    object: ObjectSummary,
+    selectionToggle = false,
+  ): void {
     this.#drag.start(
       event,
       object,
       this.state.snapshot.isPanning || this.#resize !== null,
+      selectionToggle,
     );
   }
 
@@ -1692,6 +1835,145 @@ function latestPointerSample(event: PointerEvent): PointerEvent {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(Math.max(minimum, maximum), value));
+}
+
+type CanvasBounds = {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+};
+
+function boundsForPlacements(
+  placements: readonly CanvasPlacement[],
+): CanvasBounds {
+  return {
+    bottom: Math.max(...placements.map((placement) => placement.y + placement.height)),
+    left: Math.min(...placements.map((placement) => placement.x)),
+    right: Math.max(...placements.map((placement) => placement.x + placement.width)),
+    top: Math.min(...placements.map((placement) => placement.y)),
+  };
+}
+
+function boundsForElements(
+  elements: readonly CanvasElement[],
+  placements: readonly CanvasPlacement[],
+  allElements: readonly CanvasElement[] = elements,
+): CanvasBounds | null {
+  const frames = elements.flatMap((element) => {
+    const frame = element.type === 'arrow'
+      ? arrowBounds({
+          ...arrowPoints(element, allElements, placements),
+          controlPoints: element.controlPoints,
+        })
+      : canvasElementFrame(element, placements);
+    if (!frame || element.type !== 'arrow' || !element.parentObjectId) {
+      return frame ? [frame] : [];
+    }
+    const placement = placements.find((candidate) => candidate.id === element.parentObjectId);
+    if (!placement) return [frame];
+    return [{
+      bottom: frame.bottom + placement.y + CANVAS_CARD_HEADER_HEIGHT,
+      left: frame.left + placement.x,
+      right: frame.right + placement.x,
+      top: frame.top + placement.y + CANVAS_CARD_HEADER_HEIGHT,
+    }];
+  });
+  if (!frames.length) return null;
+  return {
+    bottom: Math.max(...frames.map((frame) => frame.bottom)),
+    left: Math.min(...frames.map((frame) => frame.left)),
+    right: Math.max(...frames.map((frame) => frame.right)),
+    top: Math.min(...frames.map((frame) => frame.top)),
+  };
+}
+
+function centeredGroupDelta(
+  bounds: CanvasBounds,
+  center: { x: number; y: number },
+  canvasWidth: number,
+  canvasHeight: number,
+): { x: number; y: number } {
+  const requestedX = center.x - (bounds.left + bounds.right) / 2;
+  const requestedY = center.y - (bounds.top + bounds.bottom) / 2;
+  return {
+    x: clamp(requestedX, -bounds.left, canvasWidth - bounds.right),
+    y: clamp(requestedY, -bounds.top, canvasHeight - bounds.bottom),
+  };
+}
+
+function isDescendantElement(
+  elementId: string,
+  ancestorId: string,
+  elements: readonly CanvasElement[],
+): boolean {
+  const visited = new Set<string>();
+  let current = elements.find((element) => element.id === elementId);
+  while (current && !visited.has(current.id)) {
+    const parentId = 'parentElementId' in current
+      ? current.parentElementId
+      : undefined;
+    if (!parentId) return false;
+    if (parentId === ancestorId) return true;
+    visited.add(current.id);
+    current = elements.find((element) => element.id === parentId);
+  }
+  return false;
+}
+
+function moveElementByDelta(
+  element: CanvasElement,
+  deltaX: number,
+  deltaY: number,
+): CanvasElement {
+  if (element.type === 'arrow') {
+    return {
+      ...element,
+      controlPoints: element.controlPoints.map((point) => ({
+        x: point.x + deltaX,
+        y: point.y + deltaY,
+      })),
+      endX: element.endX + deltaX,
+      endY: element.endY + deltaY,
+      startX: element.startX + deltaX,
+      startY: element.startY + deltaY,
+    };
+  }
+  return {
+    ...element,
+    x: element.x + deltaX,
+    y: element.y + deltaY,
+  };
+}
+
+/** Rebase nested content when a centered parent crosses a panel boundary. */
+function rebaseMovedDescendant(
+  element: CanvasElement,
+  parent: CanvasElement | undefined,
+  delta: { x: number; y: number },
+  placements: readonly CanvasPlacement[],
+): CanvasElement {
+  const shifted = moveElementByDelta(element, delta.x, delta.y);
+  if (
+    parent?.type !== 'rectangle' ||
+    (shifted.type !== 'text' && shifted.type !== 'media')
+  ) return shifted;
+  const previousFrame = canvasElementFrame(element, placements);
+  if (!previousFrame) return shifted;
+  const globalX = previousFrame.left + delta.x;
+  const globalY = previousFrame.top + delta.y;
+  if (!parent.parentObjectId) {
+    shifted.x = globalX;
+    shifted.y = globalY;
+    delete shifted.parentObjectId;
+    return shifted;
+  }
+  const nextPlacement = placements.find((candidate) => candidate.id === parent.parentObjectId);
+  if (!nextPlacement) return shifted;
+  shifted.x = globalX - nextPlacement.x;
+  shifted.y = globalY - nextPlacement.y - CANVAS_CARD_HEADER_HEIGHT;
+  shifted.parentObjectId = parent.parentObjectId;
+  return shifted;
 }
 
 function createCanvasElementId(kind: string): string {

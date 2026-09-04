@@ -9,6 +9,8 @@ import {
   automaticPlacement,
   CANVAS_CARD_HEIGHT,
   CANVAS_CARD_WIDTH,
+  CANVAS_HEIGHT,
+  CANVAS_WIDTH,
   canvasApplicationScale,
   clampCanvasPoint,
   moveCanvasPoint,
@@ -42,7 +44,18 @@ type ObjectPointerDrag = {
   viewportBounds: CanvasBounds | null;
   applicationScale: number;
   liveElementIds: readonly string[];
+  group: readonly GroupPanelDrag[];
+  selectionToggle: boolean;
   wasOnCanvas: boolean;
+};
+
+type GroupPanelDrag = {
+  canvasCard: HTMLElement | null;
+  liveElementIds: readonly string[];
+  originCanvasX: number;
+  originCanvasY: number;
+  placement: CanvasPlacement;
+  positionElement: HTMLElement | null;
 };
 
 /** Owns pointer capture and the imperative, frame-rate drag visuals. */
@@ -88,7 +101,12 @@ export class CanvasDragService {
     this.placeObjectFromKeyboard(object);
   }
 
-  start(event: PointerEvent, object: ObjectSummary, panActive: boolean): void {
+  start(
+    event: PointerEvent,
+    object: ObjectSummary,
+    panActive: boolean,
+    selectionToggle = false,
+  ): void {
     if (
       event.button !== 0 ||
       this.#drag ||
@@ -123,12 +141,42 @@ export class CanvasDragService {
           object.id,
         )]
       : [];
+    const group = workspace && existing
+      ? this.#state.placementsFor(workspace.id)
+          .filter((placement) => this.#state.selectedPanelIds().includes(placement.id))
+          .map((placement) => ({
+            canvasCard: this.#viewport.findCard(placement.id),
+            liveElementIds: [
+              ...canvasElementIdsForObject(
+                this.#state.canvasDocumentFor(workspace.id),
+                placement.id,
+              ),
+            ],
+            originCanvasX: placement.x,
+            originCanvasY: placement.y,
+            placement,
+            positionElement: this.#viewport.findPositioner(placement.id),
+          }))
+      : [];
+    if (existing && !group.some((item) => item.placement.id === existing.id)) {
+      group.push({
+        canvasCard,
+        liveElementIds,
+        originCanvasX: existing.x,
+        originCanvasY: existing.y,
+        placement: existing,
+        positionElement,
+      });
+    }
 
     if (workspace && existing && canvasCard) {
       this.#state.clearEntering(workspace.id, object.id);
       canvasCard.classList.remove('canvas-card--entering');
     }
     if (positionElement) positionElement.style.willChange = 'transform';
+    for (const item of group) {
+      item.positionElement?.style.setProperty('will-change', 'transform');
+    }
 
     sourceElement.setPointerCapture?.(event.pointerId);
     this.#drag = {
@@ -158,6 +206,8 @@ export class CanvasDragService {
       viewportBounds: this.#viewport.bounds(),
       applicationScale,
       liveElementIds,
+      group,
+      selectionToggle,
       wasOnCanvas: existing !== undefined,
     };
 
@@ -217,6 +267,9 @@ export class CanvasDragService {
         sample.clientY - drag.startClientY,
       ) >= POINTER_DRAG_THRESHOLD;
     if (!hasMoved) {
+      if (drag.selectionToggle) {
+        this.#state.selectCard(drag.object.id, { additive: true });
+      }
       this.clearDragVisual(drag, true);
       this.#drag = null;
       this.releasePointerCapture(drag);
@@ -236,13 +289,30 @@ export class CanvasDragService {
         height: drag.objectHeight,
         width: drag.objectWidth,
       });
+      const points = this.groupPoints(drag, committedPoint);
       this.commitDragVisual(drag, committedPoint);
-      const placement = this.#state.place(
-        workspace.id,
-        drag.object,
-        committedPoint,
-      );
-      this.#commitPlacement(placement);
+      if (drag.group.length === 0) {
+        const placement = this.#state.place(workspace.id, drag.object, committedPoint);
+        this.#commitPlacement(placement);
+      } else {
+        for (const item of drag.group) {
+          const point = points.get(item.placement.id) ?? committedPoint;
+          item.positionElement?.style.setProperty(
+            'transform',
+            positionTransform(point.x, point.y),
+          );
+        }
+        const moved = this.#state.movePlacements(
+          workspace.id,
+          drag.group.map((item) => ({
+            placement: item.placement,
+            point: points.get(item.placement.id) ?? committedPoint,
+          })),
+        );
+        for (const placement of moved) {
+          this.#commitPlacement(placement);
+        }
+      }
       // `place` updates the state synchronously, but Svelte does not patch the
       // positioner DOM until the next microtask. Keep the imperative transform
       // and the arrow live offset in place until that patch lands; clearing
@@ -258,13 +328,7 @@ export class CanvasDragService {
       this.releasePointerCapture(drag);
       void tick().then(() => {
         if (this.#finishingDrag !== drag) return;
-        dispatchArrowLiveDrag({
-          elementIds: drag.liveElementIds,
-          objectId: drag.object.id,
-          deltaX: 0,
-          deltaY: 0,
-          phase: 'end',
-        });
+        dispatchPanelGroupLiveDrag(drag.group, 0, 0, 'end');
         this.#finishingDrag = null;
       });
       return;
@@ -348,8 +412,32 @@ export class CanvasDragService {
     const workspace = this.#getWorkspace();
     if (!workspace) return;
     event.preventDefault();
-    const moved = this.#state.place(workspace.id, placement, point);
-    this.#commitPlacement(moved);
+    const placements = this.#state.placementsFor(workspace.id);
+    const selectedIds = new Set(this.#state.selectedPanelIds());
+    const group = selectedIds.has(placement.id)
+      ? placements.filter((candidate) => selectedIds.has(candidate.id))
+      : [placement];
+    if (group.length === 1) {
+      const moved = this.#state.place(workspace.id, placement, point);
+      this.#commitPlacement(moved);
+    } else {
+      const delta = constrainedPanelGroupDelta(
+        group,
+        point.x - placement.x,
+        point.y - placement.y,
+      );
+      const moved = this.#state.movePlacements(
+        workspace.id,
+        group.map((candidate) => ({
+          placement: candidate,
+          point: {
+            x: candidate.x + delta.x,
+            y: candidate.y + delta.y,
+          },
+        })),
+      );
+      moved.forEach((candidate) => this.#commitPlacement(candidate));
+    }
     void this.#viewport.focusCard(workspace.id, placement.id, 'nearest');
   }
 
@@ -371,13 +459,7 @@ export class CanvasDragService {
     }
     const finishing = this.#finishingDrag;
     if (finishing) {
-      dispatchArrowLiveDrag({
-        elementIds: finishing.liveElementIds,
-        objectId: finishing.object.id,
-        deltaX: 0,
-        deltaY: 0,
-        phase: 'end',
-      });
+      dispatchPanelGroupLiveDrag(finishing.group, 0, 0, 'end');
     }
     this.#finishingDrag = null;
     this.#drag = null;
@@ -404,13 +486,61 @@ export class CanvasDragService {
     );
   }
 
+  private groupDelta(
+    drag: ObjectPointerDrag,
+  ): { deltaX: number; deltaY: number } {
+    const requestedX = drag.canvasX === null || drag.originCanvasX === null
+      ? 0
+      : drag.canvasX - drag.originCanvasX;
+    const requestedY = drag.canvasY === null || drag.originCanvasY === null
+      ? 0
+      : drag.canvasY - drag.originCanvasY;
+    let minimumX = Number.NEGATIVE_INFINITY;
+    let maximumX = Number.POSITIVE_INFINITY;
+    let minimumY = Number.NEGATIVE_INFINITY;
+    let maximumY = Number.POSITIVE_INFINITY;
+    for (const item of drag.group) {
+      minimumX = Math.max(minimumX, -item.originCanvasX);
+      maximumX = Math.min(
+        maximumX,
+        CANVAS_WIDTH - item.placement.width - item.originCanvasX,
+      );
+      minimumY = Math.max(minimumY, -item.originCanvasY);
+      maximumY = Math.min(
+        maximumY,
+        CANVAS_HEIGHT - item.placement.height - item.originCanvasY,
+      );
+    }
+    return {
+      deltaX: clamp(requestedX, minimumX, maximumX),
+      deltaY: clamp(requestedY, minimumY, maximumY),
+    };
+  }
+
+  private groupPoints(
+    drag: ObjectPointerDrag,
+    primaryPoint: CanvasPoint,
+  ): Map<string, CanvasPoint> {
+    const delta = this.groupDelta({
+      ...drag,
+      canvasX: primaryPoint.x,
+      canvasY: primaryPoint.y,
+    });
+    return new Map(
+      drag.group.map((item) => [item.placement.id, {
+        x: item.originCanvasX + delta.deltaX,
+        y: item.originCanvasY + delta.deltaY,
+      }]),
+    );
+  }
+
   private updateDragVisual(
     drag: ObjectPointerDrag,
     overCanvas = this.#state.snapshot.isDropTarget,
   ): void {
     const canvasCard = drag.wasOnCanvas ? drag.canvasCard : null;
     const positionElement = drag.wasOnCanvas ? drag.positionElement : null;
-    const movesCanvasCard =
+    const movesCanvasCards =
       drag.hasMoved &&
       drag.wasOnCanvas &&
       (drag.startedFromCanvasCard || overCanvas) &&
@@ -426,35 +556,32 @@ export class CanvasDragService {
         drag.startedFromCanvasCard,
       );
     }
+    for (const item of drag.group) {
+      item.canvasCard?.classList.toggle(
+        'canvas-card--dragging',
+        drag.startedFromCanvasCard,
+      );
+    }
 
     // Реальное перемещение начинается только после drag threshold.
-    if (canvasCard && positionElement && movesCanvasCard) {
-      positionElement.style.transform = positionTransform(
-        drag.canvasX!,
-        drag.canvasY!,
-      );
-      positionElement.style.zIndex = '6';
-      const deltaX = drag.canvasX! - drag.originCanvasX!;
-      const deltaY = drag.canvasY! - drag.originCanvasY!;
-      dispatchArrowLiveDrag({
-        elementIds: drag.liveElementIds,
-        objectId: drag.object.id,
-        deltaX,
-        deltaY,
-        phase: 'move',
-      });
-    } else if (canvasCard && positionElement) {
-      this.restorePosition(drag);
-      positionElement.style.removeProperty('z-index');
-      if (drag.wasOnCanvas) {
-        dispatchArrowLiveDrag({
-          elementIds: drag.liveElementIds,
-          objectId: drag.object.id,
-          deltaX: 0,
-          deltaY: 0,
-          phase: 'end',
-        });
+    if (movesCanvasCards) {
+      const { deltaX, deltaY } = this.groupDelta(drag);
+      for (const item of drag.group) {
+        if (item.positionElement) {
+          item.positionElement.style.transform = positionTransform(
+            item.originCanvasX + deltaX,
+            item.originCanvasY + deltaY,
+          );
+          item.positionElement.style.zIndex = '6';
+        }
       }
+      dispatchPanelGroupLiveDrag(drag.group, deltaX, deltaY, 'move');
+    } else if (drag.wasOnCanvas) {
+      for (const item of drag.group) {
+        this.restoreGroupPosition(item);
+        item.positionElement?.style.removeProperty('z-index');
+      }
+      dispatchPanelGroupLiveDrag(drag.group, 0, 0, 'end');
     }
 
     const floating = this.#floatingCard;
@@ -510,14 +637,24 @@ export class CanvasDragService {
     drag.canvasCard?.classList.remove('canvas-card--dragging');
     drag.positionElement?.style.removeProperty('will-change');
     drag.positionElement?.style.removeProperty('z-index');
+    for (const item of drag.group) {
+      item.canvasCard?.classList.remove('canvas-card--dragging');
+      item.positionElement?.style.removeProperty('will-change');
+      item.positionElement?.style.removeProperty('z-index');
+      if (restorePosition) this.restoreGroupPosition(item);
+    }
     if (drag.wasOnCanvas && endLive) {
-      dispatchArrowLiveDrag({
-        elementIds: drag.liveElementIds,
-        objectId: drag.object.id,
-        deltaX: 0,
-        deltaY: 0,
-        phase: 'end',
-      });
+      if (drag.group.length > 0) {
+        dispatchPanelGroupLiveDrag(drag.group, 0, 0, 'end');
+      } else {
+        dispatchArrowLiveDrag({
+          elementIds: drag.liveElementIds,
+          objectId: drag.object.id,
+          deltaX: 0,
+          deltaY: 0,
+          phase: 'end',
+        });
+      }
     }
     this.#floatingCard?.style.removeProperty('transform');
     if (this.#floatingCard) this.#floatingCard.style.visibility = 'hidden';
@@ -558,6 +695,14 @@ export class CanvasDragService {
     );
   }
 
+  private restoreGroupPosition(item: GroupPanelDrag): void {
+    if (!item.positionElement) return;
+    item.positionElement.style.transform = positionTransform(
+      item.originCanvasX,
+      item.originCanvasY,
+    );
+  }
+
   private latestPointerSample(event: PointerEvent): PointerEvent {
     const samples = event.getCoalescedEvents?.() ?? [];
     return samples.at(-1) ?? event;
@@ -566,4 +711,53 @@ export class CanvasDragService {
 
 function positionTransform(x: number, y: number): string {
   return `translate3d(${x}px, ${y}px, 0)`;
+}
+
+/** Broadcast one live frame for a panel group without letting one panel's
+ * event clear an attachment that belongs to another selected panel. */
+function dispatchPanelGroupLiveDrag(
+  group: readonly GroupPanelDrag[],
+  deltaX: number,
+  deltaY: number,
+  phase: 'end' | 'move',
+): void {
+  if (group.length === 0) return;
+  const elementIds = new Set<string>();
+  const objectIds: string[] = [];
+  for (const item of group) {
+    objectIds.push(item.placement.id);
+    for (const elementId of item.liveElementIds) elementIds.add(elementId);
+  }
+  dispatchArrowLiveDrag({
+    deltaX,
+    deltaY,
+    elementIds: [...elementIds],
+    objectIds,
+    phase,
+  });
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(Math.max(minimum, maximum), value));
+}
+
+function constrainedPanelGroupDelta(
+  placements: readonly CanvasPlacement[],
+  requestedX: number,
+  requestedY: number,
+): { x: number; y: number } {
+  let minimumX = Number.NEGATIVE_INFINITY;
+  let maximumX = Number.POSITIVE_INFINITY;
+  let minimumY = Number.NEGATIVE_INFINITY;
+  let maximumY = Number.POSITIVE_INFINITY;
+  for (const placement of placements) {
+    minimumX = Math.max(minimumX, -placement.x);
+    maximumX = Math.min(maximumX, CANVAS_WIDTH - placement.x - placement.width);
+    minimumY = Math.max(minimumY, -placement.y);
+    maximumY = Math.min(maximumY, CANVAS_HEIGHT - placement.y - placement.height);
+  }
+  return {
+    x: clamp(requestedX, minimumX, maximumX),
+    y: clamp(requestedY, minimumY, maximumY),
+  };
 }

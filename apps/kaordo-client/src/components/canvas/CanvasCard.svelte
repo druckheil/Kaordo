@@ -2,6 +2,11 @@
   import type { CanvasPlacement } from '../../lib/domain/canvas';
   import type { CanvasService } from '../../lib/services/CanvasService';
   import type { CanvasSnapshot } from '../../lib/states/CanvasGState';
+  import {
+    isCanvasSelectionActive,
+    isCanvasPanelHighlighted,
+    isCanvasSelectionModifier,
+  } from '../../lib/features/canvasSelection';
   import { openContextMenu } from '../../lib/ui/contextMenu';
   import CardNestedCanvas from './CardNestedCanvas.svelte';
   import CanvasCardContent from './CanvasCardContent.svelte';
@@ -26,7 +31,7 @@
   <div
     class="canvas-card"
     class:canvas-card--entering={entering}
-    class:canvas-card--selected={snapshot.selectedCardId === placement.id}
+    class:canvas-card--selected={isCanvasPanelHighlighted(placement.id, snapshot.selectedItems)}
     role="group"
     aria-roledescription="canvas panel"
     data-canvas-object-id={placement.id}
@@ -37,6 +42,12 @@
         icon: 'focus',
         id: 'focus-object',
         label: 'Focus Panel',
+      },
+      {
+        action: () => canvas.centerSelection({ kind: 'panel', id: placement.id }),
+        icon: 'focus',
+        id: 'center-object',
+        label: 'Back to center',
       },
       {
         action: () => canvas.state.setTool('rectangle'),
@@ -74,8 +85,21 @@
       aria-label={`${placement.title}, Panel. Drag or use arrow keys to move.`}
       title="Drag to move · Arrow keys to nudge"
       onpointerdown={(event) => {
-        canvas.state.selectCard(placement.id);
-        canvas.startObjectPointerDrag(event, placement);
+        const keepGroup = isCanvasSelectionActive(
+          snapshot.selectedItems,
+          { id: placement.id, kind: 'panel' },
+        );
+        if (!keepGroup) {
+          canvas.state.selectCard(placement.id, {
+            // Ctrl/Cmd/Shift adds this panel to the current selection.
+            additive: isCanvasSelectionModifier(event),
+          });
+        }
+        canvas.startObjectPointerDrag(
+          event,
+          placement,
+          keepGroup && isCanvasSelectionModifier(event),
+        );
       }}
       onpointermove={(event) => canvas.continueObjectPointerDrag(event)}
       onpointerup={(event) => canvas.finishObjectPointerDrag(event)}
