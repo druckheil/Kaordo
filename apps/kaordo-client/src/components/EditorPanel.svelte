@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
   import type { CanvasService } from '../lib/services/CanvasService';
+  import type { CanvasPlacement } from '../lib/domain/canvas';
   import type { WorkspaceSummary } from '../lib/domain/workspace';
   import {
     searchCanvasContent,
@@ -23,7 +24,9 @@
     canvasSnapshot: Readonly<CanvasSnapshot>;
     fileCount: number;
     onBack: () => void | Promise<void>;
+    onCreatePanel: () => void | Promise<void>;
     onCreateWorkspace: () => void | Promise<void>;
+    onRenamePanel: (panel: CanvasPlacement) => void;
     onRetryOpen: () => void | Promise<void>;
     platform: 'desktop' | 'web';
     storageLocation: string;
@@ -36,7 +39,9 @@
     canvasSnapshot,
     fileCount,
     onBack,
+    onCreatePanel,
     onCreateWorkspace,
+    onRenamePanel,
     onRetryOpen,
     platform,
     storageLocation,
@@ -45,6 +50,7 @@
   let emptyState = $state<FocusableEditorEmptyState>();
   let backButtonElement = $state<HTMLButtonElement>();
   let searchButtonElement = $state<HTMLButtonElement>();
+  let createPanelButtonElement = $state<HTMLButtonElement>();
   let searchInputElement = $state<HTMLInputElement>();
   let searchOpen = $state(false);
   let searchQuery = $state('');
@@ -70,6 +76,10 @@
 
   export function focusCreateWorkspace() {
     emptyState?.focusCreateWorkspace();
+  }
+
+  export function focusCreatePanel() {
+    createPanelButtonElement?.focus();
   }
 
   onDestroy(() => {
@@ -219,6 +229,21 @@
       <h2 id="editor-title">Editor</h2>
     </div>
     <div class="editor-heading__tools">
+      {#if workspaceSnapshot.active && workspaceSnapshot.openPhase === 'idle'}
+        <button
+          bind:this={createPanelButtonElement}
+          class="editor-create-panel"
+          type="button"
+          aria-label="New Panel"
+          title="Create new panel"
+          onclick={onCreatePanel}
+        >
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M10 4v12M4 10h12" />
+          </svg>
+          <span>New Panel</span>
+        </button>
+      {/if}
       {#if searchOpen}
         <div class="editor-search" bind:this={searchRootElement}>
           <div class="editor-search__field">
@@ -337,6 +362,7 @@
   {#if workspaceSnapshot.active && workspaceSnapshot.openPhase === 'idle'}
     <KnowledgeCanvas
       canvas={canvas}
+      {onRenamePanel}
       snapshot={canvasSnapshot}
       workspace={workspaceSnapshot.active}
     />
@@ -631,6 +657,48 @@
     transition: color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
   }
 
+  .editor-create-panel {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 10px;
+    color: #63776d;
+    background: var(--canvas);
+    border: 0;
+    border-radius: 9px;
+    box-shadow: 2px 2px 6px rgb(184 192 204 / 54%), -2px -2px 6px rgb(255 255 255 / 70%);
+    cursor: pointer;
+    font-size: calc(10px * var(--text-scale));
+    font-weight: 650;
+    transition: color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  }
+
+  .editor-create-panel:hover {
+    color: var(--accent);
+    transform: translateY(-1px);
+  }
+
+  .editor-create-panel:active {
+    box-shadow: inset 2px 2px 5px rgb(184 192 204 / 62%);
+    transform: translateY(0);
+  }
+
+  .editor-create-panel:focus-visible {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: 2px;
+  }
+
+  .editor-create-panel svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-width: 1.7;
+  }
+
   .editor-search-toggle:hover:not(:disabled) {
     color: var(--accent);
     transform: translateY(-1px);
@@ -810,6 +878,7 @@
   @media (prefers-reduced-motion: reduce) {
     .editor-search__field,
     .editor-search-results,
+    .editor-create-panel,
     .editor-search-toggle,
     .editor-search-result {
       animation: none;

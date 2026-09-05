@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { CanvasSnapshot } from '../../lib/states/CanvasGState';
   import type { CanvasService } from '../../lib/services/CanvasService';
+  import type { CanvasPlacement } from '../../lib/domain/canvas';
   import type { WorkspaceDetail } from '../../lib/domain/workspace';
   import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../../lib/features/canvas';
   import { readCanvasMediaDimensions } from '../../lib/features/canvasMediaDimensions';
@@ -13,11 +14,12 @@
 
   type Props = {
     canvas: CanvasService;
+    onRenamePanel: (panel: CanvasPlacement) => void;
     snapshot: Readonly<CanvasSnapshot>;
     workspace: WorkspaceDetail;
   };
 
-  let { canvas, snapshot, workspace }: Props = $props();
+  let { canvas, onRenamePanel, snapshot, workspace }: Props = $props();
   let placements = $derived(snapshot.placements[workspace.id] ?? []);
   let zoom = $derived(snapshot.zooms[workspace.id] ?? 1);
   let canvasElementCount = $derived(
@@ -205,6 +207,7 @@
         {#each placements as placement (placement.id)}
           <CanvasCard
             {canvas}
+            {onRenamePanel}
             {placement}
             {snapshot}
             workspaceId={workspace.id}

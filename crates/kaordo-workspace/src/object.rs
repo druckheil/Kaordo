@@ -212,6 +212,32 @@ impl WorkspaceLibrary {
         Ok(object)
     }
 
+    /// Renames an object while preserving its document and identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the workspace or object is unknown, the title is
+    /// invalid, or the updated object cannot be committed atomically.
+    pub fn rename_object(
+        &self,
+        workspace_id: Uuid,
+        object_id: Uuid,
+        requested_title: &str,
+    ) -> Result<ObjectSummary, WorkspaceError> {
+        let title = normalize_object_title(requested_title)?;
+        let workspace = self.find_workspace(workspace_id)?;
+        let (objects, _) = scan_objects(self.root(), &workspace)?;
+        let mut object = objects
+            .into_iter()
+            .find(|object| object.id == object_id)
+            .ok_or(WorkspaceError::ObjectNotFound(object_id))?;
+        title.clone_into(&mut object.title);
+        let bytes = encode_object(&object)?;
+        object.durability_warning =
+            replace_object_atomically(self.root(), &workspace, object.id, &bytes)?;
+        Ok(object)
+    }
+
     /// Permanently removes one knowledge object selected by UUID.
     ///
     /// # Errors
@@ -1772,6 +1798,27 @@ mod tests {
             .open_workspace(workspace.id())
             .expect("updated object should reopen");
         assert_eq!(reopened.objects(), [updated]);
+    }
+
+    #[test]
+    fn renames_and_rediscovers_an_object_without_changing_its_document() {
+        let (parent, library, workspace) = fixture();
+        let created = library
+            .create_object(workspace.id(), "Before")
+            .expect("object should be created");
+
+        let renamed = library
+            .rename_object(workspace.id(), created.id(), " After ")
+            .expect("object rename should be committed");
+        assert_eq!(renamed.id(), created.id());
+        assert_eq!(renamed.title(), "After");
+        assert_eq!(renamed.document_json(), created.document_json());
+
+        let restarted = WorkspaceLibrary::new(parent.path().join("Kaordo"));
+        let reopened = restarted
+            .open_workspace(workspace.id())
+            .expect("renamed object should reopen");
+        assert_eq!(reopened.objects(), [renamed]);
     }
 
     #[test]

@@ -609,6 +609,49 @@ describe('CanvasService interaction boundaries', () => {
     });
   });
 
+  it('updates and persists fill and stroke for a selected panel', async () => {
+    const saveCanvasDocument = vi.fn().mockResolvedValue(undefined);
+    const state = new CanvasGState();
+    const placement = state.place(workspace.id, workspace.objects[0], {
+      x: 400,
+      y: 300,
+    });
+    state.setCanvasDocument(workspace.id, {
+      elements: [],
+      placements: [{
+        height: placement.height,
+        objectId: placement.id,
+        width: placement.width,
+        x: placement.x,
+        y: placement.y,
+      }],
+      version: 1,
+    });
+    state.markCanvasDocumentReady();
+    state.selectCard(placement.id);
+    const service = new CanvasService(
+      state,
+      () => workspace,
+      undefined,
+      undefined,
+      saveCanvasDocument,
+    );
+
+    await service.setRectangleFill('#dcece5');
+    await service.setRectangleStroke('#436c9e');
+
+    expect(state.placementsFor(workspace.id)[0]).toMatchObject({
+      fill: '#dcece5',
+      stroke: '#436c9e',
+    });
+    expect(saveCanvasDocument).toHaveBeenCalled();
+    const latest = saveCanvasDocument.mock.calls.at(-1)?.[1] as WorkspaceCanvasDocument;
+    expect(latest.placements[0]).toMatchObject({
+      fill: '#dcece5',
+      stroke: '#436c9e',
+    });
+  });
+
   it('resizes a card and keeps attached text inside its new bounds', async () => {
     const saveCanvasDocument = vi.fn().mockResolvedValue(undefined);
     const rectangle = {

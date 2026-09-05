@@ -164,7 +164,9 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       return object
         ? [{
             ...object,
+            ...(saved.fill !== undefined ? { fill: saved.fill } : {}),
             height: saved.height,
+            ...(saved.stroke !== undefined ? { stroke: saved.stroke } : {}),
             width: saved.width,
             x: saved.x,
             y: saved.y,
@@ -251,7 +253,9 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       return object
         ? [{
             ...object,
+            ...(placement.fill !== undefined ? { fill: placement.fill } : {}),
             height: placement.height,
+            ...(placement.stroke !== undefined ? { stroke: placement.stroke } : {}),
             width: placement.width,
             x: placement.x,
             y: placement.y,
@@ -273,7 +277,9 @@ export class CanvasGState extends GState<CanvasSnapshot> {
           placement.id === object.id
             ? {
                 ...object,
+                ...(placement.fill !== undefined ? { fill: placement.fill } : {}),
                 height: placement.height,
+                ...(placement.stroke !== undefined ? { stroke: placement.stroke } : {}),
                 width: placement.width,
                 x: placement.x,
                 y: placement.y,
@@ -282,6 +288,26 @@ export class CanvasGState extends GState<CanvasSnapshot> {
         ),
       },
     });
+  }
+
+  updatePlacementStyle(
+    workspaceId: string,
+    objectId: string,
+    patch: Pick<CanvasPlacement, 'fill' | 'stroke'>,
+  ): CanvasPlacement | null {
+    const current = this.placementsFor(workspaceId);
+    const placement = current.find((candidate) => candidate.id === objectId);
+    if (!placement) return null;
+    const updated = { ...placement, ...patch };
+    this.patch({
+      placements: {
+        ...this.snapshot.placements,
+        [workspaceId]: current.map((candidate) =>
+          candidate.id === objectId ? updated : candidate,
+        ),
+      },
+    });
+    return updated;
   }
 
   removeObject(workspaceId: string, objectId: string): void {
@@ -418,7 +444,9 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       previous?.height ?? object.document.frame?.height ?? CANVAS_CARD_HEIGHT;
     const placement: CanvasPlacement = {
       ...object,
+      ...(previous?.fill !== undefined ? { fill: previous.fill } : {}),
       height,
+      ...(previous?.stroke !== undefined ? { stroke: previous.stroke } : {}),
       width,
       x: point.x,
       y: point.y,

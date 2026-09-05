@@ -1508,7 +1508,8 @@
     min-width: 0;
     min-height: 0;
     overflow: hidden;
-    background: linear-gradient(180deg, rgb(247 251 248 / 78%), rgb(241 247 243 / 62%));
+    /* Let the parent panel's selected fill show through the canvas body. */
+    background: transparent;
     box-shadow: inset 0 1px rgb(255 255 255 / 88%);
     cursor: default;
     touch-action: none;

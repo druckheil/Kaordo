@@ -15,12 +15,13 @@
   type Props = {
     canvas: CanvasService;
     entering: boolean;
+    onRenamePanel: (panel: CanvasPlacement) => void;
     placement: CanvasPlacement;
     snapshot: Readonly<CanvasSnapshot>;
     workspaceId: string;
   };
 
-  let { canvas, entering, placement, snapshot, workspaceId }: Props = $props();
+  let { canvas, entering, onRenamePanel, placement, snapshot, workspaceId }: Props = $props();
 </script>
 
 <article
@@ -36,6 +37,7 @@
     role="group"
     aria-roledescription="canvas panel"
     data-canvas-object-id={placement.id}
+    style={`${placement.fill !== undefined ? `--canvas-card-fill:${placement.fill};` : ''}${placement.stroke !== undefined ? `--canvas-card-stroke:${placement.stroke};` : ''}`}
     onanimationend={() => canvas.state.clearEntering(workspaceId, placement.id)}
     oncontextmenu={(event) => openContextMenu(event, placement.title, [
       {
@@ -67,6 +69,12 @@
         icon: 'text',
         id: 'text-tool',
         label: 'Text Tool',
+      },
+      {
+        action: () => onRenamePanel(placement),
+        icon: 'edit',
+        id: 'rename-object',
+        label: 'Rename Panel',
       },
       {
         action: async () => {

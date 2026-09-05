@@ -27,4 +27,9 @@ export interface WorkspaceGateway {
     objectId: string,
     document: ObjectDocument,
   ): Promise<ObjectSummary>;
+  renameObject(
+    workspaceId: string,
+    objectId: string,
+    title: string,
+  ): Promise<ObjectSummary>;
 }

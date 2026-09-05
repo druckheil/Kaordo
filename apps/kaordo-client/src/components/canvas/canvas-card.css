@@ -55,8 +55,8 @@
   overflow: hidden;
   color: #344039;
   background:
-    linear-gradient(145deg, rgb(255 255 255 / 97%), rgb(246 250 247 / 94%));
-  border: 1px solid rgb(178 199 190 / 84%);
+    var(--canvas-card-fill, linear-gradient(145deg, rgb(255 255 255 / 97%), rgb(246 250 247 / 94%)));
+  border: 1px solid var(--canvas-card-stroke, rgb(178 199 190 / 84%));
   border-radius: 15px;
   box-shadow:
     0 16px 36px rgb(42 72 60 / 10%),
@@ -76,7 +76,7 @@
 }
 
 .canvas-card:hover {
-  border-color: #84ad9f;
+  border-color: var(--canvas-card-stroke, #84ad9f);
   box-shadow:
     0 22px 44px rgb(42 72 60 / 14%),
     0 3px 9px rgb(42 72 60 / 8%),
@@ -84,7 +84,7 @@
 }
 
 .canvas-card--selected {
-  border-color: #4f8f7d;
+  border-color: var(--canvas-card-stroke, #4f8f7d);
   box-shadow:
     0 20px 44px rgb(42 72 60 / 14%),
     0 0 0 3px rgb(55 117 102 / 16%);
@@ -109,7 +109,7 @@
 }
 
 .canvas-card:focus-within {
-  border-color: #4f8f7d;
+  border-color: var(--canvas-card-stroke, #4f8f7d);
   box-shadow:
     0 20px 44px rgb(42 72 60 / 14%),
     0 0 0 3px rgb(55 117 102 / 14%);

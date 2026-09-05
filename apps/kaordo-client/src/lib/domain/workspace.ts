@@ -238,8 +238,10 @@ export type WorkspaceCanvasDocument = {
 };
 
 export type WorkspaceCanvasPlacement = {
+  fill?: string;
   height: number;
   objectId: string;
+  stroke?: string;
   width: number;
   x: number;
   y: number;
@@ -327,13 +329,16 @@ export function normalizeWorkspaceCanvasDocument(
           ) {
             return [];
           }
-          return [{
+          const normalized: WorkspaceCanvasPlacement = {
             height: placement.height,
             objectId: placement.objectId,
             width: placement.width,
             x: placement.x,
             y: placement.y,
-          }];
+          };
+          if (isSafeCanvasColor(placement.fill)) normalized.fill = placement.fill;
+          if (isSafeCanvasColor(placement.stroke)) normalized.stroke = placement.stroke;
+          return [normalized];
         })
       : [],
     version: 1,
@@ -424,6 +429,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isSafeCanvasColor(value: unknown): value is string {
+  return typeof value === 'string' && /^#[\da-f]{6}$/iu.test(value);
 }
 
 function normalizeRectangle(value: unknown): RectangleElement | null {

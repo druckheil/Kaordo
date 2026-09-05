@@ -29,7 +29,7 @@
     canvas: CanvasService;
     canvasSnapshot: Readonly<CanvasSnapshot>;
     isOpening: boolean;
-    onNewPanel: () => void | Promise<void>;
+    onRenamePanel: (panel: ObjectSummary) => void;
     openError: string | null;
     workspace: WorkspaceDetail | null;
   };
@@ -85,11 +85,10 @@
     canvas,
     canvasSnapshot,
     isOpening,
-    onNewPanel,
+    onRenamePanel,
     openError,
     workspace,
   }: Props = $props();
-  let newPanelButton = $state<HTMLButtonElement>();
   let placedPanelIds = $derived(
     new Set(
       workspace
@@ -107,10 +106,6 @@
   ));
   let contentTree = $derived.by(() => buildContentTreeHierarchy(contentNodes));
   let collapsedTreeKeys = $state<Set<string>>(new Set());
-
-  export function focusNewPanel() {
-    newPanelButton?.focus();
-  }
 
   function focusNode(
     node: ContentNode,
@@ -166,6 +161,12 @@
           icon: 'focus',
           id: 'center-panel',
           label: 'Back to center',
+        },
+        {
+          action: () => onRenamePanel(node.object),
+          icon: 'edit',
+          id: 'rename-panel',
+          label: 'Rename Panel',
         },
         {
           action: async () => {
@@ -383,25 +384,8 @@
   }
 </script>
 
-{#snippet headerAction()}
-  {#if workspace && !isOpening}
-    <button
-      class="new-panel-action"
-      type="button"
-      bind:this={newPanelButton}
-      onclick={onNewPanel}
-    >
-      <svg viewBox="0 0 20 20" aria-hidden="true">
-        <path d="M10 4v12M4 10h12" />
-      </svg>
-      New Panel
-    </button>
-  {/if}
-{/snippet}
-
 <aside id="klaro-contents-panel" class="panel contents-panel" aria-labelledby="contents-title">
   <PanelHeader
-    action={headerAction}
     eyebrow="Contents"
     title="Contents"
     titleId="contents-title"
@@ -645,11 +629,6 @@
   .empty-icon--contents { display: grid; align-content: center; gap: 6px; padding: 7px 5px; border: 1px solid currentColor; border-radius: 6px; }
   .empty-icon--contents span { display: block; width: 100%; height: 1px; background: currentColor; }
   .empty-icon--contents span:nth-child(2) { width: 68%; }
-
-  .new-panel-action { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 4px; height: 30px; padding: 0 9px; color: #2f675a; background: #f7faf8; border: 1px solid #b9cec6; border-radius: 7px; cursor: pointer; font-size: calc(10px * var(--text-scale)); font-weight: 670; }
-  .new-panel-action:hover { color: #285a4e; background: #eaf3ef; border-color: #94b8aa; }
-  .new-panel-action:focus-visible { outline: 2px solid rgb(55 117 102 / 35%); outline-offset: 2px; }
-  .new-panel-action svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.8; }
 
   @media (prefers-reduced-motion: reduce) {
     .content-node { transition: none; }

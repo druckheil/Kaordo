@@ -209,6 +209,33 @@ export class WebWorkspaceGateway implements WorkspaceGateway {
     return normalizeObjectSummary(object);
   }
 
+  async renameObject(
+    workspaceId: string,
+    objectId: string,
+    requestedTitle: string,
+  ): Promise<ObjectSummary> {
+    const title = normalizeObjectTitle(requestedTitle);
+    const library = this.#readLibrary();
+    const workspaceIndex = library.workspaces.findIndex(
+      (workspace) => workspace.id === workspaceId,
+    );
+    if (workspaceIndex < 0) throw new Error('The workspace could not be found.');
+    const workspace = library.workspaces[workspaceIndex];
+    const objectIndex = workspace.objects.findIndex((object) => object.id === objectId);
+    if (objectIndex < 0) throw new Error('The object could not be found.');
+
+    const object: ObjectSummary = {
+      ...workspace.objects[objectIndex],
+      title,
+    };
+    const objects = [...workspace.objects];
+    objects[objectIndex] = object;
+    const workspaces = [...library.workspaces];
+    workspaces[workspaceIndex] = { ...workspace, objects };
+    this.#writeLibrary({ ...library, workspaces });
+    return normalizeObjectSummary(object);
+  }
+
   async loadCanvasDocument(workspaceId: string): Promise<WorkspaceCanvasDocument> {
     const workspace = this.#readLibrary().workspaces.find(
       (candidate) => candidate.id === workspaceId,

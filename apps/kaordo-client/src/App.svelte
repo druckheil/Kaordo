@@ -3,6 +3,7 @@
   import AppHeader from './components/AppHeader.svelte';
   import AuthScreen from './components/auth/AuthScreen.svelte';
   import CreatePanelDialog from './components/CreatePanelDialog.svelte';
+  import RenamePanelDialog from './components/RenamePanelDialog.svelte';
   import CreateWorkspaceDialog from './components/CreateWorkspaceDialog.svelte';
   import EditorPanel from './components/EditorPanel.svelte';
   import FilesPanel from './components/FilesPanel.svelte';
@@ -183,8 +184,7 @@
   };
 
   type FocusableFiles = { focusRetry(): void; focusTitle(): void };
-  type FocusableEditor = { focusBack(): void; focusCreateWorkspace(): void; focusRetry(): void };
-  type FocusableContents = { focusNewPanel(): void };
+  type FocusableEditor = { focusBack(): void; focusCreatePanel(): void; focusCreateWorkspace(): void; focusRetry(): void };
 
   let {
     autoloadWorkspaceLibrary = true,
@@ -280,12 +280,12 @@
   let storageItemsRequestId = 0;
   let isCreateWorkspaceOpen = $state(false);
   let isCreatePanelOpen = $state(false);
+  let renamePanelTarget = $state<{ id: string; title: string } | null>(null);
   let isLoggingOut = $state(false);
   let accountAction = $state<'username' | 'password' | null>(null);
   let authenticatedUserId: string | null = null;
   let filesPanel = $state<FocusableFiles>();
   let editorPanel = $state<FocusableEditor>();
-  let contentsPanel = $state<FocusableContents>();
   let activeFile = $derived(
     workspaceSnapshot.active
       ? workspaceSummary(workspaceSnapshot.active)
@@ -295,6 +295,9 @@
     activeSection === 'klaro' &&
       isCreateWorkspaceOpen &&
       workspaceSnapshot.active === null,
+  );
+  let showRenamePanel = $derived(
+    activeSection === 'klaro' && renamePanelTarget !== null,
   );
 
   async function clearNodoStorage(nodeId: string): Promise<boolean> {
@@ -457,7 +460,7 @@
     }
   }
 
-  let isModalOpen = $derived(showCreateWorkspace || isCreatePanelOpen);
+  let isModalOpen = $derived(showCreateWorkspace || isCreatePanelOpen || showRenamePanel);
 
   const unsubscribeAuth = auth.manager.subscribe((snapshot) => {
     if (!snapshot) return;
@@ -730,11 +733,13 @@
   async function retryOpenWorkspace() {
     const opened = await editor.retryOpenWorkspace();
     await tick();
-    if (opened) contentsPanel?.focusNewPanel();
+    if (opened) editorPanel?.focusCreatePanel();
     else editorPanel?.focusRetry();
   }
 
   async function closeFile() {
+    renamePanelTarget = null;
+    editor.workspaceState.clearRenameObjectError();
     editor.closeWorkspace();
     klaroWorkspacePanelOpen = true;
     await tick();
@@ -748,6 +753,7 @@
     editor.canvas.clearInteractions();
     isCreateWorkspaceOpen = false;
     isCreatePanelOpen = false;
+    renamePanelTarget = null;
     closeStorageBrowser();
     activeSection = section;
     saveLastSection(section);
@@ -805,6 +811,12 @@
     isCreatePanelOpen = true;
   }
 
+  function openRenamePanelDialog(panel: { id: string; title: string }) {
+    if (!workspaceSnapshot.active || workspaceSnapshot.isRenamingObject) return;
+    editor.workspaceState.clearRenameObjectError();
+    renamePanelTarget = { id: panel.id, title: panel.title };
+  }
+
   function toggleKlaroWorkspacePanel() {
     klaroWorkspacePanelOpen = !klaroWorkspacePanelOpen;
   }
@@ -818,7 +830,7 @@
     isCreatePanelOpen = false;
     editor.workspaceState.clearCreateObjectError();
     await tick();
-    contentsPanel?.focusNewPanel();
+    editorPanel?.focusCreatePanel();
   }
 
   async function createPanel(title: string) {
@@ -827,7 +839,23 @@
     editor.canvas.placeObjectAtVisibleCenter(created);
     isCreatePanelOpen = false;
     flushSync();
-    contentsPanel?.focusNewPanel();
+    editorPanel?.focusCreatePanel();
+  }
+
+  async function closeRenamePanelDialog() {
+    if (workspaceSnapshot.isRenamingObject) return;
+    renamePanelTarget = null;
+    editor.workspaceState.clearRenameObjectError();
+  }
+
+  async function renamePanel(title: string) {
+    const target = renamePanelTarget;
+    const workspace = workspaceSnapshot.active;
+    if (!target || !workspace) return;
+    const renamed = await editor.renameObject(workspace.id, target.id, title);
+    if (!renamed) return;
+    renamePanelTarget = null;
+    flushSync();
   }
 </script>
 
@@ -906,8 +934,10 @@
         canvas={editor.canvas}
         {canvasSnapshot}
         fileCount={workspaceSnapshot.files.length}
+        onCreatePanel={openCreatePanelDialog}
         onCreateWorkspace={openCreateWorkspaceDialog}
         onBack={closeFile}
+        onRenamePanel={openRenamePanelDialog}
         onRetryOpen={retryOpenWorkspace}
         {platform}
         {storageLocation}
@@ -932,11 +962,10 @@
         {/if}
 
         <ContentsPanel
-          bind:this={contentsPanel}
           canvas={editor.canvas}
           {canvasSnapshot}
           isOpening={workspaceSnapshot.openPhase === 'opening'}
-          onNewPanel={openCreatePanelDialog}
+          onRenamePanel={openRenamePanelDialog}
           openError={workspaceSnapshot.openError}
           workspace={workspaceSnapshot.active}
         />
@@ -1076,6 +1105,16 @@
     error={workspaceSnapshot.createObjectError}
     onCreate={createPanel}
     onCancel={closeCreatePanelDialog}
+  />
+{/if}
+
+{#if showRenamePanel && renamePanelTarget}
+  <RenamePanelDialog
+    busy={workspaceSnapshot.isRenamingObject}
+    currentTitle={renamePanelTarget.title}
+    error={workspaceSnapshot.renameObjectError}
+    onRename={renamePanel}
+    onCancel={closeRenamePanelDialog}
   />
 {/if}
 {:else}

@@ -1603,6 +1603,15 @@ export class CanvasService {
       selectedElementId,
       selectedGlobalElementId,
     } = this.state.snapshot;
+    if (workspace && selectedCardId && !selectedElementId) {
+      const updated = this.state.updatePlacementStyle(
+        workspace.id,
+        selectedCardId,
+        patch,
+      );
+      if (updated) this.persistPlacement(updated);
+      return;
+    }
     if (workspace && selectedGlobalElementId) {
       const document = this.state.canvasDocumentFor(workspace.id);
       await this.saveWorkspaceCanvasDocument(workspace.id, {
@@ -1639,8 +1648,10 @@ export class CanvasService {
     }
     const document = this.state.canvasDocumentFor(workspace.id);
     const saved = {
+      ...(placement.fill !== undefined ? { fill: placement.fill } : {}),
       height: placement.height,
       objectId: placement.id,
+      ...(placement.stroke !== undefined ? { stroke: placement.stroke } : {}),
       width: placement.width,
       x: placement.x,
       y: placement.y,
@@ -1702,8 +1713,10 @@ export class CanvasService {
     const placements = pendingPlacements.reduce(
       (saved, placement) => {
         const next = {
+          ...(placement.fill !== undefined ? { fill: placement.fill } : {}),
           height: placement.height,
           objectId: placement.id,
+          ...(placement.stroke !== undefined ? { stroke: placement.stroke } : {}),
           width: placement.width,
           x: placement.x,
           y: placement.y,
@@ -1720,8 +1733,10 @@ export class CanvasService {
       document.placements.length > 0
         ? document.placements
         : sessionPlacements.map((placement) => ({
+            ...(placement.fill !== undefined ? { fill: placement.fill } : {}),
             height: placement.height,
             objectId: placement.id,
+            ...(placement.stroke !== undefined ? { stroke: placement.stroke } : {}),
             width: placement.width,
             x: placement.x,
             y: placement.y,

@@ -1,4 +1,5 @@
 import type {
+  ObjectSummary,
   WorkspaceDetail,
   WorkspaceSummary,
 } from './domain/workspace';
@@ -159,6 +160,20 @@ export class EditorController {
     }
     this.canvasState.announce('Panel deleted.');
     return true;
+  }
+
+  async renameObject(
+    workspaceId: string,
+    objectId: string,
+    title: string,
+  ): Promise<ObjectSummary | null> {
+    const renamed = await this.workspaceState.renameObject(
+      workspaceId,
+      objectId,
+      title,
+    );
+    if (renamed) this.canvasState.updateObject(workspaceId, renamed);
+    return renamed;
   }
 }
 

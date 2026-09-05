@@ -18,6 +18,18 @@
     snapshot.selectedGlobalElementId;
     return canvas.selectedCanvasElement();
   });
+  let selectedPanel = $derived.by(() => {
+    const panelId = snapshot.selectedCardId;
+    if (!panelId) return null;
+    return (snapshot.placements[workspaceId] ?? [])
+      .find((placement) => placement.id === panelId) ?? null;
+  });
+  let selectedFill = $derived(
+    selectedPanel ? selectedPanel.fill ?? '#ffffff' : snapshot.shapeFill,
+  );
+  let selectedStroke = $derived(
+    selectedPanel ? selectedPanel.stroke ?? '#397565' : snapshot.shapeStroke,
+  );
   const fills = ['#ffffff', '#dcece5', '#dce8f6', '#f8e7bf', '#f3deda', '#ede2f5'];
   const strokes = ['#397565', '#436c9e', '#967033', '#9a5148', '#76528e'];
   const textColors = ['#25332d', '#376f60', '#3f6591', '#9a5148', '#76528e'];
@@ -386,16 +398,16 @@
         ? `Drag from or click an explanation target for “${shortQuote(snapshot.textArrowSource.anchor.quote)}”`
         : 'Drag between points or elements to draw an arrow'}
     </span>
-  {:else}
+  {:else if selectedElement?.type === 'rectangle' || selectedPanel || !selectedElement}
     <div class="style-group" aria-label="Card fill">
       <span>Fill</span>
       {#each fills as color}
         <button
-          class:color-button--active={snapshot.shapeFill === color}
+          class:color-button--active={selectedFill === color}
           class="color-button"
           type="button"
           aria-label={`Fill ${color}`}
-          aria-pressed={snapshot.shapeFill === color}
+          aria-pressed={selectedFill === color}
           style={`--color: ${color}`}
           onclick={() => void canvas.setRectangleFill(color)}
         ></button>
@@ -406,11 +418,11 @@
       <span>Stroke</span>
       {#each strokes as color}
         <button
-          class:color-button--active={snapshot.shapeStroke === color}
+          class:color-button--active={selectedStroke === color}
           class="color-button color-button--stroke"
           type="button"
           aria-label={`Stroke ${color}`}
-          aria-pressed={snapshot.shapeStroke === color}
+          aria-pressed={selectedStroke === color}
           style={`--color: ${color}`}
           onclick={() => void canvas.setRectangleStroke(color)}
         ></button>

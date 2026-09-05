@@ -76,6 +76,19 @@ export class TauriWorkspaceGateway implements WorkspaceGateway {
     return normalizeObjectSummary(object);
   }
 
+  async renameObject(
+    workspaceId: string,
+    objectId: string,
+    title: string,
+  ): Promise<ObjectSummary> {
+    const object = await this.#invoke<ObjectSummaryPayload>('rename_object', {
+      objectId,
+      title,
+      workspaceId,
+    });
+    return normalizeObjectSummary(object);
+  }
+
   async loadCanvasDocument(workspaceId: string): Promise<WorkspaceCanvasDocument> {
     const serialized = await this.#invoke<string | null>('load_canvas_document', {
       workspaceId,

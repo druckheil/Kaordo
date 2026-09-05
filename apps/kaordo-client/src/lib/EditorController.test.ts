@@ -32,6 +32,7 @@ function gateway(
     saveCanvasMedia: vi.fn(),
     deleteCanvasMedia: vi.fn(),
     updateObjectDocument: vi.fn(),
+    renameObject: vi.fn(),
     ...overrides,
   };
 }

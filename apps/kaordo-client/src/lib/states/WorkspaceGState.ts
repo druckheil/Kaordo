@@ -18,12 +18,14 @@ export type WorkspaceSnapshot = {
   files: WorkspaceSummary[];
   isCreatingObject: boolean;
   isCreatingWorkspace: boolean;
+  isRenamingObject: boolean;
   libraryError: string | null;
   libraryPhase: LoadPhase;
   libraryWarnings: string[];
   openError: string | null;
   opening: WorkspaceSummary | null;
   openPhase: OpenPhase;
+  renameObjectError: string | null;
 };
 
 export type WorkspaceGStateOptions = {
@@ -51,12 +53,14 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
       files: (options.files ?? []).map((file) => ({ ...file })),
       isCreatingObject: false,
       isCreatingWorkspace: false,
+      isRenamingObject: false,
       libraryError: null,
       libraryPhase: 'idle',
       libraryWarnings: [],
       openError: null,
       opening: active ? workspaceSummary(active) : null,
       openPhase: 'idle',
+      renameObjectError: null,
     });
     this.#gateway = gateway;
     this.#autoload = options.autoload ?? true;
@@ -72,6 +76,7 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
     this.patch({
       isCreatingObject: false,
       isCreatingWorkspace: false,
+      isRenamingObject: false,
       libraryPhase:
         this.snapshot.libraryPhase === 'loading'
           ? 'idle'
@@ -158,9 +163,11 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
       createWorkspaceError: null,
       isCreatingObject: false,
       isCreatingWorkspace: false,
+      isRenamingObject: false,
       opening: file,
       openError: null,
       openPhase: 'opening',
+      renameObjectError: null,
     });
 
     try {
@@ -196,9 +203,11 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
       createWorkspaceError: null,
       isCreatingObject: false,
       isCreatingWorkspace: false,
+      isRenamingObject: false,
       openError: null,
       opening: null,
       openPhase: 'idle',
+      renameObjectError: null,
     });
   }
 
@@ -294,6 +303,52 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
     }
   }
 
+  async renameObject(
+    workspaceId: string,
+    objectId: string,
+    title: string,
+  ): Promise<ObjectSummary | null> {
+    if (
+      this.snapshot.active?.id !== workspaceId ||
+      this.snapshot.isRenamingObject
+    ) return null;
+
+    const attempt = ++this.#objectAttempt;
+    this.patch({ isRenamingObject: true, renameObjectError: null });
+    try {
+      const object = await this.#gateway.renameObject(workspaceId, objectId, title.trim());
+      if (
+        attempt !== this.#objectAttempt ||
+        this.snapshot.active?.id !== workspaceId
+      ) return null;
+      const active: WorkspaceDetail = {
+        ...this.snapshot.active,
+        objects: this.snapshot.active.objects.map((candidate) =>
+          candidate.id === objectId ? object : candidate,
+        ),
+      };
+      this.patch({ active, opening: workspaceSummary(active) });
+      return object;
+    } catch (error) {
+      if (
+        attempt === this.#objectAttempt &&
+        this.snapshot.active?.id === workspaceId
+      ) {
+        this.patch({
+          renameObjectError: readableError(
+            error,
+            'The panel could not be renamed.',
+          ),
+        });
+      }
+      return null;
+    } finally {
+      if (attempt === this.#objectAttempt) {
+        this.patch({ isRenamingObject: false });
+      }
+    }
+  }
+
   async updateObjectDocument(
     workspaceId: string,
     objectId: string,
@@ -326,6 +381,10 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
 
   clearCreateObjectError(): void {
     if (this.snapshot.createObjectError) this.patch({ createObjectError: null });
+  }
+
+  clearRenameObjectError(): void {
+    if (this.snapshot.renameObjectError) this.patch({ renameObjectError: null });
   }
 
   private invalidateWorkspaceCommands(): void {

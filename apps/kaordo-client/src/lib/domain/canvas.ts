@@ -1,7 +1,9 @@
 import type { ObjectSummary } from './workspace';
 
 export type CanvasPlacement = ObjectSummary & {
+  fill?: string;
   height: number;
+  stroke?: string;
   width: number;
   x: number;
   y: number;

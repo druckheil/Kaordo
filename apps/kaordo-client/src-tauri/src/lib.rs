@@ -191,6 +191,29 @@ async fn update_object_document(
 }
 
 #[tauri::command]
+async fn rename_object(
+    app: tauri::AppHandle,
+    auth: tauri::State<'_, auth::AuthClient>,
+    workspace_id: String,
+    object_id: String,
+    title: String,
+) -> Result<ObjectInfo, String> {
+    auth.require_authenticated()?;
+    let workspace_id = parse_workspace_id(&workspace_id)?;
+    let object_id =
+        Uuid::parse_str(&object_id).map_err(|_| "The object identifier is invalid.".to_owned())?;
+    let library = workspace_library(&app)?;
+    let object = tauri::async_runtime::spawn_blocking(move || {
+        library.rename_object(workspace_id, object_id, &title)
+    })
+    .await
+    .map_err(|error| format!("The object rename task failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+
+    Ok(object_info(&object))
+}
+
+#[tauri::command]
 async fn load_canvas_document(
     app: tauri::AppHandle,
     auth: tauri::State<'_, auth::AuthClient>,
@@ -422,6 +445,7 @@ pub fn run() {
             load_canvas_document,
             list_workspaces,
             open_workspace,
+            rename_object,
             save_canvas_document,
             update_object_document
         ])

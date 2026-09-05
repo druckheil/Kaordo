@@ -28,6 +28,12 @@ describe('workspace gateways', () => {
           title: 'Note',
           type: 'Knowledge object',
         },
+        rename_object: {
+          documentJson: '{"elements":[],"version":1}',
+          id: 'object-1',
+          title: 'Renamed note',
+          type: 'Knowledge object',
+        },
       };
       return responses[command] as T;
     };
@@ -49,6 +55,7 @@ describe('workspace gateways', () => {
       elements: [],
       version: 1,
     });
+    await gateway.renameObject('workspace-1', 'object-1', 'Renamed note');
     await gateway.loadCanvasDocument('workspace-1');
     await gateway.saveCanvasDocument('workspace-1', {
       elements: [],
@@ -74,6 +81,14 @@ describe('workspace gateways', () => {
         args: {
           documentJson: '{"elements":[],"version":1}',
           objectId: 'object-1',
+          workspaceId: 'workspace-1',
+        },
+      },
+      {
+        command: 'rename_object',
+        args: {
+          objectId: 'object-1',
+          title: 'Renamed note',
           workspaceId: 'workspace-1',
         },
       },
@@ -125,6 +140,9 @@ describe('workspace gateways', () => {
       ],
       version: 1,
     });
+    await expect(
+      firstGateway.renameObject(workspace.id, object.id, 'Renamed note'),
+    ).resolves.toMatchObject({ title: 'Renamed note' });
     await firstGateway.saveCanvasDocument(workspace.id, {
       elements: [
         {
@@ -169,7 +187,7 @@ describe('workspace gateways', () => {
             version: 1,
           },
           id: 'object-1',
-          title: 'Note',
+          title: 'Renamed note',
           type: 'Knowledge object',
         },
       ],
