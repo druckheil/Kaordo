@@ -134,6 +134,7 @@
     class:canvas-viewport--drop-target={snapshot.isDropTarget}
     class:canvas-viewport--panning={snapshot.isPanning}
     class:canvas-viewport--camera-pending={!snapshot.isCameraReady}
+    style={`--canvas-zoom:${zoom};`}
     use:attachViewport
     role="region"
     aria-label="Knowledge canvas"
@@ -182,7 +183,7 @@
     >
       <div
         class="canvas-surface"
-        style={`width: ${CANVAS_WIDTH}px; height: ${CANVAS_HEIGHT}px; transform: scale(${zoom});`}
+        style={`width: ${CANVAS_WIDTH}px; height: ${CANVAS_HEIGHT}px;${zoom === 1 ? '' : ` transform:scale(${zoom});`}`}
       >
         <GlobalCanvasElements
           {canvas}
@@ -263,7 +264,33 @@
     inset: 0;
     overflow: scroll;
     color: #303934;
-    background: #f7f9f6;
+    background-color: #f8faf7;
+    background-image:
+      repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent calc(120px * var(--canvas-zoom, 1) - 1px),
+        rgb(55 117 102 / 3.5%) calc(120px * var(--canvas-zoom, 1) - 1px),
+        rgb(55 117 102 / 3.5%) calc(120px * var(--canvas-zoom, 1))
+      ),
+      repeating-linear-gradient(
+        to right,
+        transparent 0,
+        transparent calc(120px * var(--canvas-zoom, 1) - 1px),
+        rgb(55 117 102 / 3.5%) calc(120px * var(--canvas-zoom, 1) - 1px),
+        rgb(55 117 102 / 3.5%) calc(120px * var(--canvas-zoom, 1))
+      ),
+      radial-gradient(
+        circle at 1px 1px,
+        rgb(67 104 91 / 24%) 1.1px,
+        transparent 1.2px
+      );
+    background-position: 0 0;
+    background-size:
+      calc(120px * var(--canvas-zoom, 1)) calc(120px * var(--canvas-zoom, 1)),
+      calc(120px * var(--canvas-zoom, 1)) calc(120px * var(--canvas-zoom, 1)),
+      calc(24px * var(--canvas-zoom, 1)) calc(24px * var(--canvas-zoom, 1));
+    background-attachment: local;
     cursor: grab;
     outline: none;
     overscroll-behavior: contain;
@@ -308,21 +335,14 @@
   }
 
   .canvas-viewport::-webkit-scrollbar-corner {
-    background: #f7f9f6;
+    background: #f8faf7;
   }
 
   .canvas-surface {
     position: relative;
     overflow: hidden;
-    background-color: #f8faf7;
-    background-image:
-      linear-gradient(rgb(55 117 102 / 3.5%) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(55 117 102 / 3.5%) 1px, transparent 1px),
-      radial-gradient(circle at 1px 1px, rgb(67 104 91 / 24%) 1.1px, transparent 1.2px),
-      radial-gradient(circle at 50% 50%, rgb(126 181 164 / 10%), transparent 34%);
-    background-position: 0 0, 0 0, 0 0, 0 0;
-    background-size: 120px 120px, 120px 120px, 24px 24px, 100% 100%;
-    box-shadow: inset 0 0 120px rgb(51 82 69 / 2%);
+    background: transparent;
+    contain: layout paint;
     transform-origin: top left;
   }
 

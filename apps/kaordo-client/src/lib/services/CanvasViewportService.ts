@@ -422,8 +422,13 @@ export class CanvasViewportService {
       // Promote the large surface only while zooming. Keeping a permanent
       // The large compositor layer makes native scrolling compete for GPU
       // memory, especially in scaled Tauri windows.
-      surface.style.willChange = 'transform';
-      surface.style.transform = `scale(${next})`;
+      viewport.style.setProperty('--canvas-zoom', `${next}`);
+      if (Math.abs(next - 1) < 0.0001) {
+        surface.style.removeProperty('transform');
+      } else {
+        surface.style.willChange = 'transform';
+        surface.style.transform = `scale(${next})`;
+      }
       if (this.#zoomWillChangeTimer !== null) {
         window.clearTimeout(this.#zoomWillChangeTimer);
       }
