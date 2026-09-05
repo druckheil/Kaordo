@@ -482,6 +482,49 @@ html[data-theme='dark'] :is(.auth-card .input-shell, .auth-card input) {
   border-color: #45534b !important;
 }
 
+/* Rondo owns its own SoftUI palette. Keep the dark theme on the same raised /
+   inset surfaces instead of flattening the space into the legacy green panels. */
+html[data-theme='dark'] .rondo-shell {
+  color: var(--rondo-text) !important;
+  background: var(--rondo-bg) !important;
+}
+
+html[data-theme='dark'] .rondo-shell :is(.rondo-form-shell, .join-shell, .space-shell, .settings-shell, .detail-loading) {
+  color: var(--rondo-text) !important;
+  background: var(--rondo-bg) !important;
+}
+
+html[data-theme='dark'] .rondo-shell :is(.rondo-form, .join-shell form, .rooms-panel, .room-content, .members-panel, .settings-nav, .settings-content) {
+  color: var(--rondo-text) !important;
+  background: linear-gradient(145deg, var(--rondo-surface-strong), var(--rondo-surface)) !important;
+  border-color: transparent !important;
+  box-shadow: var(--rondo-shadow-raised) !important;
+}
+
+html[data-theme='dark'] .rondo-shell :is(.room-toolbar, .settings-toolbar, .space-identity, .invite-row, .room-row, .node-tier, .settings-card) {
+  color: var(--rondo-text) !important;
+  background: var(--rondo-surface) !important;
+  border-color: transparent !important;
+}
+
+html[data-theme='dark'] .rondo-shell :is(.rondo-form input, .rondo-form textarea, .join-shell input, .settings-content input, .settings-content textarea, .settings-content select) {
+  color: var(--rondo-text) !important;
+  background: var(--rondo-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--rondo-shadow-inset-sm) !important;
+}
+
+html[data-theme='dark'] .rondo-shell :is(.storage-card, .no-private-node, .empty-list, .priority-index, .item-icon) {
+  color: var(--rondo-text-muted) !important;
+  background: var(--rondo-bg) !important;
+  border-color: transparent !important;
+}
+
+html[data-theme='dark'] .rondo-shell :is(.room-list button.active, .settings-nav nav button.active) {
+  color: var(--rondo-primary) !important;
+  background: var(--rondo-bg-dark) !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html[data-theme='dark'] *,
   html[data-theme='dark'] *::before,

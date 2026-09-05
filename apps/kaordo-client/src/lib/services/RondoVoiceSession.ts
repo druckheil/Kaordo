@@ -5,11 +5,15 @@ import type {
   RondoVoiceSync,
 } from '../gateways/NodeRondoVoiceGateway';
 import {
+  DEFAULT_RONDO_PRESENTATION_PREFERENCES,
   DEFAULT_MEDIA_PREFERENCES,
   normalizeMediaPreferences,
+  normalizeRondoPresentationPreferences,
   type MediaPreferences,
+  type RondoPresentationPreferences,
 } from '../domain/mediaSettings';
 import { openMicrophone } from './mediaDevices';
+import { playRondoSound } from './RondoSounds';
 
 export type RondoVoicePeer = {
   connection: RTCPeerConnectionState | 'local';
@@ -27,6 +31,7 @@ export type RondoVoiceSnapshot = {
   muted: boolean;
   participants: RondoVoicePeer[];
   phase: 'connected' | 'error' | 'idle' | 'joining';
+  presentation: RondoPresentationPreferences;
   screenAudio: boolean;
   screenOn: boolean;
 };
@@ -55,6 +60,7 @@ export const EMPTY_RONDO_VOICE: RondoVoiceSnapshot = {
   muted: false,
   participants: [],
   phase: 'idle',
+  presentation: { ...DEFAULT_RONDO_PRESENTATION_PREFERENCES },
   screenAudio: false,
   screenOn: false,
 };
@@ -85,6 +91,7 @@ export class RondoVoiceSession {
   #microphoneRevision = 0;
   #peerId: string | null = null;
   #pollTimer: ReturnType<typeof setTimeout> | null = null;
+  #presentation: RondoPresentationPreferences;
   #previewTimer: ReturnType<typeof setTimeout> | null = null;
   #previewRoomId: string | null = null;
   #previewSpaceId: string | null = null;
@@ -100,6 +107,8 @@ export class RondoVoiceSession {
     preferences: MediaPreferences = DEFAULT_MEDIA_PREFERENCES,
   ) {
     this.#media = normalizeMediaPreferences(preferences);
+    this.#presentation = loadPresentationPreferences();
+    this.#snapshot = { ...EMPTY_RONDO_VOICE, presentation: this.#presentation };
   }
 
   get snapshot(): Readonly<RondoVoiceSnapshot> { return this.#snapshot; }
@@ -122,6 +131,15 @@ export class RondoVoiceSession {
     }
   }
 
+  async configurePresentation(preferences: RondoPresentationPreferences): Promise<void> {
+    const next = normalizeRondoPresentationPreferences(preferences);
+    if (next.fps === this.#presentation.fps && next.resolution === this.#presentation.resolution) return;
+    this.#presentation = next;
+    savePresentationPreferences(next);
+    if (this.#screenStream) await this.applyPresentationConstraints(this.#screenStream);
+    this.publish({ ...this.#snapshot, presentation: next });
+  }
+
   async preview(spaceId: string, roomId: string): Promise<void> {
     if (this.#snapshot.phase !== 'idle' && this.#snapshot.phase !== 'error') return;
     this.#previewSpaceId = spaceId;
@@ -133,6 +151,7 @@ export class RondoVoiceSession {
       if (this.#spaceId || this.#roomId || this.#previewSpaceId !== spaceId || this.#previewRoomId !== roomId) return;
       this.publish({
         ...EMPTY_RONDO_VOICE,
+        presentation: this.#presentation,
         participants: preview.participants.map((participant) => ({
           connection: 'new',
           local: false,
@@ -156,7 +175,7 @@ export class RondoVoiceSession {
   async join(spaceId: string, roomId: string): Promise<boolean> {
     if (this.#snapshot.phase === 'joining' || this.#snapshot.phase === 'connected') return false;
     if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === 'undefined') {
-      this.publish({ ...EMPTY_RONDO_VOICE, error: 'This device does not provide WebRTC media access.', phase: 'error' });
+      this.publish({ ...EMPTY_RONDO_VOICE, error: 'This device does not provide WebRTC media access.', phase: 'error', presentation: this.#presentation });
       return false;
     }
     const generation = ++this.#generation;
@@ -164,7 +183,7 @@ export class RondoVoiceSession {
     this.#spaceId = spaceId;
     this.#roomId = roomId;
     this.#peerId = crypto.randomUUID();
-    this.publish({ ...EMPTY_RONDO_VOICE, phase: 'joining' });
+    this.publish({ ...EMPTY_RONDO_VOICE, phase: 'joining', presentation: this.#presentation });
     try {
       const iceServers = await this.gateway.iceServers().catch(() => this.#iceServers);
       if (generation !== this.#generation) return false;
@@ -185,6 +204,7 @@ export class RondoVoiceSession {
       this.#cursor = joined.cursor;
       this.#username = joined.participants.find(({ peerId }) => peerId === this.#peerId)?.username ?? 'You';
       this.publish({ ...this.#snapshot, error: null, phase: 'connected' });
+      playRondoSound('join');
       await this.reconcile(joined, generation);
       this.schedulePoll(generation, 150);
       this.scheduleActivity();
@@ -193,7 +213,7 @@ export class RondoVoiceSession {
     } catch (error) {
       if (generation !== this.#generation) return false;
       await this.leave(false);
-      this.publish({ ...EMPTY_RONDO_VOICE, error: mediaError(error), phase: 'error' });
+      this.publish({ ...EMPTY_RONDO_VOICE, error: mediaError(error), phase: 'error', presentation: this.#presentation });
       return false;
     }
   }
@@ -202,6 +222,7 @@ export class RondoVoiceSession {
     const spaceId = this.#spaceId;
     const roomId = this.#roomId;
     const peerId = this.#peerId;
+    const wasConnected = this.#snapshot.phase === 'connected';
     const audioContext = this.#audioContext;
     this.#spaceId = null;
     this.#roomId = null;
@@ -231,7 +252,8 @@ export class RondoVoiceSession {
     this.#speaking.clear();
     this.#cursor = 0;
     this.#username = '';
-    this.publish(EMPTY_RONDO_VOICE);
+    this.publish({ ...EMPTY_RONDO_VOICE, presentation: this.#presentation });
+    if (wasConnected) playRondoSound('leave');
     await audioContext?.close().catch(() => undefined);
     if (notify && spaceId && roomId && peerId) {
       await this.gateway.leave(spaceId, roomId, peerId);
@@ -243,11 +265,14 @@ export class RondoVoiceSession {
     const muted = !this.#snapshot.muted;
     this.#localStream.getAudioTracks().forEach((track) => { track.enabled = !muted; });
     this.publish({ ...this.#snapshot, muted });
+    playRondoSound(muted ? 'mute' : 'unmute');
   }
 
   toggleDeafen(): void {
     if (this.#snapshot.phase !== 'connected') return;
-    this.publish({ ...this.#snapshot, deafened: !this.#snapshot.deafened });
+    const deafened = !this.#snapshot.deafened;
+    this.publish({ ...this.#snapshot, deafened });
+    playRondoSound(deafened ? 'deafen' : 'undeafen');
   }
 
   async toggleCamera(): Promise<void> {
@@ -259,6 +284,7 @@ export class RondoVoiceSession {
       stopStream(this.#cameraStream);
       this.#cameraStream = null;
       this.publish({ ...this.#snapshot, cameraOn: false, error: null });
+      playRondoSound('camera-off');
       return;
     }
     const generation = this.#generation;
@@ -279,6 +305,7 @@ export class RondoVoiceSession {
       this.#cameraStream = stream;
       this.addStream(stream);
       this.publish({ ...this.#snapshot, cameraOn: true, error: null });
+      playRondoSound('camera-on');
     } catch (error) {
       if (generation === this.#generation && revision === this.#cameraRevision) {
         this.publish({ ...this.#snapshot, error: mediaError(error) });
@@ -293,7 +320,7 @@ export class RondoVoiceSession {
     const revision = ++this.#screenRevision;
     if (this.#screenPendingRevision !== null) return;
     if (this.#screenStream) {
-      this.stopScreen();
+      this.stopScreen(undefined, true);
       return;
     }
     const generation = this.#generation;
@@ -301,7 +328,7 @@ export class RondoVoiceSession {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         audio: true,
-        video: { frameRate: { ideal: 30, max: 60 } },
+        video: presentationConstraints(this.#presentation),
       });
       if (
         generation !== this.#generation
@@ -311,8 +338,17 @@ export class RondoVoiceSession {
         stopStream(stream);
         return;
       }
+      await this.applyPresentationConstraints(stream);
+      if (
+        generation !== this.#generation
+        || revision !== this.#screenRevision
+        || this.#snapshot.phase !== 'connected'
+      ) {
+        stopStream(stream);
+        return;
+      }
       this.#screenStream = stream;
-      stream.getVideoTracks()[0]?.addEventListener('ended', () => this.stopScreen(stream), { once: true });
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => this.stopScreen(stream, true), { once: true });
       this.addStream(stream);
       this.publish({
         ...this.#snapshot,
@@ -320,6 +356,7 @@ export class RondoVoiceSession {
         screenAudio: stream.getAudioTracks().length > 0,
         screenOn: true,
       });
+      playRondoSound('screen-on');
     } catch (error) {
       if (generation === this.#generation && revision === this.#screenRevision) {
         this.publish({ ...this.#snapshot, error: mediaError(error) });
@@ -404,18 +441,96 @@ export class RondoVoiceSession {
     }
   }
 
-  private stopScreen(expected?: MediaStream): void {
+  private async applyPresentationConstraints(stream: MediaStream): Promise<void> {
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    // Screen sharing should preserve readable detail instead of inheriting a
+    // camera-oriented encoder profile from the browser.
+    const contentHint = this.#presentation.fps >= 60 ? 'motion' : 'detail';
+    try {
+      track.contentHint = contentHint;
+    } catch {
+      // Older WebViews expose the property as read-only or not at all.
+    }
+    if (track.applyConstraints) {
+      try {
+        // A strict pass prevents Chromium from keeping its conservative
+        // 720p/15fps display-capture profile when the source supports the
+        // requested mode. The portable pass below handles smaller windows and
+        // WebViews that reject minimum constraints.
+        await track.applyConstraints(presentationConstraints(this.#presentation, true));
+      } catch {
+        try {
+          await track.applyConstraints(presentationConstraints(this.#presentation));
+        } catch {
+          // Some browsers expose only frame-rate constraints for display tracks.
+          try {
+            await track.applyConstraints({ frameRate: { ideal: this.#presentation.fps, max: this.#presentation.fps } });
+          } catch {
+            // Display capture is still usable at the browser-selected quality.
+          }
+        }
+      }
+    }
+    await this.applyPresentationSenderConstraints(track);
+  }
+
+  private async applyPresentationSenderConstraints(track: MediaStreamTrack): Promise<void> {
+    await Promise.all([...this.#peers.values()].map(async ({ connection }) => {
+      const sender = connection.getSenders().find(({ track: senderTrack }) => senderTrack === track);
+      if (!sender?.getParameters || !sender.setParameters) return;
+      const parameters = sender.getParameters();
+      const encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+      const maxBitrate = presentationBitrate(this.#presentation);
+      parameters.degradationPreference = 'maintain-resolution';
+      parameters.encodings = encodings.map((encoding) => ({
+        ...encoding,
+        maxBitrate,
+        maxFramerate: this.#presentation.fps,
+        priority: 'high',
+        scaleResolutionDownBy: 1,
+      }));
+      try {
+        await sender.setParameters(parameters);
+      } catch {
+        // A peer can be renegotiating while the display settings change. Try
+        // the portable subset before leaving the browser's safe defaults.
+        try {
+          const fallback = sender.getParameters();
+          const fallbackEncodings = fallback.encodings?.length ? fallback.encodings : [{}];
+          fallback.degradationPreference = 'maintain-resolution';
+          fallback.encodings = fallbackEncodings.map((encoding) => ({
+            ...encoding,
+            maxFramerate: this.#presentation.fps,
+            scaleResolutionDownBy: 1,
+          }));
+          await sender.setParameters(fallback);
+        } catch {
+          // The next negotiation can still apply the browser's safe defaults.
+        }
+      }
+    }));
+  }
+
+  private stopScreen(expected?: MediaStream, playSound = false): void {
     if (!this.#screenStream || (expected && this.#screenStream !== expected)) return;
     const stream = this.#screenStream;
     this.#screenStream = null;
     this.removeStream(stream);
     stopStream(stream);
     this.publish({ ...this.#snapshot, screenAudio: false, screenOn: false });
+    if (playSound) playRondoSound('screen-off');
   }
 
   private addStream(stream: MediaStream): void {
     for (const peer of this.#peers.values()) {
-      stream.getTracks().forEach((track) => peer.connection.addTrack(track, stream));
+      stream.getTracks().forEach((track) => {
+        peer.connection.addTrack(track, stream);
+      });
+    }
+    if (stream === this.#screenStream) {
+      const track = stream.getVideoTracks()[0];
+      if (track) void this.applyPresentationSenderConstraints(track);
     }
     this.publishParticipants();
   }
@@ -499,6 +614,10 @@ export class RondoVoiceSession {
     this.#peers.set(participant.peerId, peer);
     for (const stream of this.localStreams()) {
       stream.getTracks().forEach((track) => connection.addTrack(track, stream));
+      if (stream === this.#screenStream) {
+        const track = stream.getVideoTracks()[0];
+        if (track) void this.applyPresentationSenderConstraints(track);
+      }
     }
     connection.onicecandidate = ({ candidate }) => {
       if (candidate) void this.sendSignal(participant.peerId, 'ice', candidate.toJSON(), peer.generation);
@@ -747,3 +866,48 @@ function mediaError(error: unknown): string {
 const POLL_MILLISECONDS = 800;
 const PREVIEW_MILLISECONDS = 5_000;
 const ICE_REFRESH_MILLISECONDS = 12 * 60 * 60 * 1_000;
+const PRESENTATION_STORAGE_KEY = 'kaordo.rondo.presentation.v1';
+
+function presentationConstraints(preferences: RondoPresentationPreferences, strict = false): MediaTrackConstraints {
+  const dimensions = presentationDimensions(preferences.resolution);
+  return {
+    frameRate: strict
+      ? { min: preferences.fps, ideal: preferences.fps, max: preferences.fps }
+      : { ideal: preferences.fps, max: preferences.fps },
+    height: strict
+      ? { min: dimensions.height, ideal: dimensions.height, max: dimensions.height }
+      : { ideal: dimensions.height, max: dimensions.height },
+    width: strict
+      ? { min: dimensions.width, ideal: dimensions.width, max: dimensions.width }
+      : { ideal: dimensions.width, max: dimensions.width },
+  };
+}
+
+function presentationDimensions(resolution: number): { height: number; width: number } {
+  if (resolution >= 1440) return { height: 1440, width: 2560 };
+  if (resolution >= 1080) return { height: 1080, width: 1920 };
+  return { height: 720, width: 1280 };
+}
+
+function presentationBitrate(preferences: RondoPresentationPreferences): number {
+  const base = preferences.resolution >= 1440 ? 18_000_000 : preferences.resolution >= 1080 ? 12_000_000 : 6_000_000;
+  const frameRateFactor = preferences.fps >= 120 ? 2 : preferences.fps >= 60 ? 1.35 : preferences.fps < 30 ? 0.8 : 1;
+  return Math.round(base * frameRateFactor);
+}
+
+function loadPresentationPreferences(): RondoPresentationPreferences {
+  try {
+    const saved = globalThis.localStorage?.getItem(PRESENTATION_STORAGE_KEY);
+    return normalizeRondoPresentationPreferences(JSON.parse(saved ?? 'null'));
+  } catch {
+    return { ...DEFAULT_RONDO_PRESENTATION_PREFERENCES };
+  }
+}
+
+function savePresentationPreferences(preferences: RondoPresentationPreferences): void {
+  try {
+    globalThis.localStorage?.setItem(PRESENTATION_STORAGE_KEY, JSON.stringify(preferences));
+  } catch {
+    // Local persistence is optional (for example in a private WebView).
+  }
+}

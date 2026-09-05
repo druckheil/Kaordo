@@ -66,12 +66,13 @@
     display: grid;
     grid-template-rows: 64px minmax(0, 1fr) auto;
     min-height: 0;
-    padding: 10px 0 12px;
-    color: #e9f4ef;
-    background:
-      linear-gradient(180deg, rgb(255 255 255 / 4%), transparent 24%),
-      #202d29;
-    border-right: 1px solid rgb(17 32 27 / 24%);
+    margin: 14px 0 14px 12px;
+    padding: 12px 0 14px;
+    overflow: hidden;
+    color: var(--rondo-text-muted, #5c6d84);
+    background: linear-gradient(145deg, var(--rondo-surface-strong, #eef2f8), var(--rondo-surface, #e8edf4));
+    border-radius: 22px;
+    box-shadow: var(--rondo-shadow-raised, 6px 7px 16px rgb(39 51 67 / 20%));
   }
 
   .rail-heading {
@@ -79,10 +80,11 @@
     width: 42px;
     height: 42px;
     margin: 0 auto;
-    color: #94c9b7;
-    background: rgb(255 255 255 / 7%);
-    border: 1px solid rgb(255 255 255 / 8%);
+    color: var(--rondo-primary, #5b54e0);
+    background: var(--rondo-bg, #e4e9f0);
+    border: 0;
     border-radius: 14px;
+    box-shadow: var(--rondo-shadow-inset-sm, inset 2px 2px 6px rgb(39 51 67 / 15%));
     place-items: center;
   }
 
@@ -117,7 +119,7 @@
     width: 58px;
     height: 52px;
     padding: 0;
-    color: #eef7f2;
+    color: var(--rondo-text-muted, #5c6d84);
     background: transparent;
     border: 0;
     cursor: pointer;
@@ -128,32 +130,34 @@
     display: grid;
     width: 42px;
     height: 42px;
-    background:
-      linear-gradient(145deg, hsl(var(--space-hue) 34% 43%), hsl(var(--space-hue) 38% 30%));
-    border: 1px solid rgb(255 255 255 / 12%);
+    color: var(--rondo-primary, #5b54e0);
+    background: var(--rondo-bg, #e4e9f0);
+    border: 0;
     border-radius: 14px;
-    box-shadow: 0 6px 14px rgb(4 14 10 / 16%);
+    box-shadow: var(--rondo-shadow-raised-sm, 3px 4px 9px rgb(39 51 67 / 16%));
     font-size: calc(11px * var(--text-scale));
     font-weight: 740;
     letter-spacing: 0.02em;
     place-items: center;
-    transition: border-radius 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+    transition: color 150ms ease, background 150ms ease, border-radius 150ms ease, transform 150ms ease, box-shadow 150ms ease;
   }
 
   .space-button:hover .space-avatar,
   .space-button--active .space-avatar {
-    border-radius: 11px;
+    color: #fff;
+    background: linear-gradient(145deg, var(--rondo-primary, #5b54e0), var(--rondo-primary-hover, #4a44c4));
+    border-radius: 13px;
     transform: translateY(-1px);
-    box-shadow: 0 9px 18px rgb(4 14 10 / 24%);
+    box-shadow: 5px 6px 13px rgb(74 68 196 / 24%), -3px -3px 8px rgb(255 255 255 / 46%);
   }
 
   .active-marker {
     position: absolute;
     left: 0;
-    width: 3px;
+    width: 4px;
     height: 10px;
-    background: #9ed3c0;
-    border-radius: 0 4px 4px 0;
+    background: var(--rondo-primary, #5b54e0);
+    border-radius: 0 6px 6px 0;
     opacity: 0;
     transform: scaleY(0.4);
     transition: height 150ms ease, opacity 150ms ease, transform 150ms ease;
@@ -171,7 +175,7 @@
     flex-direction: column;
     gap: 8px;
     padding-top: 12px;
-    border-top: 1px solid rgb(255 255 255 / 8%);
+    border-top: 1px solid color-mix(in srgb, var(--rondo-text-light, #7b8ca3) 20%, transparent);
   }
 
   .rail-actions button {
@@ -179,18 +183,28 @@
     width: 38px;
     height: 38px;
     padding: 0;
-    color: #9ccbb9;
-    background: rgb(255 255 255 / 6%);
-    border: 1px solid rgb(255 255 255 / 8%);
+    color: var(--rondo-primary, #5b54e0);
+    background: var(--rondo-bg, #e4e9f0);
+    border: 0;
     border-radius: 12px;
+    box-shadow: var(--rondo-shadow-raised-sm, 3px 4px 9px rgb(39 51 67 / 16%));
     cursor: pointer;
     place-items: center;
-    transition: color 130ms ease, background 130ms ease, transform 130ms ease;
+    transition: color 130ms ease, box-shadow 130ms ease, transform 130ms ease;
   }
 
   .rail-actions button:hover {
-    color: #e9f5ef;
-    background: rgb(126 181 164 / 20%);
+    color: var(--rondo-primary-hover, #4a44c4);
+    box-shadow: var(--rondo-shadow-inset-sm, inset 2px 2px 6px rgb(39 51 67 / 15%));
     transform: translateY(-1px);
+  }
+
+  .rail-actions button:active { box-shadow: var(--rondo-shadow-inset-sm, inset 2px 2px 6px rgb(39 51 67 / 15%)); transform: none; }
+  .space-button:focus-visible, .rail-actions button:focus-visible { outline: 2px solid color-mix(in srgb, var(--rondo-primary, #5b54e0) 45%, transparent); outline-offset: 3px; border-radius: 14px; }
+
+  :global(html[data-theme='dark']) .rondo-rail {
+    color: var(--rondo-text-muted, #aab4c5);
+    background: linear-gradient(145deg, var(--rondo-surface-strong, #343740), var(--rondo-surface, #2d3038));
+    box-shadow: var(--rondo-shadow-raised, 7px 8px 18px rgb(0 0 0 / 42%));
   }
 </style>

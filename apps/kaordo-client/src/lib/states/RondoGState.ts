@@ -5,7 +5,7 @@ import type {
   RondoSpace,
   RondoSpaceDetail,
 } from '../domain/rondo';
-import type { MediaPreferences } from '../domain/mediaSettings';
+import type { MediaPreferences, RondoPresentationPreferences } from '../domain/mediaSettings';
 import type { RondoGateway } from '../gateways/RondoGateway';
 import type { RondoChatGateway } from '../gateways/NodeRondoChatGateway';
 import { GState } from '../state/GState';
@@ -508,6 +508,9 @@ export class RondoGState extends GState<RondoSnapshot> {
   toggleDeafen(): void { this.#voice.toggleDeafen(); }
   async toggleCamera(): Promise<void> { await this.#voice.toggleCamera(); }
   async toggleScreen(): Promise<void> { await this.#voice.toggleScreen(); }
+  async configurePresentation(preferences: RondoPresentationPreferences): Promise<void> {
+    await this.#voice.configurePresentation(preferences);
+  }
   async configureMedia(preferences: MediaPreferences): Promise<void> {
     await this.#voice.configure(preferences);
   }
