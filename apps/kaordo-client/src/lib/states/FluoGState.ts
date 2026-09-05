@@ -595,14 +595,18 @@ export class FluoGState extends GState<FluoSnapshot> {
 
   /** Shares a state-hash probe across overlapping refreshes in one lifecycle. */
   private loadFeedStates(nodeIds: readonly string[]): Promise<FluoNodeFeedState[]> {
-    const key = nodeIds.join('\u001f');
+    // Registry updates can arrive in a different order from the bootstrap
+    // response. Treat the same set of nodes as one request so a refresh does
+    // not probe every Nodo twice just because ordering changed.
+    const normalizedNodeIds = uniqueNodeIds(nodeIds).sort();
+    const key = normalizedNodeIds.join('\u001f');
     const existing = this.#feedStatesInFlight;
     if (existing?.lifecycleId === this.#lifecycleId && existing.key === key) return existing.promise;
 
     const lifecycleId = this.#lifecycleId;
     let shared: Promise<FluoNodeFeedState[]>;
     shared = Promise.resolve()
-      .then(() => this.#gateway.listFeedStates(nodeIds))
+      .then(() => this.#gateway.listFeedStates(normalizedNodeIds))
       .catch(() => [])
       .finally(() => {
         if (this.#feedStatesInFlight?.promise === shared) this.#feedStatesInFlight = null;

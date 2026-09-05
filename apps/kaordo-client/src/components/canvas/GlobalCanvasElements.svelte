@@ -8,7 +8,6 @@
     type CanvasElement,
     type RectangleElement,
     type TextArrowSource,
-    type TextRangeAnchor,
     type TextElement,
     type WorkspaceCanvasDocument,
   } from '../../lib/domain/workspace';
@@ -49,12 +48,13 @@
     translateAttachedArrowGeometry,
   } from '../../lib/features/elementAttachment';
   import {
-    isCanvasElementHighlighted,
+    createCanvasSelectionResolver,
     isCanvasSelectionActive,
     isCanvasSelectionModifier,
     selectedElementRoots,
     translateCanvasElement,
   } from '../../lib/features/canvasSelection';
+  import { createTextArrowHighlightIndex } from '../../lib/features/textArrowHighlights';
   import {
     continueRectangleDraw,
     isRectangleDrawValid,
@@ -111,18 +111,12 @@
   let elements = $derived(
     document.elements.filter((element) => !element.parentObjectId),
   );
+  let selectionResolver = $derived.by(() => createCanvasSelectionResolver(
+    snapshot.selectedItems,
+    document.elements,
+  ));
   let textArrowHighlights = $derived(
-    document.elements.flatMap((element) => {
-      if (
-        element.type !== 'arrow' ||
-        !element.showTextOutline ||
-        !element.startAttachment?.elementId
-      ) return [];
-      const anchor = element.startAttachment.textRange;
-      return anchor
-        ? [{ anchor, color: element.stroke, elementId: element.startAttachment.elementId }]
-        : [];
-    }),
+    createTextArrowHighlightIndex(document.elements),
   );
   let explanationPreview = $derived.by(() => {
     const source = snapshot.textArrowSource;
@@ -187,16 +181,6 @@
     };
   }
 
-  function createArrowDrawGesture(
-    point: { x: number; y: number },
-    event: PointerEvent,
-    source?: ArrowAttachment,
-  ): ArrowDrawGesture {
-    const draw = startArrowDraw(point, event.pointerId, source);
-    if (event.shiftKey) draw.precisePoint = true;
-    return draw;
-  }
-
   function startDraw(event: PointerEvent) {
     if (
       event.button === 0 &&
@@ -259,7 +243,9 @@
       if (snapshot.textArrowSource && !source) {
         canvas.state.setTextArrowSource(null);
       }
-      gesture = createArrowDrawGesture(point, event, source);
+      gesture = startArrowDraw(point, event.pointerId, source, {
+        precisePoint: event.shiftKey,
+      });
       updateArrowDraft(gesture);
       layer?.setPointerCapture?.(event.pointerId);
       return;
@@ -361,7 +347,9 @@
       if (snapshot.textArrowSource && !source) {
         canvas.state.setTextArrowSource(null);
       }
-      gesture = createArrowDrawGesture(point, event, source);
+      gesture = startArrowDraw(point, event.pointerId, source, {
+        precisePoint: event.shiftKey,
+      });
       updateArrowDraft(gesture);
       layer?.setPointerCapture?.(event.pointerId);
       return;
@@ -605,7 +593,12 @@
     ) ?? [frame];
     const draw = {
       ...continueArrowDraw(
-        createArrowDrawGesture(textRangeAnchorPoint(frames, sourceAttachment), event, sourceAttachment),
+        startArrowDraw(
+          textRangeAnchorPoint(frames, sourceAttachment),
+          event.pointerId,
+          sourceAttachment,
+          { precisePoint: event.shiftKey },
+        ),
         point,
       ),
       armedFromSelection: true,
@@ -638,10 +631,11 @@
     const sourceAttachment = sourceAtPoint(point, source);
     if (sourceAttachment) {
       canvas.state.setTextArrowCursor(null);
-      gesture = createArrowDrawGesture(
+      gesture = startArrowDraw(
         sourceAttachmentPoint(sourceAttachment, point),
-        event,
+        event.pointerId,
         sourceAttachment,
+        { precisePoint: event.shiftKey },
       );
       updateArrowDraft(gesture);
       layer?.setPointerCapture?.(event.pointerId);
@@ -1365,11 +1359,6 @@
     return Math.max(minimum, Math.min(Math.max(minimum, maximum), value));
   }
 
-  function textArrowHighlightsFor(elementId: string): Array<{ anchor: TextRangeAnchor; color: string }> {
-    return textArrowHighlights
-      .filter((highlight) => highlight.elementId === elementId)
-      .map(({ anchor, color }) => ({ anchor, color }));
-  }
 </script>
 
 <div
@@ -1422,7 +1411,7 @@
         onDoubleClick={(event, rectangle) => beginRectangleEditing(event, rectangle)}
         onStartMove={startMove}
         searchHighlighted={snapshot.searchHighlight?.kind === 'element' && snapshot.searchHighlight.id === element.id}
-        selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
+        selected={selectionResolver.isHighlighted(element)}
         workspaceId={workspaceId}
       />
     {:else if element.type === 'arrow'}
@@ -1455,13 +1444,13 @@
         onStartPointMove={startMove}
         placements={snapshot.placements[workspaceId] ?? []}
         searchHighlighted={snapshot.searchHighlight?.kind === 'element' && snapshot.searchHighlight.id === element.id}
-        selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
+        selected={selectionResolver.isHighlighted(element)}
         {zoom}
       />
     {:else if element.type === 'text'}
       <CanvasTextBlock
         {canvas}
-        arrowHighlights={textArrowHighlightsFor(element.id)}
+        arrowHighlights={textArrowHighlights.get(element.id) ?? []}
         arrowSource={snapshot.textArrowSource}
         editing={snapshot.editingTextId === element.id}
         element={element}
@@ -1472,7 +1461,7 @@
         maxWidth={CANVAS_TEXT_MAX_WIDTH}
         moving={false}
         onStartMove={startMove}
-        selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
+        selected={selectionResolver.isHighlighted(element)}
         {zoom}
         {workspaceId}
       />
@@ -1512,7 +1501,7 @@
         ])}
         onStartMove={startMove}
         searchHighlighted={snapshot.searchHighlight?.kind === 'element' && snapshot.searchHighlight.id === element.id}
-        selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
+        selected={selectionResolver.isHighlighted(element)}
         {workspaceId}
       />
     {/if}

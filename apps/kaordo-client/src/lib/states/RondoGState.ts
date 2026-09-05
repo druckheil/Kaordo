@@ -64,6 +64,8 @@ export class RondoGState extends GState<RondoSnapshot> {
   #chatRequestId = 0;
   #entered = false;
   #lifecycleId = 0;
+  #refreshInFlight: Promise<void> | null = null;
+  #detailInFlight: { promise: Promise<boolean>; spaceId: string } | null = null;
   #pollTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(gateway: RondoGateway, chat: RondoChatGateway, voice: RondoVoiceSession) {
@@ -89,6 +91,8 @@ export class RondoGState extends GState<RondoSnapshot> {
     this.#requestId += 1;
     this.#detailRequestId += 1;
     this.#chatRequestId += 1;
+    this.#refreshInFlight = null;
+    this.#detailInFlight = null;
     this.stopPolling();
     void this.#voice.leave();
   }
@@ -98,14 +102,26 @@ export class RondoGState extends GState<RondoSnapshot> {
     this.#requestId += 1;
     this.#detailRequestId += 1;
     this.#chatRequestId += 1;
+    this.#refreshInFlight = null;
+    this.#detailInFlight = null;
     this.stopPolling();
     this.#chat.reset();
     void this.#voice.leave();
     this.publish(emptySnapshot());
   }
 
-  async refresh(): Promise<void> {
+  refresh(): Promise<void> {
+    if (this.#refreshInFlight) return this.#refreshInFlight;
     const requestId = ++this.#requestId;
+    const refresh = this.refreshInternal(requestId);
+    const shared = refresh.finally(() => {
+      if (this.#refreshInFlight === shared) this.#refreshInFlight = null;
+    });
+    this.#refreshInFlight = shared;
+    return shared;
+  }
+
+  private async refreshInternal(requestId: number): Promise<void> {
     this.publish({ ...this.snapshot, error: null, phase: 'loading' });
     try {
       const bootstrap = await this.#gateway.bootstrap();
@@ -188,9 +204,19 @@ export class RondoGState extends GState<RondoSnapshot> {
     this.publish({ ...this.snapshot, error: null, settingsOpen: false });
   }
 
-  async loadSpace(spaceId = this.snapshot.activeSpaceId): Promise<boolean> {
-    if (!spaceId) return false;
+  loadSpace(spaceId = this.snapshot.activeSpaceId): Promise<boolean> {
+    if (!spaceId) return Promise.resolve(false);
+    if (this.#detailInFlight?.spaceId === spaceId) return this.#detailInFlight.promise;
     const requestId = ++this.#detailRequestId;
+    const load = this.loadSpaceInternal(spaceId, requestId);
+    const shared = load.finally(() => {
+      if (this.#detailInFlight?.promise === shared) this.#detailInFlight = null;
+    });
+    this.#detailInFlight = { promise: shared, spaceId };
+    return shared;
+  }
+
+  private async loadSpaceInternal(spaceId: string, requestId: number): Promise<boolean> {
     this.publish({ ...this.snapshot, detailPhase: 'loading', error: null });
     try {
       const { detail } = await this.#gateway.loadSpace(spaceId);

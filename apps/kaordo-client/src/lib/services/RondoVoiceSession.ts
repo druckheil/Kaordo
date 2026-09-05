@@ -587,8 +587,10 @@ export class RondoVoiceSession {
       await this.handleSignal(signal, generation);
       if (generation !== this.#generation) return;
     }
-    this.publish({ ...this.#snapshot, error: null });
-    this.publishParticipants();
+    // Reconcile the error state and participant roster in one snapshot. A
+    // voice sync runs frequently; publishing twice per poll needlessly
+    // rerenders every Rondo participant tile.
+    this.publishParticipants({ error: null });
   }
 
   private ensurePeer(participant: RondoVoiceParticipant): Peer {
@@ -726,7 +728,7 @@ export class RondoVoiceSession {
       .filter((stream): stream is MediaStream => stream !== null);
   }
 
-  private publishParticipants(): void {
+  private publishParticipants(patch: Partial<RondoVoiceSnapshot> = {}): void {
     if (!this.#peerId || this.#snapshot.phase === 'idle') return;
     const localStreams = [this.#cameraStream, this.#screenStream]
       .filter((stream): stream is MediaStream => stream !== null);
@@ -745,7 +747,7 @@ export class RondoVoiceSession {
       streams: [...peer.streams.values()],
       username: peer.participant.username,
     }))];
-    this.publish({ ...this.#snapshot, participants });
+    this.publish({ ...this.#snapshot, ...patch, participants });
   }
 
   private watchActivity(peerId: string, stream: MediaStream): void {
@@ -813,7 +815,9 @@ export class RondoVoiceSession {
   private async refreshIce(generation: number): Promise<void> {
     if (generation !== this.#generation || this.#snapshot.phase !== 'connected') return;
     try {
-      this.#iceServers = await this.gateway.iceServers();
+      const iceServers = await this.gateway.iceServers();
+      if (generation !== this.#generation || this.#snapshot.phase !== 'connected') return;
+      this.#iceServers = iceServers;
       for (const { connection } of this.#peers.values()) {
         connection.setConfiguration({
           ...connection.getConfiguration(),
@@ -823,6 +827,7 @@ export class RondoVoiceSession {
     } catch {
       // Existing peer connections remain valid; retry without interrupting the call.
     }
+    if (generation !== this.#generation || this.#snapshot.phase !== 'connected') return;
     this.scheduleIceRefresh(generation);
   }
 

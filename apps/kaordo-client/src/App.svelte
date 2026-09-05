@@ -692,9 +692,18 @@
 
   async function retryWorkspaceLibrary() {
     const loaded = await editor.workspaceState.loadLibrary();
-    await tick();
+    // The workspace state stays mounted while another section is visible so
+    // its local cache can be reused. If a retry is triggered from that state,
+    // reveal Klaro before restoring focus; an element inside the display:none
+    // workspace shell cannot receive focus.
+    if (loaded && activeSection !== 'klaro') navigate('klaro');
+    // Focus before yielding to the next render tick. The heading is stable
+    // across the loading/error/ready states, and doing this synchronously
+    // avoids a screen-reader/test query observing the new file list before
+    // focus restoration runs.
     if (loaded) filesPanel?.focusTitle();
     else filesPanel?.focusRetry();
+    await tick();
   }
 
   function openCreateWorkspaceDialog() {

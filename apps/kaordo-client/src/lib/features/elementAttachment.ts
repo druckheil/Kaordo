@@ -88,33 +88,47 @@ export function settleCanvasElement(
   element: CanvasElement,
   globalX: number,
   globalY: number,
-  elements: CanvasElement[],
-  placements: CanvasPlacement[],
+  elements: readonly CanvasElement[],
+  placements: readonly CanvasPlacement[],
 ): CanvasElement {
   const centerX = globalX + element.width / 2;
   const centerY = globalY + element.height / 2;
+  const placementsById = new Map(
+    placements.map((placement) => [placement.id, placement] as const),
+  );
 
   if (element.type === 'text' || element.type === 'media') {
-    const rectangle = [...elements]
-      .reverse()
-      .filter((candidate): candidate is RectangleElement =>
-        candidate.type === 'rectangle' && candidate.id !== element.id,
-      )
-      .find((candidate) => {
-        const frame = globalFrame(candidate, placements);
-        return frame !== null && pointInFrame(centerX, centerY, frame);
-      });
+    // Iterate backwards so the visually topmost rectangle wins, without
+    // allocating a reversed/filter array for every drop.
+    let rectangle: RectangleElement | undefined;
+    for (let index = elements.length - 1; index >= 0; index -= 1) {
+      const candidate = elements[index];
+      if (!candidate || candidate.type !== 'rectangle' || candidate.id === element.id) continue;
+      const frame = globalFrame(candidate, placementsById);
+      if (frame && pointInFrame(centerX, centerY, frame)) {
+        rectangle = candidate;
+        break;
+      }
+    }
     if (rectangle) {
-      return attachElementToRectangle(element, rectangle, globalX, globalY, placements);
+      return attachElementToRectangle(element, rectangle, globalX, globalY, placementsById);
     }
   }
 
-  const tray = [...placements].reverse().find((candidate) =>
-    centerX >= candidate.x &&
-    centerX <= candidate.x + candidate.width &&
-    centerY >= candidate.y + CANVAS_CARD_HEADER_HEIGHT &&
-    centerY <= candidate.y + candidate.height
-  );
+  let tray: CanvasPlacement | undefined;
+  for (let index = placements.length - 1; index >= 0; index -= 1) {
+    const candidate = placements[index];
+    if (
+      candidate &&
+      centerX >= candidate.x &&
+      centerX <= candidate.x + candidate.width &&
+      centerY >= candidate.y + CANVAS_CARD_HEADER_HEIGHT &&
+      centerY <= candidate.y + candidate.height
+    ) {
+      tray = candidate;
+      break;
+    }
+  }
   if (tray) return attachToObject(element, tray, globalX, globalY);
   return detachFromParents(element, globalX, globalY);
 }
@@ -156,10 +170,10 @@ function attachElementToRectangle(
   rectangle: RectangleElement,
   globalX: number,
   globalY: number,
-  placements: CanvasPlacement[],
+  placements: ReadonlyMap<string, CanvasPlacement>,
 ): TextElement | MediaElement {
   const tray = rectangle.parentObjectId
-    ? placements.find((placement) => placement.id === rectangle.parentObjectId)
+    ? placements.get(rectangle.parentObjectId)
     : undefined;
   const surfaceX = tray ? globalX - tray.x : globalX;
   const surfaceY = tray
@@ -230,7 +244,7 @@ function detachFromParents(
 
 function globalFrame(
   element: RectangleElement,
-  placements: CanvasPlacement[],
+  placements: ReadonlyMap<string, CanvasPlacement>,
 ) {
   if (!element.parentObjectId) {
     return {
@@ -240,7 +254,7 @@ function globalFrame(
       top: element.y,
     };
   }
-  const tray = placements.find((placement) => placement.id === element.parentObjectId);
+  const tray = placements.get(element.parentObjectId);
   if (!tray) return null;
   const left = tray.x + element.x;
   const top = tray.y + CANVAS_CARD_HEADER_HEIGHT + element.y;

@@ -19,12 +19,14 @@ export function startArrowDraw(
   point: { x: number; y: number },
   pointerId: number,
   sourceAttachment?: ArrowAttachment,
+  options: { precisePoint?: boolean } = {},
 ): ArrowDrawGesture {
   return {
     currentX: point.x,
     currentY: point.y,
     kind: 'draw-arrow',
     pointerId,
+    ...(options.precisePoint ? { precisePoint: true } : {}),
     ...(sourceAttachment ? { sourceAttachment } : {}),
     startX: point.x,
     startY: point.y,

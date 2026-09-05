@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { ArrowElement, RectangleElement } from '../domain/workspace';
-import { isCanvasElementHighlighted } from './canvasSelection';
+import type { ArrowElement, RectangleElement, TextElement } from '../domain/workspace';
+import {
+  createCanvasSelectionResolver,
+  isCanvasElementHighlighted,
+} from './canvasSelection';
 
 const source: RectangleElement = {
   fill: '#fff',
@@ -64,5 +67,31 @@ describe('canvas selection highlighting', () => {
       [{ kind: 'panel', id: 'panel-b' }],
       [source, arrow],
     )).toBe(false);
+  });
+
+  it('precomputes highlight relationships for a complete render pass', () => {
+    const child: TextElement = {
+      color: '#25332d',
+      fontSize: 16,
+      height: 40,
+      id: 'child',
+      html: '<p>Child</p>',
+      parentElementId: source.id,
+      parentObjectId: source.parentObjectId,
+      textAlign: 'left',
+      type: 'text',
+      width: 100,
+      x: 0,
+      y: 0,
+    };
+    const resolver = createCanvasSelectionResolver(
+      [{ kind: 'element', id: source.id }],
+      [source, child, arrow],
+    );
+
+    expect(resolver.isHighlighted(source)).toBe(true);
+    expect(resolver.isHighlighted(child)).toBe(true);
+    expect(resolver.isHighlighted(arrow)).toBe(true);
+    expect(resolver.ids).toEqual(new Set(['source', 'child']));
   });
 });

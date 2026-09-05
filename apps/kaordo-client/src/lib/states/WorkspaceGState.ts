@@ -39,6 +39,7 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
   readonly #autoload: boolean;
   readonly #gateway: WorkspaceGateway;
   #createWorkspaceAttempt = 0;
+  #libraryInFlight: Promise<boolean> | null = null;
   #libraryAttempt = 0;
   #libraryMutation = 0;
   #objectAttempt = 0;
@@ -72,6 +73,7 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
 
   override exit(): void {
     this.#libraryAttempt += 1;
+    this.#libraryInFlight = null;
     this.invalidateWorkspaceCommands();
     this.patch({
       isCreatingObject: false,
@@ -88,35 +90,50 @@ export class WorkspaceGState extends GState<WorkspaceSnapshot> {
     });
   }
 
-  async loadLibrary(): Promise<boolean> {
-    const attempt = ++this.#libraryAttempt;
-    const mutation = this.#libraryMutation;
-    this.patch({
-      libraryError: null,
-      libraryPhase: 'loading',
-      libraryWarnings: [],
+  loadLibrary(): Promise<boolean> {
+    // App start and the visible retry action can overlap during a section
+    // transition. Share the read instead of issuing duplicate filesystem or
+    // coordinator requests; mutation races are handled inside the shared run.
+    if (this.#libraryInFlight) return this.#libraryInFlight;
+    const load = this.loadLibraryInternal();
+    const shared = load.finally(() => {
+      if (this.#libraryInFlight === shared) this.#libraryInFlight = null;
     });
+    this.#libraryInFlight = shared;
+    return shared;
+  }
 
-    try {
-      const library = await this.#gateway.listWorkspaces();
-      if (attempt !== this.#libraryAttempt) return false;
-      if (mutation !== this.#libraryMutation) return this.loadLibrary();
+  private async loadLibraryInternal(): Promise<boolean> {
+    while (true) {
+      const attempt = ++this.#libraryAttempt;
+      const mutation = this.#libraryMutation;
       this.patch({
-        files: library.files,
-        libraryPhase: 'ready',
-        libraryWarnings: library.warnings,
+        libraryError: null,
+        libraryPhase: 'loading',
+        libraryWarnings: [],
       });
-      return true;
-    } catch (error) {
-      if (attempt !== this.#libraryAttempt) return false;
-      this.patch({
-        libraryError: readableError(
-          error,
-          'The workspace library could not be loaded.',
-        ),
-        libraryPhase: 'error',
-      });
-      return false;
+
+      try {
+        const library = await this.#gateway.listWorkspaces();
+        if (attempt !== this.#libraryAttempt) return false;
+        if (mutation !== this.#libraryMutation) continue;
+        this.patch({
+          files: library.files,
+          libraryPhase: 'ready',
+          libraryWarnings: library.warnings,
+        });
+        return true;
+      } catch (error) {
+        if (attempt !== this.#libraryAttempt) return false;
+        this.patch({
+          libraryError: readableError(
+            error,
+            'The workspace library could not be loaded.',
+          ),
+          libraryPhase: 'error',
+        });
+        return false;
+      }
     }
   }
 

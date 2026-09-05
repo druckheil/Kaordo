@@ -9,7 +9,7 @@
   } from '../lib/domain/workspace';
   import { textElementLabel } from '../lib/domain/workspace';
   import {
-    isCanvasElementHighlighted,
+    createCanvasSelectionResolver,
     isCanvasPanelHighlighted,
     isCanvasSelectionModifier,
     type CanvasSelectionOptions,
@@ -259,6 +259,10 @@
     const elements = document?.elements ?? [];
     const panelIds = new Set(currentWorkspace.objects.map((object) => object.id));
     const resolveParent = createContentHierarchyResolver(elements, panelIds);
+    const selection = createCanvasSelectionResolver(
+      snapshot.selectedItems,
+      elements,
+    );
     const elementKeys = new Map(
       elements.map((element) => [element.id, contentNodeKeyFor(element)] as const),
     );
@@ -288,7 +292,7 @@
         id: element.id,
         key: contentNodeKeyFor(element),
         parentKey,
-        selected: isCanvasElementHighlighted(element, snapshot.selectedItems, elements),
+        selected: selection.isHighlighted(element),
       };
       if (element.type === 'rectangle') {
         cardNumber += 1;

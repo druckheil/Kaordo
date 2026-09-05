@@ -9,6 +9,71 @@ export type CanvasSelectionOptions = {
   additive?: boolean;
 };
 
+/**
+ * Lookup tables shared by the canvas renderers and selection helpers.
+ *
+ * Canvas documents intentionally stay flat on disk. Building the two small
+ * indexes once per document keeps hierarchy walks O(n) instead of repeatedly
+ * scanning the complete element array for every tree row or rendered node.
+ */
+export type CanvasElementLookup = {
+  readonly byId: ReadonlyMap<string, CanvasElement>;
+  readonly childrenByParent: ReadonlyMap<string, readonly CanvasElement[]>;
+};
+
+export function createCanvasElementLookup(
+  elements: readonly CanvasElement[],
+): CanvasElementLookup {
+  const byId = new Map<string, CanvasElement>();
+  const childrenByParent = new Map<string, CanvasElement[]>();
+  for (const element of elements) {
+    byId.set(element.id, element);
+    if (!('parentElementId' in element) || !element.parentElementId) continue;
+    const children = childrenByParent.get(element.parentElementId) ?? [];
+    children.push(element);
+    childrenByParent.set(element.parentElementId, children);
+  }
+  return { byId, childrenByParent };
+}
+
+export type CanvasSelectionResolver = {
+  readonly roots: readonly CanvasElement[];
+  readonly ids: ReadonlySet<string>;
+  isHighlighted(element: CanvasElement): boolean;
+};
+
+/**
+ * Precomputes all selection relationships for one render pass. Consumers can
+ * then ask for a row's highlight state without rebuilding selection sets or
+ * walking the document for every row.
+ */
+export function createCanvasSelectionResolver(
+  selections: readonly CanvasSelection[],
+  elements: readonly CanvasElement[],
+  fallback?: CanvasElement,
+): CanvasSelectionResolver {
+  const lookup = createCanvasElementLookup(elements);
+  const selected = selectionSets(selections);
+  const roots = selectedElementRoots(selections, elements, fallback, lookup);
+  const ids = new Set<string>();
+  for (const root of roots) {
+    ids.add(root.id);
+    collectDescendants(root.id, lookup, ids);
+  }
+
+  const highlighted = new Set<string>();
+  for (const element of elements) {
+    if (isHighlightedWithLookup(element, selected, lookup)) {
+      highlighted.add(element.id);
+    }
+  }
+  return {
+    roots,
+    ids,
+    isHighlighted: (element) => highlighted.has(element.id),
+  };
+}
+
 /** Returns true for the modifiers used by native canvas/tree multi-selection. */
 export function isCanvasSelectionModifier(
   event: Pick<MouseEvent, 'ctrlKey' | 'metaKey' | 'shiftKey'>,
@@ -37,15 +102,12 @@ export function selectedElementRoots(
   selections: readonly CanvasSelection[],
   elements: readonly CanvasElement[],
   fallback?: CanvasElement,
+  lookup: CanvasElementLookup = createCanvasElementLookup(elements),
 ): CanvasElement[] {
-  const selectedIds = new Set(
-    selections
-      .filter((selection) => selection.kind === 'element')
-      .map((selection) => selection.id),
-  );
+  const selectedIds = selectionSets(selections).elementIds;
   const candidates = elements.filter((element) => selectedIds.has(element.id));
   const roots = candidates.filter((element) =>
-    !hasSelectedAncestor(element, selectedIds, elements),
+    !hasSelectedAncestor(element, selectedIds, lookup),
   );
   if (roots.length > 0) return roots;
   return fallback ? [fallback] : [];
@@ -56,12 +118,13 @@ export function selectedElementIds(
   selections: readonly CanvasSelection[],
   elements: readonly CanvasElement[],
   fallback?: CanvasElement,
+  lookup: CanvasElementLookup = createCanvasElementLookup(elements),
 ): Set<string> {
-  const roots = selectedElementRoots(selections, elements, fallback);
+  const roots = selectedElementRoots(selections, elements, fallback, lookup);
   const ids = new Set<string>();
   for (const root of roots) {
     ids.add(root.id);
-    collectDescendants(root.id, elements, ids);
+    collectDescendants(root.id, lookup, ids);
   }
   return ids;
 }
@@ -71,10 +134,21 @@ export function isCanvasElementHighlighted(
   element: CanvasElement,
   selections: readonly CanvasSelection[],
   elements: readonly CanvasElement[],
+  lookup: CanvasElementLookup = createCanvasElementLookup(elements),
 ): boolean {
-  if (selections.some((selection) =>
-    selection.kind === 'element' && selection.id === element.id,
-  )) return true;
+  return isHighlightedWithLookup(
+    element,
+    selectionSets(selections),
+    lookup,
+  );
+}
+
+function isHighlightedWithLookup(
+  element: CanvasElement,
+  selected: SelectionSets,
+  lookup: CanvasElementLookup,
+): boolean {
+  if (selected.elementIds.has(element.id)) return true;
 
   let current: CanvasElement | undefined = element;
   const visited = new Set<string>();
@@ -87,16 +161,10 @@ export function isCanvasElementHighlighted(
     // source panel is selected, including arrows spanning two panels.
     if (current.type === 'arrow') {
       const source: ArrowElement['startAttachment'] = current.startAttachment;
-      if (source?.objectId && selections.some((selection) =>
-        selection.kind === 'panel' && selection.id === source.objectId,
-      )) return true;
+      if (source?.objectId && selected.panelIds.has(source.objectId)) return true;
       if (source?.elementId) {
-        if (selections.some((selection) =>
-          selection.kind === 'element' && selection.id === source.elementId,
-        )) return true;
-        const sourceElement: CanvasElement | undefined = elements.find((candidate) =>
-          candidate.id === source.elementId,
-        );
+        if (selected.elementIds.has(source.elementId)) return true;
+        const sourceElement = lookup.byId.get(source.elementId);
         if (
           sourceElement
           && sourceElement.type !== 'arrow'
@@ -109,17 +177,13 @@ export function isCanvasElementHighlighted(
     }
 
     const parentObjectId = current.parentObjectId;
-    if (parentObjectId && selections.some((selection) =>
-      selection.kind === 'panel' && selection.id === parentObjectId,
-    )) return true;
+    if (parentObjectId && selected.panelIds.has(parentObjectId)) return true;
     const parentId: string | undefined = 'parentElementId' in current
       ? current.parentElementId
       : undefined;
     if (!parentId) break;
-    if (selections.some((selection) =>
-      selection.kind === 'element' && selection.id === parentId,
-    )) return true;
-    current = elements.find((candidate) => candidate.id === parentId);
+    if (selected.elementIds.has(parentId)) return true;
+    current = lookup.byId.get(parentId);
   }
   return false;
 }
@@ -162,7 +226,7 @@ export function translateCanvasElement(
 function hasSelectedAncestor(
   element: CanvasElement,
   selectedIds: ReadonlySet<string>,
-  elements: readonly CanvasElement[],
+  lookup: CanvasElementLookup,
 ): boolean {
   const visited = new Set<string>();
   let parentId = 'parentElementId' in element
@@ -171,7 +235,7 @@ function hasSelectedAncestor(
   while (parentId && !visited.has(parentId)) {
     if (selectedIds.has(parentId)) return true;
     visited.add(parentId);
-    const parent = elements.find((candidate) => candidate.id === parentId);
+    const parent = lookup.byId.get(parentId);
     parentId = parent && 'parentElementId' in parent
       ? parent.parentElementId
       : undefined;
@@ -181,13 +245,26 @@ function hasSelectedAncestor(
 
 function collectDescendants(
   parentId: string,
-  elements: readonly CanvasElement[],
+  lookup: CanvasElementLookup,
   ids: Set<string>,
 ): void {
-  for (const element of elements) {
-    if (!('parentElementId' in element) || element.parentElementId !== parentId) continue;
+  for (const element of lookup.childrenByParent.get(parentId) ?? []) {
     if (ids.has(element.id)) continue;
     ids.add(element.id);
-    collectDescendants(element.id, elements, ids);
+    collectDescendants(element.id, lookup, ids);
   }
+}
+
+type SelectionSets = {
+  readonly elementIds: ReadonlySet<string>;
+  readonly panelIds: ReadonlySet<string>;
+};
+
+function selectionSets(selections: readonly CanvasSelection[]): SelectionSets {
+  const elementIds = new Set<string>();
+  const panelIds = new Set<string>();
+  for (const selection of selections) {
+    (selection.kind === 'element' ? elementIds : panelIds).add(selection.id);
+  }
+  return { elementIds, panelIds };
 }

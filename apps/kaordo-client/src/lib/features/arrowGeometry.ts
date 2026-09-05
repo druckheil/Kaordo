@@ -26,6 +26,19 @@ export type CanvasFrame = {
 export const ARROW_MIN_LENGTH = 12;
 export const ARROW_SNAP_DISTANCE = 28;
 
+// Canvas snapshots are immutable: every edit replaces the element/placement
+// array instead of mutating it in place. Keep the id indexes keyed by that
+// snapshot so arrow rendering and snapping do not scan the whole document for
+// every endpoint or parent lookup.
+const elementLookupCache = new WeakMap<
+  readonly CanvasElement[],
+  ReadonlyMap<string, CanvasElement>
+>();
+const placementLookupCache = new WeakMap<
+  readonly CanvasPlacement[],
+  ReadonlyMap<string, CanvasPlacement>
+>();
+
 /**
  * Controls how an endpoint is attached when it is released. The default
  * keeps the original edge-snap behavior; point mode stores the released
@@ -67,7 +80,17 @@ export function arrowBounds(
   padding = 14,
 ): CanvasFrame {
   const pathPoints = [points.start, ...(points.controlPoints ?? []), points.end];
-  const boundsPoints = [...pathPoints];
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  const include = (point: ArrowPoint): void => {
+    left = Math.min(left, point.x);
+    right = Math.max(right, point.x);
+    top = Math.min(top, point.y);
+    bottom = Math.max(bottom, point.y);
+  };
+  pathPoints.forEach(include);
   for (let index = 0; index < pathPoints.length - 1; index += 1) {
     const controls = cubicControls(
       pathPoints[index - 1] ?? pathPoints[index],
@@ -75,13 +98,14 @@ export function arrowBounds(
       pathPoints[index + 1],
       pathPoints[index + 2] ?? pathPoints[index + 1],
     );
-    boundsPoints.push(controls.first, controls.second);
+    include(controls.first);
+    include(controls.second);
   }
   return {
-    bottom: Math.max(...boundsPoints.map((point) => point.y)) + padding,
-    left: Math.min(...boundsPoints.map((point) => point.x)) - padding,
-    right: Math.max(...boundsPoints.map((point) => point.x)) + padding,
-    top: Math.min(...boundsPoints.map((point) => point.y)) - padding,
+    bottom: bottom + padding,
+    left: left - padding,
+    right: right + padding,
+    top: top - padding,
   };
 }
 
@@ -188,12 +212,8 @@ function validAttachment(
   placements: readonly CanvasPlacement[],
 ): attachment is ArrowAttachment {
   if (!attachment) return false;
-  return attachment.elementId
-    ? elements.some((element) => element.id === attachment.elementId)
-    : Boolean(
-        attachment.objectId &&
-        placements.some((placement) => placement.id === attachment.objectId),
-      );
+  if (attachment.elementId) return elementsById(elements).has(attachment.elementId);
+  return Boolean(attachment.objectId && placementsById(placements).has(attachment.objectId));
 }
 
 export function canvasElementFrame(
@@ -208,7 +228,7 @@ export function canvasElementFrame(
     top: element.y,
   };
   if (!element.parentObjectId) return frame;
-  const placement = placements.find((candidate) => candidate.id === element.parentObjectId);
+  const placement = placementsById(placements).get(element.parentObjectId);
   if (!placement) return null;
   return {
     bottom: placement.y + CANVAS_CARD_HEADER_HEIGHT + frame.bottom,
@@ -400,10 +420,10 @@ function resolvePoint(
 ): ArrowPoint {
   if (!attachment) return fallback;
   const element = attachment.elementId
-    ? elements.find((candidate) => candidate.id === attachment.elementId)
+    ? elementsById(elements).get(attachment.elementId)
     : undefined;
   const placement = attachment.objectId
-    ? placements.find((candidate) => candidate.id === attachment.objectId)
+    ? placementsById(placements).get(attachment.objectId)
     : undefined;
   const globalFrame = element
     ? canvasElementFrame(element, placements)
@@ -530,7 +550,7 @@ function localFrame(
   placements: readonly CanvasPlacement[],
 ): CanvasFrame {
   if (!parentObjectId) return frame;
-  const parent = placements.find((placement) => placement.id === parentObjectId);
+  const parent = placementsById(placements).get(parentObjectId);
   if (!parent) return frame;
   const offsetX = parent.x;
   const offsetY = parent.y + CANVAS_CARD_HEADER_HEIGHT;
@@ -638,12 +658,17 @@ function measuredTextRangeFrame(
 }
 
 function unionFrames(frames: readonly CanvasFrame[]): CanvasFrame {
-  return {
-    bottom: Math.max(...frames.map((frame) => frame.bottom)),
-    left: Math.min(...frames.map((frame) => frame.left)),
-    right: Math.max(...frames.map((frame) => frame.right)),
-    top: Math.min(...frames.map((frame) => frame.top)),
-  };
+  let bottom = Number.NEGATIVE_INFINITY;
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  for (const frame of frames) {
+    bottom = Math.max(bottom, frame.bottom);
+    left = Math.min(left, frame.left);
+    right = Math.max(right, frame.right);
+    top = Math.min(top, frame.top);
+  }
+  return { bottom, left, right, top };
 }
 
 function clamp01(value: number): number {
@@ -652,4 +677,24 @@ function clamp01(value: number): number {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function elementsById(
+  elements: readonly CanvasElement[],
+): ReadonlyMap<string, CanvasElement> {
+  const cached = elementLookupCache.get(elements);
+  if (cached) return cached;
+  const lookup = new Map(elements.map((element) => [element.id, element] as const));
+  elementLookupCache.set(elements, lookup);
+  return lookup;
+}
+
+function placementsById(
+  placements: readonly CanvasPlacement[],
+): ReadonlyMap<string, CanvasPlacement> {
+  const cached = placementLookupCache.get(placements);
+  if (cached) return cached;
+  const lookup = new Map(placements.map((placement) => [placement.id, placement] as const));
+  placementLookupCache.set(placements, lookup);
+  return lookup;
 }

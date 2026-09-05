@@ -7,6 +7,27 @@ import { RondoVoiceSession } from '../services/RondoVoiceSession';
 import { RondoGState } from './RondoGState';
 
 describe('RondoGState', () => {
+  it('shares concurrent bootstrap and space detail reads', async () => {
+    const gateway = new DeferredRondoGateway();
+    const state = new RondoGState(gateway, new MemoryChatGateway(), voiceSession());
+
+    const first = state.refresh();
+    const second = state.refresh();
+    expect(second).toBe(first);
+    expect(gateway.bootstrapCalls).toBe(1);
+
+    gateway.resolveBootstrap();
+    await Promise.resolve();
+    state.selectSpace('space-1');
+    const detail = state.loadSpace('space-1');
+    const duplicateDetail = state.loadSpace('space-1');
+    expect(duplicateDetail).toBe(detail);
+    expect(gateway.loadSpaceCalls).toBe(1);
+
+    gateway.resolveSpace();
+    await expect(Promise.all([first, detail])).resolves.toEqual([undefined, true]);
+  });
+
   it('creates a public Space and consumes the single free Public option', async () => {
     const gateway = new MemoryRondoGateway();
     const state = new RondoGState(gateway, new MemoryChatGateway(), voiceSession());
@@ -117,6 +138,45 @@ class MemoryRondoGateway implements RondoGateway {
   ): ReturnType<RondoGateway['updateSpace']> { throw new Error('Not used.'); }
   voiceIce(): ReturnType<RondoGateway['voiceIce']> {
     return Promise.resolve({ expiresAt: 86_400, iceServers: [{ urls: ['stun:test'] }] });
+  }
+}
+
+class DeferredRondoGateway extends MemoryRondoGateway {
+  bootstrapCalls = 0;
+  loadSpaceCalls = 0;
+  private bootstrapResolver: ((value: RondoBootstrap) => void) | null = null;
+  private spaceResolver: ((value: Awaited<ReturnType<RondoGateway['loadSpace']>>) => void) | null = null;
+
+  override bootstrap(): Promise<RondoBootstrap> {
+    this.bootstrapCalls += 1;
+    return new Promise((resolve) => { this.bootstrapResolver = resolve; });
+  }
+
+  override loadSpace(spaceId: string): ReturnType<RondoGateway['loadSpace']> {
+    this.loadSpaceCalls += 1;
+    return new Promise((resolve) => {
+      this.spaceResolver = resolve;
+    });
+  }
+
+  resolveBootstrap(): void {
+    this.bootstrapResolver?.({
+      privateNodes: [],
+      publicOption: { alreadyCreated: false, available: true, limitBytes: 1_073_741_824 },
+      spaces: [space('space-1', 'North Star', 'owner')],
+    });
+  }
+
+  resolveSpace(): void {
+    this.spaceResolver?.({
+      detail: {
+        ...space('space-1', 'North Star', 'owner'),
+        invites: [],
+        members: [],
+        nodes: [],
+        rooms: [],
+      },
+    });
   }
 }
 
