@@ -14,6 +14,11 @@
     isCanvasSelectionModifier,
     type CanvasSelectionOptions,
   } from '../lib/features/canvasSelection';
+  import {
+    contentNodeKeyFor,
+    contentParentKeyFor,
+    createContentHierarchyResolver,
+  } from '../lib/features/contentHierarchy';
   import type { CanvasService } from '../lib/services/CanvasService';
   import type { CanvasSnapshot } from '../lib/states/CanvasGState';
   import { openContextMenu } from '../lib/ui/contextMenu';
@@ -29,55 +34,39 @@
     workspace: WorkspaceDetail | null;
   };
 
-  type PanelNode = {
+  type ContentNodeBase = {
     depth: number;
     id: string;
     key: string;
-    kind: 'panel';
     label: string;
+    parentKey?: string;
+    selected: boolean;
+  };
+
+  type PanelNode = ContentNodeBase & {
+    kind: 'panel';
     object: ObjectSummary;
     placed: boolean;
-    selected: boolean;
   };
 
-  type CardNode = {
-    depth: number;
+  type CardNode = ContentNodeBase & {
     element: RectangleElement;
-    id: string;
-    key: string;
     kind: 'card';
-    label: string;
-    selected: boolean;
   };
 
-  type TextNode = {
-    depth: number;
+  type TextNode = ContentNodeBase & {
     element: TextElement;
-    id: string;
-    key: string;
     kind: 'text';
-    label: string;
-    selected: boolean;
   };
 
-  type MediaNode = {
-    depth: number;
+  type MediaNode = ContentNodeBase & {
     element: MediaElement;
-    id: string;
-    key: string;
     kind: 'media';
-    label: string;
-    selected: boolean;
   };
 
-  type ArrowNode = {
-    depth: number;
+  type ArrowNode = ContentNodeBase & {
     element: ArrowElement;
-    id: string;
-    key: string;
     kind: 'arrow';
-    label: string;
-    selected: boolean;
   };
 
   type ElementNode = ArrowNode | CardNode | TextNode | MediaNode;
@@ -237,6 +226,10 @@
 
   function nodeSubtitle(node: ElementNode): string {
     if (node.kind === 'arrow') {
+      if (node.parentKey?.startsWith('card:')) return 'Arrow · Card';
+      if (node.parentKey?.startsWith('text:')) return 'Arrow · Text';
+      if (node.parentKey?.startsWith('media:')) return 'Arrow · Media';
+      if (node.parentKey?.startsWith('panel:')) return 'Arrow · Panel';
       return node.element.parentObjectId ? 'Arrow · Panel' : 'Arrow · Canvas';
     }
     if (node.kind === 'card') {
@@ -264,78 +257,12 @@
     const document = snapshot.canvasDocuments[currentWorkspace.id];
     const elements = document?.elements ?? [];
     const panelIds = new Set(currentWorkspace.objects.map((object) => object.id));
-    const cards = new Map(
-      elements
-        .filter((element): element is RectangleElement => element.type === 'rectangle')
-        .map((element) => [element.id, element] as const),
+    const resolveParent = createContentHierarchyResolver(elements, panelIds);
+    const elementKeys = new Map(
+      elements.map((element) => [element.id, contentNodeKeyFor(element)] as const),
     );
-    const emitted = new Set<string>();
     const nodes: ContentNode[] = [];
     let cardNumber = 0;
-
-    const addText = (element: TextElement, depth: number) => {
-      if (emitted.has(element.id)) return;
-      emitted.add(element.id);
-      nodes.push({
-        depth,
-        element,
-        id: element.id,
-        key: `text:${element.id}`,
-        kind: 'text',
-        label: textElementLabel(element),
-        selected: isCanvasElementHighlighted(element, snapshot.selectedItems, elements),
-      });
-    };
-
-    const addMedia = (element: MediaElement, depth: number) => {
-      if (emitted.has(element.id)) return;
-      emitted.add(element.id);
-      nodes.push({
-        depth,
-        element,
-        id: element.id,
-        key: `media:${element.id}`,
-        kind: 'media',
-        label: element.name,
-        selected: isCanvasElementHighlighted(element, snapshot.selectedItems, elements),
-      });
-    };
-
-    const addArrow = (element: ArrowElement, depth: number) => {
-      if (emitted.has(element.id)) return;
-      emitted.add(element.id);
-      nodes.push({
-        depth,
-        element,
-        id: element.id,
-        key: `arrow:${element.id}`,
-        kind: 'arrow',
-        label: 'Arrow',
-        selected: isCanvasElementHighlighted(element, snapshot.selectedItems, elements),
-      });
-    };
-
-    const addCard = (element: RectangleElement, depth: number) => {
-      if (emitted.has(element.id)) return;
-      emitted.add(element.id);
-      cardNumber += 1;
-      nodes.push({
-        depth,
-        element,
-        id: element.id,
-        key: `card:${element.id}`,
-        kind: 'card',
-        label: `Card ${cardNumber}`,
-        selected: isCanvasElementHighlighted(element, snapshot.selectedItems, elements),
-      });
-      for (const child of elements) {
-        if (child.type === 'text' && child.parentElementId === element.id) {
-          addText(child, depth + 1);
-        } else if (child.type === 'media' && child.parentElementId === element.id) {
-          addMedia(child, depth + 1);
-        }
-      }
-    };
 
     for (const object of currentWorkspace.objects) {
       nodes.push({
@@ -348,79 +275,111 @@
         placed: placedIds.has(object.id),
         selected: isCanvasPanelHighlighted(object.id, snapshot.selectedItems),
       });
-      for (const element of elements) {
-        if (
-          element.type === 'rectangle' &&
-          element.parentObjectId === object.id
-        ) {
-          addCard(element, 1);
-        } else if (
-          element.type === 'text' &&
-          element.parentObjectId === object.id &&
-          (!element.parentElementId || !cards.has(element.parentElementId))
-        ) {
-          addText(element, 1);
-        } else if (
-          element.type === 'media' &&
-          element.parentObjectId === object.id &&
-          (!element.parentElementId || !cards.has(element.parentElementId))
-        ) {
-          addMedia(element, 1);
-        } else if (
-          element.type === 'arrow' &&
-          element.parentObjectId === object.id
-        ) {
-          addArrow(element, 1);
-        }
-      }
     }
 
-    // Keep unattached cards and text visible as root-level canvas content. A
-    // malformed parent reference is treated as detached rather than hidden.
+    // Elements are persisted in a flat list. Parent keys make the projection
+    // independent of storage order and keep attached arrows with the element
+    // where their source starts, including arrows spanning two panels.
     for (const element of elements) {
+      const parentKey = contentParentKeyFor(resolveParent(element), elementKeys);
+      const common = {
+        depth: 0,
+        id: element.id,
+        key: contentNodeKeyFor(element),
+        parentKey,
+        selected: isCanvasElementHighlighted(element, snapshot.selectedItems, elements),
+      };
       if (element.type === 'rectangle') {
-        if (!element.parentObjectId || !panelIds.has(element.parentObjectId)) {
-          addCard(element, 0);
-        }
-        continue;
-      }
-      if (element.type === 'arrow') {
-        if (!element.parentObjectId || !panelIds.has(element.parentObjectId)) {
-          addArrow(element, 0);
-        }
-        continue;
-      }
-      if (
-        element.parentElementId &&
-        cards.has(element.parentElementId)
-      ) continue;
-      if (!element.parentObjectId || !panelIds.has(element.parentObjectId)) {
-        if (element.type === 'text') addText(element, 0);
-        else addMedia(element, 0);
+        cardNumber += 1;
+        nodes.push({
+          ...common,
+          element,
+          kind: 'card',
+          label: `Card ${cardNumber}`,
+        });
+      } else if (element.type === 'text') {
+        nodes.push({
+          ...common,
+          element,
+          kind: 'text',
+          label: textElementLabel(element),
+        });
+      } else if (element.type === 'media') {
+        nodes.push({
+          ...common,
+          element,
+          kind: 'media',
+          label: element.name,
+        });
+      } else {
+        nodes.push({
+          ...common,
+          element,
+          kind: 'arrow',
+          label: 'Arrow',
+        });
       }
     }
     return nodes;
   }
 
   function buildContentTreeHierarchy(nodes: readonly ContentNode[]): ContentTreeNode[] {
-    const roots: ContentTreeNode[] = [];
-    const stack: Array<{ depth: number; node: ContentTreeNode }> = [];
-
+    const seenKeys = new Set<string>();
+    const uniqueNodes: ContentNode[] = [];
     for (const node of nodes) {
-      const treeNode: ContentTreeNode = { ...node, children: [] };
-
-      while (stack.length && stack[stack.length - 1]!.depth >= node.depth) {
-        stack.pop();
-      }
-
-      const parent = stack[stack.length - 1]?.node;
-      if (parent) parent.children.push(treeNode);
-      else roots.push(treeNode);
-
-      stack.push({ depth: node.depth, node: treeNode });
+      if (seenKeys.has(node.key)) continue;
+      seenKeys.add(node.key);
+      uniqueNodes.push(node);
+    }
+    const parentByKey = new Map(
+      uniqueNodes.map((node) => [node.key, node.parentKey] as const),
+    );
+    const treeByKey = new Map<string, ContentTreeNode>();
+    for (const node of uniqueNodes) {
+      treeByKey.set(node.key, { ...node, children: [] });
     }
 
+    const roots: ContentTreeNode[] = [];
+    for (const node of uniqueNodes) {
+      const treeNode = treeByKey.get(node.key);
+      if (!treeNode) continue;
+      const parentKey = node.parentKey;
+      if (
+        !parentKey
+        || parentKey === node.key
+        || !treeByKey.has(parentKey)
+        || createsParentCycle(node.key, parentKey, parentByKey)
+      ) {
+        roots.push(treeNode);
+        continue;
+      }
+      treeByKey.get(parentKey)!.children.push(treeNode);
+    }
+
+    assignTreeDepth(roots, 0);
     return roots;
+  }
+
+  function createsParentCycle(
+    nodeKey: string,
+    parentKey: string,
+    parentByKey: ReadonlyMap<string, string | undefined>,
+  ): boolean {
+    const visited = new Set<string>([nodeKey]);
+    let current: string | undefined = parentKey;
+    while (current) {
+      if (visited.has(current)) return true;
+      visited.add(current);
+      current = parentByKey.get(current);
+    }
+    return false;
+  }
+
+  function assignTreeDepth(nodes: ContentTreeNode[], depth: number): void {
+    for (const node of nodes) {
+      node.depth = depth;
+      assignTreeDepth(node.children, depth + 1);
+    }
   }
 </script>
 

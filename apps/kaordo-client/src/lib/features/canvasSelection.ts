@@ -1,4 +1,4 @@
-import type { CanvasElement } from '../domain/workspace';
+import type { ArrowElement, CanvasElement } from '../domain/workspace';
 
 export type CanvasSelection =
   | { id: string; kind: 'element' }
@@ -80,6 +80,34 @@ export function isCanvasElementHighlighted(
   const visited = new Set<string>();
   while (current && !visited.has(current.id)) {
     visited.add(current.id);
+
+    // Arrows have no parentElementId. Their start attachment is the logical
+    // owner used by Contents, so follow it for selection highlighting too.
+    // This keeps an attached arrow highlighted when its source element or
+    // source panel is selected, including arrows spanning two panels.
+    if (current.type === 'arrow') {
+      const source: ArrowElement['startAttachment'] = current.startAttachment;
+      if (source?.objectId && selections.some((selection) =>
+        selection.kind === 'panel' && selection.id === source.objectId,
+      )) return true;
+      if (source?.elementId) {
+        if (selections.some((selection) =>
+          selection.kind === 'element' && selection.id === source.elementId,
+        )) return true;
+        const sourceElement: CanvasElement | undefined = elements.find((candidate) =>
+          candidate.id === source.elementId,
+        );
+        if (
+          sourceElement
+          && sourceElement.type !== 'arrow'
+          && !visited.has(sourceElement.id)
+        ) {
+          current = sourceElement;
+          continue;
+        }
+      }
+    }
+
     const parentObjectId = current.parentObjectId;
     if (parentObjectId && selections.some((selection) =>
       selection.kind === 'panel' && selection.id === parentObjectId,
