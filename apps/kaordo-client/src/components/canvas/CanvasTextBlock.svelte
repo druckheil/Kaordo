@@ -26,6 +26,7 @@
     textWordsForSelection,
   } from '../../lib/features/textLayout';
   import type { TextRangeFrame } from '../../lib/features/textLayout';
+  import type { CanvasSearchHighlight } from '../../lib/features/canvasSearch';
   import { openContextMenu } from '../../lib/ui/contextMenu';
 
   type Props = {
@@ -34,6 +35,7 @@
     arrowSource?: TextArrowSource | null;
     editing: boolean;
     element: TextElement;
+    searchHighlight?: CanvasSearchHighlight | null;
     maxHeight?: number;
     maxWidth?: number;
     moving?: boolean;
@@ -62,6 +64,7 @@
     arrowSource = null,
     editing,
     element,
+    searchHighlight = null,
     maxHeight = CANVAS_HEIGHT,
     maxWidth = CANVAS_TEXT_MAX_WIDTH,
     moving = false,
@@ -123,6 +126,15 @@
         key: `${entry.key}:${index}`,
       }));
     });
+  });
+  let textSearchHighlightFrames = $derived.by(() => {
+    textLayoutRevision;
+    const query = searchHighlight?.query.trim() ?? '';
+    if (!query || searchHighlight?.kind !== 'element' || !editor) return [];
+    const anchor = searchTextAnchor(editor.textContent ?? '', query);
+    if (!anchor) return [];
+    const scale = Math.max(0.0001, canvasApplicationScale() * zoom);
+    return measureTextRangeFragments(editor, anchor, scale) ?? [];
   });
 
   onMount(() => {
@@ -598,6 +610,45 @@
     return left.startOffset === right.startOffset &&
       left.endOffset === right.endOffset;
   }
+
+  function searchTextAnchor(text: string, query: string): TextRangeAnchor | null {
+    const normalizedQuery = query.trim().replace(/\s+/g, ' ');
+    if (!normalizedQuery || !text) return null;
+    const lowerText = text.toLocaleLowerCase();
+    const lowerQuery = normalizedQuery.toLocaleLowerCase();
+    const exactStart = lowerText.indexOf(lowerQuery);
+    if (exactStart >= 0) {
+      return createSearchTextAnchor(text, exactStart, exactStart + normalizedQuery.length);
+    }
+    const pattern = normalizedQuery
+      .split(' ')
+      .map((part) => escapeRegExp(part))
+      .join('\\s+');
+    const match = new RegExp(pattern, 'i').exec(text);
+    return match && match.index !== undefined
+      ? createSearchTextAnchor(text, match.index, match.index + match[0].length)
+      : null;
+  }
+
+  function createSearchTextAnchor(
+    text: string,
+    startOffset: number,
+    endOffset: number,
+  ): TextRangeAnchor {
+    return {
+      endOffset,
+      height: 1,
+      quote: text.slice(startOffset, endOffset),
+      startOffset,
+      width: 1,
+      x: 0,
+      y: 0,
+    };
+  }
+
+  function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
 </script>
 
 <div
@@ -607,6 +658,7 @@
   class:canvas-text-block--bars-two={element.leftBars === 2}
   class:canvas-text-block--moving={moving}
   class:canvas-text-block--arrow-source={textArrowHighlightFrames.length > 0}
+  class:canvas-text-block--search-highlight={searchHighlight?.kind === 'element'}
   class:canvas-text-block--selected={selected}
   data-canvas-element-id={element.id}
   style={style(element)}
@@ -658,6 +710,13 @@
       class="canvas-text-arrow-highlight canvas-text-arrow-source"
       class:canvas-text-arrow-highlight--active={highlight.active}
       style={`--canvas-arrow-color:${highlight.color};left:${highlight.frame.x}px;top:${highlight.frame.y}px;width:${highlight.frame.width}px;height:${highlight.frame.height}px`}
+      aria-hidden="true"
+    ></span>
+  {/each}
+  {#each textSearchHighlightFrames as frame, index (index)}
+    <span
+      class="canvas-text-search-highlight"
+      style={`left:${frame.x}px;top:${frame.y}px;width:${frame.width}px;height:${frame.height}px`}
       aria-hidden="true"
     ></span>
   {/each}
@@ -746,6 +805,10 @@
     background: rgb(99 91 224 / 7%);
   }
 
+  .canvas-text-block--search-highlight {
+    animation: canvas-text-search-target 1.1s ease-out both;
+  }
+
   .canvas-text-arrow-highlight,
   .canvas-text-arrow-source {
     position: absolute;
@@ -764,6 +827,21 @@
 
   .canvas-text-arrow-highlight--active {
     animation: canvas-text-arrow-source-pulse 1.8s ease-in-out infinite;
+  }
+
+  .canvas-text-search-highlight {
+    position: absolute;
+    z-index: 1;
+    box-sizing: border-box;
+    min-width: 2px;
+    min-height: 1px;
+    border-radius: 4px;
+    background: rgb(255 217 87 / 64%);
+    box-shadow:
+      0 0 0 1px rgb(211 160 23 / 48%),
+      0 3px 12px rgb(211 160 23 / 32%);
+    pointer-events: none;
+    animation: canvas-text-search-match 1.1s ease-out both;
   }
 
   .canvas-text-block--bars-one::before,
@@ -860,6 +938,21 @@
   @media (prefers-reduced-motion: reduce) {
     .canvas-text-block { transition: none; }
     .canvas-text-arrow-highlight--active { animation: none; }
+    .canvas-text-block--search-highlight,
+    .canvas-text-search-highlight { animation: none; }
+  }
+
+  @keyframes canvas-text-search-target {
+    0% { box-shadow: 0 0 0 0 rgb(211 160 23 / 0%); }
+    18% { box-shadow: 0 0 0 5px rgb(211 160 23 / 34%), 0 8px 24px rgb(211 160 23 / 20%); }
+    100% { box-shadow: 0 0 0 0 rgb(211 160 23 / 0%); }
+  }
+
+  @keyframes canvas-text-search-match {
+    0% { opacity: 0; transform: scale(0.94); }
+    18% { opacity: 1; transform: scale(1); }
+    72% { opacity: 1; }
+    100% { opacity: 0; }
   }
 
   @keyframes canvas-text-arrow-source-pulse {

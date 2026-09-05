@@ -22,6 +22,7 @@
     onContextMenu: (event: MouseEvent) => void;
     onDoubleClick: (event: MouseEvent, element: RectangleElement) => void;
     onStartMove: (event: PointerEvent, element: RectangleElement) => void;
+    searchHighlighted?: boolean;
     selected: boolean;
     workspaceId: string;
   };
@@ -45,6 +46,7 @@
     onContextMenu,
     onDoubleClick,
     onStartMove,
+    searchHighlighted = false,
     selected,
     workspaceId,
   }: Props = $props();
@@ -213,6 +215,7 @@
 >
   <button
     class={`${elementClass}${moving ? ` ${elementClass}--moving-source` : ''}${selected ? ` ${elementClass}--selected` : ''}`}
+    class:canvas-element--search-highlight={searchHighlighted}
     data-canvas-element-id={element.id}
     type="button"
     aria-label={ariaLabel}
@@ -277,6 +280,10 @@
     opacity: 0;
   }
 
+  :global(.canvas-element--search-highlight) {
+    animation: canvas-element-search-highlight 1.1s ease-out both;
+  }
+
   .canvas-rectangle-resize-handle {
     position: absolute;
     right: 3px;
@@ -318,5 +325,12 @@
 
   @media (prefers-reduced-motion: reduce) {
     .canvas-rectangle-resize-handle { transition: none; }
+    :global(.canvas-element--search-highlight) { animation: none; }
+  }
+
+  @keyframes canvas-element-search-highlight {
+    0% { filter: drop-shadow(0 0 0 rgb(211 160 23 / 0%)); }
+    18% { filter: drop-shadow(0 0 8px rgb(211 160 23 / 82%)); }
+    100% { filter: drop-shadow(0 0 0 rgb(211 160 23 / 0%)); }
   }
 </style>

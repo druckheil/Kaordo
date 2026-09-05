@@ -1357,6 +1357,7 @@
         ])}
         onDoubleClick={(event, rectangle) => beginRectangleEditing(event, rectangle)}
         onStartMove={startMove}
+        searchHighlighted={snapshot.searchHighlight?.kind === 'element' && snapshot.searchHighlight.id === element.id}
         selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
         workspaceId={workspaceId}
       />
@@ -1389,6 +1390,7 @@
         onStartMove={startMove}
         onStartPointMove={startMove}
         placements={snapshot.placements[workspaceId] ?? []}
+        searchHighlighted={snapshot.searchHighlight?.kind === 'element' && snapshot.searchHighlight.id === element.id}
         selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
         {zoom}
       />
@@ -1399,6 +1401,9 @@
         arrowSource={snapshot.textArrowSource}
         editing={snapshot.editingTextId === element.id}
         element={element}
+        searchHighlight={snapshot.searchHighlight?.kind === 'element' && snapshot.searchHighlight.id === element.id
+          ? snapshot.searchHighlight
+          : null}
         maxHeight={Math.max(
           48,
           placement.height - CANVAS_CARD_HEADER_HEIGHT - element.y,
@@ -1451,6 +1456,7 @@
           },
         ])}
         onStartMove={startMove}
+        searchHighlighted={snapshot.searchHighlight?.kind === 'element' && snapshot.searchHighlight.id === element.id}
         selected={isCanvasElementHighlighted(element, snapshot.selectedItems, document.elements)}
         {workspaceId}
       />

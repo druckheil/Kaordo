@@ -21,6 +21,7 @@ import type {
   CanvasSelectionOptions,
 } from '../features/canvasSelection';
 import { selectionKey } from '../features/canvasSelection';
+import type { CanvasSearchHighlight } from '../features/canvasSearch';
 import { translateAttachedArrowGeometry } from '../features/elementAttachment';
 import { GState } from '../state/GState';
 
@@ -38,6 +39,8 @@ export type CanvasSnapshot = {
   isDropTarget: boolean;
   isPanning: boolean;
   resizingObjectId: string | null;
+  /** Ephemeral visual confirmation for the most recently searched target. */
+  searchHighlight: CanvasSearchHighlight | null;
   placements: Record<string, CanvasPlacement[]>;
   /** Explicit panel/element selection; descendants are derived by renderers. */
   selectedItems: CanvasSelection[];
@@ -73,6 +76,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       isPanning: false,
       placements: {},
       resizingObjectId: null,
+      searchHighlight: null,
       selectedItems: [],
       selectedCardId: null,
       selectedElementId: null,
@@ -98,6 +102,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       isDropTarget: false,
       isPanning: false,
       resizingObjectId: null,
+      searchHighlight: null,
       selectedItems: [],
       selectedCardId: null,
       selectedElementId: null,
@@ -189,6 +194,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedCardId: null,
       selectedElementId: null,
       selectedGlobalElementId: null,
+      searchHighlight: null,
       textArrowSource: null,
       textArrowCursor: null,
     });
@@ -205,6 +211,7 @@ export class CanvasGState extends GState<CanvasSnapshot> {
       selectedCardId: null,
       selectedElementId: null,
       selectedGlobalElementId: null,
+      searchHighlight: null,
       textArrowSource: null,
       textArrowCursor: null,
     });
@@ -705,6 +712,11 @@ export class CanvasGState extends GState<CanvasSnapshot> {
 
   announce(announcement: string): void {
     this.patch({ announcement });
+  }
+
+  setSearchHighlight(searchHighlight: CanvasSearchHighlight | null): void {
+    if (this.snapshot.searchHighlight === searchHighlight) return;
+    this.patch({ searchHighlight });
   }
 
   resetInteractions(): void {

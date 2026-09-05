@@ -25,6 +25,7 @@
     onStartMove: (event: PointerEvent, arrow: ArrowElement) => void;
     onStartPointMove: (event: PointerEvent, arrow: ArrowElement, handle: ArrowHandle) => void;
     placements: readonly CanvasPlacement[];
+    searchHighlighted?: boolean;
     selected: boolean;
     zoom?: number;
   };
@@ -36,6 +37,7 @@
     onStartMove,
     onStartPointMove,
     placements,
+    searchHighlighted = false,
     selected,
     zoom = 1,
   }: Props = $props();
@@ -262,6 +264,7 @@
 <svg
   class="canvas-arrow"
   class:canvas-arrow--selected={selected}
+  class:canvas-arrow--search-highlight={searchHighlighted}
   data-canvas-element-id={arrow.id}
   role="img"
   aria-label="Arrow"
@@ -368,6 +371,7 @@
 
   .canvas-arrow-line { opacity: 0.9; pointer-events: none; }
   .canvas-arrow-line--selected { filter: drop-shadow(0 2px 3px rgb(42 72 60 / 18%)); }
+  .canvas-arrow--search-highlight .canvas-arrow-line { animation: canvas-arrow-search-highlight 1.1s ease-out both; }
 
   .canvas-arrow-handle {
     fill: #fff;
@@ -382,5 +386,12 @@
 
   @media (prefers-reduced-motion: reduce) {
     .canvas-arrow-line { transition: none; }
+    .canvas-arrow--search-highlight .canvas-arrow-line { animation: none; }
+  }
+
+  @keyframes canvas-arrow-search-highlight {
+    0% { filter: drop-shadow(0 0 0 rgb(211 160 23 / 0%)); }
+    18% { filter: drop-shadow(0 0 8px rgb(211 160 23 / 86%)); }
+    100% { filter: drop-shadow(0 0 0 rgb(211 160 23 / 0%)); }
   }
 </style>

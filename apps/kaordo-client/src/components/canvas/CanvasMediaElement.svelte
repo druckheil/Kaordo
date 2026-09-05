@@ -26,6 +26,7 @@
     onStartMove: (event: PointerEvent, element: MediaElement) => void;
     /** Treat a click on the media surface as an Explain Selection target. */
     explanationTargetMode?: boolean;
+    searchHighlighted?: boolean;
     selected: boolean;
     workspaceId: string;
   };
@@ -39,6 +40,7 @@
     onContextMenu,
     onStartMove,
     explanationTargetMode = false,
+    searchHighlighted = false,
     selected,
     workspaceId,
   }: Props = $props();
@@ -341,6 +343,7 @@
   class="canvas-media"
   class:canvas-media--selected={selected}
   class:canvas-media--moving={moving}
+  class:canvas-media--search-highlight={searchHighlighted}
   data-canvas-element-id={element.id}
   style={style()}
   role="group"
@@ -445,6 +448,7 @@
 
   .canvas-media--selected { outline: 2px solid rgb(47 117 96 / 34%); outline-offset: 2px; }
   .canvas-media--moving { opacity: 0; }
+  .canvas-media--search-highlight { animation: canvas-media-search-highlight 1.1s ease-out both; }
   .canvas-media-loading,
   .canvas-media-error,
   .canvas-media-image,
@@ -475,5 +479,12 @@
   .media-resize-handle { position: absolute; right: -10px; bottom: -10px; display: grid; width: 22px; height: 22px; padding: 0; color: #fff; background: #4b8b76; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 2px 8px rgb(25 60 47 / 20%); cursor: nwse-resize; font-size: 13px; place-items: center; }
   @keyframes media-shimmer { to { background-position: -200% 0; } }
   @keyframes media-spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .canvas-media-loading, .canvas-media-loading span { animation: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .canvas-media-loading, .canvas-media-loading span, .canvas-media--search-highlight { animation: none; }
+  }
+  @keyframes canvas-media-search-highlight {
+    0% { filter: drop-shadow(0 0 0 rgb(211 160 23 / 0%)); }
+    18% { filter: drop-shadow(0 0 9px rgb(211 160 23 / 84%)); }
+    100% { filter: drop-shadow(0 0 0 rgb(211 160 23 / 0%)); }
+  }
 </style>

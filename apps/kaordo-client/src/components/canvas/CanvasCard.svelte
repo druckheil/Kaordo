@@ -32,6 +32,7 @@
     class="canvas-card"
     class:canvas-card--entering={entering}
     class:canvas-card--selected={isCanvasPanelHighlighted(placement.id, snapshot.selectedItems)}
+    class:canvas-card--search-highlight={snapshot.searchHighlight?.kind === 'panel' && snapshot.searchHighlight.id === placement.id}
     role="group"
     aria-roledescription="canvas panel"
     data-canvas-object-id={placement.id}
