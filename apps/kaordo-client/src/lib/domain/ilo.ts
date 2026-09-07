@@ -1,3 +1,5 @@
+import type { LingvolernandoGameSnapshot } from './lingvolernando';
+
 export const ILO_THEMES = [
   'food', 'work', 'action', 'home', 'nature', 'travel', 'health', 'people',
   'study', 'adjectives', 'appearance', 'animals', 'body', 'clothes', 'emotions',
@@ -5,7 +7,7 @@ export const ILO_THEMES = [
 ] as const;
 
 export type IloTheme = typeof ILO_THEMES[number];
-export type IloTab = 'add' | 'edit' | 'progress' | 'search' | 'train';
+export type IloTab = 'add' | 'edit' | 'lingvolernando' | 'progress' | 'search' | 'train';
 export type IloTask = 'cloze_example' | 'de_to_native' | 'native_to_de';
 export type TaglibroTab = 'plans' | 'diary' | 'calendar' | 'events';
 
@@ -139,6 +141,7 @@ export type IloSnapshot = {
   cardsLoading: boolean;
   error: string | null;
   logs: IloErrorEntry[];
+  lingvolernando: LingvolernandoGameSnapshot;
   phase: 'idle' | 'loading' | 'ready';
   refreshing: boolean;
   progress: IloProgress;

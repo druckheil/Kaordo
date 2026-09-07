@@ -2,21 +2,29 @@
   import LingvolernadoCardForm from './LingvolernadoCardForm.svelte';
   import LingvolernadoDictionary from './LingvolernadoDictionary.svelte';
   import LingvolernadoProgress from './LingvolernadoProgress.svelte';
+  import LingvolernandoStudio from './LingvolernandoStudio.svelte';
+  import LingvolernandoLearningPulse from './lingvolernando/LingvolernandoLearningPulse.svelte';
+  import LingvolernandoRewardSequence from './lingvolernando/LingvolernandoRewardSequence.svelte';
   import TaglibroplaniloSection from './TaglibroplaniloSection.svelte';
   import type { IloCard, IloCardInput, IloSnapshot, IloTab } from '../../lib/domain/ilo';
+  import type { LingvolernandoRewardOutcome } from '../../lib/domain/lingvolernando';
   import type { IloGState } from '../../lib/states/IloGState';
 
   type Props = { snapshot: Readonly<IloSnapshot>; state: IloGState };
   let { snapshot, state: iloState }: Props = $props();
-  let activeTab = $state<IloTab | 'activity'>('train');
+  let activeTab = $state<IloTab | 'activity'>('lingvolernando');
   let editingCard = $state<IloCard | null>(null);
   let revealedCardId = $state<string | null>(null);
   let pendingDelete = $state<{ ids: string[]; label: string } | null>(null);
   let copyingLogs = $state(false);
   let copiedLogs = $state(false);
   let activeTool = $state<'lingvolernado' | 'taglibroplanilo'>('lingvolernado');
+  let learningReward = $state<LingvolernandoRewardOutcome | null>(null);
+  let learningReaction = $state<'forgot' | 'remember' | null>(null);
+  let learningReactionSequence = $state(0);
 
   const tabs = [
+    { id: 'lingvolernando' as const, label: 'Lingvolernando', icon: 'orbit' },
     { id: 'train' as const, label: 'Train', icon: 'spark' },
     { id: 'search' as const, label: 'Dictionary', icon: 'book' },
     { id: 'add' as const, label: 'Add', icon: 'plus' },
@@ -40,8 +48,13 @@
   async function grade(action: 'forgot' | 'remember'): Promise<void> {
     const cardId = snapshot.train.card?.id;
     if (!cardId) return;
-    const changed = await iloState.grade(cardId, action);
-    if (changed) revealedCardId = null;
+    const result = await iloState.grade(cardId, action);
+    if (result.changed) {
+      revealedCardId = null;
+      learningReaction = action;
+      learningReactionSequence += 1;
+    }
+    if (result.reward) learningReward = result.reward;
   }
 
   async function createCard(input: IloCardInput): Promise<boolean> {
@@ -116,7 +129,7 @@
       <span class="tool-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="M5 4.5h9.5A3.5 3.5 0 0 1 18 8v11.5H8A3 3 0 0 1 5 16.5z"/><path d="M8 19.5a3 3 0 0 1 0-6h10M9 8h5M9 10.8h3.5"/></svg>
       </span>
-      <span><strong>Lingvolernado</strong><small>German vocabulary</small></span>
+      <span><strong>Lingvolernando</strong><small>German vocabulary</small></span>
       {#if snapshot.progress.due > 0}<b>{snapshot.progress.due}</b>{/if}
     </button>
     <button class:active={activeTool === 'taglibroplanilo'} class="tool-card tag-tool" type="button" aria-current={activeTool === 'taglibroplanilo' ? 'page' : undefined} onclick={() => openTool('taglibroplanilo')}>
@@ -141,7 +154,7 @@
         <span class="hero-mark" aria-hidden="true">L</span>
         <div>
           <span class="eyebrow">Language learning</span>
-          <h1 id="ilo-title">Lingvolernado</h1>
+          <h1 id="ilo-title">Lingvolernando</h1>
           <p>German vocabulary, spaced repetition, and a clear record of your progress.</p>
         </div>
       </div>
@@ -154,10 +167,12 @@
       </div>
     </header>
 
-    <nav class="tool-tabs" aria-label="Lingvolernado sections">
+    <nav class="tool-tabs" aria-label="Lingvolernando sections">
       {#each tabs as tab}
         <button class:active={activeTab === tab.id} type="button" onclick={() => openTab(tab.id)}>
-          {#if tab.icon === 'spark'}
+          {#if tab.icon === 'orbit'}
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.2"/><path d="M10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3M4.7 4.7l2.1 2.1M13.2 13.2l2.1 2.1M15.3 4.7l-2.1 2.1M6.8 13.2l-2.1 2.1"/></svg>
+          {:else if tab.icon === 'spark'}
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 2 1.2 4.1L15 8l-3.8 1.9L10 14l-1.2-4.1L5 8l3.8-1.9z"/><path d="m15.5 13 .6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6z"/></svg>
           {:else if tab.icon === 'book'}
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 4.5h5A2.5 2.5 0 0 1 11 7v9a2.5 2.5 0 0 0-2.5-2.5h-5zM16.5 4.5h-3A2.5 2.5 0 0 0 11 7v9a2.5 2.5 0 0 1 2.5-2.5h3z"/></svg>
@@ -177,20 +192,23 @@
     {#if snapshot.error}
       <div class="error-banner" role="alert">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3 17 16H3zM10 7.5v4M10 14h.01"/></svg>
-        <span><strong>Lingvolernado could not finish an operation</strong>{snapshot.error}</span>
+        <span><strong>Lingvolernando could not finish an operation</strong>{snapshot.error}</span>
         <button type="button" onclick={() => iloState.clearError()} aria-label="Dismiss error">×</button>
       </div>
     {/if}
 
     <div class="tool-scroll">
       {#if snapshot.phase === 'loading'}
-        <div class="initial-loading" aria-label="Loading Lingvolernado">
+        <div class="initial-loading" aria-label="Loading Lingvolernando">
           <span class="loading-orbit"><i></i><b>L</b></span>
           <strong>Opening your learning space</strong>
           <p>Loading cards, review queue, and progress…</p>
         </div>
+      {:else if activeTab === 'lingvolernando'}
+        <LingvolernandoStudio snapshot={snapshot} gameState={iloState} onOpenTrain={() => openTab('train')} />
       {:else if activeTab === 'train'}
         <section class="training-view" aria-labelledby="training-title">
+          <LingvolernandoLearningPulse game={snapshot.lingvolernando} progress={snapshot.progress} reaction={learningReaction} reactionSequence={learningReactionSequence} />
           <div class="training-summary">
             <article><span>Due now</span><strong>{snapshot.train.due}</strong><small>cards ready</small></article>
             <article><span>Dictionary</span><strong>{snapshot.train.active}</strong><small>active cards</small></article>
@@ -279,7 +297,7 @@
             <div><button type="button" disabled={snapshot.logs.length === 0 || copyingLogs} onclick={copyLogs}>{copiedLogs ? 'Copied' : 'Copy log'}</button><button type="button" disabled={snapshot.logs.length === 0} onclick={() => iloState.clearLogs()}>Clear</button></div>
           </header>
           {#if snapshot.logs.length === 0}
-            <div class="activity-empty"><i></i><strong>No errors recorded</strong><p>Lingvolernado operations are healthy in this session.</p></div>
+            <div class="activity-empty"><i></i><strong>No errors recorded</strong><p>Lingvolernando operations are healthy in this session.</p></div>
           {:else}
             <div class="log-list">
               {#each snapshot.logs as entry}
@@ -301,6 +319,9 @@
           <div><button type="button" onclick={() => { pendingDelete = null; }}>Cancel</button><button class="confirm-danger" type="button" disabled={snapshot.busy !== null} onclick={confirmDelete}>{snapshot.busy ? 'Deleting…' : 'Delete'}</button></div>
         </div>
       </div>
+    {/if}
+    {#if learningReward}
+      <LingvolernandoRewardSequence outcome={learningReward} onClose={() => { learningReward = null; }} />
     {/if}
     {/if}
   </main>

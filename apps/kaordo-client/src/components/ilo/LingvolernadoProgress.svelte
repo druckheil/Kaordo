@@ -3,7 +3,9 @@
 
   type Props = { progress: IloProgress };
   let { progress }: Props = $props();
-  const stageLabels = ['New', '10 min', '1 hour', '1 day', '3 days', '7 days', '14 days', '30 days', 'Maintenance'];
+  // Stages describe the learner's action, not a countdown. The scheduler still
+  // decides when a card is due; this view stays focused on what the learner did.
+  const stageLabels = ['New', 'Notice', 'Recall', 'Connect', 'Use', 'Explain', 'Fluent', 'Keep', 'Maintenance'];
   let maxPoints = $derived(Math.max(1, ...progress.pointsHistory.map(({ points }) => points)));
   let totalPoints = $derived(progress.pointsHistory.reduce((sum, item) => sum + item.points, 0));
 

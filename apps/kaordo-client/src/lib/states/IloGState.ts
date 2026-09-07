@@ -2,7 +2,27 @@ import type {
   IloCardInput, IloErrorEntry, IloSnapshot, TaglibroDay, TaglibroEventInput, TaglibroPlan,
 } from '../domain/ilo';
 import { EMPTY_ILO_PROGRESS, EMPTY_TAGLIBRO_SNAPSHOT } from '../domain/ilo';
+import {
+  EMPTY_LINGVOLERNANDO_GAME,
+  type LingvolernandoGameSnapshot,
+  type LingvolernandoPetPalette,
+  type LingvolernandoRewardOutcome,
+} from '../domain/lingvolernando';
 import type { IloGateway } from '../gateways/IloGateway';
+import {
+  completeLingvolernandoJourneyRecall,
+  equipLingvolernandoArtifact,
+  evolveLingvolernandoArtifact,
+  metricsFromProgress,
+  readLingvolernandoGame,
+  recordLingvolernandoTrainingAnswer,
+  renameLingvolernandoPet,
+  setLingvolernandoBiome,
+  setLingvolernandoPetPalette,
+  syncLingvolernandoCardCount,
+  toggleLingvolernandoPetArtifact,
+  writeLingvolernandoGame,
+} from '../services/lingvolernandoGame';
 import { GState } from '../state/GState';
 
 const EMPTY_SNAPSHOT: IloSnapshot = {
@@ -12,6 +32,7 @@ const EMPTY_SNAPSHOT: IloSnapshot = {
   cardsLoaded: false,
   cardsLoading: false,
   error: null,
+  lingvolernando: structuredClone(EMPTY_LINGVOLERNANDO_GAME),
   logs: [],
   phase: 'idle',
   refreshing: false,
@@ -27,6 +48,15 @@ const EMPTY_SNAPSHOT: IloSnapshot = {
 // avoids an unnecessary Worker/D1 round-trip.
 const BOOTSTRAP_STALE_AFTER_MS = 30_000;
 const CARDS_PAGE_SIZE = 50;
+
+function freshSnapshot(): IloSnapshot {
+  return {
+    ...EMPTY_SNAPSHOT,
+    lingvolernando: structuredClone(EMPTY_LINGVOLERNANDO_GAME),
+    progress: { ...EMPTY_ILO_PROGRESS },
+    taglibro: { ...EMPTY_TAGLIBRO_SNAPSHOT },
+  };
+}
 
 export class IloGState extends GState<IloSnapshot> {
   #ownerId: string | null = null;
@@ -48,14 +78,20 @@ export class IloGState extends GState<IloSnapshot> {
   #taglibroDays = new Map<string, TaglibroDay>();
 
   constructor(private readonly gateway: IloGateway) {
-    super({ ...EMPTY_SNAPSHOT, progress: { ...EMPTY_ILO_PROGRESS } });
+    super(freshSnapshot());
   }
 
   configure(ownerId: string | null): void {
     if (ownerId === this.#ownerId) return;
     this.#ownerId = ownerId;
     this.reset();
-    if (ownerId) this.update((snapshot) => ({ ...snapshot, logs: readLogs(ownerId) }));
+    if (ownerId) {
+      this.update((snapshot) => ({
+        ...snapshot,
+        lingvolernando: readLingvolernandoGame(ownerId),
+        logs: readLogs(ownerId),
+      }));
+    }
     if (this.#entered && ownerId) void this.refresh(false);
   }
 
@@ -90,7 +126,7 @@ export class IloGState extends GState<IloSnapshot> {
     this.#cardsOffset = 0;
     this.#cardsQuery = { q: '', theme: '' };
     this.#taglibroDays.clear();
-    this.publish({ ...EMPTY_SNAPSHOT, progress: { ...EMPTY_ILO_PROGRESS } });
+    this.publish(freshSnapshot());
   }
 
   private invalidateTaglibroRequests(): void {
@@ -281,9 +317,12 @@ export class IloGState extends GState<IloSnapshot> {
         const bootstrap = await this.gateway.bootstrap();
         if (requestId !== this.#requestId || ownerId !== this.#ownerId) return;
         this.#lastRefreshAt = Date.now();
+        const lingvolernando = syncLingvolernandoCardCount(this.snapshot.lingvolernando, bootstrap.progress.active);
+        writeLingvolernandoGame(ownerId, lingvolernando);
         this.publish({
           ...this.snapshot,
           error: null,
+          lingvolernando,
           phase: 'ready',
           refreshing: false,
           progress: bootstrap.progress,
@@ -349,14 +388,82 @@ export class IloGState extends GState<IloSnapshot> {
     return ok;
   }
 
-  async grade(cardId: string, action: 'forgot' | 'remember'): Promise<boolean> {
-    return this.mutate(action === 'remember' ? 'remember card' : 'forgot card', () => this.gateway.grade(cardId, action));
+  async grade(cardId: string, action: 'forgot' | 'remember'): Promise<{
+    changed: boolean;
+    reward: LingvolernandoRewardOutcome | null;
+  }> {
+    const trainingCard = this.snapshot.train.card?.id === cardId ? this.snapshot.train.card : null;
+    const changed = await this.mutate(action === 'remember' ? 'remember card' : 'forgot card', () => this.gateway.grade(cardId, action));
+    if (!changed || !trainingCard) return { changed, reward: null };
+    const ownerId = this.#ownerId;
+    if (!ownerId) return { changed, reward: null };
+    const german = trainingCard.answerLines.find((line) => line.startsWith('German: '))?.slice(8).trim() ?? trainingCard.promptText.trim();
+    const translation = trainingCard.answerLines.find((line) => line.startsWith('Meaning: '))?.slice(9).trim()
+      ?? trainingCard.answerLines[0]?.replace(/^[^:]+:\s*/, '').trim()
+      ?? '';
+    const result = recordLingvolernandoTrainingAnswer(
+      this.snapshot.lingvolernando,
+      metricsFromProgress(this.snapshot.progress),
+      { german, id: cardId, stage: trainingCard.stage, translation },
+      action,
+    );
+    this.persistLingvolernando(ownerId, result.game);
+    return { changed: true, reward: result.outcome };
+  }
+
+  answerLingvolernandoJourney(remembered: boolean): LingvolernandoRewardOutcome | null {
+    const ownerId = this.#ownerId;
+    if (!ownerId) return null;
+    const result = completeLingvolernandoJourneyRecall(
+      this.snapshot.lingvolernando,
+      metricsFromProgress(this.snapshot.progress),
+      remembered,
+    );
+    this.persistLingvolernando(ownerId, result.game);
+    return result.outcome;
+  }
+
+  equipLingvolernandoArtifact(artifactId: string, slot: number): void {
+    this.updateLingvolernando((game) => equipLingvolernandoArtifact(game, artifactId, slot));
+  }
+
+  evolveLingvolernandoArtifact(artifactId: string): void {
+    this.updateLingvolernando((game) => evolveLingvolernandoArtifact(game, artifactId));
+  }
+
+  selectLingvolernandoBiome(index: number): void {
+    this.updateLingvolernando((game) => setLingvolernandoBiome(game, index));
+  }
+
+  renameLingvolernandoPet(name: string): void {
+    this.updateLingvolernando((game) => renameLingvolernandoPet(game, name));
+  }
+
+  setLingvolernandoPetPalette(palette: LingvolernandoPetPalette): void {
+    this.updateLingvolernando((game) => setLingvolernandoPetPalette(game, palette));
+  }
+
+  toggleLingvolernandoPetArtifact(artifactId: string): void {
+    this.updateLingvolernando((game) => toggleLingvolernandoPetArtifact(game, artifactId));
   }
 
   clearError(): void { this.update((snapshot) => ({ ...snapshot, error: null })); }
   clearLogs(): void {
     if (this.#ownerId) writeLogs(this.#ownerId, []);
     this.update((snapshot) => ({ ...snapshot, logs: [] }));
+  }
+
+  private updateLingvolernando(
+    reducer: (game: Readonly<LingvolernandoGameSnapshot>) => LingvolernandoGameSnapshot,
+  ): void {
+    const ownerId = this.#ownerId;
+    if (!ownerId) return;
+    this.persistLingvolernando(ownerId, reducer(this.snapshot.lingvolernando));
+  }
+
+  private persistLingvolernando(ownerId: string, game: LingvolernandoGameSnapshot): void {
+    writeLingvolernandoGame(ownerId, game);
+    this.update((snapshot) => ({ ...snapshot, lingvolernando: game }));
   }
 
   private async loadCards(append: boolean): Promise<void> {
@@ -407,11 +514,14 @@ export class IloGState extends GState<IloSnapshot> {
       // a section switch immediately after saving does not need another
       // bootstrap request.
       this.#lastRefreshAt = Date.now();
+      const lingvolernando = syncLingvolernandoCardCount(this.snapshot.lingvolernando, result.progress.active);
+      writeLingvolernandoGame(ownerId, lingvolernando);
       this.update((snapshot) => ({
         ...snapshot,
         busy: null,
         cards: result.card ? replaceCard(snapshot.cards, result.card) : snapshot.cards,
         error: null,
+        lingvolernando,
         progress: result.progress,
         train: result.train,
       }));
