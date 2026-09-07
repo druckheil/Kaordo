@@ -646,11 +646,10 @@ export function toggleLingvolernandoPetArtifact(
   artifactId: string,
 ): LingvolernandoGameSnapshot {
   if (!current.discoveredArtifactIds.includes(artifactId)) return { ...current };
-  const selected = current.pet.accessoryArtifactIds;
-  const accessoryArtifactIds = selected.includes(artifactId)
-    ? selected.filter((id) => id !== artifactId)
-    : [...selected.slice(-2), artifactId];
-  return { ...current, pet: { ...current.pet, accessoryArtifactIds } };
+  const activeSlot = current.equippedArtifactIds.indexOf(artifactId);
+  if (activeSlot >= 0) return equipLingvolernandoArtifact(current, artifactId, activeSlot);
+  const emptySlot = current.equippedArtifactIds.findIndex((id) => id === null);
+  return emptySlot >= 0 ? equipLingvolernandoArtifact(current, artifactId, emptySlot) : { ...current };
 }
 
 export function equipLingvolernandoArtifact(
@@ -659,9 +658,11 @@ export function equipLingvolernandoArtifact(
   slot: number,
 ): LingvolernandoGameSnapshot {
   if (!current.discoveredArtifactIds.includes(artifactId) || slot < 0 || slot >= current.equippedArtifactIds.length) return { ...current };
+  const isAlreadyInSlot = current.equippedArtifactIds[slot] === artifactId;
   const equippedArtifactIds = current.equippedArtifactIds.map((id) => id === artifactId ? null : id);
-  equippedArtifactIds[slot] = artifactId;
-  return { ...current, equippedArtifactIds };
+  if (!isAlreadyInSlot) equippedArtifactIds[slot] = artifactId;
+  const accessoryArtifactIds = equippedArtifactIds.filter((id): id is string => Boolean(id));
+  return { ...current, equippedArtifactIds, pet: { ...current.pet, accessoryArtifactIds } };
 }
 
 export function evolveLingvolernandoArtifact(
@@ -724,23 +725,29 @@ function sanitizeGame(value: unknown): LingvolernandoGameSnapshot {
   const artifactLevels = Object.fromEntries(Object.entries(source.artifactLevels ?? {}).flatMap(([id, level]) => (
     artifactIds.has(id) ? [[id, finiteNumber(level, 1, 1, 99)]] : []
   )));
-  const equippedSource = Array.isArray(source.equippedArtifactIds) ? source.equippedArtifactIds.slice(0, 3) : [];
-  const equippedArtifactIds = Array.from({ length: 3 }, (_, index) => {
-    const id = equippedSource[index];
-    return typeof id === 'string' && discoveredArtifactIds.includes(id) ? id : null;
-  });
   const pet = (source.pet && typeof source.pet === 'object'
     ? source.pet
     : EMPTY_LINGVOLERNANDO_GAME.pet) as Partial<LingvolernandoGameSnapshot['pet']> & {
       accessoryArtifactId?: unknown;
     };
+  const equippedSource = Array.isArray(source.equippedArtifactIds) ? source.equippedArtifactIds.slice(0, 3) : [];
   const validMoods = new Set(['curious', 'dreaming', 'focused', 'glowing', 'resting']);
   const validPalettes = new Set<LingvolernandoPetPalette>(['aurora', 'ember', 'moon', 'moss']);
   const legacyAccessory = typeof pet.accessoryArtifactId === 'string' ? [pet.accessoryArtifactId] : [];
-  const accessoryArtifactIds = validIds(
+  const storedAccessoryArtifactIds = validIds(
     Array.isArray(pet.accessoryArtifactIds) ? pet.accessoryArtifactIds.slice(0, 3) : legacyAccessory,
     new Set(discoveredArtifactIds),
   ).slice(0, 3);
+  // Companion selections from v3 were stored separately from the active loadout.
+  // Prefer the loadout when it exists; otherwise promote the old carried list so
+  // both screens continue to describe and mutate the same three slots.
+  const storedLoadoutIds = equippedSource.filter((id): id is string => typeof id === 'string' && discoveredArtifactIds.includes(id));
+  const loadoutSource = storedLoadoutIds.length > 0 ? storedLoadoutIds : storedAccessoryArtifactIds;
+  const equippedArtifactIds = Array.from({ length: 3 }, (_, index) => {
+    const id = loadoutSource[index];
+    return typeof id === 'string' && discoveredArtifactIds.includes(id) && loadoutSource.indexOf(id) === index ? id : null;
+  });
+  const accessoryArtifactIds = equippedArtifactIds.filter((id): id is string => Boolean(id));
   const hasStoredCardCount = Boolean(source.learning && typeof source.learning === 'object' && 'knownCardCount' in source.learning);
   const learningSource = source.learning && typeof source.learning === 'object' ? source.learning : EMPTY_LINGVOLERNANDO_GAME.learning;
   const journeySource = source.journey && typeof source.journey === 'object' ? source.journey : EMPTY_LINGVOLERNANDO_GAME.journey;

@@ -503,8 +503,8 @@
   .initial-loading > strong { color: var(--sui-text); font-size: calc(12px * var(--text-scale)); }
   .initial-loading p { margin-top: 6px; font-size: calc(8px * var(--text-scale)); }
 
-  .training-view { display: flex; max-width: 920px; min-height: 100%; margin: 0 auto; flex-direction: column; }
-  .training-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-bottom: 14px; }
+  .training-view { display: flex; max-width: 920px; min-height: 100%; margin: 0 auto; flex-direction: column; gap: 14px; }
+  .training-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; }
   .training-summary article { position: relative; min-width: 0; padding: 12px 14px; overflow: hidden; color: var(--sui-text-muted); background: var(--sui-bg); border: 0; border-radius: 14px; box-shadow: var(--sui-shadow-raised-sm); }
   .training-summary article::after { position: absolute; right: -18px; bottom: -25px; width: 75px; height: 75px; background: color-mix(in srgb, var(--sui-primary) 8%, transparent); border-radius: 50%; content: ''; }
   .training-summary span { color: var(--sui-text-light); font-size: calc(7px * var(--text-scale)); font-weight: 690; text-transform: uppercase; }

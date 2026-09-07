@@ -142,4 +142,26 @@ describe('Lingvolernando game space', () => {
     expect(view.getByText('Six paths, 120 milestones')).toBeTruthy();
     expect(view.getByText('Twenty permanent landmarks')).toBeTruthy();
   });
+
+  it('uses the same three-slot loadout from Companion and Vault', async () => {
+    const state = gameState();
+    const readySnapshot = snapshot();
+    readySnapshot.lingvolernando.discoveredArtifactIds = ['relic-1', 'relic-2'];
+    readySnapshot.lingvolernando.artifactLevels = { 'relic-1': 1, 'relic-2': 1 };
+    const view = render(LingvolernandoStudio, { gameState: state, onOpenTrain: vi.fn(), snapshot: readySnapshot });
+
+    await fireEvent.click(view.getByRole('button', { name: /Luma\. Look, rename, and customise/ }));
+    await fireEvent.click(view.getByRole('button', { name: /Equip Moonstone Compass/ }));
+    expect(state.toggleLingvolernandoPetArtifact).toHaveBeenCalledWith('relic-1');
+
+    view.unmount();
+    const vaultSnapshot = snapshot();
+    vaultSnapshot.lingvolernando.discoveredArtifactIds = ['relic-1', 'relic-2'];
+    vaultSnapshot.lingvolernando.artifactLevels = { 'relic-1': 1, 'relic-2': 1 };
+    vaultSnapshot.lingvolernando.equippedArtifactIds = ['relic-1', null, null];
+    const vaultView = render(LingvolernandoStudio, { gameState: state, onOpenTrain: vi.fn(), snapshot: vaultSnapshot });
+    await fireEvent.click(vaultView.getByRole('button', { name: /Vault.*120 artifacts/ }));
+    await fireEvent.click(vaultView.getByRole('button', { name: /Unequip Moonstone Compass from slot 1/ }));
+    expect(state.equipLingvolernandoArtifact).toHaveBeenCalledWith('relic-1', 0);
+  });
 });

@@ -32,10 +32,9 @@
   const discoveredWorld = $derived(snapshot.lingvolernando.discoveredWorldIds.length);
   const synergies = $derived(activeSynergies(snapshot.lingvolernando.equippedArtifactIds));
   const bonuses = $derived(lingvolernandoBonuses(snapshot.lingvolernando));
-  const equippedArtifact = $derived(LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === snapshot.lingvolernando.equippedArtifactIds[0]) ?? null);
-  const orbitArtifacts = $derived((snapshot.lingvolernando.pet.accessoryArtifactIds.length > 0
-    ? snapshot.lingvolernando.pet.accessoryArtifactIds
-    : snapshot.lingvolernando.equippedArtifactIds.filter((id): id is string => Boolean(id)))
+  const equippedArtifactIds = $derived(snapshot.lingvolernando.equippedArtifactIds.filter((id): id is string => Boolean(id)));
+  const equippedArtifact = $derived(LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === equippedArtifactIds[0]) ?? null);
+  const orbitArtifacts = $derived(equippedArtifactIds
     .map((id) => LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === id))
     .filter((artifact): artifact is NonNullable<typeof artifact> => Boolean(artifact))
     .slice(0, 3));
@@ -106,10 +105,12 @@
       <WorldSprite element={newestWorld} locked={!snapshot.lingvolernando.discoveredWorldIds.includes(newestWorld.id)} size={68} />
       <span><small>{currentBiome.name}</small><strong>{snapshot.lingvolernando.discoveredWorldIds.includes(newestWorld.id) ? newestWorld.name : 'First silhouette'}</strong></span>
     </article>
-    <article class="artifact-peek">
-      <ArtifactGlyph artifact={equippedArtifact ?? nextArtifact} locked={!equippedArtifact} size={72} level={equippedArtifact ? snapshot.lingvolernando.artifactLevels[equippedArtifact.id] ?? 1 : 1} />
-      <span><small>{equippedArtifact ? 'Active artifact' : 'Next silhouette'}</small><strong>{equippedArtifact?.name ?? 'Unknown form'}</strong></span>
-    </article>
+    {#if !equippedArtifact}
+      <article class="artifact-peek">
+        <ArtifactGlyph artifact={nextArtifact} locked size={72} />
+        <span><small>Next silhouette</small><strong>{nextArtifact?.name ?? 'Unknown form'}</strong></span>
+      </article>
+    {/if}
   </div>
 
   <div class="action-dock">

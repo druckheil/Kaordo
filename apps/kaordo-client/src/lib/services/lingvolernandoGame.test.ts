@@ -15,6 +15,7 @@ import {
   readLingvolernandoGame,
   recordLingvolernandoTrainingAnswer,
   syncLingvolernandoCardCount,
+  toggleLingvolernandoPetArtifact,
   writeLingvolernandoGame,
 } from './lingvolernandoGame';
 
@@ -118,13 +119,33 @@ describe('Lingvolernando game engine', () => {
     game = equipLingvolernandoArtifact(game, 'relic-1', 0);
     game = equipLingvolernandoArtifact(game, 'relic-4', 1);
     game = equipLingvolernandoArtifact(game, 'relic-2', 2);
+    expect(game.pet.accessoryArtifactIds).toEqual(['relic-1', 'relic-4', 'relic-2']);
     expect(activeSynergies(game.equippedArtifactIds).map((item) => item.id)).toContain('deep-flow');
     expect(lingvolernandoBonuses(game).xpPercent).toBeGreaterThan(0);
+
+    game = equipLingvolernandoArtifact(game, 'relic-4', 1);
+    expect(game.equippedArtifactIds).toEqual(['relic-1', null, 'relic-2']);
+    expect(game.pet.accessoryArtifactIds).toEqual(['relic-1', 'relic-2']);
+    game = toggleLingvolernandoPetArtifact(game, 'relic-4');
+    expect(game.equippedArtifactIds).toEqual(['relic-1', 'relic-4', 'relic-2']);
+    game = toggleLingvolernandoPetArtifact(game, 'relic-4');
+    expect(game.equippedArtifactIds).toEqual(['relic-1', null, 'relic-2']);
 
     game.artifactDust = 50;
     const evolved = evolveLingvolernandoArtifact(game, 'relic-1');
     expect(evolved.artifactLevels['relic-1']).toBe(2);
     expect(evolved.artifactDust).toBeLessThan(50);
+  });
+
+  it('migrates companion selections into the shared active loadout', () => {
+    localStorage.setItem('kaordo.lingvolernando.game.v3.alice', JSON.stringify({
+      discoveredArtifactIds: ['relic-1', 'relic-2'],
+      pet: { accessoryArtifactIds: ['relic-2', 'relic-1'], mood: 'curious', name: 'Luma', palette: 'moon' },
+    }));
+
+    const game = readLingvolernandoGame('alice');
+    expect(game.equippedArtifactIds).toEqual(['relic-2', 'relic-1', null]);
+    expect(game.pet.accessoryArtifactIds).toEqual(['relic-2', 'relic-1']);
   });
 
   it('uses the first card count as a baseline and counts the first later addition', () => {
