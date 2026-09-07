@@ -50,6 +50,7 @@
     "shortDescription": "A local-first knowledge workspace",
     "macOS": {
       "signingIdentity": "-",
+      "entitlements": "Entitlements.plist",
       "infoPlist": "Info.plist"
     }
   }
