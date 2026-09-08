@@ -3,12 +3,32 @@ import type {
 } from '../domain/ilo';
 import { EMPTY_ILO_PROGRESS, EMPTY_TAGLIBRO_SNAPSHOT } from '../domain/ilo';
 import {
+  DESEGN_FOCUSES,
+  EMPTY_DESEGN_LERNADO,
+  type DesegnDrawing,
+  type DesegnDrawingPatch,
+  type DesegnPetPalette,
+  type DesegnPetProfile,
+  type DesegnReviewOutcome,
+} from '../domain/desegnLernado';
+import {
   EMPTY_LINGVOLERNANDO_GAME,
   type LingvolernandoGameSnapshot,
   type LingvolernandoPetPalette,
   type LingvolernandoRewardOutcome,
 } from '../domain/lingvolernando';
 import type { IloGateway } from '../gateways/IloGateway';
+import {
+  createDesegnLernadoStore,
+  type DesegnLernadoStore,
+  type DesegnMediaVariant,
+} from '../services/DesegnLernadoStore';
+import { isDesegnImageFile, prepareDesegnDrawing } from '../services/desegnLernadoMedia';
+import {
+  desegnStats,
+  reviewedDrawing,
+  unlockedDesegnArtifacts,
+} from '../services/desegnLernadoProgress';
 import {
   completeLingvolernandoJourneyRecall,
   equipLingvolernandoArtifact,
@@ -31,6 +51,7 @@ const EMPTY_SNAPSHOT: IloSnapshot = {
   cardsHasMore: false,
   cardsLoaded: false,
   cardsLoading: false,
+  desegnLernado: structuredClone(EMPTY_DESEGN_LERNADO),
   error: null,
   lingvolernando: structuredClone(EMPTY_LINGVOLERNANDO_GAME),
   logs: [],
@@ -52,6 +73,7 @@ const CARDS_PAGE_SIZE = 50;
 function freshSnapshot(): IloSnapshot {
   return {
     ...EMPTY_SNAPSHOT,
+    desegnLernado: structuredClone(EMPTY_DESEGN_LERNADO),
     lingvolernando: structuredClone(EMPTY_LINGVOLERNANDO_GAME),
     progress: { ...EMPTY_ILO_PROGRESS },
     taglibro: { ...EMPTY_TAGLIBRO_SNAPSHOT },
@@ -76,8 +98,15 @@ export class IloGState extends GState<IloSnapshot> {
   #taglibroDayInFlight = new Map<string, Promise<void>>();
   #taglibroEventsInFlight = new Map<boolean, Promise<void>>();
   #taglibroDays = new Map<string, TaglibroDay>();
+  #desegnLoadRequestId = 0;
+  #desegnLoadInFlight: Promise<void> | null = null;
+  #desegnMediaUrls = new Map<string, string>();
+  #desegnMediaLoads = new Map<string, Promise<string | null>>();
 
-  constructor(private readonly gateway: IloGateway) {
+  constructor(
+    private readonly gateway: IloGateway,
+    private readonly desegnStore: DesegnLernadoStore = createDesegnLernadoStore(),
+  ) {
     super(freshSnapshot());
   }
 
@@ -105,6 +134,7 @@ export class IloGState extends GState<IloSnapshot> {
     this.#requestId += 1;
     this.#cardsRequestId += 1;
     this.invalidateTaglibroRequests();
+    this.invalidateDesegnRequests();
     this.#refreshInFlight = null;
     this.#cardsInFlight = null;
     this.update((snapshot) => ({
@@ -112,6 +142,7 @@ export class IloGState extends GState<IloSnapshot> {
       cardsLoading: false,
       busy: null,
       refreshing: false,
+      desegnLernado: { ...snapshot.desegnLernado, busy: null },
       taglibro: { ...snapshot.taglibro, busy: null, refreshing: false },
     }));
   }
@@ -120,6 +151,7 @@ export class IloGState extends GState<IloSnapshot> {
     this.#requestId += 1;
     this.#cardsRequestId += 1;
     this.invalidateTaglibroRequests();
+    this.invalidateDesegnRequests();
     this.#refreshInFlight = null;
     this.#cardsInFlight = null;
     this.#lastRefreshAt = 0;
@@ -137,6 +169,226 @@ export class IloGState extends GState<IloSnapshot> {
     this.#taglibroInFlight = null;
     this.#taglibroDayInFlight.clear();
     this.#taglibroEventsInFlight.clear();
+  }
+
+  private invalidateDesegnRequests(): void {
+    this.#desegnLoadRequestId += 1;
+    this.#desegnLoadInFlight = null;
+    this.#desegnMediaLoads.clear();
+    for (const url of this.#desegnMediaUrls.values()) URL.revokeObjectURL(url);
+    this.#desegnMediaUrls.clear();
+  }
+
+  loadDesegnLernado(force = false): Promise<void> {
+    if (this.#desegnLoadInFlight) return this.#desegnLoadInFlight;
+    const ownerId = this.#ownerId;
+    if (!ownerId) return Promise.resolve();
+    if (!force && this.snapshot.desegnLernado.phase === 'ready') return Promise.resolve();
+    const requestId = ++this.#desegnLoadRequestId;
+    this.update((snapshot) => ({
+      ...snapshot,
+      desegnLernado: {
+        ...snapshot.desegnLernado,
+        error: null,
+        phase: snapshot.desegnLernado.phase === 'ready' ? 'ready' : 'loading',
+      },
+    }));
+    let request: Promise<void>;
+    request = (async () => {
+      try {
+        const archive = await this.desegnStore.load(ownerId);
+        if (requestId !== this.#desegnLoadRequestId || ownerId !== this.#ownerId) return;
+        this.update((snapshot) => ({
+          ...snapshot,
+          desegnLernado: {
+            ...snapshot.desegnLernado,
+            drawings: archive.drawings,
+            error: null,
+            pet: archive.pet,
+            phase: 'ready',
+          },
+        }));
+      } catch (error) {
+        if (requestId !== this.#desegnLoadRequestId || ownerId !== this.#ownerId) return;
+        this.desegnFail(error);
+        this.update((snapshot) => ({
+          ...snapshot,
+          desegnLernado: { ...snapshot.desegnLernado, phase: 'ready' },
+        }));
+      }
+    })().finally(() => {
+      if (this.#desegnLoadInFlight === request) this.#desegnLoadInFlight = null;
+    });
+    this.#desegnLoadInFlight = request;
+    return request;
+  }
+
+  async addDesegnDrawings(files: readonly File[]): Promise<{
+    added: number;
+    errors: string[];
+    unlockedArtifactIds: string[];
+  }> {
+    const ownerId = this.#ownerId;
+    const images = files.filter(isDesegnImageFile);
+    if (!ownerId || images.length === 0 || this.snapshot.desegnLernado.busy) {
+      return { added: 0, errors: [], unlockedArtifactIds: [] };
+    }
+
+    const before = new Set(unlockedDesegnArtifacts(desegnStats(this.snapshot.desegnLernado.drawings)).map((item) => item.id));
+    const added: DesegnDrawing[] = [];
+    const errors: string[] = [];
+    this.update((snapshot) => ({
+      ...snapshot,
+      desegnLernado: { ...snapshot.desegnLernado, busy: 'Preparing drawings', error: null },
+    }));
+    for (const [index, file] of images.entries()) {
+      if (ownerId !== this.#ownerId) break;
+      this.update((snapshot) => ({
+        ...snapshot,
+        desegnLernado: { ...snapshot.desegnLernado, busy: `Preparing ${index + 1} of ${images.length}` },
+      }));
+      try {
+        const prepared = await prepareDesegnDrawing(file, Date.now() + index);
+        await this.desegnStore.saveDrawing(ownerId, prepared.drawing, prepared.original, prepared.thumbnail);
+        added.push(prepared.drawing);
+      } catch (error) {
+        errors.push(readableDesegnError(error));
+      }
+    }
+    if (ownerId !== this.#ownerId) return { added: 0, errors, unlockedArtifactIds: [] };
+    const drawings = [...added, ...this.snapshot.desegnLernado.drawings]
+      .sort((left, right) => right.createdAt - left.createdAt || right.id.localeCompare(left.id));
+    const after = unlockedDesegnArtifacts(desegnStats(drawings));
+    const unlockedArtifactIds = after.filter((item) => !before.has(item.id)).map((item) => item.id);
+    this.update((snapshot) => ({
+      ...snapshot,
+      desegnLernado: {
+        ...snapshot.desegnLernado,
+        busy: null,
+        drawings,
+        error: errors.length > 0 ? errors.join(' ') : null,
+        phase: 'ready',
+      },
+    }));
+    return { added: added.length, errors, unlockedArtifactIds };
+  }
+
+  async updateDesegnDrawing(drawingId: string, patch: DesegnDrawingPatch): Promise<boolean> {
+    const current = this.snapshot.desegnLernado.drawings.find((drawing) => drawing.id === drawingId);
+    if (!current) return false;
+    const updatedAt = Date.now();
+    const next: DesegnDrawing = {
+      ...current,
+      description: patch.description.trim().slice(0, 2_000),
+      focus: DESEGN_FOCUSES.includes(patch.focus) ? patch.focus : 'other',
+      rating: patch.rating === null ? null : Math.min(5, Math.max(1, Math.round(patch.rating))),
+      shortcomings: [...new Set(patch.shortcomings.map((item) => item.trim()).filter(Boolean))]
+        .slice(0, 20)
+        .map((item) => item.slice(0, 300)),
+      title: patch.title.trim().slice(0, 100) || 'Untitled drawing',
+      updatedAt,
+    };
+    return this.persistDesegnDrawing(next, 'Saving notes');
+  }
+
+  async reviewDesegnDrawing(drawingId: string, outcome: DesegnReviewOutcome): Promise<boolean> {
+    const current = this.snapshot.desegnLernado.drawings.find((drawing) => drawing.id === drawingId);
+    return current ? this.persistDesegnDrawing(reviewedDrawing(current, outcome), 'Saving review') : false;
+  }
+
+  async deleteDesegnDrawing(drawingId: string): Promise<boolean> {
+    const ownerId = this.#ownerId;
+    if (!ownerId || this.snapshot.desegnLernado.busy) return false;
+    this.update((snapshot) => ({
+      ...snapshot,
+      desegnLernado: { ...snapshot.desegnLernado, busy: 'Removing drawing', error: null },
+    }));
+    try {
+      await this.desegnStore.deleteDrawing(ownerId, drawingId);
+      if (ownerId !== this.#ownerId) return false;
+      this.revokeDesegnDrawingUrls(ownerId, drawingId);
+      this.update((snapshot) => ({
+        ...snapshot,
+        desegnLernado: {
+          ...snapshot.desegnLernado,
+          busy: null,
+          drawings: snapshot.desegnLernado.drawings.filter((drawing) => drawing.id !== drawingId),
+        },
+      }));
+      return true;
+    } catch (error) {
+      if (ownerId !== this.#ownerId) return false;
+      this.desegnFail(error);
+      this.update((snapshot) => ({
+        ...snapshot,
+        desegnLernado: { ...snapshot.desegnLernado, busy: null },
+      }));
+      return false;
+    }
+  }
+
+  desegnLernadoMediaUrl(drawingId: string, variant: DesegnMediaVariant): Promise<string | null> {
+    const ownerId = this.#ownerId;
+    if (!ownerId) return Promise.resolve(null);
+    const key = `${ownerId}:${drawingId}:${variant}`;
+    const cached = this.#desegnMediaUrls.get(key);
+    if (cached) {
+      this.#desegnMediaUrls.delete(key);
+      this.#desegnMediaUrls.set(key, cached);
+      return Promise.resolve(cached);
+    }
+    const active = this.#desegnMediaLoads.get(key);
+    if (active) return active;
+    const requestId = this.#desegnLoadRequestId;
+    const request = this.desegnStore.loadMedia(ownerId, drawingId, variant)
+      .then((blob) => {
+        if (!blob || ownerId !== this.#ownerId || requestId !== this.#desegnLoadRequestId) return null;
+        const url = URL.createObjectURL(blob);
+        this.#desegnMediaUrls.set(key, url);
+        this.trimDesegnMediaUrls(variant, variant === 'original' ? 2 : 160);
+        return url;
+      })
+      .catch((error) => {
+        if (ownerId === this.#ownerId && requestId === this.#desegnLoadRequestId) this.desegnFail(error);
+        return null;
+      })
+      .finally(() => {
+        if (this.#desegnMediaLoads.get(key) === request) this.#desegnMediaLoads.delete(key);
+      });
+    this.#desegnMediaLoads.set(key, request);
+    return request;
+  }
+
+  async renameDesegnPet(name: string): Promise<boolean> {
+    return this.persistDesegnPet({ ...this.snapshot.desegnLernado.pet, name: name.trim().slice(0, 24) || 'Moki' });
+  }
+
+  async setDesegnPetPalette(palette: DesegnPetPalette): Promise<boolean> {
+    return this.persistDesegnPet({ ...this.snapshot.desegnLernado.pet, palette });
+  }
+
+  async equipDesegnArtifact(artifactId: string | null, slot: number): Promise<boolean> {
+    if (slot < 0 || slot > 2) return false;
+    if (artifactId) {
+      const unlocked = new Set(unlockedDesegnArtifacts(desegnStats(this.snapshot.desegnLernado.drawings)).map((item) => item.id));
+      if (!unlocked.has(artifactId)) return false;
+    }
+    const equippedArtifactIds = [...this.snapshot.desegnLernado.pet.equippedArtifactIds].slice(0, 3);
+    while (equippedArtifactIds.length < 3) equippedArtifactIds.push(null);
+    if (artifactId) {
+      for (let index = 0; index < equippedArtifactIds.length; index += 1) {
+        if (equippedArtifactIds[index] === artifactId) equippedArtifactIds[index] = null;
+      }
+    }
+    equippedArtifactIds[slot] = artifactId;
+    return this.persistDesegnPet({ ...this.snapshot.desegnLernado.pet, equippedArtifactIds });
+  }
+
+  clearDesegnError(): void {
+    this.update((snapshot) => ({
+      ...snapshot,
+      desegnLernado: { ...snapshot.desegnLernado, error: null },
+    }));
   }
 
   refreshTaglibro(force = true): Promise<void> {
@@ -466,6 +718,88 @@ export class IloGState extends GState<IloSnapshot> {
     this.update((snapshot) => ({ ...snapshot, lingvolernando: game }));
   }
 
+  private async persistDesegnDrawing(drawing: DesegnDrawing, operation: string): Promise<boolean> {
+    const ownerId = this.#ownerId;
+    if (!ownerId || this.snapshot.desegnLernado.busy) return false;
+    this.update((snapshot) => ({
+      ...snapshot,
+      desegnLernado: { ...snapshot.desegnLernado, busy: operation, error: null },
+    }));
+    try {
+      await this.desegnStore.updateDrawing(ownerId, drawing);
+      if (ownerId !== this.#ownerId) return false;
+      this.update((snapshot) => ({
+        ...snapshot,
+        desegnLernado: {
+          ...snapshot.desegnLernado,
+          busy: null,
+          drawings: snapshot.desegnLernado.drawings.map((item) => item.id === drawing.id ? drawing : item),
+        },
+      }));
+      return true;
+    } catch (error) {
+      if (ownerId !== this.#ownerId) return false;
+      this.desegnFail(error);
+      this.update((snapshot) => ({
+        ...snapshot,
+        desegnLernado: { ...snapshot.desegnLernado, busy: null },
+      }));
+      return false;
+    }
+  }
+
+  private async persistDesegnPet(pet: DesegnPetProfile): Promise<boolean> {
+    const ownerId = this.#ownerId;
+    if (!ownerId || this.snapshot.desegnLernado.busy) return false;
+    this.update((snapshot) => ({
+      ...snapshot,
+      desegnLernado: { ...snapshot.desegnLernado, busy: 'Saving companion', error: null },
+    }));
+    try {
+      await this.desegnStore.savePet(ownerId, pet);
+      if (ownerId !== this.#ownerId) return false;
+      this.update((snapshot) => ({
+        ...snapshot,
+        desegnLernado: { ...snapshot.desegnLernado, busy: null, pet },
+      }));
+      return true;
+    } catch (error) {
+      if (ownerId !== this.#ownerId) return false;
+      this.desegnFail(error);
+      this.update((snapshot) => ({
+        ...snapshot,
+        desegnLernado: { ...snapshot.desegnLernado, busy: null },
+      }));
+      return false;
+    }
+  }
+
+  private revokeDesegnDrawingUrls(ownerId: string, drawingId: string): void {
+    for (const variant of ['original', 'thumbnail'] as const) {
+      const key = `${ownerId}:${drawingId}:${variant}`;
+      const url = this.#desegnMediaUrls.get(key);
+      if (url) URL.revokeObjectURL(url);
+      this.#desegnMediaUrls.delete(key);
+      this.#desegnMediaLoads.delete(key);
+    }
+  }
+
+  private trimDesegnMediaUrls(variant: DesegnMediaVariant, limit: number): void {
+    const suffix = `:${variant}`;
+    const matching = [...this.#desegnMediaUrls.entries()].filter(([key]) => key.endsWith(suffix));
+    for (const [key, url] of matching.slice(0, Math.max(0, matching.length - limit))) {
+      URL.revokeObjectURL(url);
+      this.#desegnMediaUrls.delete(key);
+    }
+  }
+
+  private desegnFail(error: unknown): void {
+    this.update((snapshot) => ({
+      ...snapshot,
+      desegnLernado: { ...snapshot.desegnLernado, error: readableDesegnError(error) },
+    }));
+  }
+
   private async loadCards(append: boolean): Promise<void> {
     const ownerId = this.#ownerId;
     if (!ownerId) return;
@@ -623,6 +957,12 @@ function readableTaglibroError(error: unknown): string {
   if (typeof error === 'string' && error.trim()) return error;
   if (error instanceof Error && error.message.trim()) return error.message;
   return 'Taglibroplanilo is unavailable.';
+}
+
+function readableDesegnError(error: unknown): string {
+  if (typeof error === 'string' && error.trim()) return error;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return 'DesegnLernado could not access its local gallery.';
 }
 
 function insertEvent(events: IloSnapshot['taglibro']['events'], next: IloSnapshot['taglibro']['events'][number]) {

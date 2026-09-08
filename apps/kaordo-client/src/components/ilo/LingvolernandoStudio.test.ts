@@ -1,6 +1,7 @@
 import { fireEvent, render } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IloSnapshot } from '../../lib/domain/ilo';
+import { EMPTY_DESEGN_LERNADO } from '../../lib/domain/desegnLernado';
 import { EMPTY_LINGVOLERNANDO_GAME, type LingvolernandoRewardOutcome } from '../../lib/domain/lingvolernando';
 import type { IloGState } from '../../lib/states/IloGState';
 import LingvolernandoStudio from './LingvolernandoStudio.svelte';
@@ -12,6 +13,7 @@ function snapshot(): IloSnapshot {
     cardsHasMore: false,
     cardsLoaded: true,
     cardsLoading: false,
+    desegnLernado: structuredClone(EMPTY_DESEGN_LERNADO),
     error: null,
     lingvolernando: structuredClone(EMPTY_LINGVOLERNANDO_GAME),
     logs: [],

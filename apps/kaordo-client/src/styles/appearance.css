@@ -58,7 +58,6 @@ html[data-theme='dark'] :is(.tool-workspace, .tools-rail) {
 }
 
 html[data-theme='dark'] :is(
-  .tool-header,
   .tool-tabs,
   .training-card,
   .queue-clear,
@@ -77,7 +76,6 @@ html[data-theme='dark'] :is(
 }
 
 html[data-theme='dark'] :is(
-  .tool-heading h1,
   .training-card h2,
   .queue-clear h2,
   .word-form h3,

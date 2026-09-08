@@ -6,6 +6,7 @@
   import LingvolernandoLearningPulse from './lingvolernando/LingvolernandoLearningPulse.svelte';
   import LingvolernandoRewardSequence from './lingvolernando/LingvolernandoRewardSequence.svelte';
   import TaglibroplaniloSection from './TaglibroplaniloSection.svelte';
+  import DesegnLernadoSection from './DesegnLernadoSection.svelte';
   import type { IloCard, IloCardInput, IloSnapshot, IloTab } from '../../lib/domain/ilo';
   import type { LingvolernandoRewardOutcome } from '../../lib/domain/lingvolernando';
   import type { IloGState } from '../../lib/states/IloGState';
@@ -18,7 +19,7 @@
   let pendingDelete = $state<{ ids: string[]; label: string } | null>(null);
   let copyingLogs = $state(false);
   let copiedLogs = $state(false);
-  let activeTool = $state<'lingvolernado' | 'taglibroplanilo'>('lingvolernado');
+  let activeTool = $state<'desegnlernado' | 'lingvolernado' | 'taglibroplanilo'>('lingvolernado');
   let learningReward = $state<LingvolernandoRewardOutcome | null>(null);
   let learningReaction = $state<'forgot' | 'remember' | null>(null);
   let learningReactionSequence = $state(0);
@@ -43,6 +44,7 @@
   function openTool(tool: typeof activeTool): void {
     activeTool = tool;
     if (tool === 'taglibroplanilo') void iloState.refreshTaglibro(false);
+    if (tool === 'desegnlernado') void iloState.loadDesegnLernado(false);
   }
 
   async function grade(action: 'forgot' | 'remember'): Promise<void> {
@@ -119,7 +121,7 @@
   }
 </script>
 
-<section class="ilo-shell" aria-labelledby="ilo-title">
+<section class="ilo-shell" aria-label="Ilo">
   <aside class="tools-rail">
     <header>
       <span>Ilo</span>
@@ -138,35 +140,28 @@
       </span>
       <span><strong>Taglibroplanilo</strong><small>Daily planner & diary</small></span>
     </button>
+    <button class:active={activeTool === 'desegnlernado'} class="tool-card drawing-tool" type="button" aria-current={activeTool === 'desegnlernado' ? 'page' : undefined} onclick={() => openTool('desegnlernado')}>
+      <span class="tool-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M5 19c3.5-7.5 8-12 14-14-2 6.5-6.5 11-13 14.5zM9 16l-3 3.5M14.5 9.5l2 2"/></svg>
+      </span>
+      <span><strong>DesegnLernado</strong><small>Drawing gallery</small></span>
+    </button>
     <div class="rail-spacer"></div>
     <div class="storage-note">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 7.5 10 4l6 3.5v6L10 17l-6-3.5zM10 10.5V17M4 7.5l6 3 6-3"/></svg>
-      <span><strong>Synced safely</strong><small>Kaordo account storage</small></span>
+      <span>
+        <strong>{activeTool === 'desegnlernado' ? 'Local studio' : 'Synced safely'}</strong>
+        <small>{activeTool === 'desegnlernado' ? 'Drawings stay on this device' : 'Kaordo account storage'}</small>
+      </span>
     </div>
   </aside>
 
-  <main class:taglibro-active={activeTool === 'taglibroplanilo'} class="tool-workspace">
+  <main class:standalone-active={activeTool !== 'lingvolernado'} class="tool-workspace">
     {#if activeTool === 'taglibroplanilo'}
       <TaglibroplaniloSection snapshot={snapshot.taglibro} state={iloState} />
+    {:else if activeTool === 'desegnlernado'}
+      <DesegnLernadoSection snapshot={snapshot.desegnLernado} state={iloState} />
     {:else}
-    <header class="tool-header">
-      <div class="tool-heading">
-        <span class="hero-mark" aria-hidden="true">L</span>
-        <div>
-          <span class="eyebrow">Language learning</span>
-          <h1 id="ilo-title">Lingvolernando</h1>
-          <p>German vocabulary, spaced repetition, and a clear record of your progress.</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <span class="sync-state"><i></i>{snapshot.error ? 'Needs attention' : 'Saved'}</span>
-        <button class:loading={snapshot.refreshing} type="button" disabled={snapshot.refreshing || snapshot.busy !== null} onclick={() => iloState.refresh()}>
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M15.5 7.5A6 6 0 1 0 16 12M15.5 3.5v4h-4"/></svg>
-          {snapshot.refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
-      </div>
-    </header>
-
     <nav class="tool-tabs" aria-label="Lingvolernando sections">
       {#each tabs as tab}
         <button class:active={activeTab === tab.id} type="button" onclick={() => openTab(tab.id)}>
@@ -439,46 +434,19 @@
 
   .tool-workspace {
     position: relative;
-    display: grid;
-    grid-template-rows: auto auto auto minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
     min-width: 0;
     min-height: 0;
     overflow: hidden;
     background: radial-gradient(circle at 78% -8%, color-mix(in srgb, var(--sui-primary) 10%, transparent), transparent 31%), var(--sui-bg);
   }
 
-  .tool-workspace.taglibro-active { display: block; overflow: auto; }
-  .tool-workspace.taglibro-active > :global(.taglibro-shell) { min-height: 100%; }
+  .tool-workspace.standalone-active { display: block; overflow: auto; }
+  .tool-workspace.standalone-active > :global(.taglibro-shell),
+  .tool-workspace.standalone-active > :global(.desegn-shell) { min-height: 100%; }
 
-  .tool-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-    min-height: 72px;
-    margin: 10px 16px 0;
-    padding: 9px 15px;
-    color: var(--sui-text);
-    background: var(--sui-bg);
-    border: 0;
-    border-radius: var(--sui-radius);
-    box-shadow: var(--sui-shadow-raised);
-  }
-
-  .tool-heading { display: flex; align-items: center; gap: 13px; min-width: 0; }
-  .hero-mark { display: grid; flex: none; width: 50px; height: 50px; color: #fff; background: linear-gradient(145deg, var(--sui-primary), color-mix(in srgb, var(--sui-primary) 68%, #242a48)); border: 0; border-radius: 16px; box-shadow: var(--sui-shadow-raised-sm); font-size: calc(20px * var(--text-scale)); font-weight: 740; place-items: center; }
   .eyebrow { color: var(--sui-primary); font-size: calc(8px * var(--text-scale)); font-weight: 770; letter-spacing: .13em; text-transform: uppercase; }
-  .tool-heading h1 { margin: 3px 0 0; color: var(--sui-text); font-size: calc(21px * var(--text-scale)); font-weight: 740; letter-spacing: -.035em; }
-  .tool-heading p { margin-top: 3px; color: var(--sui-text-muted); font-size: calc(8px * var(--text-scale)); }
-  .header-actions { display: flex; align-items: center; gap: 13px; }
-  .sync-state { display: inline-flex; align-items: center; gap: 6px; color: var(--sui-text-muted); font-size: calc(8px * var(--text-scale)); font-weight: 660; }
-  .sync-state i { width: 7px; height: 7px; background: var(--sui-success); border-radius: 50%; box-shadow: 0 0 0 4px color-mix(in srgb, var(--sui-success) 12%, transparent); }
-  .header-actions button { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 13px; color: var(--sui-primary); background: var(--sui-bg); border: 0; border-radius: 11px; box-shadow: var(--sui-shadow-raised-sm); cursor: pointer; font-size: calc(8px * var(--text-scale)); font-weight: 700; transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
-  .header-actions button:hover:not(:disabled) { color: var(--sui-primary-hover); transform: translateY(-1px); }
-  .header-actions button:active:not(:disabled) { box-shadow: var(--sui-shadow-inset-sm); transform: none; }
-  .header-actions button:disabled { cursor: progress; opacity: .62; }
-  .header-actions svg { width: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; }
-  .header-actions button.loading svg { animation: spin .75s linear infinite; }
 
   .tool-tabs { display: flex; align-items: center; gap: 4px; min-height: 43px; margin: 8px 16px 0; padding: 5px; background: var(--sui-bg); border: 0; border-radius: var(--sui-radius); box-shadow: var(--sui-shadow-inset-sm); }
   .tool-tabs button { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; color: var(--sui-text-muted); background: transparent; border: 0; border-radius: 9px; cursor: pointer; font-size: calc(8px * var(--text-scale)); font-weight: 680; transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
@@ -495,7 +463,7 @@
   .error-banner button { margin-left: auto; color: inherit; background: transparent; border: 0; border-radius: 7px; cursor: pointer; font-size: 18px; }
   .error-banner button:active { box-shadow: var(--sui-shadow-inset-sm); }
 
-  .tool-scroll { min-width: 0; min-height: 0; padding: 24px 30px 34px; overflow: auto; scrollbar-color: color-mix(in srgb, var(--sui-text-light) 48%, transparent) transparent; scrollbar-width: thin; }
+  .tool-scroll { min-width: 0; min-height: 0; padding: 24px 30px 34px; flex: 1 1 0; overflow: auto; scrollbar-color: color-mix(in srgb, var(--sui-text-light) 48%, transparent) transparent; scrollbar-width: thin; }
   .initial-loading { display: flex; align-items: center; flex-direction: column; justify-content: center; min-height: 430px; color: var(--sui-text-muted); text-align: center; }
   .loading-orbit { position: relative; display: grid; width: 68px; height: 68px; margin-bottom: 18px; color: #fff; background: var(--sui-bg); border-radius: 50%; box-shadow: var(--sui-shadow-raised); place-items: center; }
   .loading-orbit i { position: absolute; inset: -6px; border: 2px solid transparent; border-top-color: var(--sui-primary); border-right-color: color-mix(in srgb, var(--sui-primary) 36%, transparent); border-radius: 50%; animation: spin .9s linear infinite; }
@@ -528,6 +496,7 @@
   .answer-panel li { color: var(--sui-text-muted); font-size: calc(10px * var(--text-scale)); line-height: 1.45; }
   .training-actions { display: flex; flex: none; justify-content: center; margin-top: 16px; }
   .training-actions.split { display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); gap: 10px; }
+  .training-actions.split { position: sticky; z-index: 2; bottom: 0; margin-top: 12px; padding: 12px 0 2px; background: linear-gradient(to bottom, transparent, var(--sui-bg) 35%); }
   .training-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 180px; height: 43px; padding: 0 17px; border: 0; border-radius: 11px; box-shadow: var(--sui-shadow-raised-sm); cursor: pointer; font-size: calc(10px * var(--text-scale)); font-weight: 720; transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
   .training-actions button:hover:not(:disabled) { transform: translateY(-1px); }
   .training-actions button:active:not(:disabled) { box-shadow: var(--sui-shadow-inset-sm); transform: none; }
@@ -587,7 +556,7 @@
   @keyframes answer-in { from { opacity: 0; transform: translateY(4px); } }
   @keyframes fade-in { from { opacity: 0; } }
   @keyframes dialog-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
-  @media (max-width: 1160px) { .ilo-shell { grid-template-columns: 194px minmax(0, 1fr); } .tool-header, .tool-tabs { margin-inline: 12px; } .tool-scroll { padding-inline: 22px; } }
-  @media (max-width: 760px) { .ilo-shell { grid-template-columns: 178px minmax(0, 1fr); } .tool-header { align-items: flex-start; flex-direction: column; gap: 13px; } .header-actions { width: 100%; justify-content: space-between; } .tool-tabs { overflow-x: auto; } .tool-tabs button { flex: none; } .training-summary { grid-template-columns: 1fr; } .training-card { padding: 21px; } }
-  @media (prefers-reduced-motion: reduce) { .loading-orbit i, .header-actions button.loading svg, .training-card, .answer-panel, .error-banner, .confirm-backdrop, .confirm-dialog { animation: none; } }
+  @media (max-width: 1160px) { .ilo-shell { grid-template-columns: 194px minmax(0, 1fr); } .tool-tabs { margin-inline: 12px; } .tool-scroll { padding-inline: 22px; } }
+  @media (max-width: 760px) { .ilo-shell { grid-template-columns: 178px minmax(0, 1fr); } .tool-tabs { overflow-x: auto; } .tool-tabs button { flex: none; } .training-summary { grid-template-columns: 1fr; } .training-card { padding: 21px; } }
+  @media (prefers-reduced-motion: reduce) { .loading-orbit i, .training-card, .answer-panel, .error-banner, .confirm-backdrop, .confirm-dialog { animation: none; } }
 </style>
