@@ -9,6 +9,7 @@
   };
 
   let { artifact, level = 1, locked = false, size = 96 }: Props = $props();
+  const instanceId = $props.id();
   const form = $derived(artifact?.form ?? 0);
   const motion = $derived((artifact?.animationIndex ?? 0) % 12);
   const phase = $derived(((artifact?.animationIndex ?? 0) % 17) * -0.11);
@@ -18,17 +19,17 @@
 <span
   class:locked
   class="artifact-glyph modifier-{artifact?.modifier ?? 'void'} motion-{motion}"
-  style={`--glyph-size:${size}px;--artifact-accent:${artifact?.accent ?? '#8993a8'};--motion-delay:${phase}s;--motion-duration:${duration}s;--artifact-level:${Math.min(level, 9)}`}
+  style={`--glyph-size:${size}px;--artifact-accent:${artifact?.accent ?? '#8993a8'};--motion-delay:${phase}s;--motion-duration:${duration}s;--artifact-level:${Math.min(level, 9)};--artifact-core-url:url(#${instanceId}-core);`}
   aria-hidden="true"
 >
   <svg viewBox="0 0 120 120">
     <defs>
-      <radialGradient id={`core-${artifact?.id ?? 'locked'}`} cx="35%" cy="26%" r="72%">
+      <radialGradient id={`${instanceId}-core`} cx="35%" cy="26%" r="72%">
         <stop offset="0" stop-color="white" stop-opacity=".94" />
         <stop offset=".34" stop-color="var(--artifact-accent)" stop-opacity=".9" />
         <stop offset="1" stop-color="var(--artifact-accent)" stop-opacity=".18" />
       </radialGradient>
-      <filter id={`glow-${artifact?.id ?? 'locked'}`} x="-60%" y="-60%" width="220%" height="220%">
+      <filter id={`${instanceId}-glow`} x="-60%" y="-60%" width="220%" height="220%">
         <feGaussianBlur stdDeviation="4" result="blur" />
         <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
@@ -42,7 +43,7 @@
       <circle cx="25" cy="92" r="2.8" />
     </g>
 
-    <g class="artifact-form" filter={`url(#glow-${artifact?.id ?? 'locked'})`}>
+    <g class="artifact-form" filter={`url(#${instanceId}-glow)`}>
       {#if form === 0}
         <circle class="mass" cx="60" cy="60" r="25" />
         <path class="etch" d="M60 38 68 60 60 82 52 60Z" />
@@ -108,7 +109,7 @@
   .halo-one { stroke-width: 1.3; stroke-dasharray: 4 9; opacity: .33; animation: orbit var(--motion-duration) linear infinite; animation-delay: var(--motion-delay); }
   .halo-two { stroke-width: 2; stroke-dasharray: 1 12; opacity: .23; animation: orbit calc(var(--motion-duration) * 1.7) linear reverse infinite; animation-delay: var(--motion-delay); }
   .satellites { fill: currentColor; transform-origin: 60px 60px; animation: counter-orbit calc(var(--motion-duration) * 2.1) ease-in-out infinite; animation-delay: var(--motion-delay); }
-  .mass { fill: url('#core'); fill: color-mix(in srgb, var(--artifact-accent) 68%, white 32%); stroke: color-mix(in srgb, var(--artifact-accent) 76%, #273248 24%); stroke-width: 2; stroke-linejoin: round; }
+  .mass { fill: var(--artifact-core-url); stroke: color-mix(in srgb, var(--artifact-accent) 76%, #273248 24%); stroke-width: 2; stroke-linejoin: round; }
   .etch { fill: none; stroke: rgb(255 255 255 / 82%); stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
   .etch.faint { opacity: .46; stroke-width: 1.4; }
   .spark { fill: white; stroke: none; transform-origin: 60px 55px; animation: spark calc(var(--motion-duration) * .72) ease-in-out infinite; }

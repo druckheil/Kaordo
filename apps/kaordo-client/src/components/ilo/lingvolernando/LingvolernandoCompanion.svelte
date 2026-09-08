@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { IloSnapshot } from '../../../lib/domain/ilo';
   import type { LingvolernandoPetPalette } from '../../../lib/domain/lingvolernando';
-  import { LINGVOLERNANDO_ARTIFACTS } from '../../../lib/services/lingvolernandoGame';
+  import { LINGVOLERNANDO_ARTIFACTS, lingvolernandoArtifact } from '../../../lib/services/lingvolernandoGame';
   import ArtifactGlyph from './ArtifactGlyph.svelte';
   import LingvolernandoLearningPulse from './LingvolernandoLearningPulse.svelte';
   import LumaCreature from './LumaCreature.svelte';
@@ -26,7 +26,7 @@
 
   const discovered = $derived(LINGVOLERNANDO_ARTIFACTS.filter((item) => snapshot.lingvolernando.discoveredArtifactIds.includes(item.id)));
   const activeArtifactIds = $derived(snapshot.lingvolernando.equippedArtifactIds);
-  const carried = $derived(activeArtifactIds.map((id) => id ? LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === id) : null).filter(Boolean));
+  const carried = $derived(activeArtifactIds.map((id) => lingvolernandoArtifact(id)).filter(Boolean));
   const answers = $derived(snapshot.lingvolernando.learning.rememberedAnswers + snapshot.lingvolernando.learning.forgottenAnswers);
   const accuracy = $derived(answers > 0 ? Math.round(snapshot.lingvolernando.learning.rememberedAnswers / answers * 100) : 50);
   const growthLevel = $derived(Math.min(6, Math.floor((snapshot.lingvolernando.actionCount + snapshot.lingvolernando.learning.vocabularyBlooms) / 5)));

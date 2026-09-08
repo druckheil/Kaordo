@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import type { IloSnapshot } from '../../../lib/domain/ilo';
   import { journeyNextAvailableAt, journeyWordForGame } from '../../../lib/services/lingvolernandoGame';
   import LumaCreature from './LumaCreature.svelte';
@@ -15,9 +14,16 @@
   const queueSize = $derived(snapshot.lingvolernando.journey.remainingWordIds.length || snapshot.lingvolernando.journey.words.length);
   const position = $derived(snapshot.lingvolernando.journey.position);
 
-  onMount(() => {
-    const timer = setInterval(() => { now = Date.now(); }, 15_000);
-    return () => clearInterval(timer);
+  // The gate only changes when the next hourly slot opens. A one-shot timer
+  // avoids waking the renderer every few seconds while still updating the
+  // countdown promptly when a word becomes available.
+  $effect(() => {
+    const availableAt = nextAt;
+    const delay = availableAt !== null && availableAt > Date.now()
+      ? Math.min(60_000, Math.max(1_000, availableAt - Date.now()))
+      : 60_000;
+    const timer = setTimeout(() => { now = Date.now(); }, delay);
+    return () => clearTimeout(timer);
   });
 
   function waitLabel(timestamp: number | null): string {

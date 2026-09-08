@@ -1,5 +1,7 @@
 import {
+  DESEGN_FOCUSES,
   EMPTY_DESEGN_PET,
+  type DesegnFocus,
   type DesegnDrawing,
   type DesegnPetProfile,
 } from '../domain/desegnLernado';
@@ -45,7 +47,8 @@ export class MemoryDesegnLernadoStore implements DesegnLernadoStore {
   async load(ownerId: string): Promise<DesegnLernadoArchive> {
     const drawings = [...this.drawings.values()]
       .filter((entry) => entry.ownerId === ownerId)
-      .map((entry) => cloneDrawing(entry.drawing))
+      .map((entry) => readDrawing(entry.drawing))
+      .filter((drawing): drawing is DesegnDrawing => drawing !== null)
       .sort(sortDrawings);
     return {
       drawings,
@@ -99,7 +102,10 @@ class IndexedDbDesegnLernadoStore implements DesegnLernadoStore {
         completed(transaction),
       ]);
       return {
-        drawings: records.map((entry) => cloneDrawing(entry.drawing)).sort(sortDrawings),
+        drawings: (Array.isArray(records) ? records : [])
+          .map((entry) => readDrawing(entry?.drawing))
+          .filter((drawing): drawing is DesegnDrawing => drawing !== null)
+          .sort(sortDrawings),
         pet: clonePet(profile?.pet ?? EMPTY_DESEGN_PET),
       };
     } catch (error) {
@@ -196,8 +202,15 @@ class IndexedDbDesegnLernadoStore implements DesegnLernadoStore {
         }
       };
       operation.onsuccess = () => {
-        operation.result.onversionchange = () => operation.result.close();
-        resolve(operation.result);
+        const database = operation.result;
+        // Another tab can upgrade the archive while this window is open. A
+        // closed connection must not remain cached forever or every later
+        // gallery request will fail with "transaction is closed".
+        database.onversionchange = () => {
+          database.close();
+          this.#databasePromise = null;
+        };
+        resolve(database);
       };
       operation.onerror = () => reject(operation.error ?? new Error('Could not open drawing storage.'));
       operation.onblocked = () => reject(new Error('Drawing storage is blocked by another window.'));
@@ -226,7 +239,7 @@ function completed(transaction: IDBTransaction): Promise<void> {
 }
 
 function storageError(error: unknown): Error {
-  if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+  if (typeof DOMException !== 'undefined' && error instanceof DOMException && error.name === 'QuotaExceededError') {
     return new Error('Local drawing storage is full. Remove an old drawing or free device space.');
   }
   if (error instanceof Error && error.message) return error;
@@ -234,11 +247,99 @@ function storageError(error: unknown): Error {
 }
 
 function cloneDrawing(drawing: DesegnDrawing): DesegnDrawing {
-  return { ...drawing, shortcomings: [...drawing.shortcomings] };
+  // Writes originate from the typed state layer. Keep this copy helper small
+  // and deterministic; reads use readDrawing below to protect the UI from
+  // malformed records left by an interrupted older build.
+  return {
+    ...drawing,
+    description: drawing.description.trim().slice(0, 2_000),
+    shortcomings: [...new Set(drawing.shortcomings.map((item) => item.trim()).filter(Boolean))]
+      .slice(0, 20)
+      .map((item) => item.slice(0, 300)),
+    title: drawing.title.trim().slice(0, 100) || 'Untitled drawing',
+  };
 }
 
-function clonePet(pet: Readonly<DesegnPetProfile>): DesegnPetProfile {
-  return { ...pet, equippedArtifactIds: [...pet.equippedArtifactIds].slice(0, 3) };
+function clonePet(value: unknown): DesegnPetProfile {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value as UnknownRecord : {};
+  const name = boundedString(source.name, 24).replace(/\s+/g, ' ');
+  const seen = new Set<string>();
+  const rawEquipped = Array.isArray(source.equippedArtifactIds) ? source.equippedArtifactIds : [];
+  const equippedArtifactIds = Array.from({ length: 3 }, (_, index) => {
+    const value = rawEquipped[index];
+    const id = typeof value === 'string' ? value.trim().slice(0, 128) : '';
+    if (!id || seen.has(id)) return null;
+    seen.add(id);
+    return id;
+  });
+  const palette = source.palette;
+  return {
+    equippedArtifactIds,
+    name: name || EMPTY_DESEGN_PET.name,
+    palette: palette === 'ink' || palette === 'mint' || palette === 'sunset' || palette === 'night'
+      ? palette
+      : EMPTY_DESEGN_PET.palette,
+  };
+}
+
+type UnknownRecord = Record<string, unknown>;
+
+function readDrawing(value: unknown): DesegnDrawing | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as UnknownRecord;
+  const id = boundedString(source.id, 128);
+  if (!id) return null;
+  const createdAt = finite(source.createdAt, Date.now());
+  const width = positiveFinite(source.width, 1);
+  const height = positiveFinite(source.height, 1);
+  const title = boundedString(source.title, 100) || 'Untitled drawing';
+  const fileName = boundedString(source.fileName, 255) || `${title}.png`;
+  const mimeType = boundedString(source.mimeType, 100).toLowerCase() || 'image/png';
+  const shortcomings = Array.isArray(source.shortcomings)
+    ? [...new Set(source.shortcomings
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean))].slice(0, 20).map((item) => item.slice(0, 300))
+    : [];
+  const rating = source.rating === null || source.rating === undefined
+    ? null
+    : finite(source.rating, 0) > 0 ? Math.min(5, Math.max(1, Math.round(finite(source.rating, 1)))) : null;
+  const focus = DESEGN_FOCUSES.includes(source.focus as DesegnFocus) ? source.focus as DesegnFocus : 'other';
+  return {
+    byteSize: Math.max(0, finite(source.byteSize, 0)),
+    createdAt,
+    description: boundedString(source.description, 2_000),
+    fileName,
+    focus,
+    height,
+    id,
+    lastReviewedAt: nullableFinite(source.lastReviewedAt),
+    mimeType,
+    nextReviewAt: finite(source.nextReviewAt, createdAt),
+    rating,
+    reviewCount: Math.max(0, Math.round(finite(source.reviewCount, 0))),
+    shortcomings,
+    title,
+    updatedAt: finite(source.updatedAt, createdAt),
+    width,
+  };
+}
+
+function boundedString(value: unknown, maxLength: number): string {
+  return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+function finite(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function positiveFinite(value: unknown, fallback: number): number {
+  const number = finite(value, fallback);
+  return number > 0 ? Math.min(number, 12_000) : fallback;
+}
+
+function nullableFinite(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function sortDrawings(left: DesegnDrawing, right: DesegnDrawing): number {

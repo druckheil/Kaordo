@@ -13,19 +13,20 @@
   };
 
   let { action = null, gazeX = 0, gazeY = 0, mood, palette = 'moon', size = 210 }: Props = $props();
+  const instanceId = $props.id();
 </script>
 
 <span
   class="luma mood-{mood} palette-{palette} action-{action ?? 'idle'}"
-  style={`--luma-size:${size}px;--gaze-x:${gazeX}px;--gaze-y:${gazeY}px`}
+  style={`--luma-size:${size}px;--gaze-x:${gazeX}px;--gaze-y:${gazeY}px;--luma-body-url:url(#${instanceId}-body);--luma-glow-url:url(#${instanceId}-glow)`}
   aria-hidden="true"
 >
   <svg viewBox="0 0 240 240">
     <defs>
-      <linearGradient id="luma-body" x1="0" y1="0" x2="1" y2="1">
+      <linearGradient id={`${instanceId}-body`} x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="var(--luma-light)"/><stop offset=".48" stop-color="var(--luma-mid)"/><stop offset="1" stop-color="var(--luma-deep)"/>
       </linearGradient>
-      <radialGradient id="luma-glow"><stop offset="0" stop-color="var(--luma-accent)" stop-opacity=".45"/><stop offset="1" stop-color="var(--luma-accent)" stop-opacity="0"/></radialGradient>
+      <radialGradient id={`${instanceId}-glow`}><stop offset="0" stop-color="var(--luma-accent)" stop-opacity=".45"/><stop offset="1" stop-color="var(--luma-accent)" stop-opacity="0"/></radialGradient>
     </defs>
     <ellipse class="aura" cx="120" cy="126" rx="105" ry="100" />
     <g class="stars"><circle cx="29" cy="69" r="4"/><circle cx="207" cy="84" r="3"/><circle cx="191" cy="30" r="2.5"/><path d="m42 32 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z"/></g>
@@ -59,10 +60,10 @@
   .luma { --luma-light:#f9fbff;--luma-mid:#dfe8fa;--luma-deep:#c8d2ed;--luma-accent:#7b70ee;display:inline-grid; width:var(--luma-size); height:var(--luma-size); place-items:center; contain:layout paint; }
   .palette-aurora{--luma-light:#f7fffc;--luma-mid:#d1eee7;--luma-deep:#addbd2;--luma-accent:#35a98c}.palette-ember{--luma-light:#fffaf5;--luma-mid:#f3dacd;--luma-deep:#dfb7a4;--luma-accent:#ca6e57}.palette-moss{--luma-light:#fbfff5;--luma-mid:#dfebd1;--luma-deep:#bfd0ab;--luma-accent:#71966b}
   svg { width:100%; height:100%; overflow:visible; }
-  .aura { fill:url(#luma-glow); opacity:.5; animation:aura 3.8s ease-in-out infinite; transform-origin:120px 126px; }
+  .aura { fill:var(--luma-glow-url); opacity:.5; animation:aura 3.8s ease-in-out infinite; transform-origin:120px 126px; }
   .stars { fill:var(--luma-accent); opacity:.5; animation:stars 5.4s ease-in-out infinite; }
   .body { transform-origin:128px 158px; animation:idle 3.6s ease-in-out infinite; }
-  .head,.torso,.ear,.paws path { fill:url(#luma-body); stroke:#64708d; stroke-width:3; stroke-linejoin:round; }
+  .head,.torso,.ear,.paws path { fill:var(--luma-body-url); stroke:#64708d; stroke-width:3; stroke-linejoin:round; }
   .ear-inner { fill:#c58ab5; opacity:.55; }
   .torso { filter:drop-shadow(0 8px 7px rgb(56 67 91 / 18%)); }
   .cheek { fill:none; stroke:#d386aa; stroke-width:4; stroke-linecap:round; opacity:.55; }
@@ -72,7 +73,7 @@
   .nose,.mouth { fill:none; stroke:#59647b; stroke-width:2.7; stroke-linecap:round; }
   .chest { fill:#f5f8ff; stroke:#b9c4dc; stroke-width:2; }
   .tail { transform-origin:166px 173px; animation:tail 2.9s ease-in-out infinite; }
-  .tail path:first-child { fill:url(#luma-body); stroke:#64708d; stroke-width:3; }
+  .tail path:first-child { fill:var(--luma-body-url); stroke:#64708d; stroke-width:3; }
   .tail-line { fill:none; stroke:#8e9ab6; stroke-width:2; }
   .focus-runes { fill:none; stroke:#7268e7; stroke-width:2; stroke-dasharray:6 12; opacity:0; transform-origin:120px; }
   .dreams { fill:none; stroke:#7d72e9; stroke-width:3; stroke-linecap:round; opacity:0; }

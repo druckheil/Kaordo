@@ -63,7 +63,7 @@ function rarityFor(index: number): LingvolernandoArtifactRarity {
 }
 
 /** 120 deliberately distinct material/form/trait combinations. */
-export const LINGVOLERNANDO_ARTIFACTS: LingvolernandoArtifactDefinition[] = Array.from(
+export const LINGVOLERNANDO_ARTIFACTS: readonly LingvolernandoArtifactDefinition[] = Array.from(
   { length: 120 },
   (_, index) => {
     const material = materials[index % materials.length]!;
@@ -140,7 +140,7 @@ const worldEffects = [
 ] as const;
 
 /** Six biomes with twenty useful, inspectable elements each. */
-export const LINGVOLERNANDO_WORLD: LingvolernandoWorldElementDefinition[] = LINGVOLERNANDO_BIOMES.flatMap(
+export const LINGVOLERNANDO_WORLD: readonly LingvolernandoWorldElementDefinition[] = LINGVOLERNANDO_BIOMES.flatMap(
   (biome, biomeIndex) => worldNouns.map((noun, localIndex) => {
     const index = biomeIndex * worldNouns.length + localIndex;
     const position = worldPositions[localIndex]!;
@@ -181,7 +181,7 @@ const achievementRanks = [
 ] as const;
 
 /** 120 milestones spread over six progress paths; only one path is rendered at a time. */
-export const LINGVOLERNANDO_ACHIEVEMENTS: LingvolernandoAchievementDefinition[] = achievementPaths.flatMap(
+export const LINGVOLERNANDO_ACHIEVEMENTS: readonly LingvolernandoAchievementDefinition[] = achievementPaths.flatMap(
   (path, pathIndex) => path.targets.map((target, tierIndex) => ({
     accent: path.accent,
     description: `Reach ${target} ${path.metric === 'actions' ? 'learning pulses' : path.metric} and reveal a permanent ${path.name.toLowerCase()} landmark plus its artifact reward.`,
@@ -195,7 +195,7 @@ export const LINGVOLERNANDO_ACHIEVEMENTS: LingvolernandoAchievementDefinition[] 
   })),
 );
 
-export const LINGVOLERNANDO_SYNERGIES: LingvolernandoSynergyDefinition[] = [
+export const LINGVOLERNANDO_SYNERGIES: readonly LingvolernandoSynergyDefinition[] = [
   { id: 'deep-flow', name: 'Deep Flow', description: 'Focus and momentum reinforce each other after every completed learning pulse.', accent: '#7469ea', requiredTraits: { focus: 2, momentum: 1 } },
   { id: 'living-context', name: 'Living Context', description: 'Examples and memory cues begin to behave like one connected map.', accent: '#35a98c', requiredTraits: { context: 2, memory: 1 } },
   { id: 'precise-echo', name: 'Precise Echo', description: 'Sound, spelling, and recall align into a cleaner signal.', accent: '#5595cf', requiredTraits: { precision: 2, memory: 1 } },
@@ -205,6 +205,42 @@ export const LINGVOLERNANDO_SYNERGIES: LingvolernandoSynergyDefinition[] = [
   { id: 'explorer-signal', name: 'Explorer Signal', description: 'Curiosity and context reveal world silhouettes sooner.', accent: '#d4954f', requiredTraits: { curiosity: 2, context: 1 } },
   { id: 'quiet-velocity', name: 'Quiet Velocity', description: 'Momentum rises without making the interface louder.', accent: '#596781', requiredTraits: { momentum: 2, precision: 1 } },
 ];
+
+// Catalogs are generated once and then read on every render, answer and
+// persistence pass. Keeping the indexes private prevents components from
+// accidentally mutating the source data while avoiding repeated linear scans
+// through the 120-item collections.
+const ARTIFACT_BY_ID = new Map(LINGVOLERNANDO_ARTIFACTS.map((artifact) => [artifact.id, artifact]));
+const WORLD_BY_ID = new Map(LINGVOLERNANDO_WORLD.map((element) => [element.id, element]));
+const ACHIEVEMENT_BY_ID = new Map(LINGVOLERNANDO_ACHIEVEMENTS.map((achievement) => [achievement.id, achievement]));
+const WORLD_INDEX_BY_ID = new Map(LINGVOLERNANDO_WORLD.map((element, index) => [element.id, index]));
+const ARTIFACT_IDS = new Set(ARTIFACT_BY_ID.keys());
+const WORLD_IDS = new Set(WORLD_BY_ID.keys());
+const ACHIEVEMENT_IDS = new Set(ACHIEVEMENT_BY_ID.keys());
+const VALID_MOODS = new Set<LingvolernandoGameSnapshot['pet']['mood']>(['curious', 'dreaming', 'focused', 'glowing', 'resting']);
+const VALID_PALETTES = new Set<LingvolernandoPetPalette>(['aurora', 'ember', 'moon', 'moss']);
+const ACHIEVEMENTS_BY_PATH = new Map<string, LingvolernandoAchievementDefinition[]>();
+for (const achievement of LINGVOLERNANDO_ACHIEVEMENTS) {
+  const path = ACHIEVEMENTS_BY_PATH.get(achievement.path) ?? [];
+  path.push(achievement);
+  ACHIEVEMENTS_BY_PATH.set(achievement.path, path);
+}
+
+export function lingvolernandoArtifact(id: string | null | undefined): LingvolernandoArtifactDefinition | null {
+  return id ? ARTIFACT_BY_ID.get(id) ?? null : null;
+}
+
+export function lingvolernandoWorldElement(id: string | null | undefined): LingvolernandoWorldElementDefinition | null {
+  return id ? WORLD_BY_ID.get(id) ?? null : null;
+}
+
+export function lingvolernandoAchievement(id: string | null | undefined): LingvolernandoAchievementDefinition | null {
+  return id ? ACHIEVEMENT_BY_ID.get(id) ?? null : null;
+}
+
+export function lingvolernandoAchievementsForPath(path: string): readonly LingvolernandoAchievementDefinition[] {
+  return ACHIEVEMENTS_BY_PATH.get(path) ?? [];
+}
 
 export type LingvolernandoProgressMetrics = {
   activeCards: number;
@@ -219,6 +255,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 function fraction(seed: number): number {
+  if (!Number.isFinite(seed)) return 0;
   const value = Math.abs(Math.sin(seed * 12.9898 + 78.233) * 43_758.5453);
   return value - Math.floor(value);
 }
@@ -235,12 +272,29 @@ function rarityDust(rarity: LingvolernandoArtifactRarity): number {
 }
 
 export function metricsFromProgress(progress: IloProgress): LingvolernandoProgressMetrics {
+  let activeDays = 0;
+  let serverXp = 0;
+  const pointsHistory = Array.isArray(progress.pointsHistory) ? progress.pointsHistory : [];
+  for (const item of pointsHistory) {
+    const points = typeof item.points === 'number' && Number.isFinite(item.points) ? item.points : 0;
+    if (points > 0) activeDays += 1;
+    serverXp += Math.max(0, points);
+  }
+  let stagePeak = 0;
+  const stages = progress.stages && typeof progress.stages === 'object' ? progress.stages : {};
+  for (const [stage, count] of Object.entries(stages)) {
+    if (typeof count !== 'number' || !Number.isFinite(count) || count <= 0) continue;
+    const numericStage = Number(stage);
+    if (Number.isFinite(numericStage)) stagePeak = Math.max(stagePeak, numericStage);
+  }
+  const activeCards = typeof progress.active === 'number' && Number.isFinite(progress.active) ? progress.active : 0;
+  const todayPoints = typeof progress.todayPoints === 'number' && Number.isFinite(progress.todayPoints) ? progress.todayPoints : 0;
   return {
-    activeCards: progress.active,
-    activeDays: progress.pointsHistory.filter((item) => item.points > 0).length,
-    serverXp: progress.pointsHistory.reduce((sum, item) => sum + item.points, 0),
-    stagePeak: Math.max(0, ...Object.entries(progress.stages).filter(([, count]) => count > 0).map(([stage]) => Number(stage))),
-    todayPoints: progress.todayPoints,
+    activeCards: Math.max(0, activeCards),
+    activeDays,
+    serverXp,
+    stagePeak: Number.isFinite(stagePeak) ? stagePeak : 0,
+    todayPoints: Math.max(0, todayPoints),
   };
 }
 
@@ -249,18 +303,20 @@ export function achievementValue(
   game: Readonly<LingvolernandoGameSnapshot>,
   metrics: LingvolernandoProgressMetrics,
 ): number {
-  if (achievement.metric === 'actions') return game.actionCount;
-  if (achievement.metric === 'artifacts') return game.discoveredArtifactIds.length;
-  if (achievement.metric === 'cards') return metrics.activeCards;
-  if (achievement.metric === 'days') return metrics.activeDays;
-  if (achievement.metric === 'remembered') return game.learning.rememberedAnswers;
-  return game.discoveredWorldIds.length;
+  switch (achievement.metric) {
+    case 'actions': return game.actionCount;
+    case 'artifacts': return game.discoveredArtifactIds.length;
+    case 'cards': return metrics.activeCards;
+    case 'days': return metrics.activeDays;
+    case 'remembered': return game.learning.rememberedAnswers;
+    case 'world': return game.discoveredWorldIds.length;
+  }
 }
 
 export function activeSynergies(equippedIds: ReadonlyArray<string | null>): LingvolernandoSynergyDefinition[] {
   const traitCounts = new Map<LingvolernandoArtifactTrait, number>();
   for (const id of equippedIds) {
-    const artifact = LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === id);
+    const artifact = lingvolernandoArtifact(id);
     if (!artifact) continue;
     traitCounts.set(artifact.trait, (traitCounts.get(artifact.trait) ?? 0) + 1);
     traitCounts.set(artifact.secondaryTrait, (traitCounts.get(artifact.secondaryTrait) ?? 0) + 1);
@@ -279,9 +335,13 @@ export function lingvolernandoBonuses(game: Readonly<LingvolernandoGameSnapshot>
     xpPercent: 0,
   };
   for (const id of game.equippedArtifactIds) {
-    const artifact = LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === id);
+    const artifact = lingvolernandoArtifact(id);
     if (!artifact) continue;
-    const level = game.artifactLevels[artifact.id] ?? 1;
+    const level = clamp(
+      Number.isFinite(game.artifactLevels[artifact.id]) ? game.artifactLevels[artifact.id]! : 1,
+      1,
+      99,
+    );
     const primary = artifact.value + level - 1;
     const secondary = artifact.secondaryValue + Math.floor((level - 1) / 2);
     for (const [trait, value] of [[artifact.trait, primary], [artifact.secondaryTrait, secondary]] as const) {
@@ -292,7 +352,8 @@ export function lingvolernandoBonuses(game: Readonly<LingvolernandoGameSnapshot>
     }
   }
   for (const id of game.discoveredWorldIds) {
-    const index = Number(id.split('-')[1] ?? 1) - 1;
+    const index = WORLD_INDEX_BY_ID.get(id) ?? -1;
+    if (index < 0) continue;
     if (index % 4 === 0) result.xpPercent += 1;
     else if (index % 4 === 1) result.artifactChancePercent += 1;
     else if (index % 4 === 2) result.dustPercent += 2;
@@ -334,13 +395,14 @@ export function completeLingvolernandoAction(
   const xp = Math.round(baseXp * (1 + bonuses.xpPercent / 100));
   const projectedXp = metrics.serverXp + current.earnedXp + xp;
   const shouldDrop = nextActionCount === 1 || current.pity >= 2 || fraction(projectedXp + nextActionCount * 17) < 0.28 + current.pity * 0.08 + bonuses.artifactChancePercent / 100;
+  const discoveredArtifactSet = new Set(current.discoveredArtifactIds);
   const eligibleArtifacts = LINGVOLERNANDO_ARTIFACTS.filter((artifact) => artifact.unlockAt <= projectedXp);
-  const undiscoveredArtifacts = eligibleArtifacts.filter((artifact) => !current.discoveredArtifactIds.includes(artifact.id));
+  const undiscoveredArtifacts = eligibleArtifacts.filter((artifact) => !discoveredArtifactSet.has(artifact.id));
   const artifactPool = undiscoveredArtifacts.length > 0 ? undiscoveredArtifacts : eligibleArtifacts;
   const artifact = shouldDrop && artifactPool.length > 0
     ? artifactPool[pickIndex(projectedXp * 3 + nextActionCount, artifactPool.length)]!
     : null;
-  const wasDuplicate = artifact ? current.discoveredArtifactIds.includes(artifact.id) : false;
+  const wasDuplicate = artifact ? discoveredArtifactSet.has(artifact.id) : false;
   const artifactLevels = { ...current.artifactLevels };
   const discoveredArtifactIds = [...current.discoveredArtifactIds];
   const artifactDiscoveredAt = { ...current.artifactDiscoveredAt };
@@ -350,14 +412,15 @@ export function completeLingvolernandoAction(
       discoveredArtifactIds.push(artifact.id);
       artifactDiscoveredAt[artifact.id] = now;
     }
-    artifactLevels[artifact.id] = (artifactLevels[artifact.id] ?? 0) + 1;
+    artifactLevels[artifact.id] = clamp((artifactLevels[artifact.id] ?? 0) + 1, 1, 99);
     if (wasDuplicate) dustEarned = Math.round(rarityDust(artifact.rarity) * (1 + bonuses.dustPercent / 100));
   }
 
   const baseWorldLight = 10 + Math.ceil(xp / 8);
   const nextWorldLight = current.worldLight + Math.round(baseWorldLight * (1 + bonuses.worldLightPercent / 100));
+  const discoveredWorldSet = new Set(current.discoveredWorldIds);
   const worldCandidates = LINGVOLERNANDO_WORLD.filter(
-    (element) => element.unlockAt <= nextWorldLight && !current.discoveredWorldIds.includes(element.id),
+    (element) => element.unlockAt <= nextWorldLight && !discoveredWorldSet.has(element.id),
   );
   const worldElement = worldCandidates[0] ?? null;
   const discoveredWorldIds = worldElement
@@ -377,26 +440,25 @@ export function completeLingvolernandoAction(
       ...current.pet,
       mood: artifact?.rarity === 'mythic' || artifact?.rarity === 'epic' ? 'glowing' : 'focused',
     },
-    pity: artifact && (artifact.rarity === 'rare' || artifact.rarity === 'epic' || artifact.rarity === 'mythic') ? 0 : current.pity + 1,
+    pity: artifact && (artifact.rarity === 'rare' || artifact.rarity === 'epic' || artifact.rarity === 'mythic') ? 0 : Math.min(20, current.pity + 1),
     worldLight: nextWorldLight,
   };
   // Unlock at most one milestone from each path per pulse. Existing accounts
   // can have years of progress, but revealing dozens of rewards in a single
   // frame would destroy both the sense of progression and reward clarity.
-  const newlyClaimed = [...new Set(LINGVOLERNANDO_ACHIEVEMENTS.map((achievement) => achievement.path))].flatMap((path) => {
-    const next = LINGVOLERNANDO_ACHIEVEMENTS.find(
-      (achievement) => achievement.path === path && !baseGame.claimedAchievementIds.includes(achievement.id),
-    );
+  const claimedAchievementSet = new Set(baseGame.claimedAchievementIds);
+  const newlyClaimed = [...ACHIEVEMENTS_BY_PATH.values()].flatMap((pathAchievements) => {
+    const next = pathAchievements.find((achievement) => !claimedAchievementSet.has(achievement.id));
     return next && achievementValue(next, baseGame, metrics) >= next.target ? [next.id] : [];
   });
   const achievementClaimedAt = { ...baseGame.achievementClaimedAt };
   const achievementRewardArtifactIds: string[] = [];
   for (const achievementId of newlyClaimed) {
     achievementClaimedAt[achievementId] = now;
-    const rewardId = LINGVOLERNANDO_ACHIEVEMENTS.find((item) => item.id === achievementId)?.rewardArtifactId;
+    const rewardId = ACHIEVEMENT_BY_ID.get(achievementId)?.rewardArtifactId;
     if (!rewardId) continue;
     achievementRewardArtifactIds.push(rewardId);
-    const reward = LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === rewardId);
+    const reward = ARTIFACT_BY_ID.get(rewardId);
     if (!reward) continue;
     if (!discoveredArtifactIds.includes(rewardId)) {
       discoveredArtifactIds.push(rewardId);
@@ -404,7 +466,7 @@ export function completeLingvolernandoAction(
     } else {
       dustEarned += Math.round(rarityDust(reward.rarity) * (1 + bonuses.dustPercent / 100));
     }
-    artifactLevels[rewardId] = (artifactLevels[rewardId] ?? 0) + 1;
+    artifactLevels[rewardId] = clamp((artifactLevels[rewardId] ?? 0) + 1, 1, 99);
   }
   const game: LingvolernandoGameSnapshot = {
     ...baseGame,
@@ -449,18 +511,30 @@ function upsertJourneyWord(
   remembered: boolean,
   now: number,
 ): LingvolernandoGameSnapshot['journey'] {
-  const existing = current.journey.words.find((word) => word.id === source.id);
-  const nextStage = remembered ? Math.min(8, source.stage + 1) : Math.max(0, source.stage - 1);
-  if (!existing && (!remembered || nextStage < JOURNEY_MATURE_STAGE || !source.german || !source.translation)) return { ...current.journey };
-  const eligibleAt = existing?.eligibleAt ?? (nextStage >= 5 ? now : now + LINGVOLERNANDO_JOURNEY_INTERVAL_MS);
+  const id = typeof source.id === 'string' ? source.id.trim().slice(0, 128) : '';
+  if (!id) return { ...current.journey };
+  const existing = current.journey.words.find((word) => word.id === id);
+  const incomingStage = Number.isFinite(source.stage) ? clamp(Math.round(source.stage), 0, 8) : 0;
+  // The local Journey copy is authoritative once a word has entered the
+  // queue. Training responses may contain a stale SRS stage, so always grade
+  // against the stored stage instead of allowing an old response to rewind it.
+  const baseStage = existing?.stage ?? incomingStage;
+  const nextStage = remembered ? Math.min(8, baseStage + 1) : Math.max(0, baseStage - 1);
+  const german = typeof source.german === 'string' ? source.german.trim().slice(0, 256) : '';
+  const translation = typeof source.translation === 'string' ? source.translation.trim().slice(0, 512) : '';
+  if (!existing && (!remembered || nextStage < JOURNEY_MATURE_STAGE || !german || !translation)) return { ...current.journey };
+  const nextGerman = german || existing?.german || '';
+  const nextTranslation = translation || existing?.translation || '';
+  if (!nextGerman || !nextTranslation) return { ...current.journey };
+  const eligibleAt = existing?.eligibleAt ?? (nextStage >= JOURNEY_MATURE_STAGE ? now : now + LINGVOLERNANDO_JOURNEY_INTERVAL_MS);
   const word: LingvolernandoJourneyWord = {
     eligibleAt,
-    german: source.german || existing?.german || '',
-    id: source.id,
+    german: nextGerman,
+    id,
     lastJourneyAt: existing?.lastJourneyAt ?? null,
     remembered: existing?.remembered ?? 0,
     stage: nextStage,
-    translation: source.translation || existing?.translation || '',
+    translation: nextTranslation,
   };
   const words = existing
     ? current.journey.words.map((item) => item.id === word.id ? word : item)
@@ -468,13 +542,16 @@ function upsertJourneyWord(
   // Existing words keep their current cycle position. Re-adding a word here
   // after it was already recalled would allow it to repeat before the rest of
   // the separate Journey queue has been exhausted.
-  const remainingWordIds = existing
-    ? [...current.journey.remainingWordIds]
-    : [...current.journey.remainingWordIds, word.id];
-  const earliestEligibleAt = Math.min(...words.map((item) => item.eligibleAt));
+  const remainingWordIds = [...new Set(existing
+    ? current.journey.remainingWordIds
+    : [...current.journey.remainingWordIds, word.id])];
+  const earliestEligibleAt = words.reduce(
+    (earliest, item) => Math.min(earliest, item.eligibleAt),
+    Number.POSITIVE_INFINITY,
+  );
   return {
     ...current.journey,
-    nextAvailableAt: current.journey.nextAvailableAt ?? earliestEligibleAt,
+    nextAvailableAt: current.journey.nextAvailableAt ?? (Number.isFinite(earliestEligibleAt) ? earliestEligibleAt : null),
     remainingWordIds,
     words,
   };
@@ -532,11 +609,15 @@ export function recordLingvolernandoTrainingAnswer(
 
 function journeyQueue(game: Readonly<LingvolernandoGameSnapshot>, now: number): LingvolernandoJourneyWord[] {
   const eligible = game.journey.words.filter((word) => word.eligibleAt <= now && word.stage >= JOURNEY_MATURE_STAGE);
-  const eligibleIds = new Set(eligible.map((word) => word.id));
+  const eligibleById = new Map(eligible.map((word) => [word.id, word]));
+  const usedIds = new Set<string>();
   const queued = game.journey.remainingWordIds
-    .filter((id) => eligibleIds.has(id))
-    .map((id) => eligible.find((word) => word.id === id)!)
-    .filter(Boolean);
+    .flatMap((id) => {
+      const word = eligibleById.get(id);
+      if (!word || usedIds.has(id)) return [];
+      usedIds.add(id);
+      return [word];
+    });
   if (queued.length > 0) return queued;
   return [...eligible].sort((left, right) => (left.lastJourneyAt ?? 0) - (right.lastJourneyAt ?? 0) || left.id.localeCompare(right.id));
 }
@@ -551,9 +632,12 @@ export function journeyWordForGame(
 
 export function journeyNextAvailableAt(game: Readonly<LingvolernandoGameSnapshot>, now = Date.now()): number | null {
   if (game.journey.nextAvailableAt !== null && game.journey.nextAvailableAt > now) return game.journey.nextAvailableAt;
-  if (journeyWordForGame(game, now)) return now;
-  const future = game.journey.words.filter((word) => word.stage >= JOURNEY_MATURE_STAGE).map((word) => word.eligibleAt).filter((at) => at > now);
-  return future.length > 0 ? Math.min(...future) : null;
+  if (journeyQueue(game, now).length > 0) return now;
+  let next = Number.POSITIVE_INFINITY;
+  for (const word of game.journey.words) {
+    if (word.stage >= JOURNEY_MATURE_STAGE && word.eligibleAt > now) next = Math.min(next, word.eligibleAt);
+  }
+  return Number.isFinite(next) ? next : null;
 }
 
 export function completeLingvolernandoJourneyRecall(
@@ -601,11 +685,14 @@ export function syncLingvolernandoCardCount(
   current: Readonly<LingvolernandoGameSnapshot>,
   activeCards: number,
 ): LingvolernandoGameSnapshot {
-  const count = Math.max(0, Math.round(activeCards));
+  const count = Number.isFinite(activeCards) ? Math.max(0, Math.round(activeCards)) : 0;
   if (!current.learning.cardCountInitialized) {
     return { ...current, learning: { ...current.learning, cardCountInitialized: true, knownCardCount: count } };
   }
-  const added = Math.max(0, count - current.learning.knownCardCount);
+  const knownCardCount = Number.isFinite(current.learning.knownCardCount)
+    ? Math.max(0, Math.round(current.learning.knownCardCount))
+    : 0;
+  const added = Math.max(0, count - knownCardCount);
   if (added === 0) return {
     ...current,
     learning: { ...current.learning, knownCardCount: count },
@@ -630,7 +717,7 @@ export function renameLingvolernandoPet(
   current: Readonly<LingvolernandoGameSnapshot>,
   value: string,
 ): LingvolernandoGameSnapshot {
-  const name = value.trim().replace(/\s+/g, ' ').slice(0, 24);
+  const name = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, 24) : '';
   return name ? { ...current, pet: { ...current.pet, name } } : { ...current };
 }
 
@@ -638,6 +725,7 @@ export function setLingvolernandoPetPalette(
   current: Readonly<LingvolernandoGameSnapshot>,
   palette: LingvolernandoPetPalette,
 ): LingvolernandoGameSnapshot {
+  if (!VALID_PALETTES.has(palette)) return { ...current };
   return { ...current, pet: { ...current.pet, palette } };
 }
 
@@ -645,7 +733,7 @@ export function toggleLingvolernandoPetArtifact(
   current: Readonly<LingvolernandoGameSnapshot>,
   artifactId: string,
 ): LingvolernandoGameSnapshot {
-  if (!current.discoveredArtifactIds.includes(artifactId)) return { ...current };
+  if (!lingvolernandoArtifact(artifactId) || !current.discoveredArtifactIds.includes(artifactId)) return { ...current };
   const activeSlot = current.equippedArtifactIds.indexOf(artifactId);
   if (activeSlot >= 0) return equipLingvolernandoArtifact(current, artifactId, activeSlot);
   const emptySlot = current.equippedArtifactIds.findIndex((id) => id === null);
@@ -657,9 +745,13 @@ export function equipLingvolernandoArtifact(
   artifactId: string,
   slot: number,
 ): LingvolernandoGameSnapshot {
-  if (!current.discoveredArtifactIds.includes(artifactId) || slot < 0 || slot >= current.equippedArtifactIds.length) return { ...current };
-  const isAlreadyInSlot = current.equippedArtifactIds[slot] === artifactId;
-  const equippedArtifactIds = current.equippedArtifactIds.map((id) => id === artifactId ? null : id);
+  if (!lingvolernandoArtifact(artifactId) || !current.discoveredArtifactIds.includes(artifactId) || slot < 0 || slot >= 3) return { ...current };
+  const equippedArtifactIds = [...current.equippedArtifactIds].slice(0, 3);
+  while (equippedArtifactIds.length < 3) equippedArtifactIds.push(null);
+  const isAlreadyInSlot = equippedArtifactIds[slot] === artifactId;
+  for (let index = 0; index < equippedArtifactIds.length; index += 1) {
+    if (equippedArtifactIds[index] === artifactId) equippedArtifactIds[index] = null;
+  }
   if (!isAlreadyInSlot) equippedArtifactIds[slot] = artifactId;
   const accessoryArtifactIds = equippedArtifactIds.filter((id): id is string => Boolean(id));
   return { ...current, equippedArtifactIds, pet: { ...current.pet, accessoryArtifactIds } };
@@ -669,13 +761,19 @@ export function evolveLingvolernandoArtifact(
   current: Readonly<LingvolernandoGameSnapshot>,
   artifactId: string,
 ): LingvolernandoGameSnapshot {
-  if (!current.discoveredArtifactIds.includes(artifactId)) return { ...current };
-  const currentLevel = current.artifactLevels[artifactId] ?? 1;
+  if (!lingvolernandoArtifact(artifactId) || !current.discoveredArtifactIds.includes(artifactId)) return { ...current };
+  const currentLevel = clamp(
+    Number.isFinite(current.artifactLevels[artifactId]) ? current.artifactLevels[artifactId]! : 1,
+    1,
+    99,
+  );
+  if (currentLevel >= 99) return { ...current };
   const cost = 12 + currentLevel * 8;
-  if (current.artifactDust < cost) return { ...current };
+  const artifactDust = Number.isFinite(current.artifactDust) ? Math.max(0, current.artifactDust) : 0;
+  if (artifactDust < cost) return { ...current };
   return {
     ...current,
-    artifactDust: current.artifactDust - cost,
+    artifactDust: artifactDust - cost,
     artifactLevels: { ...current.artifactLevels, [artifactId]: currentLevel + 1 },
   };
 }
@@ -684,7 +782,9 @@ export function setLingvolernandoBiome(
   current: Readonly<LingvolernandoGameSnapshot>,
   biomeIndex: number,
 ): LingvolernandoGameSnapshot {
-  const index = clamp(Math.round(biomeIndex), 0, LINGVOLERNANDO_BIOMES.length - 1);
+  const index = Number.isFinite(biomeIndex)
+    ? clamp(Math.round(biomeIndex), 0, LINGVOLERNANDO_BIOMES.length - 1)
+    : current.selectedBiome;
   if (current.worldLight < LINGVOLERNANDO_BIOMES[index]!.unlockAt) return { ...current };
   return { ...current, selectedBiome: index };
 }
@@ -718,12 +818,9 @@ function sanitizeGame(value: unknown): LingvolernandoGameSnapshot {
   const source = value as Partial<LingvolernandoGameSnapshot> & {
     pet?: Partial<LingvolernandoGameSnapshot['pet']> & { accessoryArtifactId?: unknown };
   };
-  const artifactIds = new Set(LINGVOLERNANDO_ARTIFACTS.map((artifact) => artifact.id));
-  const worldIds = new Set(LINGVOLERNANDO_WORLD.map((element) => element.id));
-  const achievementIds = new Set(LINGVOLERNANDO_ACHIEVEMENTS.map((achievement) => achievement.id));
-  const discoveredArtifactIds = validIds(source.discoveredArtifactIds, artifactIds);
+  const discoveredArtifactIds = validIds(source.discoveredArtifactIds, ARTIFACT_IDS);
   const artifactLevels = Object.fromEntries(Object.entries(source.artifactLevels ?? {}).flatMap(([id, level]) => (
-    artifactIds.has(id) ? [[id, finiteNumber(level, 1, 1, 99)]] : []
+    ARTIFACT_IDS.has(id) ? [[id, finiteNumber(level, 1, 1, 99)]] : []
   )));
   const pet = (source.pet && typeof source.pet === 'object'
     ? source.pet
@@ -731,8 +828,6 @@ function sanitizeGame(value: unknown): LingvolernandoGameSnapshot {
       accessoryArtifactId?: unknown;
     };
   const equippedSource = Array.isArray(source.equippedArtifactIds) ? source.equippedArtifactIds.slice(0, 3) : [];
-  const validMoods = new Set(['curious', 'dreaming', 'focused', 'glowing', 'resting']);
-  const validPalettes = new Set<LingvolernandoPetPalette>(['aurora', 'ember', 'moon', 'moss']);
   const legacyAccessory = typeof pet.accessoryArtifactId === 'string' ? [pet.accessoryArtifactId] : [];
   const storedAccessoryArtifactIds = validIds(
     Array.isArray(pet.accessoryArtifactIds) ? pet.accessoryArtifactIds.slice(0, 3) : legacyAccessory,
@@ -751,15 +846,18 @@ function sanitizeGame(value: unknown): LingvolernandoGameSnapshot {
   const hasStoredCardCount = Boolean(source.learning && typeof source.learning === 'object' && 'knownCardCount' in source.learning);
   const learningSource = source.learning && typeof source.learning === 'object' ? source.learning : EMPTY_LINGVOLERNANDO_GAME.learning;
   const journeySource = source.journey && typeof source.journey === 'object' ? source.journey : EMPTY_LINGVOLERNANDO_GAME.journey;
+  const sanitizeNow = Date.now();
+  const seenWordIds = new Set<string>();
   const words = Array.isArray(journeySource.words) ? journeySource.words.flatMap((candidate): LingvolernandoJourneyWord[] => {
     if (!candidate || typeof candidate !== 'object') return [];
     const word = candidate as Partial<LingvolernandoJourneyWord>;
-    const id = typeof word.id === 'string' ? word.id.slice(0, 128) : '';
+    const id = typeof word.id === 'string' ? word.id.trim().slice(0, 128) : '';
     const german = typeof word.german === 'string' ? word.german.trim().slice(0, 256) : '';
     const translation = typeof word.translation === 'string' ? word.translation.trim().slice(0, 512) : '';
-    if (!id || !german || !translation) return [];
+    if (!id || seenWordIds.has(id) || !german || !translation) return [];
+    seenWordIds.add(id);
     return [{
-      eligibleAt: finiteNumber(word.eligibleAt, Date.now()),
+      eligibleAt: finiteNumber(word.eligibleAt, sanitizeNow),
       german,
       id,
       lastJourneyAt: typeof word.lastJourneyAt === 'number' && Number.isFinite(word.lastJourneyAt) ? Math.round(word.lastJourneyAt) : null,
@@ -774,13 +872,13 @@ function sanitizeGame(value: unknown): LingvolernandoGameSnapshot {
     : words.map((word) => word.id);
   return {
     actionCount: finiteNumber(source.actionCount, 0),
-    artifactDiscoveredAt: timestampRecord(source.artifactDiscoveredAt, artifactIds),
+    artifactDiscoveredAt: timestampRecord(source.artifactDiscoveredAt, ARTIFACT_IDS),
     artifactDust: finiteNumber(source.artifactDust, 0),
     artifactLevels,
-    achievementClaimedAt: timestampRecord(source.achievementClaimedAt, achievementIds),
-    claimedAchievementIds: validIds(source.claimedAchievementIds, achievementIds),
+    achievementClaimedAt: timestampRecord(source.achievementClaimedAt, ACHIEVEMENT_IDS),
+    claimedAchievementIds: validIds(source.claimedAchievementIds, ACHIEVEMENT_IDS),
     discoveredArtifactIds,
-    discoveredWorldIds: validIds(source.discoveredWorldIds, worldIds),
+    discoveredWorldIds: validIds(source.discoveredWorldIds, WORLD_IDS),
     earnedXp: finiteNumber(source.earnedXp, 0),
     equippedArtifactIds,
     journey: {
@@ -808,9 +906,9 @@ function sanitizeGame(value: unknown): LingvolernandoGameSnapshot {
     },
     pet: {
       accessoryArtifactIds,
-      mood: typeof pet.mood === 'string' && validMoods.has(pet.mood) ? pet.mood as LingvolernandoGameSnapshot['pet']['mood'] : 'curious',
+      mood: typeof pet.mood === 'string' && VALID_MOODS.has(pet.mood as LingvolernandoGameSnapshot['pet']['mood']) ? pet.mood as LingvolernandoGameSnapshot['pet']['mood'] : 'curious',
       name: typeof pet.name === 'string' && pet.name.trim() ? pet.name.trim().slice(0, 24) : 'Luma',
-      palette: typeof pet.palette === 'string' && validPalettes.has(pet.palette as LingvolernandoPetPalette) ? pet.palette as LingvolernandoPetPalette : 'moon',
+      palette: typeof pet.palette === 'string' && VALID_PALETTES.has(pet.palette as LingvolernandoPetPalette) ? pet.palette as LingvolernandoPetPalette : 'moon',
     },
     pity: finiteNumber(source.pity, 0, 0, 20),
     selectedBiome: finiteNumber(source.selectedBiome, 0, 0, LINGVOLERNANDO_BIOMES.length - 1),
@@ -828,7 +926,7 @@ function migrateLegacyGame(): LingvolernandoGameSnapshot {
       lastReward?: unknown;
     } | null;
     const relics = legacy?.discoveredRewardIds ?? JSON.parse(localStorage.getItem(LEGACY_RELICS_KEY) ?? '[]');
-    game.discoveredArtifactIds = validIds(relics, new Set(LINGVOLERNANDO_ARTIFACTS.map((artifact) => artifact.id)));
+    game.discoveredArtifactIds = validIds(relics, ARTIFACT_IDS);
     game.artifactLevels = Object.fromEntries(game.discoveredArtifactIds.map((id) => [id, 1]));
     game.earnedXp = finiteNumber(legacy?.earnedXp, 0);
   } catch {

@@ -17,16 +17,24 @@
 
   onMount(() => {
     let disposed = false;
+    let acquired = false;
     const load = () => {
       void iloState.desegnLernadoMediaUrl(drawing.id, 'thumbnail').then((next) => {
-        if (disposed) return;
+        if (disposed) {
+          if (next) iloState.releaseDesegnLernadoMediaUrl(drawing.id, 'thumbnail');
+          return;
+        }
+        acquired = next !== null;
         url = next;
         failed = next === null;
       });
     };
     if (eager || typeof IntersectionObserver === 'undefined') {
       load();
-      return () => { disposed = true; };
+      return () => {
+        disposed = true;
+        if (acquired) iloState.releaseDesegnLernadoMediaUrl(drawing.id, 'thumbnail');
+      };
     }
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return;
@@ -37,6 +45,7 @@
     return () => {
       disposed = true;
       observer.disconnect();
+      if (acquired) iloState.releaseDesegnLernadoMediaUrl(drawing.id, 'thumbnail');
     };
   });
 </script>

@@ -84,6 +84,24 @@ describe('IloGState request reuse', () => {
     expect(state.snapshot.taglibro.calendar?.date).toBe('2026-01-02');
   });
 
+  it('ignores a day response superseded by a newer Taglibro bootstrap', async () => {
+    const gateway = createGateway();
+    let resolveDay!: (day: Awaited<ReturnType<IloGateway['taglibroDay']>>) => void;
+    gateway.taglibroDay.mockReturnValueOnce(new Promise((resolve) => { resolveDay = resolve; }));
+    const state = new IloGState(gateway);
+    state.configure('owner-1');
+
+    const staleDay = state.loadTaglibroDay('2026-01-02');
+    await state.refreshTaglibro(true);
+    expect(state.snapshot.taglibro.bootstrap?.today.date).toBe('2026-01-01');
+    expect(state.snapshot.taglibro.selectedDate).toBe('2026-01-01');
+
+    resolveDay({ date: '2026-01-02', diary: { mood: '🙂', planState: {}, text: '' }, plans: [] });
+    await staleDay;
+    expect(state.snapshot.taglibro.calendar).toBeNull();
+    expect(state.snapshot.taglibro.selectedDate).toBe('2026-01-01');
+  });
+
   it('keeps failed event loads retryable', async () => {
     const gateway = createGateway();
     gateway.taglibroListEvents

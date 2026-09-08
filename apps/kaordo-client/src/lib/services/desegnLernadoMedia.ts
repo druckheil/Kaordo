@@ -1,6 +1,8 @@
 import type { DesegnDrawing } from '../domain/desegnLernado';
 
 const MAX_DRAWING_BYTES = 50 * 1024 * 1024;
+const MAX_IMAGE_PIXELS = 40_000_000;
+const MAX_IMAGE_DIMENSION = 12_000;
 const THUMBNAIL_LONG_EDGE = 840;
 const INITIAL_REVIEW_DELAY_MS = 3 * 86_400_000;
 const IMAGE_EXTENSION = /\.(?:avif|bmp|gif|jpe?g|png|webp)$/i;
@@ -21,16 +23,22 @@ export type PreparedDesegnDrawing = {
 };
 
 export function isDesegnImageFile(file: File): boolean {
-  const mimeType = file.type.trim().toLowerCase();
+  const mimeType = normalizedMimeType(file.type);
   return (mimeType.startsWith('image/') && mimeType !== 'image/svg+xml')
     || (!mimeType && IMAGE_EXTENSION.test(file.name));
 }
 
 export async function prepareDesegnDrawing(file: File, now = Date.now()): Promise<PreparedDesegnDrawing> {
   const mimeType = validateDrawingFile(file);
-  const sourceFile = file.type ? file : new File([file], file.name, { type: mimeType });
+  const sourceFile = normalizedMimeType(file.type) === mimeType
+    ? file
+    : new File([file], file.name, { type: mimeType });
   const source = await decodeImage(sourceFile);
   try {
+    if (source.width > MAX_IMAGE_DIMENSION || source.height > MAX_IMAGE_DIMENSION
+      || source.width * source.height > MAX_IMAGE_PIXELS) {
+      throw new Error('This drawing is too large to preview safely. Use an image up to 12,000 px per side and 40 megapixels.');
+    }
     const scale = Math.min(1, THUMBNAIL_LONG_EDGE / Math.max(source.width, source.height));
     const thumbnailWidth = Math.max(1, Math.round(source.width * scale));
     const thumbnailHeight = Math.max(1, Math.round(source.height * scale));
@@ -73,7 +81,7 @@ export async function prepareDesegnDrawing(file: File, now = Date.now()): Promis
 }
 
 function validateDrawingFile(file: File): string {
-  const mimeType = file.type.trim().toLowerCase() || mimeTypeFromName(file.name);
+  const mimeType = normalizedMimeType(file.type) || mimeTypeFromName(file.name);
   if (!mimeType.startsWith('image/')) {
     throw new Error(`${file.name || 'Clipboard item'} is not an image.`);
   }
@@ -85,6 +93,10 @@ function validateDrawingFile(file: File): string {
     throw new Error(`${file.name || 'This image'} is larger than 50 MB.`);
   }
   return mimeType;
+}
+
+function normalizedMimeType(value: string): string {
+  return value.split(';', 1)[0]?.trim().toLowerCase() ?? '';
 }
 
 function mimeTypeFromName(fileName: string): string {
@@ -147,10 +159,20 @@ function drawingTitle(fileName: string): string {
   return (clean || 'Untitled drawing').slice(0, 100);
 }
 
+let fallbackId = 0;
+
 function randomId(): string {
-  return typeof globalThis.crypto?.randomUUID === 'function'
-    ? globalThis.crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+  // This branch is only for old embedded WebViews without Web Crypto. The
+  // monotonic suffix prevents collisions within a process without pretending
+  // that Math.random is a security primitive.
+  fallbackId += 1;
+  return `drawing-${Date.now().toString(36)}-${fallbackId.toString(36)}`;
 }
 
 type DecodedImage = {

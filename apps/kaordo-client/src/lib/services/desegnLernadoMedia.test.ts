@@ -10,5 +10,6 @@ describe('DesegnLernado media intake', () => {
   it('rejects non-images and vector documents', () => {
     expect(isDesegnImageFile(new File(['notes'], 'notes.txt', { type: 'text/plain' }))).toBe(false);
     expect(isDesegnImageFile(new File(['<svg/>'], 'drawing.svg', { type: 'image/svg+xml' }))).toBe(false);
+    expect(isDesegnImageFile(new File(['<svg/>'], 'drawing.svg', { type: 'image/svg+xml; charset=utf-8' }))).toBe(false);
   });
 });

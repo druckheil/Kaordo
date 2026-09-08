@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import LingvolernadoCardForm from './LingvolernadoCardForm.svelte';
   import LingvolernadoDictionary from './LingvolernadoDictionary.svelte';
   import LingvolernadoProgress from './LingvolernadoProgress.svelte';
@@ -19,10 +20,15 @@
   let pendingDelete = $state<{ ids: string[]; label: string } | null>(null);
   let copyingLogs = $state(false);
   let copiedLogs = $state(false);
+  let copiedLogsTimer: ReturnType<typeof setTimeout> | null = null;
   let activeTool = $state<'desegnlernado' | 'lingvolernado' | 'taglibroplanilo'>('lingvolernado');
   let learningReward = $state<LingvolernandoRewardOutcome | null>(null);
   let learningReaction = $state<'forgot' | 'remember' | null>(null);
   let learningReactionSequence = $state(0);
+
+  onDestroy(() => {
+    if (copiedLogsTimer) clearTimeout(copiedLogsTimer);
+  });
 
   const tabs = [
     { id: 'lingvolernando' as const, label: 'Lingvolernando', icon: 'orbit' },
@@ -106,7 +112,11 @@
       )).join('\n');
       await navigator.clipboard.writeText(text);
       copiedLogs = true;
-      setTimeout(() => { copiedLogs = false; }, 1_800);
+      if (copiedLogsTimer) clearTimeout(copiedLogsTimer);
+      copiedLogsTimer = setTimeout(() => {
+        copiedLogs = false;
+        copiedLogsTimer = null;
+      }, 1_800);
     } catch {
       copiedLogs = false;
     } finally {

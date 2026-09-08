@@ -12,6 +12,7 @@ import {
   journeyWordForGame,
   lingvolernandoBonuses,
   LINGVOLERNANDO_JOURNEY_INTERVAL_MS,
+  metricsFromProgress,
   readLingvolernandoGame,
   recordLingvolernandoTrainingAnswer,
   syncLingvolernandoCardCount,
@@ -112,6 +113,30 @@ describe('Lingvolernando game engine', () => {
     expect(journeyWordForGame(second.game, secondAt + LINGVOLERNANDO_JOURNEY_INTERVAL_MS)?.id).toBe('a');
   });
 
+  it('grades a queued Journey word from local state when a training response is stale', () => {
+    const game = structuredClone(EMPTY_LINGVOLERNANDO_GAME);
+    game.journey.words = [{
+      eligibleAt: 0,
+      german: 'Weg',
+      id: 'card-1',
+      lastJourneyAt: null,
+      remembered: 0,
+      stage: 5,
+      translation: 'path',
+    }];
+    game.journey.remainingWordIds = ['card-1'];
+
+    const result = recordLingvolernandoTrainingAnswer(
+      game,
+      metrics,
+      { german: 'Weg', id: 'card-1', stage: 0, translation: 'path' },
+      'remember',
+      6_000_000,
+    );
+
+    expect(result.game.journey.words[0]?.stage).toBe(6);
+  });
+
   it('supports three-slot loadouts, synergies, and explicit evolution', () => {
     let game = structuredClone(EMPTY_LINGVOLERNANDO_GAME);
     game.discoveredArtifactIds = ['relic-1', 'relic-2', 'relic-4'];
@@ -157,6 +182,19 @@ describe('Lingvolernando game engine', () => {
     expect(firstWord.learning.knownCardCount).toBe(1);
     expect(firstWord.learning.addedWords).toBe(1);
     expect(firstWord.learning.newWordsTowardBloom).toBe(1);
+  });
+
+  it('keeps malformed progress metrics from poisoning rewards with NaN', () => {
+    const result = metricsFromProgress({
+      active: Number.NaN,
+      due: 0,
+      learnedToday: false,
+      pointsHistory: [{ date: 'bad', points: Number.NaN }, { date: 'ok', points: 12 }],
+      stages: { '3': Number.POSITIVE_INFINITY, '4': 2 },
+      todayPoints: Number.POSITIVE_INFINITY,
+    });
+
+    expect(result).toEqual({ activeCards: 0, activeDays: 1, serverXp: 12, stagePeak: 4, todayPoints: 0 });
   });
 
   it('reveals at most one achievement from each path per learning pulse', () => {

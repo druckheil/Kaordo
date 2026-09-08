@@ -12,6 +12,7 @@
   import {
     DESEGN_ARTIFACTS,
     artifactProgress,
+    desegnArtifact,
     desegnPracticePrompt,
     desegnStats,
     nextDesegnArtifact,
@@ -38,6 +39,7 @@
   let pendingDelete = $state<DesegnDrawing | null>(null);
   let viewer = $state<{ drawing: DesegnDrawing; url: string } | null>(null);
   let viewerLoadingId = $state<string | null>(null);
+  let viewerRequestId = 0;
   let toast = $state<{ artifactId?: string; message: string; title: string } | null>(null);
   let toastTimer: number | null = null;
   let petName = $state('');
@@ -52,9 +54,10 @@
   const stats = $derived(desegnStats(snapshot.drawings));
   const unlockedArtifacts = $derived(unlockedDesegnArtifacts(stats));
   const unlockedIds = $derived(new Set(unlockedArtifacts.map((artifact) => artifact.id)));
-  const equippedArtifacts = $derived(snapshot.pet.equippedArtifactIds.flatMap((id) => (
-    DESEGN_ARTIFACTS.find((artifact) => artifact.id === id) ?? []
-  )));
+  const equippedArtifacts = $derived(snapshot.pet.equippedArtifactIds.flatMap((id) => {
+    const artifact = desegnArtifact(id);
+    return artifact ? [artifact] : [];
+  }));
   const nextArtifact = $derived(nextDesegnArtifact(stats));
   const practicePrompt = $derived(desegnPracticePrompt(snapshot.pet, stats));
   const filteredDrawings = $derived.by(() => {
@@ -99,6 +102,7 @@
 
   onDestroy(() => {
     if (toastTimer) window.clearTimeout(toastTimer);
+    closeViewer();
   });
 
   function chooseFiles(): void {
@@ -130,11 +134,15 @@
     try {
       if (!navigator.clipboard?.read) throw new Error('Clipboard reading is not available here. Use Command/Ctrl + V.');
       const files: File[] = [];
-      for (const item of await navigator.clipboard.read()) {
-        for (const type of item.types.filter((value) => value.startsWith('image/'))) {
-          const blob = await item.getType(type);
-          files.push(new File([blob], `clipboard-${Date.now()}.${extensionFor(type)}`, { type }));
-        }
+      for (const [index, item] of (await navigator.clipboard.read()).entries()) {
+        // A single clipboard item can expose the same bitmap as PNG, JPEG and
+        // WebP. Choose one deterministic representation so one paste never
+        // creates three identical drawings.
+        const type = ['image/png', 'image/webp', 'image/jpeg', 'image/avif', 'image/bmp', 'image/gif']
+          .find((candidate) => item.types.includes(candidate));
+        if (!type) continue;
+        const blob = await item.getType(type);
+        files.push(new File([blob], `clipboard-${Date.now()}-${index + 1}.${extensionFor(type)}`, { type }));
       }
       if (files.length === 0) throw new Error('The clipboard does not contain an image.');
       await upload(files, 'Pasted from clipboard');
@@ -160,7 +168,7 @@
       );
     }
     if (result.unlockedArtifactIds.length > 0) {
-      const artifact = DESEGN_ARTIFACTS.find((item) => item.id === result.unlockedArtifactIds[0]);
+      const artifact = desegnArtifact(result.unlockedArtifactIds[0]);
       if (artifact) showToast('Artifact awakened', artifact.name, artifact.id, 4_800);
     } else if (result.errors.length > 0 && result.added === 0) {
       showToast('Could not add drawing', result.errors[0]!);
@@ -169,8 +177,13 @@
 
   async function openViewer(drawing: DesegnDrawing): Promise<void> {
     if (viewerLoadingId) return;
+    const requestId = ++viewerRequestId;
     viewerLoadingId = drawing.id;
     const url = await iloState.desegnLernadoMediaUrl(drawing.id, 'original');
+    if (requestId !== viewerRequestId) {
+      if (url) iloState.releaseDesegnLernadoMediaUrl(drawing.id, 'original');
+      return;
+    }
     viewerLoadingId = null;
     if (!url) {
       showToast('Image unavailable', 'The local original could not be opened.');
@@ -179,9 +192,17 @@
     viewer = { drawing, url };
   }
 
+  function closeViewer(): void {
+    viewerRequestId += 1;
+    if (viewer) iloState.releaseDesegnLernadoMediaUrl(viewer.drawing.id, 'original');
+    viewer = null;
+    viewerLoadingId = null;
+  }
+
   async function confirmDelete(): Promise<void> {
     const drawing = pendingDelete;
     if (!drawing) return;
+    if (viewer?.drawing.id === drawing.id) closeViewer();
     if (await iloState.deleteDesegnDrawing(drawing.id)) {
       pendingDelete = null;
       showToast('Drawing removed', 'The original, preview, and its notes were deleted from this device.');
@@ -718,7 +739,7 @@
           <header class="room-heading"><div><span class="eyebrow">Different from your language companion</span><h2 id="companion-title">A creature made of marks</h2><p>It grows brighter through saved attempts, honest notes, and revisiting old work.</p></div></header>
           <form class="rename-pet" onsubmit={savePetName}><label><span>Companion name</span><input maxlength="24" bind:value={petName} /></label><button type="submit" disabled={snapshot.busy !== null || petName.trim() === snapshot.pet.name}>Rename</button></form>
           <fieldset class="palette-picker"><legend>Ink palette</legend><div>{#each ['ink', 'mint', 'sunset', 'night'] as palette}<button class:active={snapshot.pet.palette === palette} type="button" onclick={() => choosePalette(palette as DesegnPetPalette)}><i data-palette={palette}></i>{focusLabel(palette)}</button>{/each}</div></fieldset>
-          <section class="equipped-panel"><header><div><span class="eyebrow">Orbiting tools</span><h3>Equipped artifacts</h3></div><button type="button" onclick={() => { activeRoom = 'artifacts'; }}>Open vault →</button></header><div class="artifact-slots">{#each [0, 1, 2] as slot}{@const artifact = DESEGN_ARTIFACTS.find((item) => item.id === snapshot.pet.equippedArtifactIds[slot])}<button class:filled={Boolean(artifact)} type="button" onclick={() => { if (artifact) void iloState.equipDesegnArtifact(null, slot); else activeRoom = 'artifacts'; }}>{#if artifact}<b style={`--artifact:${artifact.accent}`}>{artifact.glyph}</b><span><strong>{artifact.name}</strong><small>Click to unequip</small></span>{:else}<b>+</b><span><strong>Empty orbit</strong><small>Equip a practice drill</small></span>{/if}</button>{/each}</div></section>
+          <section class="equipped-panel"><header><div><span class="eyebrow">Orbiting tools</span><h3>Equipped artifacts</h3></div><button type="button" onclick={() => { activeRoom = 'artifacts'; }}>Open vault →</button></header><div class="artifact-slots">{#each [0, 1, 2] as slot}{@const artifact = desegnArtifact(snapshot.pet.equippedArtifactIds[slot])}<button class:filled={Boolean(artifact)} type="button" onclick={() => { if (artifact) void iloState.equipDesegnArtifact(null, slot); else activeRoom = 'artifacts'; }}>{#if artifact}<b style={`--artifact:${artifact.accent}`}>{artifact.glyph}</b><span><strong>{artifact.name}</strong><small>Click to unequip</small></span>{:else}<b>+</b><span><strong>Empty orbit</strong><small>Equip a practice drill</small></span>{/if}</button>{/each}</div></section>
           <div class="companion-needs"><article><span><strong>Studio appetite</strong><small>Save five studies each week</small></span><i><b style={`width:${uploadGoal}%`}></b></i><em>{uploadGoal}%</em></article><article><span><strong>Reflection glow</strong><small>Add useful notes to your work</small></span><i><b style={`width:${reflectionGoal}%`}></b></i><em>{reflectionGoal}%</em></article><article><span><strong>Memory ink</strong><small>Revisit twenty drawings</small></span><i><b style={`width:${reviewGoal}%`}></b></i><em>{reviewGoal}%</em></article></div>
         </div>
       </section>
@@ -759,12 +780,12 @@
   {/if}
 
   {#if viewer}
-    <PhotoViewer alt={viewer.drawing.description || viewer.drawing.title} height={viewer.drawing.height} name={viewer.drawing.fileName} onClose={() => { viewer = null; }} url={viewer.url} width={viewer.drawing.width} />
+    <PhotoViewer alt={viewer.drawing.description || viewer.drawing.title} height={viewer.drawing.height} name={viewer.drawing.fileName} onClose={closeViewer} url={viewer.url} width={viewer.drawing.width} />
   {/if}
 
   {#if toast}
     {@const currentToast = toast}
-    {@const reward = currentToast.artifactId ? DESEGN_ARTIFACTS.find((artifact) => artifact.id === currentToast.artifactId) : null}
+    {@const reward = desegnArtifact(currentToast.artifactId)}
     <div class:reward={Boolean(reward)} class="studio-toast" role="status">{#if reward}<span class="toast-gem" style={`--artifact:${reward.accent}`}>{reward.glyph}</span>{:else}<span class="toast-check">✓</span>{/if}<p><strong>{currentToast.title}</strong><small>{currentToast.message}</small></p><button type="button" onclick={() => { toast = null; }} aria-label="Dismiss notification">×</button></div>
   {/if}
 </section>

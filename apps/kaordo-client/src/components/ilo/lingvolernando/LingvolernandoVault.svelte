@@ -1,12 +1,13 @@
 <script lang="ts">
   import type { IloSnapshot } from '../../../lib/domain/ilo';
   import {
-    LINGVOLERNANDO_ACHIEVEMENTS,
     LINGVOLERNANDO_ARTIFACTS,
     LINGVOLERNANDO_SYNERGIES,
     achievementValue,
     activeSynergies,
     artifactEffectLabel,
+    lingvolernandoArtifact,
+    lingvolernandoAchievementsForPath,
     lingvolernandoBonuses,
     metricsFromProgress,
   } from '../../../lib/services/lingvolernandoGame';
@@ -34,14 +35,14 @@
   const filteredArtifacts = $derived(LINGVOLERNANDO_ARTIFACTS.filter((artifact) => rarity === 'all' || artifact.rarity === rarity));
   const pageCount = $derived(Math.max(1, Math.ceil(filteredArtifacts.length / 12)));
   const artifactPage = $derived(filteredArtifacts.slice(page * 12, page * 12 + 12));
-  const selectedArtifact = $derived(LINGVOLERNANDO_ARTIFACTS.find((artifact) => artifact.id === selectedArtifactId) ?? LINGVOLERNANDO_ARTIFACTS.find((artifact) => discovered.has(artifact.id)) ?? LINGVOLERNANDO_ARTIFACTS[0]);
+  const selectedArtifact = $derived(lingvolernandoArtifact(selectedArtifactId) ?? LINGVOLERNANDO_ARTIFACTS.find((artifact) => discovered.has(artifact.id)) ?? LINGVOLERNANDO_ARTIFACTS[0]);
   const active = $derived(activeSynergies(snapshot.lingvolernando.equippedArtifactIds));
   const bonuses = $derived(lingvolernandoBonuses(snapshot.lingvolernando));
-  const achievements = $derived(LINGVOLERNANDO_ACHIEVEMENTS.filter((achievement) => achievement.path === achievementPath));
+  const achievements = $derived(lingvolernandoAchievementsForPath(achievementPath));
   const nextAchievement = $derived(achievements.find((item) => !claimed.has(item.id)) ?? achievements.at(-1) ?? null);
   const selectedAchievement = $derived(achievements.find((item) => item.id === selectedAchievementId) ?? nextAchievement);
   const selectedAchievementValue = $derived(selectedAchievement ? achievementValue(selectedAchievement, snapshot.lingvolernando, metrics) : 0);
-  const selectedAchievementReward = $derived(selectedAchievement ? LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === selectedAchievement.rewardArtifactId) ?? null : null);
+  const selectedAchievementReward = $derived(selectedAchievement ? lingvolernandoArtifact(selectedAchievement.rewardArtifactId) : null);
   const achievementPaths = ['Return', 'Lexicon', 'Rhythm', 'Vault', 'World', 'Recall'];
   const nextRareIn = $derived(Math.max(0, 3 - snapshot.lingvolernando.pity));
 
@@ -124,7 +125,7 @@
       <aside class="path-selector">
         <span class="eyebrow">Milestone paths</span>
         {#each achievementPaths as path}
-          {@const pathItems = LINGVOLERNANDO_ACHIEVEMENTS.filter((item) => item.path === path)}
+          {@const pathItems = lingvolernandoAchievementsForPath(path)}
           {@const pathClaimed = pathItems.filter((item) => claimed.has(item.id)).length}
           <button class:active={achievementPath === path} type="button" onclick={() => { achievementPath = path; selectedAchievementId = null; }}><i style={`--path-accent:${pathItems[0]?.accent}`}></i><span><strong>{path}</strong><small>{pathClaimed}/20 milestones</small></span><b>{Math.round(pathClaimed / 20 * 100)}%</b></button>
         {/each}
@@ -140,7 +141,7 @@
                   {@const value = achievementValue(achievement, snapshot.lingvolernando, metrics)}
                   {@const isClaimed = claimed.has(achievement.id)}
                   {@const isNext = nextAchievement?.id === achievement.id}
-                  {@const rewardArtifact = LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === achievement.rewardArtifactId) ?? null}
+                  {@const rewardArtifact = lingvolernandoArtifact(achievement.rewardArtifactId)}
                   <button
                     class:claimed={isClaimed}
                     class:next={isNext}
@@ -175,7 +176,7 @@
         <div class="loadout-orbit">
           <svg viewBox="0 0 520 390" aria-hidden="true"><circle cx="260" cy="195" r="131"/><path d="M147 128 373 128M147 262l226-134M147 128l226 134"/></svg>
           {#each snapshot.lingvolernando.equippedArtifactIds as artifactId, slot}
-            {@const artifact = LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === artifactId) ?? null}
+            {@const artifact = lingvolernandoArtifact(artifactId)}
             <button class="loadout-slot slot-{slot}" type="button" onclick={() => { mode = 'artifacts'; if (artifact) selectedArtifactId = artifact.id; }}>
               <ArtifactGlyph {artifact} locked={!artifact} size={118} level={artifact ? snapshot.lingvolernando.artifactLevels[artifact.id] ?? 1 : 1} />
               <span><small>Slot {slot + 1}</small><strong>{artifact?.name ?? 'Empty orbit'}</strong></span>

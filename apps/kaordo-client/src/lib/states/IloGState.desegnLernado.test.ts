@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DesegnDrawing } from '../domain/desegnLernado';
 import type { IloGateway } from '../gateways/IloGateway';
 import { MemoryDesegnLernadoStore } from '../services/DesegnLernadoStore';
@@ -73,5 +73,21 @@ describe('IloGState DesegnLernado archive', () => {
     expect(await state.deleteDesegnDrawing('study')).toBe(true);
     expect(state.snapshot.desegnLernado.drawings).toHaveLength(0);
     expect(await store.loadMedia('owner-1', 'study', 'original')).toBeNull();
+  });
+
+  it('does not resurrect a media URL when its drawing is deleted mid-load', async () => {
+    const store = new MemoryDesegnLernadoStore();
+    await store.saveDrawing('owner-1', drawing('study'), new Blob(['full']), new Blob(['preview']));
+    let resolveMedia!: (blob: Blob | null) => void;
+    store.loadMedia = vi.fn(() => new Promise<Blob | null>((resolve) => { resolveMedia = resolve; }));
+    const state = new IloGState({} as IloGateway, store);
+    state.configure('owner-1');
+    await state.loadDesegnLernado();
+
+    const pending = state.desegnLernadoMediaUrl('study', 'original');
+    expect(await state.deleteDesegnDrawing('study')).toBe(true);
+    resolveMedia(new Blob(['deleted'], { type: 'image/png' }));
+
+    expect(await pending).toBeNull();
   });
 });

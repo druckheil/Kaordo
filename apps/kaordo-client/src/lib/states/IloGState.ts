@@ -1,5 +1,5 @@
 import type {
-  IloCardInput, IloErrorEntry, IloSnapshot, TaglibroDay, TaglibroEventInput, TaglibroPlan,
+  IloCardInput, IloCardPage, IloErrorEntry, IloSnapshot, TaglibroDay, TaglibroEventInput, TaglibroPlan,
 } from '../domain/ilo';
 import { EMPTY_ILO_PROGRESS, EMPTY_TAGLIBRO_SNAPSHOT } from '../domain/ilo';
 import {
@@ -69,6 +69,22 @@ const EMPTY_SNAPSHOT: IloSnapshot = {
 // avoids an unnecessary Worker/D1 round-trip.
 const BOOTSTRAP_STALE_AFTER_MS = 30_000;
 const CARDS_PAGE_SIZE = 50;
+const DESEGN_ORIGINAL_URL_LIMIT = 2;
+const DESEGN_THUMBNAIL_URL_LIMIT = 160;
+const CARD_PAGE_CACHE_LIMIT = 8;
+const CARD_PAGE_CACHE_TTL_MS = 60_000;
+const TAGLIBRO_DAY_CACHE_LIMIT = 62;
+
+type DesegnMediaUrlEntry = {
+  lastUsedAt: number;
+  refs: number;
+  url: string;
+};
+
+type CachedCardPage = {
+  cachedAt: number;
+  page: IloCardPage;
+};
 
 function freshSnapshot(): IloSnapshot {
   return {
@@ -90,6 +106,7 @@ export class IloGState extends GState<IloSnapshot> {
   #lastRefreshAt = 0;
   #cardsOffset = 0;
   #cardsQuery = { q: '', theme: '' };
+  #cardsCache = new Map<string, CachedCardPage>();
   #taglibroBootstrapRequestId = 0;
   #taglibroDayRequestId = 0;
   #taglibroEventsRequestId = 0;
@@ -100,8 +117,9 @@ export class IloGState extends GState<IloSnapshot> {
   #taglibroDays = new Map<string, TaglibroDay>();
   #desegnLoadRequestId = 0;
   #desegnLoadInFlight: Promise<void> | null = null;
-  #desegnMediaUrls = new Map<string, string>();
+  #desegnMediaUrls = new Map<string, DesegnMediaUrlEntry>();
   #desegnMediaLoads = new Map<string, Promise<string | null>>();
+  #desegnMediaWaiters = new Map<string, number>();
 
   constructor(
     private readonly gateway: IloGateway,
@@ -157,6 +175,7 @@ export class IloGState extends GState<IloSnapshot> {
     this.#lastRefreshAt = 0;
     this.#cardsOffset = 0;
     this.#cardsQuery = { q: '', theme: '' };
+    this.#cardsCache.clear();
     this.#taglibroDays.clear();
     this.publish(freshSnapshot());
   }
@@ -175,7 +194,8 @@ export class IloGState extends GState<IloSnapshot> {
     this.#desegnLoadRequestId += 1;
     this.#desegnLoadInFlight = null;
     this.#desegnMediaLoads.clear();
-    for (const url of this.#desegnMediaUrls.values()) URL.revokeObjectURL(url);
+    this.#desegnMediaWaiters.clear();
+    for (const entry of this.#desegnMediaUrls.values()) URL.revokeObjectURL(entry.url);
     this.#desegnMediaUrls.clear();
   }
 
@@ -277,15 +297,24 @@ export class IloGState extends GState<IloSnapshot> {
     const current = this.snapshot.desegnLernado.drawings.find((drawing) => drawing.id === drawingId);
     if (!current) return false;
     const updatedAt = Date.now();
+    const description = typeof patch.description === 'string' ? patch.description : '';
+    const shortcomings = Array.isArray(patch.shortcomings) ? patch.shortcomings : [];
+    const title = typeof patch.title === 'string' ? patch.title : '';
+    const rating = typeof patch.rating === 'number' && Number.isFinite(patch.rating)
+      ? Math.min(5, Math.max(1, Math.round(patch.rating)))
+      : null;
     const next: DesegnDrawing = {
       ...current,
-      description: patch.description.trim().slice(0, 2_000),
+      description: description.trim().slice(0, 2_000),
       focus: DESEGN_FOCUSES.includes(patch.focus) ? patch.focus : 'other',
-      rating: patch.rating === null ? null : Math.min(5, Math.max(1, Math.round(patch.rating))),
-      shortcomings: [...new Set(patch.shortcomings.map((item) => item.trim()).filter(Boolean))]
+      rating,
+      shortcomings: [...new Set(shortcomings
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean))]
         .slice(0, 20)
         .map((item) => item.slice(0, 300)),
-      title: patch.title.trim().slice(0, 100) || 'Untitled drawing',
+      title: title.trim().slice(0, 100) || 'Untitled drawing',
       updatedAt,
     };
     return this.persistDesegnDrawing(next, 'Saving notes');
@@ -333,22 +362,29 @@ export class IloGState extends GState<IloSnapshot> {
     const key = `${ownerId}:${drawingId}:${variant}`;
     const cached = this.#desegnMediaUrls.get(key);
     if (cached) {
-      this.#desegnMediaUrls.delete(key);
-      this.#desegnMediaUrls.set(key, cached);
-      return Promise.resolve(cached);
+      cached.refs += 1;
+      cached.lastUsedAt = Date.now();
+      return Promise.resolve(cached.url);
     }
+    this.#desegnMediaWaiters.set(key, (this.#desegnMediaWaiters.get(key) ?? 0) + 1);
     const active = this.#desegnMediaLoads.get(key);
     if (active) return active;
     const requestId = this.#desegnLoadRequestId;
     const request = this.desegnStore.loadMedia(ownerId, drawingId, variant)
       .then((blob) => {
-        if (!blob || ownerId !== this.#ownerId || requestId !== this.#desegnLoadRequestId) return null;
+        const refs = this.#desegnMediaWaiters.get(key) ?? 0;
+        this.#desegnMediaWaiters.delete(key);
+        // Deleting a drawing removes its in-flight entry. Treat a response
+        // from that orphaned request as stale so it cannot resurrect a blob
+        // URL for media that no longer exists.
+        if (!blob || ownerId !== this.#ownerId || requestId !== this.#desegnLoadRequestId || this.#desegnMediaLoads.get(key) !== request) return null;
         const url = URL.createObjectURL(blob);
-        this.#desegnMediaUrls.set(key, url);
-        this.trimDesegnMediaUrls(variant, variant === 'original' ? 2 : 160);
+        this.#desegnMediaUrls.set(key, { lastUsedAt: Date.now(), refs, url });
+        this.trimDesegnMediaUrls(variant, variant === 'original' ? DESEGN_ORIGINAL_URL_LIMIT : DESEGN_THUMBNAIL_URL_LIMIT);
         return url;
       })
       .catch((error) => {
+        this.#desegnMediaWaiters.delete(key);
         if (ownerId === this.#ownerId && requestId === this.#desegnLoadRequestId) this.desegnFail(error);
         return null;
       })
@@ -359,11 +395,29 @@ export class IloGState extends GState<IloSnapshot> {
     return request;
   }
 
+  /** Release one media URL lease acquired by desegnLernadoMediaUrl. */
+  releaseDesegnLernadoMediaUrl(drawingId: string, variant: DesegnMediaVariant): void {
+    const ownerId = this.#ownerId;
+    if (!ownerId) return;
+    const key = `${ownerId}:${drawingId}:${variant}`;
+    const cached = this.#desegnMediaUrls.get(key);
+    if (cached) {
+      cached.refs = Math.max(0, cached.refs - 1);
+      cached.lastUsedAt = Date.now();
+      this.trimDesegnMediaUrls(variant, variant === 'original' ? DESEGN_ORIGINAL_URL_LIMIT : DESEGN_THUMBNAIL_URL_LIMIT);
+      return;
+    }
+    const waiting = this.#desegnMediaWaiters.get(key);
+    if (waiting) this.#desegnMediaWaiters.set(key, waiting - 1);
+  }
+
   async renameDesegnPet(name: string): Promise<boolean> {
-    return this.persistDesegnPet({ ...this.snapshot.desegnLernado.pet, name: name.trim().slice(0, 24) || 'Moki' });
+    const nextName = typeof name === 'string' ? name.trim().replace(/\s+/g, ' ').slice(0, 24) : '';
+    return this.persistDesegnPet({ ...this.snapshot.desegnLernado.pet, name: nextName || 'Moki' });
   }
 
   async setDesegnPetPalette(palette: DesegnPetPalette): Promise<boolean> {
+    if (palette !== 'ink' && palette !== 'mint' && palette !== 'sunset' && palette !== 'night') return false;
     return this.persistDesegnPet({ ...this.snapshot.desegnLernado.pet, palette });
   }
 
@@ -396,7 +450,15 @@ export class IloGState extends GState<IloSnapshot> {
     const ownerId = this.#ownerId;
     if (!ownerId) return Promise.resolve();
     const current = this.snapshot.taglibro;
+    if (current.busy) return Promise.resolve();
     if (!force && current.phase === 'ready') return Promise.resolve();
+    // Bootstrap contains both today's day and the event list. Supersede
+    // narrower reads started before it so an older response cannot overwrite
+    // the freshly selected day or event snapshot when it resolves later.
+    this.#taglibroDayRequestId += 1;
+    this.#taglibroDayInFlight.clear();
+    this.#taglibroEventsRequestId += 1;
+    this.#taglibroEventsInFlight.clear();
     const requestId = ++this.#taglibroBootstrapRequestId;
     this.update((snapshot) => ({
       ...snapshot,
@@ -407,7 +469,7 @@ export class IloGState extends GState<IloSnapshot> {
       try {
         const bootstrap = await this.gateway.taglibroBootstrap();
         if (requestId !== this.#taglibroBootstrapRequestId || ownerId !== this.#ownerId) return;
-        this.#taglibroDays.set(bootstrap.today.date, bootstrap.today);
+        this.cacheTaglibroDay(bootstrap.today);
         this.update((snapshot) => ({
           ...snapshot,
           taglibro: {
@@ -452,7 +514,7 @@ export class IloGState extends GState<IloSnapshot> {
       try {
         const day = await this.gateway.taglibroDay(date);
         if (requestId !== this.#taglibroDayRequestId || ownerId !== this.#ownerId) return;
-        this.#taglibroDays.set(date, day);
+        this.cacheTaglibroDay(day);
         this.setTaglibroDay(day);
       } catch (error) {
         if (requestId !== this.#taglibroDayRequestId || ownerId !== this.#ownerId) return;
@@ -605,6 +667,7 @@ export class IloGState extends GState<IloSnapshot> {
     ) {
       return Promise.resolve();
     }
+    if (force) this.#cardsCache.clear();
     this.#cardsQuery = nextQuery;
     this.#cardsOffset = 0;
     return this.loadCards(false);
@@ -777,19 +840,26 @@ export class IloGState extends GState<IloSnapshot> {
   private revokeDesegnDrawingUrls(ownerId: string, drawingId: string): void {
     for (const variant of ['original', 'thumbnail'] as const) {
       const key = `${ownerId}:${drawingId}:${variant}`;
-      const url = this.#desegnMediaUrls.get(key);
-      if (url) URL.revokeObjectURL(url);
+      const entry = this.#desegnMediaUrls.get(key);
+      if (entry) URL.revokeObjectURL(entry.url);
       this.#desegnMediaUrls.delete(key);
+      this.#desegnMediaWaiters.delete(key);
       this.#desegnMediaLoads.delete(key);
     }
   }
 
   private trimDesegnMediaUrls(variant: DesegnMediaVariant, limit: number): void {
     const suffix = `:${variant}`;
-    const matching = [...this.#desegnMediaUrls.entries()].filter(([key]) => key.endsWith(suffix));
-    for (const [key, url] of matching.slice(0, Math.max(0, matching.length - limit))) {
-      URL.revokeObjectURL(url);
+    const matching = [...this.#desegnMediaUrls.entries()]
+      .filter(([key]) => key.endsWith(suffix))
+      .sort(([, left], [, right]) => left.lastUsedAt - right.lastUsedAt);
+    let remaining = Math.max(0, matching.length - limit);
+    for (const [key, entry] of matching) {
+      if (remaining <= 0) break;
+      if (entry.refs > 0) continue;
+      URL.revokeObjectURL(entry.url);
       this.#desegnMediaUrls.delete(key);
+      remaining -= 1;
     }
   }
 
@@ -807,19 +877,23 @@ export class IloGState extends GState<IloSnapshot> {
     const key = `${this.#cardsQuery.q}\u0000${this.#cardsQuery.theme}\u0000${offset}`;
     if (this.#cardsInFlight?.key === key) return this.#cardsInFlight.promise;
     const requestId = ++this.#cardsRequestId;
+    const cached = this.#cardsCache.get(key);
+    if (cached && Date.now() - cached.cachedAt < CARD_PAGE_CACHE_TTL_MS) {
+      this.#cardsCache.delete(key);
+      this.#cardsCache.set(key, cached);
+      if (requestId === this.#cardsRequestId && ownerId === this.#ownerId) this.applyCardsPage(cached.page, append);
+      return;
+    }
+    if (cached) this.#cardsCache.delete(key);
     this.update((snapshot) => ({ ...snapshot, cardsLoading: true, error: null }));
     const promise = (async () => {
       try {
         const page = await this.gateway.listCards({ ...this.#cardsQuery, limit: CARDS_PAGE_SIZE, offset });
         if (requestId !== this.#cardsRequestId || ownerId !== this.#ownerId) return;
+        this.#cardsCache.set(key, { cachedAt: Date.now(), page });
+        while (this.#cardsCache.size > CARD_PAGE_CACHE_LIMIT) this.#cardsCache.delete(this.#cardsCache.keys().next().value!);
         this.#cardsOffset = page.nextOffset ?? offset + page.cards.length;
-        this.update((snapshot) => ({
-          ...snapshot,
-          cards: append ? [...snapshot.cards, ...page.cards] : page.cards,
-          cardsHasMore: page.nextOffset !== null,
-          cardsLoaded: true,
-          cardsLoading: false,
-        }));
+        this.applyCardsPage(page, append);
       } catch (error) {
         if (requestId !== this.#cardsRequestId || ownerId !== this.#ownerId) return;
         this.fail('load cards', error);
@@ -834,12 +908,24 @@ export class IloGState extends GState<IloSnapshot> {
     }
   }
 
+  private applyCardsPage(page: IloCardPage, append: boolean): void {
+    this.#cardsOffset = page.nextOffset ?? this.#cardsOffset;
+    this.update((snapshot) => ({
+      ...snapshot,
+      cards: append ? [...snapshot.cards, ...page.cards] : page.cards,
+      cardsHasMore: page.nextOffset !== null,
+      cardsLoaded: true,
+      cardsLoading: false,
+    }));
+  }
+
   private async mutate(operation: string, request: () => ReturnType<IloGateway['createCard']>): Promise<boolean> {
     if (this.snapshot.busy || this.snapshot.refreshing) return false;
     const ownerId = this.#ownerId;
     if (!ownerId) return false;
     const requestId = ++this.#requestId;
     this.#cardsRequestId += 1;
+    this.#cardsCache.clear();
     this.update((snapshot) => ({ ...snapshot, busy: operation, cardsLoading: false, error: null }));
     try {
       const result = await request();
@@ -882,8 +968,12 @@ export class IloGState extends GState<IloSnapshot> {
 
   private async taglibroMutation(operation: string, request: () => Promise<TaglibroDay>): Promise<boolean> {
     const ownerId = this.#ownerId;
-    if (!ownerId || this.snapshot.taglibro.busy) return false;
+    if (!ownerId || this.snapshot.taglibro.busy || this.snapshot.taglibro.refreshing) return false;
     const requestId = ++this.#taglibroMutationRequestId;
+    // A day write must win over a bootstrap that was already in flight. The
+    // stale bootstrap is left to settle naturally, but its result is ignored.
+    this.#taglibroBootstrapRequestId += 1;
+    this.#taglibroInFlight = null;
     // A write supersedes a day read that started before it. Event loading is
     // independent and is deliberately allowed to continue.
     this.#taglibroDayRequestId += 1;
@@ -892,7 +982,7 @@ export class IloGState extends GState<IloSnapshot> {
     try {
       const day = await request();
       if (requestId !== this.#taglibroMutationRequestId || ownerId !== this.#ownerId) return false;
-      this.#taglibroDays.set(day.date, day);
+      this.cacheTaglibroDay(day);
       this.setTaglibroDay(day);
       this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, busy: null, error: null } }));
       return true;
@@ -906,8 +996,13 @@ export class IloGState extends GState<IloSnapshot> {
 
   private async taglibroEventMutation<T>(operation: string, request: () => Promise<T>): Promise<T | undefined> {
     const ownerId = this.#ownerId;
-    if (!ownerId || this.snapshot.taglibro.busy) return undefined;
+    if (!ownerId || this.snapshot.taglibro.busy || this.snapshot.taglibro.refreshing) return undefined;
     const requestId = ++this.#taglibroEventsRequestId;
+    // Event mutations also invalidate a bootstrap response that may contain
+    // an older event list. The in-flight promise is not cancelled; its token
+    // check prevents it from publishing stale data.
+    this.#taglibroBootstrapRequestId += 1;
+    this.#taglibroInFlight = null;
     this.update((snapshot) => ({
       ...snapshot,
       taglibro: { ...snapshot.taglibro, busy: operation, error: null, eventsLoading: false },
@@ -935,6 +1030,14 @@ export class IloGState extends GState<IloSnapshot> {
     });
   }
 
+  private cacheTaglibroDay(day: TaglibroDay): void {
+    this.#taglibroDays.delete(day.date);
+    this.#taglibroDays.set(day.date, day);
+    while (this.#taglibroDays.size > TAGLIBRO_DAY_CACHE_LIMIT) {
+      this.#taglibroDays.delete(this.#taglibroDays.keys().next().value!);
+    }
+  }
+
   private taglibroFail(error: unknown): void {
     this.update((snapshot) => ({ ...snapshot, taglibro: { ...snapshot.taglibro, error: readableTaglibroError(error) } }));
   }
@@ -948,20 +1051,20 @@ function replaceCard(cards: IloSnapshot['cards'], next: NonNullable<Awaited<Retu
 }
 
 function readableError(error: unknown): string {
-  if (typeof error === 'string' && error.trim()) return error;
-  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'string' && error.trim()) return error.trim().slice(0, 2_000);
+  if (error instanceof Error && error.message.trim()) return error.message.trim().slice(0, 2_000);
   return 'Lingvolernado is unavailable.';
 }
 
 function readableTaglibroError(error: unknown): string {
-  if (typeof error === 'string' && error.trim()) return error;
-  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'string' && error.trim()) return error.trim().slice(0, 2_000);
+  if (error instanceof Error && error.message.trim()) return error.message.trim().slice(0, 2_000);
   return 'Taglibroplanilo is unavailable.';
 }
 
 function readableDesegnError(error: unknown): string {
-  if (typeof error === 'string' && error.trim()) return error;
-  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'string' && error.trim()) return error.trim().slice(0, 2_000);
+  if (error instanceof Error && error.message.trim()) return error.message.trim().slice(0, 2_000);
   return 'DesegnLernado could not access its local gallery.';
 }
 
@@ -977,12 +1080,17 @@ function readLogs(ownerId: string): IloErrorEntry[] {
   try {
     const value: unknown = JSON.parse(globalThis.localStorage?.getItem(logKey(ownerId)) ?? '[]');
     if (!Array.isArray(value)) return [];
-    return value.filter((entry): entry is IloErrorEntry => (
-      typeof entry === 'object' && entry !== null
-      && typeof (entry as IloErrorEntry).at === 'number'
-      && typeof (entry as IloErrorEntry).message === 'string'
-      && typeof (entry as IloErrorEntry).operation === 'string'
-    )).slice(0, 20);
+    return value.flatMap((entry): IloErrorEntry[] => {
+      if (typeof entry !== 'object' || entry === null) return [];
+      const candidate = entry as Partial<IloErrorEntry>;
+      if (typeof candidate.at !== 'number' || !Number.isFinite(candidate.at)
+        || typeof candidate.message !== 'string' || typeof candidate.operation !== 'string') return [];
+      return [{
+        at: candidate.at,
+        message: candidate.message.trim().slice(0, 2_000),
+        operation: candidate.operation.trim().slice(0, 120),
+      }];
+    }).slice(0, 20);
   } catch {
     return [];
   }

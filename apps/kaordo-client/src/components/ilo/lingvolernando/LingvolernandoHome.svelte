@@ -6,8 +6,10 @@
     LINGVOLERNANDO_WORLD,
     activeSynergies,
     journeyWordForGame,
+    lingvolernandoArtifact,
     lingvolernandoBonuses,
     metricsFromProgress,
+    lingvolernandoWorldElement,
   } from '../../../lib/services/lingvolernandoGame';
   import ArtifactGlyph from './ArtifactGlyph.svelte';
   import LumaCreature from './LumaCreature.svelte';
@@ -33,12 +35,12 @@
   const synergies = $derived(activeSynergies(snapshot.lingvolernando.equippedArtifactIds));
   const bonuses = $derived(lingvolernandoBonuses(snapshot.lingvolernando));
   const equippedArtifactIds = $derived(snapshot.lingvolernando.equippedArtifactIds.filter((id): id is string => Boolean(id)));
-  const equippedArtifact = $derived(LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === equippedArtifactIds[0]) ?? null);
+  const equippedArtifact = $derived(lingvolernandoArtifact(equippedArtifactIds[0]));
   const orbitArtifacts = $derived(equippedArtifactIds
-    .map((id) => LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === id))
+    .map((id) => lingvolernandoArtifact(id))
     .filter((artifact): artifact is NonNullable<typeof artifact> => Boolean(artifact))
     .slice(0, 3));
-  const newestWorld = $derived(LINGVOLERNANDO_WORLD.find((item) => item.id === snapshot.lingvolernando.discoveredWorldIds.at(-1)) ?? LINGVOLERNANDO_WORLD[0]);
+  const newestWorld = $derived(lingvolernandoWorldElement(snapshot.lingvolernando.discoveredWorldIds.at(-1)) ?? LINGVOLERNANDO_WORLD[0]);
   const nextArtifact = $derived(LINGVOLERNANDO_ARTIFACTS.find((item) => !snapshot.lingvolernando.discoveredArtifactIds.includes(item.id) && item.unlockAt > totalXp) ?? null);
   const answers = $derived(snapshot.lingvolernando.learning.rememberedAnswers + snapshot.lingvolernando.learning.forgottenAnswers);
   const accuracy = $derived(answers > 0 ? Math.round(snapshot.lingvolernando.learning.rememberedAnswers / answers * 100) : 50);

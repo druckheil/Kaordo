@@ -56,6 +56,12 @@ export const DESEGN_ARTIFACTS: readonly DesegnArtifact[] = [
   { id: 'fifty-pages', name: 'Fifty Pages', glyph: '✺', rarity: 'epic', accent: '#be6578', metric: 'totalDrawings', threshold: 50, description: 'Fifty saved drawings form a visible path through practice.', drill: 'Recreate drawing number one with what you know now.' },
 ] as const;
 
+const DESEGN_ARTIFACT_BY_ID = new Map(DESEGN_ARTIFACTS.map((artifact) => [artifact.id, artifact]));
+
+export function desegnArtifact(id: string | null | undefined): DesegnArtifact | null {
+  return id ? DESEGN_ARTIFACT_BY_ID.get(id) ?? null : null;
+}
+
 export const BASE_DRAWING_PROMPTS = [
   'Draw a familiar object from an unfamiliar angle.',
   'Use one large, one medium, and one small shape.',
@@ -77,14 +83,19 @@ export function desegnStats(drawings: readonly DesegnDrawing[], now = Date.now()
   let rated = 0;
   let uploadedThisWeek = 0;
   for (const drawing of drawings) {
-    focusCounts[drawing.focus] += 1;
-    totalReviews += drawing.reviewCount;
-    totalShortcomings += drawing.shortcomings.length;
-    if (drawing.description.trim()) describedDrawings += 1;
-    if (drawing.nextReviewAt <= now) dueReviews += 1;
-    if (drawing.createdAt >= now - 7 * DAY_MS) uploadedThisWeek += 1;
-    if (drawing.rating !== null) {
-      ratingTotal += drawing.rating;
+    const shortcomings = Array.isArray(drawing.shortcomings) ? drawing.shortcomings : [];
+    const description = typeof drawing.description === 'string' ? drawing.description : '';
+    if (DESEGN_FOCUSES.includes(drawing.focus)) focusCounts[drawing.focus] += 1;
+    const reviewCount = Number.isFinite(drawing.reviewCount) ? Math.max(0, Math.round(drawing.reviewCount)) : 0;
+    totalReviews += reviewCount;
+    for (const item of shortcomings) {
+      if (typeof item === 'string' && item.trim()) totalShortcomings += 1;
+    }
+    if (description.trim()) describedDrawings += 1;
+    if (Number.isFinite(drawing.nextReviewAt) && drawing.nextReviewAt <= now) dueReviews += 1;
+    if (Number.isFinite(drawing.createdAt) && drawing.createdAt >= now - 7 * DAY_MS) uploadedThisWeek += 1;
+    if (typeof drawing.rating === 'number' && Number.isFinite(drawing.rating)) {
+      ratingTotal += Math.min(5, Math.max(1, drawing.rating));
       rated += 1;
     }
   }
@@ -118,18 +129,24 @@ export function unlockedDesegnArtifacts(stats: DesegnStats): DesegnArtifact[] {
 }
 
 export function nextDesegnArtifact(stats: DesegnStats): DesegnArtifact | null {
-  return DESEGN_ARTIFACTS
-    .filter((artifact) => artifactProgress(artifact, stats) < artifact.threshold)
-    .sort((left, right) => {
-      const leftRatio = artifactProgress(left, stats) / left.threshold;
-      const rightRatio = artifactProgress(right, stats) / right.threshold;
-      return rightRatio - leftRatio || left.threshold - right.threshold;
-    })[0] ?? null;
+  let next: { artifact: DesegnArtifact; ratio: number } | null = null;
+  for (const artifact of DESEGN_ARTIFACTS) {
+    const progress = artifactProgress(artifact, stats);
+    if (progress >= artifact.threshold) continue;
+    const candidate = { artifact, ratio: progress / artifact.threshold };
+    if (!next || candidate.ratio > next.ratio
+      || (candidate.ratio === next.ratio && artifact.threshold < next.artifact.threshold)) next = candidate;
+  }
+  return next?.artifact ?? null;
 }
 
 export function desegnPracticePrompt(profile: Readonly<DesegnPetProfile>, stats: DesegnStats, now = Date.now()): string {
-  const equipped = profile.equippedArtifactIds
-    .flatMap((id) => DESEGN_ARTIFACTS.find((artifact) => artifact.id === id) ?? []);
+  const equippedIds = Array.isArray(profile.equippedArtifactIds) ? profile.equippedArtifactIds : [];
+  const equipped = equippedIds
+    .flatMap((id) => {
+      const artifact = desegnArtifact(id);
+      return artifact ? [artifact] : [];
+    });
   const pool = equipped.length > 0 ? equipped.map((artifact) => artifact.drill) : [...BASE_DRAWING_PROMPTS];
   const day = Math.floor(now / DAY_MS);
   return pool[(day + stats.totalDrawings + stats.totalReviews) % pool.length]!;
@@ -140,7 +157,8 @@ export function reviewedDrawing(
   outcome: DesegnReviewOutcome,
   now = Date.now(),
 ): DesegnDrawing {
-  const reviewCount = drawing.reviewCount + 1;
+  const previousReviews = Number.isFinite(drawing.reviewCount) ? Math.max(0, Math.round(drawing.reviewCount)) : 0;
+  const reviewCount = previousReviews + 1;
   const intervals = outcome === 'keep-working' ? [1, 2, 3] : [3, 7, 14, 30, 60];
   const intervalDays = intervals[Math.min(reviewCount - 1, intervals.length - 1)]!;
   return {
@@ -153,7 +171,11 @@ export function reviewedDrawing(
 }
 
 function uploadStreak(drawings: readonly DesegnDrawing[], now: number): number {
-  const days = new Set(drawings.map((drawing) => localDay(drawing.createdAt)));
+  const days = new Set(
+    drawings
+      .filter((drawing) => Number.isFinite(drawing.createdAt))
+      .map((drawing) => localDay(drawing.createdAt)),
+  );
   if (days.size === 0) return 0;
   const cursor = new Date(startOfLocalDay(now));
   if (!days.has(localDay(cursor.getTime()))) cursor.setDate(cursor.getDate() - 1);

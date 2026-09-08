@@ -1,17 +1,32 @@
 <script lang="ts">
   import type { LingvolernandoRewardOutcome } from '../../../lib/domain/lingvolernando';
-  import { LINGVOLERNANDO_ACHIEVEMENTS, LINGVOLERNANDO_ARTIFACTS, LINGVOLERNANDO_SYNERGIES, LINGVOLERNANDO_WORLD } from '../../../lib/services/lingvolernandoGame';
+  import {
+    LINGVOLERNANDO_ACHIEVEMENTS,
+    LINGVOLERNANDO_ARTIFACTS,
+    LINGVOLERNANDO_SYNERGIES,
+    lingvolernandoArtifact,
+    lingvolernandoWorldElement,
+  } from '../../../lib/services/lingvolernandoGame';
   import ArtifactGlyph from './ArtifactGlyph.svelte';
   import LumaCreature from './LumaCreature.svelte';
   import WorldSprite from './WorldSprite.svelte';
 
   type Props = { onClose: () => void; outcome: LingvolernandoRewardOutcome };
   let { onClose, outcome }: Props = $props();
-  const artifact = $derived(LINGVOLERNANDO_ARTIFACTS.find((item) => item.id === outcome.artifactId) ?? null);
-  const worldElement = $derived(LINGVOLERNANDO_WORLD.find((item) => item.id === outcome.worldElementId) ?? null);
-  const achievements = $derived(LINGVOLERNANDO_ACHIEVEMENTS.filter((item) => outcome.newlyClaimedAchievementIds.includes(item.id)));
-  const achievementRewards = $derived(LINGVOLERNANDO_ARTIFACTS.filter((item) => outcome.achievementRewardArtifactIds.includes(item.id)));
-  const synergies = $derived(LINGVOLERNANDO_SYNERGIES.filter((item) => outcome.synergyIds.includes(item.id)));
+  const artifact = $derived(lingvolernandoArtifact(outcome.artifactId));
+  const worldElement = $derived(lingvolernandoWorldElement(outcome.worldElementId));
+  const achievements = $derived.by(() => {
+    const ids = new Set(outcome.newlyClaimedAchievementIds);
+    return LINGVOLERNANDO_ACHIEVEMENTS.filter((item) => ids.has(item.id));
+  });
+  const achievementRewards = $derived.by(() => {
+    const ids = new Set(outcome.achievementRewardArtifactIds);
+    return LINGVOLERNANDO_ARTIFACTS.filter((item) => ids.has(item.id));
+  });
+  const synergies = $derived.by(() => {
+    const ids = new Set(outcome.synergyIds);
+    return LINGVOLERNANDO_SYNERGIES.filter((item) => ids.has(item.id));
+  });
   const pulseLabel = $derived(outcome.source === 'remembered'
     ? 'Ten words remembered'
     : outcome.source === 'forgotten'
