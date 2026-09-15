@@ -15,6 +15,8 @@ const MAX_REQUEST_BYTES = 16_384;
 const NODE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const ONLINE_SECONDS = 300;
 const ACCESS_TICKET_SECONDS = 2 * 60 * 60;
+const STORAGE_MOVE_SECONDS = 6 * 60 * 60;
+const STORAGE_MOVE_CLEANUP_SECONDS = 15 * 60;
 const ACCESS_TICKET = /^[A-Za-z0-9_-]{43}$/u;
 const DEVICE_KEY = /^[0-9a-f]{64}$/u;
 const SLOT_KEY = /^[a-z0-9][a-z0-9_-]{0,31}$/u;
@@ -320,6 +322,207 @@ export async function issueNodeAccess(
   });
 }
 
+export async function prepareNodeStorageMove(
+  request: Request,
+  env: Env,
+  sourceNodeId: string,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  if (!NODE_ID.test(sourceNodeId)) return json({ error: 'Node not found.' }, 404);
+  try {
+    const input = await readJson(request);
+    if (typeof input.targetNodeId !== 'string' || !NODE_ID.test(input.targetNodeId)) {
+      throw new NodeInputError('Destination Nodo is invalid.');
+    }
+    const targetNodeId = input.targetNodeId;
+    if (sourceNodeId === targetNodeId) {
+      return json({ error: 'Choose a different destination Nodo.' }, 409);
+    }
+    const [source, target] = await Promise.all([
+      ownedNode(env, sourceNodeId, session.userId),
+      ownedNode(env, targetNodeId, session.userId),
+    ]);
+    if (!source || !target) return json({ error: 'Destination Nodo not found.' }, 404);
+    const now = unixNow();
+    if (now - source.last_seen_at > ONLINE_SECONDS || now - target.last_seen_at > ONLINE_SECONDS) {
+      return json({ error: 'Both Nodos must be online before moving content.' }, 409);
+    }
+    if (!supportsStorageMove(source.app_version) || !supportsStorageMove(target.app_version)) {
+      return json({ error: 'Install Nodo 0.2.6 or newer on both devices before moving content.' }, 409);
+    }
+    if (!source.allow_downloads) return json({ error: 'Downloads are disabled on the source Nodo.' }, 409);
+    if (!target.allow_uploads) return json({ error: 'Uploads are disabled on the destination Nodo.' }, 409);
+    if (source.private_used_bytes > target.private_quota_bytes - target.private_used_bytes ||
+        source.public_used_bytes > target.public_quota_bytes - target.public_used_bytes) {
+      return json({ error: 'The destination Nodo does not have enough space in one of its spaces.' }, 409);
+    }
+
+    const checks = await env.DB.batch([
+      env.DB.prepare(
+        'SELECT 1 AS found FROM fluo_public_tombstones WHERE node_id IN (?1, ?2) LIMIT 1',
+      ).bind(sourceNodeId, targetNodeId),
+      env.DB.prepare(
+        `SELECT 1 AS found FROM fluo_public_allocations
+          WHERE node_id IN (?1, ?2) AND committed = 0 AND expires_at > ?3 LIMIT 1`,
+      ).bind(sourceNodeId, targetNodeId, now),
+      env.DB.prepare(
+        `SELECT 1 AS found FROM profile_public_allocations
+          WHERE node_id IN (?1, ?2) AND committed = 0 AND expires_at > ?3 LIMIT 1`,
+      ).bind(sourceNodeId, targetNodeId, now),
+      env.DB.prepare(
+        'SELECT 1 AS found FROM ligo_cloud_tombstones WHERE node_id IN (?1, ?2) LIMIT 1',
+      ).bind(sourceNodeId, targetNodeId),
+      env.DB.prepare(
+        `SELECT 1 AS found FROM node_storage_moves
+          WHERE user_id = ?1 AND expires_at > ?2
+            AND completed_at IS NULL
+            AND (source_node_id IN (?3, ?4) OR target_node_id IN (?3, ?4))
+          LIMIT 1`,
+      ).bind(session.userId, now, sourceNodeId, targetNodeId),
+      env.DB.prepare(
+        `SELECT 1 AS found FROM fluo_public_allocations AS source
+          JOIN fluo_public_allocations AS target
+            ON target.node_id = ?2 AND target.post_id = source.post_id
+         WHERE source.node_id = ?1 AND source.post_id IS NOT NULL LIMIT 1`,
+      ).bind(sourceNodeId, targetNodeId),
+      env.DB.prepare(
+        `SELECT 1 AS found FROM profile_public_allocations AS source
+          JOIN profile_public_allocations AS target
+            ON target.node_id = ?2 AND target.user_id = source.user_id
+           AND target.profile_id = source.profile_id
+         WHERE source.node_id = ?1 AND source.profile_id IS NOT NULL LIMIT 1`,
+      ).bind(sourceNodeId, targetNodeId),
+      env.DB.prepare(
+        `SELECT 1 AS found FROM fluo_post_likes AS source
+          JOIN fluo_post_likes AS target
+            ON target.node_id = ?2 AND target.space = source.space
+           AND target.post_id = source.post_id AND target.user_id = source.user_id
+         WHERE source.node_id = ?1 LIMIT 1`,
+      ).bind(sourceNodeId, targetNodeId),
+      env.DB.prepare(
+        `SELECT 1 AS found FROM rondo_space_nodes AS source
+          JOIN rondo_space_nodes AS target
+            ON target.space_id = source.space_id AND target.node_id = ?2
+         WHERE source.node_id = ?1 LIMIT 1`,
+      ).bind(sourceNodeId, targetNodeId),
+      env.DB.prepare(
+        `SELECT 1 AS found FROM ligo_cloud_messages AS source
+          JOIN ligo_cloud_messages AS target
+            ON target.id = source.id AND target.node_id = ?2
+         WHERE source.node_id = ?1 LIMIT 1`,
+      ).bind(sourceNodeId, targetNodeId),
+      env.DB.prepare(
+        `SELECT 1 AS found FROM ligo_deliveries AS source
+          JOIN ligo_deliveries AS target
+            ON target.id = source.id AND target.node_id = ?2
+         WHERE source.node_id = ?1 LIMIT 1`,
+      ).bind(sourceNodeId, targetNodeId),
+      env.DB.prepare(
+        `SELECT 1 AS found FROM ligo_cloud_tombstones AS source
+          JOIN ligo_cloud_tombstones AS target
+            ON target.message_id = source.message_id AND target.node_id = ?2
+         WHERE source.node_id = ?1 LIMIT 1`,
+      ).bind(sourceNodeId, targetNodeId),
+    ]);
+    if (checks.some((result) => result.results.length > 0)) {
+      return json({ error: 'The Nodos have pending reconciliation or conflicting content. Retry after it is resolved.' }, 409);
+    }
+
+    const moveId = crypto.randomUUID();
+    const expiresAt = now + STORAGE_MOVE_SECONDS;
+    await env.DB.prepare(
+      `INSERT INTO node_storage_moves
+        (id, user_id, source_node_id, target_node_id, created_at, expires_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(moveId, session.userId, sourceNodeId, targetNodeId, now, expiresAt).run();
+    return json({ expiresAt, moveId });
+  } catch (error) {
+    return json({
+      error: error instanceof NodeInputError ? error.message : 'Storage move request is invalid.',
+    }, 400);
+  }
+}
+
+export async function completeNodeStorageMove(
+  request: Request,
+  env: Env,
+  sourceNodeId: string,
+  moveId: string,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  if (!NODE_ID.test(sourceNodeId) || !NODE_ID.test(moveId)) return json({ error: 'Storage move not found.' }, 404);
+  const now = unixNow();
+  const move = await env.DB.prepare(
+    `SELECT target_node_id, completed_at, expires_at
+       FROM node_storage_moves
+      WHERE id = ?1 AND source_node_id = ?2 AND user_id = ?3 LIMIT 1`,
+  ).bind(moveId, sourceNodeId, session.userId).first<{
+    completed_at: number | null;
+    expires_at: number;
+    target_node_id: string;
+  }>();
+  if (!move) return json({ error: 'Storage move not found.' }, 404);
+  if (move.completed_at !== null) return json({ ok: true });
+  if (move.expires_at <= now) return json({ error: 'Storage move expired. Start it again.' }, 409);
+  try {
+    const results = await env.DB.batch([
+      env.DB.prepare('UPDATE fluo_public_allocations SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE profile_public_allocations SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE user_profiles SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE fluo_post_likes SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE ligo_cloud_messages SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE ligo_deliveries SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE ligo_cloud_tombstones SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE ligo_storage_settings SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE admin_erase_jobs SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE rondo_space_nodes SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE rondo_room_routes SET node_id = ?1 WHERE node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare('UPDATE rondo_spaces SET primary_node_id = ?1 WHERE primary_node_id = ?2')
+        .bind(move.target_node_id, sourceNodeId),
+      env.DB.prepare(
+        `UPDATE node_storage_moves SET completed_at = ?1
+          WHERE id = ?2 AND source_node_id = ?3 AND user_id = ?4
+            AND completed_at IS NULL AND expires_at > ?1`,
+      ).bind(now, moveId, sourceNodeId, session.userId),
+    ]);
+    if ((results.at(-1)?.meta.changes ?? 0) === 0) {
+      return json({ error: 'Storage move expired or was completed already.' }, 409);
+    }
+    return json({ ok: true });
+  } catch {
+    return json({ error: 'Storage routes could not be updated. The source content is still intact.' }, 409);
+  }
+}
+
+export async function cancelNodeStorageMove(
+  request: Request,
+  env: Env,
+  sourceNodeId: string,
+  moveId: string,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return json({ error: 'Authentication required.' }, 401);
+  if (!NODE_ID.test(sourceNodeId) || !NODE_ID.test(moveId)) return json({ ok: true });
+  await env.DB.prepare(
+    `DELETE FROM node_storage_moves
+      WHERE id = ?1 AND source_node_id = ?2 AND user_id = ?3`,
+  ).bind(moveId, sourceNodeId, session.userId).run();
+  return json({ ok: true });
+}
+
 /**
  * HTTPS fallback for clients that cannot reach a Nodo's direct address.
  *
@@ -505,7 +708,7 @@ function relayOptions(request: Request): Response {
   const headers = new Headers({
     'access-control-allow-headers': request.headers.get('access-control-request-headers') ??
       'authorization,content-type,tus-resumable,upload-length,upload-offset,upload-metadata,range',
-    'access-control-allow-methods': 'GET,HEAD,POST,PATCH,DELETE,OPTIONS',
+    'access-control-allow-methods': 'GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS',
     'access-control-max-age': '600',
   });
   addRelayCors(headers, request);
@@ -528,7 +731,13 @@ function addRelayCors(headers: Headers, request: Request): void {
 }
 
 export async function deleteExpiredNodeAccessTickets(env: Env, now: number): Promise<void> {
-  await env.DB.prepare('DELETE FROM node_access_tickets WHERE expires_at <= ?1').bind(now).run();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM node_access_tickets WHERE expires_at <= ?1').bind(now),
+    env.DB.prepare(
+      `DELETE FROM node_storage_moves
+        WHERE expires_at <= ?1 OR (completed_at IS NOT NULL AND completed_at + ?2 <= ?1)`,
+    ).bind(now, STORAGE_MOVE_CLEANUP_SECONDS),
+  ]);
 }
 
 export async function verifyNodeAccess(request: Request, env: Env): Promise<Response> {
@@ -542,12 +751,15 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
           (typeof input.rondoSpaceId !== 'string' || !NODE_ID.test(input.rondoSpaceId))) ||
         (input.rondoRoomId !== undefined &&
           (typeof input.rondoRoomId !== 'string' || !NODE_ID.test(input.rondoRoomId))) ||
-        ((input.rondoSpaceId === undefined) !== (input.rondoRoomId === undefined))) {
+        ((input.rondoSpaceId === undefined) !== (input.rondoRoomId === undefined)) ||
+        (input.storageMoveId !== undefined && input.storageMoveId !== null &&
+          (typeof input.storageMoveId !== 'string' || !NODE_ID.test(input.storageMoveId)))) {
       throw new NodeInputError('Node ticket is invalid.');
     }
     const reservationId = typeof input.reservationId === 'string' ? input.reservationId : null;
     const rondoSpaceId = typeof input.rondoSpaceId === 'string' ? input.rondoSpaceId : null;
     const rondoRoomId = typeof input.rondoRoomId === 'string' ? input.rondoRoomId : null;
+    const storageMoveId = typeof input.storageMoveId === 'string' ? input.storageMoveId : null;
     const now = unixNow();
     const row = await env.DB.prepare(
       `SELECT tickets.expires_at,
@@ -559,6 +771,10 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
               profile_allocations.bytes AS profile_reservation_bytes,
               members.role AS rondo_role,
               routes.storage_kind AS rondo_storage_kind,
+              moves.id AS storage_move_id,
+              moves.source_node_id AS storage_move_source_node_id,
+              moves.target_node_id AS storage_move_target_node_id,
+              moves.completed_at AS storage_move_completed_at,
               COALESCE((SELECT quota_bytes FROM rondo_space_nodes
                 WHERE space_id = routes.space_id
                   AND storage_kind = routes.storage_kind
@@ -586,10 +802,18 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
         LEFT JOIN rondo_members AS members
           ON members.space_id = routes.space_id
          AND members.user_id = tickets.user_id
+        LEFT JOIN node_storage_moves AS moves
+          ON moves.id = ?7
+         AND moves.user_id = tickets.user_id
+         AND moves.expires_at > ?3
+         AND (moves.source_node_id = tickets.node_id OR
+              (moves.completed_at IS NULL AND moves.target_node_id = tickets.node_id))
+         AND (moves.completed_at IS NULL OR moves.completed_at + ?8 > ?3)
         WHERE tickets.token_hash = ?1 AND tickets.node_id = ?2 AND tickets.expires_at > ?3
         LIMIT 1`,
     ).bind(
       await tokenHash(input.ticket), input.nodeId, now, reservationId, rondoSpaceId, rondoRoomId,
+      storageMoveId, STORAGE_MOVE_CLEANUP_SECONDS,
     ).first<{
       expires_at: number;
       is_owner: number;
@@ -600,10 +824,15 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
       rondo_limit_bytes: number | null;
       rondo_role: number | null;
       rondo_storage_kind: number | null;
+      storage_move_completed_at: number | null;
+      storage_move_id: string | null;
+      storage_move_source_node_id: string | null;
+      storage_move_target_node_id: string | null;
       username: string;
     }>();
     if (!row || (reservationId !== null && row.reservation_id === null && row.profile_reservation_id === null) ||
-        (rondoSpaceId !== null && row.rondo_role === null)) {
+        (rondoSpaceId !== null && row.rondo_role === null) ||
+        (storageMoveId !== null && row.storage_move_id === null)) {
       return json({ authorized: false }, 401);
     }
     return json({
@@ -620,6 +849,12 @@ export async function verifyNodeAccess(request: Request, env: Env): Promise<Resp
         roomId: rondoRoomId,
         spaceId: rondoSpaceId,
         storage: row.rondo_storage_kind === 1 ? 'public' : 'private',
+      },
+      storageMove: row.storage_move_id === null ? null : {
+        cleanup: row.storage_move_completed_at !== null,
+        id: row.storage_move_id,
+        sourceNodeId: row.storage_move_source_node_id,
+        targetNodeId: row.storage_move_target_node_id,
       },
       username: row.username,
     });
@@ -873,7 +1108,15 @@ export async function deleteNode(request: Request, env: Env, nodeId: string): Pr
   if (!NODE_ID.test(nodeId)) return json({ error: 'Node not found.' }, 404);
   const existing = await ownedNode(env, nodeId, session.userId);
   if (!existing) return json({ error: 'Node not found.' }, 404);
-  await retireNodePublicPosts(env, nodeId, unixNow());
+  const now = unixNow();
+  const activeMove = await env.DB.prepare(
+    `SELECT 1 AS found FROM node_storage_moves
+      WHERE user_id = ?1 AND expires_at > ?2 AND completed_at IS NULL
+        AND (source_node_id = ?3 OR target_node_id = ?3)
+      LIMIT 1`,
+  ).bind(session.userId, now, nodeId).first();
+  if (activeMove) return json({ error: 'Finish or cancel the active storage move first.' }, 409);
+  await retireNodePublicPosts(env, nodeId, now);
   const result = await env.DB.prepare('DELETE FROM nodes WHERE id = ?1 AND user_id = ?2')
     .bind(nodeId, session.userId)
     .run();
@@ -1220,6 +1463,16 @@ function supportsSpaces(version: string | null): boolean {
   // The current 0.1 release line supersedes the older 0.13+ development
   // line; keep both ranges supported for nodes that have not been upgraded.
   return major > 0 || minor >= 1;
+}
+
+function supportsStorageMove(version: string | null): boolean {
+  const match = version?.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+.]|$)/u);
+  if (!match) return false;
+  const current = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const minimum = [0, 2, 6];
+  return current[0] > minimum[0] ||
+    (current[0] === minimum[0] && (current[1] > minimum[1] ||
+      (current[1] === minimum[1] && current[2] >= minimum[2])));
 }
 
 function randomTicket(): string {

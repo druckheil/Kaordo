@@ -2,11 +2,13 @@
   import type { NodoNode, NodoPolicy, NodoStorageSpace, NodoTelemetryField } from '../../lib/domain/nodo';
   import type { NodoSnapshot } from '../../lib/states/NodoGState';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import NodoStorageMoveDialog from './NodoStorageMoveDialog.svelte';
 
   type Props = {
     onClear: (nodeId: string) => void | Promise<boolean>;
     onClearPrivate: (nodeId: string) => void | Promise<boolean>;
     onDelete: (nodeId: string) => void | Promise<boolean>;
+    onMove: (sourceNodeId: string, targetNodeId: string) => void | Promise<boolean>;
     onList: (nodeId: string, space: NodoStorageSpace) => void | Promise<void>;
     onRename: (nodeId: string, name: string) => void | Promise<boolean>;
     onPolicy: (nodeId: string, policy: Omit<NodoPolicy, 'ownerOnly'>) => void | Promise<boolean>;
@@ -16,11 +18,12 @@
     snapshot: Readonly<NodoSnapshot>;
   };
 
-  let { onClear, onClearPrivate, onDelete, onList, onRename, onPolicy, onQuickTest, onRefresh, onSpaces, snapshot }: Props = $props();
+  let { onClear, onClearPrivate, onDelete, onList, onMove, onRename, onPolicy, onQuickTest, onRefresh, onSpaces, snapshot }: Props = $props();
   let selectedId = $state<string | null>(null);
   let confirmingDelete = $state(false);
   let confirmingClear = $state(false);
   let confirmingPrivateClear = $state(false);
+  let moveDialogOpen = $state(false);
   let renamingId = $state<string | null>(null);
   let renameDraft = $state('');
   let publicDrafts = $state<Record<string, number>>({});
@@ -231,6 +234,7 @@
     confirmingClear = false;
     confirmingPrivateClear = false;
     confirmingDelete = false;
+    moveDialogOpen = false;
   }
 
   function startRename(node: NodoNode) {
@@ -323,6 +327,16 @@
   async function clearPrivateSelected(node: NodoNode) {
     const cleared = await onClearPrivate(node.id);
     if (cleared) confirmingPrivateClear = false;
+  }
+
+  function openMoveDialog() {
+    if (!selected || snapshot.operation || !selected.online) return;
+    moveDialogOpen = true;
+  }
+
+  function closeMoveDialog() {
+    if (snapshot.operation?.type === 'move') return;
+    moveDialogOpen = false;
   }
 </script>
 
@@ -551,6 +565,11 @@
               <p class="connection-note"><span>i</span> Direct LAN routes are preferred. Public transfer remains disabled until a secure relay or end-to-end tunnel is available.</p>
             </section>
 
+            <section class="move-section" aria-labelledby="move-heading">
+              <div class="section-title"><div><span class="section-number">05</span><h3 id="move-heading">Move all content</h3></div><span class="secure-badge">Safe transfer</span></div>
+              <div class="move-copy"><p>Transfer Public to Public and Private to Private on another Nodo. The source is cleared only after every item is copied successfully.</p><button class="move-button" type="button" disabled={!selected.online || snapshot.operation !== null || snapshot.nodes.length < 2} onclick={openMoveDialog}>{#if snapshot.operation?.nodeId === selected.id && snapshot.operation.type === 'move'}<LoadingSpinner compact /> Moving…{:else}Move content…{/if}</button></div>
+            </section>
+
             <section class="danger-section">
               {#if confirmingPrivateClear}
                 <div><strong>Delete the Private space?</strong><span>Only private posts, media and uploads will be permanently removed. Public content will remain untouched.</span></div>
@@ -590,6 +609,17 @@
     {/if}
   </div>
 </main>
+
+{#if moveDialogOpen && selected}
+  <NodoStorageMoveDialog
+    error={snapshot.error}
+    nodes={snapshot.nodes}
+    onClose={closeMoveDialog}
+    onMove={onMove}
+    operation={snapshot.operation}
+    source={selected}
+  />
+{/if}
 
 <style>
   .nodo-shell { min-width: 0; min-height: 0; overflow: auto; color: #26342d; background: radial-gradient(circle at 72% 0%, rgb(65 139 113 / 11%), transparent 32%), #f3f6f2; }
@@ -1055,6 +1085,14 @@
   .connection-note { display: flex; align-items: center; gap: 8px; margin-top: 11px; color: var(--sui-text-light); font-size: calc(7px * var(--text-scale)); line-height: 1.4; }
   .connection-note span { display: grid; width: 17px; height: 17px; flex: none; margin: 0; color: var(--sui-primary); background: var(--sui-bg); border-radius: 50%; box-shadow: var(--sui-shadow-raised-sm); place-items: center; }
 
+  .move-section { margin-top: 14px; padding: 15px; color: var(--sui-text); background: color-mix(in srgb, var(--sui-primary) 7%, var(--sui-bg)); border: 0; border-radius: 14px; box-shadow: var(--sui-shadow-raised-sm); }
+  .move-copy { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .move-copy p { max-width: 570px; color: var(--sui-text-light); font-size: calc(8px * var(--text-scale)); line-height: 1.45; }
+  .move-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 118px; height: 32px; flex: none; padding: 0 12px; color: #fff; background: var(--sui-primary); border: 0; border-radius: 10px; box-shadow: 3px 4px 9px color-mix(in srgb, var(--sui-primary) 25%, var(--sui-shadow-color)); cursor: pointer; font-size: calc(8px * var(--text-scale)); font-weight: 720; transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease; }
+  .move-button:hover:not(:disabled) { background: var(--sui-primary-hover); transform: translateY(-1px); }
+  .move-button:active:not(:disabled) { box-shadow: var(--sui-shadow-inset-sm); transform: translateY(1px); }
+  .move-button:disabled { cursor: default; opacity: .5; }
+
   .danger-section { justify-content: space-between; gap: 16px; margin-top: 14px; padding: 14px 15px; background: color-mix(in srgb, var(--sui-danger) 7%, var(--sui-bg)); border: 0; border-radius: 14px; box-shadow: var(--sui-shadow-raised-sm); }
   .danger-section > div:first-child { min-width: 0; }
   .danger-section strong, .danger-section span { display: block; }
@@ -1102,7 +1140,7 @@
   :global(html[data-theme='dark']) .nodo-shell .node-list { background: var(--nodo-rail-bg) !important; }
   :global(html[data-theme='dark']) .nodo-shell .node-item { color: var(--sui-text) !important; background: var(--nodo-rail-bg) !important; box-shadow: var(--sui-shadow-raised-sm) !important; }
   :global(html[data-theme='dark']) .nodo-shell .node-item.active { color: var(--sui-primary) !important; background: var(--sui-bg) !important; box-shadow: var(--sui-shadow-inset) !important; }
-  :global(html[data-theme='dark']) .nodo-shell :is(.summary-icon, .node-icon, .rename-button, .rename-form input, .rename-form .rename-cancel, .space-modes, .space-modes button.active, .space-list-button, .policy-list, .policy-row, .connection-grid article, .danger-section button, .empty-mark i) { color: var(--sui-text) !important; background: var(--sui-bg) !important; border-color: transparent !important; }
+  :global(html[data-theme='dark']) .nodo-shell :is(.summary-icon, .node-icon, .rename-button, .rename-form input, .rename-form .rename-cancel, .space-modes, .space-modes button.active, .space-list-button, .policy-list, .policy-row, .connection-grid article, .move-section, .danger-section button, .empty-mark i) { color: var(--sui-text) !important; background: var(--sui-bg) !important; border-color: transparent !important; }
   :global(html[data-theme='dark']) .nodo-shell :is(.metric-grid article, .metric-spinner, .metric-failure, .switch, .switch i) { border-color: transparent !important; }
   :global(html[data-theme='dark']) .nodo-shell .storage-ring::before { border-color: transparent !important; }
   :global(html[data-theme='dark']) .nodo-shell :is(.policy-row, .connection-grid article) { background: transparent !important; }
@@ -1110,12 +1148,13 @@
   :global(html[data-theme='dark']) .nodo-shell .metric-grid article { background: var(--health-bg) !important; box-shadow: var(--sui-shadow-raised-sm) !important; }
   :global(html[data-theme='dark']) .nodo-shell .space-cards .public-space { background: color-mix(in srgb, var(--sui-success) 14%, var(--sui-bg)) !important; }
   :global(html[data-theme='dark']) .nodo-shell .space-cards .private-space { background: color-mix(in srgb, var(--sui-primary) 14%, var(--sui-bg)) !important; }
+  :global(html[data-theme='dark']) .nodo-shell .move-button { color: #fff !important; background: var(--sui-primary) !important; }
   :global(html[data-theme='dark']) .nodo-shell .danger-section { background: var(--nodo-danger-bg) !important; }
 
   @keyframes nodo-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   @keyframes nodo-detail-enter { from { opacity: .6; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   @media (max-width: 1040px) { .nodo-layout { padding-inline: 20px; } .nodo-grid { grid-template-columns: 205px minmax(0, 1fr); } }
   @media (max-width: 820px) { .fleet-summary { grid-template-columns: 1fr 1fr; } .nodo-grid { grid-template-columns: 1fr; } .node-list { position: static; } .node-list > header { padding-bottom: 8px; } .node-item { display: inline-flex; width: calc(50% - 4px); margin: 5px 3px 0 0; vertical-align: top; } .list-note { margin-top: 9px; } .metric-grid, .space-cards { grid-template-columns: 1fr 1fr; } .connection-grid { grid-template-columns: 1fr; } }
-  @media (max-width: 620px) { .nodo-layout { padding: 14px 12px 34px; } .nodo-heading { align-items: flex-start; flex-direction: column; padding: 14px; border-radius: 17px; } .nodo-title-group { align-items: flex-start; } .nodo-hero-mark { width: 42px; height: 42px; border-radius: 13px; } .nodo-heading p { max-width: 40ch; } .refresh-button { align-self: stretch; } .fleet-summary { gap: 8px; } .fleet-summary article { align-items: flex-start; flex-direction: column; gap: 7px; padding: 11px; } .node-item { width: 100%; margin-right: 0; } .node-detail { padding: 14px; border-radius: 17px; } .device-header { align-items: flex-start; flex-direction: column; gap: 10px; } .host-version { width: 100%; text-align: left; } .storage-panel { align-items: flex-start; flex-direction: column; gap: 13px; } .storage-ring { width: 68px; height: 68px; } .storage-ring::before { width: 54px; height: 54px; } .telemetry-section, .management-section, .connection-section { padding: 13px; } .metric-grid, .space-cards { grid-template-columns: 1fr; } .space-cards::after { display: none; } .quick-test-row, .space-save, .danger-section { align-items: flex-start; flex-direction: column; } .quick-test-row button, .space-save button, .danger-section button { align-self: stretch; } .danger-actions { width: 100%; } .danger-actions button { flex: 1; } }
+  @media (max-width: 620px) { .nodo-layout { padding: 14px 12px 34px; } .nodo-heading { align-items: flex-start; flex-direction: column; padding: 14px; border-radius: 17px; } .nodo-title-group { align-items: flex-start; } .nodo-hero-mark { width: 42px; height: 42px; border-radius: 13px; } .nodo-heading p { max-width: 40ch; } .refresh-button { align-self: stretch; } .fleet-summary { gap: 8px; } .fleet-summary article { align-items: flex-start; flex-direction: column; gap: 7px; padding: 11px; } .node-item { width: 100%; margin-right: 0; } .node-detail { padding: 14px; border-radius: 17px; } .device-header { align-items: flex-start; flex-direction: column; gap: 10px; } .host-version { width: 100%; text-align: left; } .storage-panel { align-items: flex-start; flex-direction: column; gap: 13px; } .storage-ring { width: 68px; height: 68px; } .storage-ring::before { width: 54px; height: 54px; } .telemetry-section, .management-section, .connection-section { padding: 13px; } .metric-grid, .space-cards { grid-template-columns: 1fr; } .space-cards::after { display: none; } .quick-test-row, .space-save, .move-copy, .danger-section { align-items: flex-start; flex-direction: column; } .quick-test-row button, .space-save button, .move-button, .danger-section button { align-self: stretch; } .danger-actions { width: 100%; } .danger-actions button { flex: 1; } }
   @media (prefers-reduced-motion: reduce) { .nodo-shell *, .nodo-shell *::before, .nodo-shell *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
 </style>

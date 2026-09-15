@@ -3,6 +3,7 @@ import {
   type NodoNode,
   type NodoNodeUsage,
   type NodoPolicy,
+  type NodoStorageMoveProgress,
   type NodoTelemetryField,
   type NodoTelemetryUpdate,
 } from '../domain/nodo';
@@ -11,7 +12,12 @@ import { GState } from '../state/GState';
 import { NodoRegistry } from '../services/NodoRegistry';
 import { mapConcurrent } from '../services/async';
 
-export type NodoOperation = { nodeId: string; type: 'clear' | 'clear-private' | 'delete' | 'policy' | 'rename' | 'spaces' | 'test' };
+export type NodoOperation = {
+  nodeId: string;
+  progress?: NodoStorageMoveProgress;
+  targetNodeId?: string;
+  type: 'clear' | 'clear-private' | 'delete' | 'move' | 'policy' | 'rename' | 'spaces' | 'test';
+};
 
 export type NodoTelemetryState = 'error' | 'loading' | 'ready';
 
@@ -286,6 +292,58 @@ export class NodoGState extends GState<NodoSnapshot> {
     }
   }
 
+  async moveStorage(sourceNodeId: string, targetNodeId: string): Promise<boolean> {
+    if (this.snapshot.operation || sourceNodeId === targetNodeId) return false;
+    const source = this.snapshot.nodes.find((node) => node.id === sourceNodeId);
+    const target = this.snapshot.nodes.find((node) => node.id === targetNodeId);
+    if (!source || !target) {
+      this.publish({ ...this.snapshot, error: 'Choose two existing Nodo hosts.' });
+      return false;
+    }
+    if (!supportsStorageMove(source) || !supportsStorageMove(target)) {
+      this.publish({ ...this.snapshot, error: 'Install Nodo 0.2.6 or newer on both devices before moving content.' });
+      return false;
+    }
+    if (!source.online || !target.online) {
+      this.publish({ ...this.snapshot, error: 'Keep both Nodos online while moving their content.' });
+      return false;
+    }
+    if (!source.policy.allowDownloads || !target.policy.allowUploads) {
+      this.publish({ ...this.snapshot, error: 'The source must allow downloads and the destination must allow uploads.' });
+      return false;
+    }
+    const privateAvailable = target.spaces.private.quotaBytes - target.spaces.private.usedBytes;
+    const publicAvailable = target.spaces.public.quotaBytes - target.spaces.public.usedBytes;
+    if (source.spaces.private.usedBytes > privateAvailable || source.spaces.public.usedBytes > publicAvailable) {
+      this.publish({ ...this.snapshot, error: 'The destination Nodo does not have enough space in both storage areas.' });
+      return false;
+    }
+    const lifecycleId = this.#lifecycleId;
+    const reportProgress = (progress: NodoStorageMoveProgress) => {
+      if (lifecycleId !== this.#lifecycleId) return;
+      const operation = this.snapshot.operation;
+      if (!operation || operation.type !== 'move') return;
+      this.publish({ ...this.snapshot, operation: { ...operation, progress } });
+    };
+    this.publish({
+      ...this.snapshot,
+      error: null,
+      operation: { nodeId: sourceNodeId, targetNodeId, type: 'move' },
+    });
+    try {
+      await this.#gateway.moveStorage(sourceNodeId, targetNodeId, reportProgress);
+      if (lifecycleId !== this.#lifecycleId) return true;
+      await Promise.all([this.refreshNodeUsage(sourceNodeId), this.refreshNodeUsage(targetNodeId)]);
+      if (lifecycleId !== this.#lifecycleId) return true;
+      this.publish({ ...this.#registrySnapshot(), error: null, operation: null });
+      return true;
+    } catch (error) {
+      if (lifecycleId !== this.#lifecycleId) return false;
+      this.publish({ ...this.snapshot, error: readableError(error), operation: null });
+      return false;
+    }
+  }
+
   async requestQuickTest(nodeId: string): Promise<boolean> {
     if (this.snapshot.operation) return false;
     const lifecycleId = this.#lifecycleId;
@@ -415,6 +473,15 @@ function readableError(error: unknown): string {
   return error instanceof Error && error.message.trim()
     ? error.message
     : 'Nodo service is unavailable.';
+}
+
+function supportsStorageMove(node: NodoNode): boolean {
+  const match = node.metrics.appVersion?.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+.]|$)/u);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  return major > 0 || minor > 2 || (minor === 2 && patch >= 6);
 }
 
 function remaining(deadline: number): number {

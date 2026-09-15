@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{Engine as _, engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}};
 use keyring::{Entry, Error as KeyringError};
 use pbkdf2::pbkdf2_hmac;
 use reqwest::{Client, Method, StatusCode, redirect::Policy};
@@ -33,6 +33,7 @@ const PROFILE_MAX_TOTAL_BYTES: u64 =
 pub struct AuthClient {
     authenticated: AtomicBool,
     http: Client,
+    nodo_http: Client,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -554,9 +555,17 @@ impl AuthClient {
             .user_agent("Kaordo/0.1 desktop")
             .build()
             .map_err(|_| "The secure authentication client could not start.".to_owned())?;
+        let nodo_http = Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30 * 60))
+            .redirect(Policy::none())
+            .user_agent("Kaordo/0.1 desktop")
+            .build()
+            .map_err(|_| "The Nodo transfer client could not start.".to_owned())?;
         Ok(Self {
             authenticated: AtomicBool::new(false),
             http,
+            nodo_http,
         })
     }
 
@@ -1974,6 +1983,146 @@ pub async fn nodo_access(client: State<'_, AuthClient>, node_id: String) -> Resu
     decode_response(response).await
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodoStorageMoveUploadInput {
+    body_base64: String,
+    chunk_length: u64,
+    content_type: String,
+    origin: String,
+    path: String,
+    storage_metadata: String,
+    storage_move: String,
+    ticket: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodoStorageMoveUploadResponse {
+    error: Option<String>,
+    ok: bool,
+    status: u16,
+}
+
+#[tauri::command]
+pub async fn nodo_storage_move_upload(
+    client: State<'_, AuthClient>,
+    input: NodoStorageMoveUploadInput,
+) -> Result<NodoStorageMoveUploadResponse, String> {
+    client.require_authenticated()?;
+    validate_nodo_ticket(&input.ticket)?;
+    if input.chunk_length == 0 || input.storage_move.is_empty() || input.storage_metadata.is_empty() {
+        return Err("Nodo storage move upload metadata is invalid.".to_owned());
+    }
+    if input.content_type.is_empty() || input.content_type.len() > 256 {
+        return Err("Nodo storage move content type is invalid.".to_owned());
+    }
+    let url = nodo_storage_move_upload_url(&input.origin, &input.path)?;
+    let body = STANDARD
+        .decode(input.body_base64.as_bytes())
+        .map_err(|_| "Nodo storage move payload is invalid.".to_owned())?;
+    if body.len() as u64 != input.chunk_length {
+        return Err("Nodo storage move payload length is invalid.".to_owned());
+    }
+
+    let response = client
+        .nodo_http
+        .put(url)
+        .bearer_auth(&input.ticket)
+        .header("content-type", &input.content_type)
+        .header("x-kaordo-chunk-length", input.chunk_length)
+        .header("x-kaordo-storage-move", &input.storage_move)
+        .header("x-kaordo-storage-metadata", &input.storage_metadata)
+        .body(body)
+        .timeout(Duration::from_secs(30 * 60))
+        .send()
+        .await
+        .map_err(|_| "Nodo upload connection was interrupted.".to_owned())?;
+    let status = response.status().as_u16();
+    let body = response.text().await.unwrap_or_default();
+    if (200..300).contains(&status) {
+        return Ok(NodoStorageMoveUploadResponse {
+            error: None,
+            ok: true,
+            status,
+        });
+    }
+    Ok(NodoStorageMoveUploadResponse {
+        error: Some(nodo_response_error_message(status, &body)),
+        ok: false,
+        status,
+    })
+}
+
+#[tauri::command]
+pub async fn nodo_prepare_storage_move(
+    client: State<'_, AuthClient>,
+    source_node_id: String,
+    target_node_id: String,
+) -> Result<Value, String> {
+    let source_node_id = node_id_path(&source_node_id)?;
+    let target_node_id = node_id_path(&target_node_id)?;
+    if source_node_id == target_node_id {
+        return Err("The source and target Nodos must be different.".to_owned());
+    }
+    let response = authenticated_json_request(
+        &client,
+        Method::POST,
+        &format!("/api/nodes/{source_node_id}/storage-moves"),
+        &serde_json::json!({ "targetNodeId": target_node_id }),
+    )
+    .await?;
+    decode_response(response).await
+}
+
+#[tauri::command]
+pub async fn nodo_complete_storage_move(
+    client: State<'_, AuthClient>,
+    move_id: String,
+    source_node_id: String,
+    target_node_id: String,
+) -> Result<(), String> {
+    let move_id = node_id_path(&move_id)?;
+    let source_node_id = node_id_path(&source_node_id)?;
+    let _target_node_id = node_id_path(&target_node_id)?;
+    if source_node_id == target_node_id {
+        return Err("The source and target Nodos must be different.".to_owned());
+    }
+    let response = authenticated_request(
+        &client,
+        Method::POST,
+        &format!("/api/nodes/{source_node_id}/storage-moves/{move_id}/complete"),
+    )
+    .await?;
+    let body = decode_response::<OkResponse>(response).await?;
+    if !body.ok {
+        return Err("The storage move could not be completed.".to_owned());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn nodo_cancel_storage_move(
+    client: State<'_, AuthClient>,
+    move_id: String,
+    source_node_id: String,
+) -> Result<(), String> {
+    let move_id = node_id_path(&move_id)?;
+    let source_node_id = node_id_path(&source_node_id)?;
+    let response = authenticated_request(
+        &client,
+        Method::DELETE,
+        &format!("/api/nodes/{source_node_id}/storage-moves/{move_id}"),
+    )
+    .await?;
+    let body = decode_response::<OkResponse>(response).await?;
+    if body.ok {
+        Ok(())
+    } else {
+        Err("The storage move could not be cancelled.".to_owned())
+    }
+}
+
 #[tauri::command]
 pub async fn nodo_delete(client: State<'_, AuthClient>, node_id: String) -> Result<(), String> {
     let node_id = node_id_path(&node_id)?;
@@ -2275,6 +2424,44 @@ fn node_id_path(value: &str) -> Result<String, String> {
     uuid::Uuid::parse_str(value)
         .map(|id| id.to_string())
         .map_err(|_| "The node identifier is invalid.".to_owned())
+}
+
+fn validate_nodo_ticket(value: &str) -> Result<(), String> {
+    if value.len() != 43
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return Err("The Nodo access ticket is invalid.".to_owned());
+    }
+    Ok(())
+}
+
+fn nodo_storage_move_upload_url(origin: &str, path: &str) -> Result<String, String> {
+    let origin = origin.trim_end_matches('/');
+    let parsed = reqwest::Url::parse(origin)
+        .map_err(|_| "The Nodo route is invalid.".to_owned())?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || path.len() > 512
+        || !path.starts_with("/v1/storage/move/")
+        || path.contains("..")
+        || path.contains('%')
+        || path.chars().any(|character| character.is_control())
+    {
+        return Err("The Nodo route is invalid.".to_owned());
+    }
+    Ok(format!("{origin}{path}"))
+}
+
+fn nodo_response_error_message(status: u16, body: &str) -> String {
+    serde_json::from_str::<ErrorResponse>(body)
+        .map(|response| response.error)
+        .unwrap_or_else(|_| format!("Nodo request failed ({status})."))
 }
 
 fn normalize_fluo_like_target(target: &FluoLikeTargetInput) -> Result<FluoLikeTargetInput, String> {

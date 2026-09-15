@@ -63,6 +63,68 @@ class TusUploadStore(
         return record
     }
 
+    /** Imports a completed upload while preserving its immutable upload ID. */
+    @Synchronized
+    fun importCompleted(
+        id: String,
+        length: Long,
+        metadata: String,
+        createdBy: String?,
+        createdAt: Long,
+        input: InputStream,
+    ): UploadRecord {
+        require(isId(id) && length >= 0 && createdAt >= 0)
+        require(metadata.length <= 8_192 && metadata.none { it == '\r' || it == '\n' })
+        val owner = createdBy?.takeIf { it.isNotBlank() }
+        val existing = record(id)
+        if (existing != null) {
+            val matches = existing.complete && existing.offset == length && existing.length == length &&
+                existing.metadata == metadata && existing.createdAt == createdAt &&
+                existing.createdBy == owner && existing.publicReservationId == null &&
+                dataFile(id).isFile && dataFile(id).length() == length
+            if (matches) return existing
+            throw AlreadyExists()
+        }
+        if (recordFile(id).exists() || dataFile(id).exists()) throw AlreadyExists()
+        if (reservedBytes() + length > quotaBytes) throw QuotaExceeded()
+        val temporary = File(dataDirectory, ".$id.data.tmp")
+        var remaining = length
+        try {
+            temporary.outputStream().buffered().use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (remaining > 0) {
+                    val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                    if (read <= 0) throw InvalidChunk()
+                    output.write(buffer, 0, read)
+                    remaining -= read
+                }
+            }
+            if (temporary.length() != length) throw InvalidChunk()
+            val record = UploadRecord(
+                complete = true,
+                createdAt = createdAt,
+                id = id,
+                length = length,
+                metadata = metadata,
+                offset = length,
+                updatedAt = clock(),
+                createdBy = owner,
+                publicReservationId = null,
+            )
+            moveTemporaryFile(temporary, dataFile(id), replace = false)
+            try {
+                writeRecord(record)
+            } catch (error: Throwable) {
+                dataFile(id).delete()
+                recordFile(id).delete()
+                throw error
+            }
+            return record
+        } finally {
+            temporary.delete()
+        }
+    }
+
     @Synchronized
     fun record(id: String): UploadRecord? {
         if (!isId(id)) return null
@@ -309,6 +371,7 @@ class TusUploadStore(
     class ClearFailed : Exception()
     class AccessDenied : Exception()
     class QuotaExceeded : Exception()
+    class AlreadyExists : Exception()
     class UploadMissing : Exception()
     class InvalidChunk : Exception()
     class OffsetMismatch(val correctOffset: Long) : Exception()

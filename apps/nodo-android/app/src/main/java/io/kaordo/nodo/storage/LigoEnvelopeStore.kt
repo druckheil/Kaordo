@@ -66,6 +66,32 @@ class LigoEnvelopeStore(root: File, private val uploads: TusUploadStore) {
     }
 
     @Synchronized
+    fun readForOwner(id: String): Envelope? = if (ID.matches(id)) parseFile(file(id)) else null
+
+    /** Imports an envelope after its attachments have been copied. */
+    @Synchronized
+    fun importEnvelope(envelope: Envelope): Envelope {
+        validateEnvelope(envelope)
+        val existing = readForOwner(envelope.id)
+        if (existing != null) {
+            if (existing == envelope) return existing
+            throw AlreadyExists()
+        }
+        envelope.attachments.forEach { attachment ->
+            val (_, stored) = uploads.completedFile(attachment.id) ?: throw MissingAttachment()
+            if (stored.length() != attachment.size) throw MissingAttachment()
+        }
+        val bytes = json(envelope).toString().toByteArray()
+        require(bytes.size <= MAX_ENVELOPE_BYTES)
+        uploads.requireMetadataCapacity(bytes.size.toLong())
+        val target = file(envelope.id)
+        val temporary = File(directory, ".${envelope.id}.tmp")
+        temporary.writeBytes(bytes)
+        moveTemporaryFile(temporary, target, replace = false)
+        return envelope
+    }
+
+    @Synchronized
     fun delete(id: String, actor: String): DeleteResult {
         if (!ID.matches(id)) return DeleteResult.MISSING
         val target = file(id)
@@ -85,6 +111,9 @@ class LigoEnvelopeStore(root: File, private val uploads: TusUploadStore) {
     }
 
     @Synchronized
+    fun deleteForTransfer(id: String): Boolean = deleteForCleanup(id)
+
+    @Synchronized
     fun clearAll(): Long {
         val bytes = directory.listFiles().orEmpty().filter { it.isFile }.sumOf { it.length() }
         if (directory.exists() && !directory.deleteRecursively()) throw ClearFailed()
@@ -102,6 +131,24 @@ class LigoEnvelopeStore(root: File, private val uploads: TusUploadStore) {
     private fun parseFile(target: File): Envelope? = target.takeIf {
         it.isFile && it.length() <= MAX_ENVELOPE_BYTES
     }?.let { runCatching { parse(JSONObject(it.readText())) }.getOrNull() }
+
+    private fun validateEnvelope(envelope: Envelope) {
+        require(ID.matches(envelope.id))
+        requireUsername(envelope.sender)
+        requireUsername(envelope.recipient)
+        require(envelope.sender != envelope.recipient)
+        require(envelope.createdAt >= 0)
+        require(envelope.body.length <= MAX_BODY_LENGTH && !hasControls(envelope.body, true))
+        require(envelope.body.isNotEmpty() || envelope.attachments.isNotEmpty())
+        require(envelope.attachments.size <= MAX_ATTACHMENTS)
+        require(envelope.attachments.map { it.id }.distinct().size == envelope.attachments.size)
+        envelope.attachments.forEach { attachment ->
+            require(ID.matches(attachment.id))
+            require(attachment.name.length in 1..180 && !hasControls(attachment.name))
+            require(attachment.mimeType.length in 1..120 && !hasControls(attachment.mimeType))
+            require(attachment.size >= 0)
+        }
+    }
 
     private fun file(id: String) = File(directory, "$id$SUFFIX")
 

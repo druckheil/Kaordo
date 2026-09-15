@@ -190,6 +190,7 @@ const EMPTY_NODO_GATEWAY: NodoGateway = {
   cancelPublicStorage: async () => {},
   clearStorage: async () => { throw new Error('Nodo storage is unavailable.'); },
   clearPrivateStorage: async () => { throw new Error('Private Nodo storage is unavailable.'); },
+  moveStorage: async () => { throw new Error('Nodo storage is unavailable.'); },
   deleteStorageItem: async () => { throw new Error('Nodo storage is unavailable.'); },
   commitPublicStorage: async () => {},
   deleteNode: async () => {},

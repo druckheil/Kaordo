@@ -40,8 +40,11 @@ import {
   nodeHeartbeat,
   issueNodeAccess,
   completeNodeQuickTest,
+  completeNodeStorageMove,
+  cancelNodeStorageMove,
   nodeQuickTest,
   nodeRoute,
+  prepareNodeStorageMove,
   relayNodeRequest,
   verifyNodeAccess,
   renameNode,
@@ -371,6 +374,26 @@ export function handleRequest(
   const nodeAccessMatch = pathname.match(/^\/api\/nodes\/([0-9a-f-]+)\/access$/u);
   if (request.method === 'POST' && nodeAccessMatch?.[1]) {
     return issueNodeAccess(request, env, nodeAccessMatch[1]);
+  }
+  const nodeStorageMoveCompleteMatch = pathname.match(
+    /^\/api\/nodes\/([0-9a-f-]+)\/storage-moves\/([0-9a-f-]+)\/complete$/u,
+  );
+  if (request.method === 'POST' && nodeStorageMoveCompleteMatch?.[1] && nodeStorageMoveCompleteMatch[2]) {
+    return completeNodeStorageMove(
+      request,
+      env,
+      nodeStorageMoveCompleteMatch[1],
+      nodeStorageMoveCompleteMatch[2],
+    );
+  }
+  const nodeStorageMoveMatch = pathname.match(
+    /^\/api\/nodes\/([0-9a-f-]+)\/storage-moves(?:\/([0-9a-f-]+))?$/u,
+  );
+  if (nodeStorageMoveMatch?.[1] && request.method === 'POST' && !nodeStorageMoveMatch[2]) {
+    return prepareNodeStorageMove(request, env, nodeStorageMoveMatch[1]);
+  }
+  if (nodeStorageMoveMatch?.[1] && nodeStorageMoveMatch[2] && request.method === 'DELETE') {
+    return cancelNodeStorageMove(request, env, nodeStorageMoveMatch[1], nodeStorageMoveMatch[2]);
   }
   const nodeSpacesMatch = pathname.match(/^\/api\/nodes\/([0-9a-f-]+)\/spaces$/u);
   if (request.method === 'PATCH' && nodeSpacesMatch?.[1]) {

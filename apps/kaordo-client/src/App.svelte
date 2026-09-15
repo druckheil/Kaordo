@@ -73,6 +73,7 @@
     cancelPublicStorage: async () => {},
     clearStorage: async () => { throw new Error('Nodo storage is unavailable.'); },
     clearPrivateStorage: async () => { throw new Error('Private Nodo storage is unavailable.'); },
+    moveStorage: async () => { throw new Error('Nodo storage is unavailable.'); },
     deleteStorageItem: async () => { throw new Error('Nodo storage is unavailable.'); },
     commitPublicStorage: async () => {},
     deleteNode: async () => {},
@@ -309,6 +310,16 @@
     const cleared = await nodo.state.clearPrivateStorage(nodeId);
     if (cleared) editor.fluoState.clearNodeContent(nodeId, 'private');
     return cleared;
+  }
+
+  async function moveNodoStorage(sourceNodeId: string, targetNodeId: string): Promise<boolean> {
+    const moved = await nodo.state.moveStorage(sourceNodeId, targetNodeId);
+    if (moved) {
+      editor.fluoState.clearNodeContent(sourceNodeId);
+      editor.fluoState.clearNodeContent(targetNodeId);
+      void editor.fluoState.refreshNodes(true);
+    }
+    return moved;
   }
 
   function closeStorageBrowser() {
@@ -1051,6 +1062,7 @@
         snapshot={nodoSnapshot}
         onClear={clearNodoStorage}
         onClearPrivate={clearPrivateNodoStorage}
+        onMove={moveNodoStorage}
         onDelete={(nodeId) => nodo.state.deleteNode(nodeId)}
         onList={openNodeStorageBrowser}
         onRename={(nodeId, name) => nodo.state.renameNode(nodeId, name)}

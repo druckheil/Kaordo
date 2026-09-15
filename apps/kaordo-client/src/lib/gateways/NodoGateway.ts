@@ -8,6 +8,8 @@ import type {
   NodoStorageClearResult,
   NodoStorageItem,
   NodoStorageSpace,
+  NodoStorageMoveProgressHandler,
+  NodoStorageMoveResult,
   NodoTelemetryProgress,
   PublicNodoReservation,
   PublicNodoStorage,
@@ -27,6 +29,11 @@ export interface NodoGateway {
   accessNode(nodeId: string, options?: { forceRefresh?: boolean }): Promise<NodoAccess>;
   clearStorage(nodeId: string): Promise<NodoStorageClearResult>;
   clearPrivateStorage(nodeId: string): Promise<NodoStorageClearResult>;
+  moveStorage(
+    sourceNodeId: string,
+    targetNodeId: string,
+    onProgress?: NodoStorageMoveProgressHandler,
+  ): Promise<NodoStorageMoveResult>;
   listStorageItems(nodeId: string, space: NodoStorageSpace): Promise<NodoStorageItem[]>;
   deleteStorageItem(nodeId: string, space: NodoStorageSpace, kind: NodoStorageItem['kind'], storageKey: string): Promise<void>;
   refreshUsage(nodeId: string): Promise<NodoNodeUsage>;

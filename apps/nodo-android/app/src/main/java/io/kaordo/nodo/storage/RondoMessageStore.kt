@@ -58,6 +58,14 @@ class RondoMessageStore(private val root: File, private val uploads: TusUploadSt
     }
 
     @Synchronized
+    fun read(spaceId: String, roomId: String, messageId: String): Message? {
+        if (!ID.matches(spaceId) || !ID.matches(roomId) || !ID.matches(messageId)) return null
+        val file = messageFile(roomDirectory(spaceId, roomId), messageId)
+        return file.takeIf { it.isFile && it.length() <= MAX_MESSAGE_FILE_BYTES }
+            ?.let { runCatching { parse(JSONObject(it.readText())) }.getOrNull() }
+    }
+
+    @Synchronized
     fun create(
         spaceId: String,
         roomId: String,
@@ -91,6 +99,34 @@ class RondoMessageStore(private val root: File, private val uploads: TusUploadSt
         return message
     }
 
+    /** Imports a message with its stable ID after the transfer capability was verified. */
+    @Synchronized
+    fun importMessage(spaceId: String, roomId: String, message: Message): Message {
+        requireId(spaceId)
+        requireId(roomId)
+        validateMessage(message)
+        val existing = read(spaceId, roomId, message.id)
+        if (existing != null) {
+            if (existing == message) return existing
+            throw AlreadyExists()
+        }
+        val bytes = json(message).toString().toByteArray()
+        require(bytes.size <= MAX_MESSAGE_FILE_BYTES)
+        uploads.requireMetadataCapacity(bytes.size.toLong() + INDEX_ENTRY_BYTES)
+        val directory = roomDirectory(spaceId, roomId).apply { mkdirs() }
+        val target = messageFile(directory, message.id)
+        val temporary = File(directory, ".${message.id}.tmp")
+        temporary.writeBytes(bytes)
+        moveTemporaryFile(temporary, target, replace = false)
+        try {
+            appendIndex(File(directory, INDEX_NAME), message)
+        } catch (error: Throwable) {
+            target.delete()
+            throw error
+        }
+        return message
+    }
+
     @Synchronized
     fun delete(
         spaceId: String,
@@ -108,6 +144,13 @@ class RondoMessageStore(private val root: File, private val uploads: TusUploadSt
             ?: return DeleteResult.MISSING
         if (!canModerate && message.author != actor) return DeleteResult.FORBIDDEN
         return if (file.delete()) DeleteResult.DELETED else DeleteResult.MISSING
+    }
+
+    @Synchronized
+    fun deleteForTransfer(spaceId: String, roomId: String, messageId: String): Boolean {
+        if (!ID.matches(spaceId) || !ID.matches(roomId) || !ID.matches(messageId)) return true
+        val file = messageFile(roomDirectory(spaceId, roomId), messageId)
+        return !file.exists() || file.delete()
     }
 
     @Synchronized
@@ -181,6 +224,13 @@ class RondoMessageStore(private val root: File, private val uploads: TusUploadSt
         require(it.body.isNotEmpty() && it.body.length <= MAX_BODY_LENGTH && !hasControls(it.body, true))
     }
 
+    private fun validateMessage(message: Message) {
+        require(ID.matches(message.id))
+        require(message.createdAt >= 0)
+        require(message.author.length in 1..32 && !hasControls(message.author))
+        require(message.body.isNotEmpty() && message.body.length <= MAX_BODY_LENGTH && !hasControls(message.body, true))
+    }
+
     private fun requireId(value: String) = require(ID.matches(value))
 
     private fun treeBytes(file: File): Long = when {
@@ -198,6 +248,7 @@ class RondoMessageStore(private val root: File, private val uploads: TusUploadSt
     data class Page(val messages: List<Message>, val nextCursor: Long?)
     enum class DeleteResult { DELETED, FORBIDDEN, MISSING }
     class QuotaExceeded : Exception()
+    class AlreadyExists : Exception()
     class ClearFailed : Exception()
 
     companion object {

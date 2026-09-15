@@ -148,6 +148,11 @@ class NodeForegroundService : Service() {
                         candidate, configuration.nodeId(), null, rondoSpaceId, rondoRoomId,
                     )
                 },
+                authorizeStorageMove = { candidate, reservationId, moveId ->
+                    access.verify(
+                        candidate, configuration.nodeId(), reservationId, null, null, moveId,
+                    )
+                },
                 policy = activePolicy::get,
                 available = ::transfersAvailable,
                 quickTest = {
@@ -176,6 +181,7 @@ class NodeForegroundService : Service() {
                     heartbeatSignal.trySend(Unit)
                 },
                 onPublicStorageChanged = { heartbeatSignal.trySend(Unit) },
+                nodeId = configuration::nodeId,
             ).also { it.start() }
             server = httpServer
             runCatching { NodeCoordinatorClient().authSessionWatchUrl(token) }

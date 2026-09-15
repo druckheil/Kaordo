@@ -22,9 +22,10 @@ class NodeAccessClient {
         reservationId: String? = null,
         rondoSpaceId: String? = null,
         rondoRoomId: String? = null,
+        storageMoveId: String? = null,
     ): AccessGrant? {
         if (nodeId == null || ticket.length != 43) return null
-        val key = "$nodeId:${hash(ticket)}:${reservationId.orEmpty()}:${rondoSpaceId.orEmpty()}:${rondoRoomId.orEmpty()}"
+        val key = "$nodeId:${hash(ticket)}:${reservationId.orEmpty()}:${rondoSpaceId.orEmpty()}:${rondoRoomId.orEmpty()}:${storageMoveId.orEmpty()}"
         val now = System.currentTimeMillis() / 1_000
         cache[key]?.let { return it }
         val body = JSONObject()
@@ -34,6 +35,7 @@ class NodeAccessClient {
                 reservationId?.let { put("reservationId", it) }
                 rondoSpaceId?.let { put("rondoSpaceId", it) }
                 rondoRoomId?.let { put("rondoRoomId", it) }
+                storageMoveId?.let { put("storageMoveId", it) }
             }
             .toString()
         val request = Request.Builder()
@@ -64,11 +66,19 @@ class NodeAccessClient {
                             storage = it.getString("storage"),
                         )
                     },
+                    storageMove = value.optJSONObject("storageMove")?.let {
+                        StorageMove(
+                            cleanup = it.optBoolean("cleanup", false),
+                            id = it.getString("id"),
+                            sourceNodeId = it.getString("sourceNodeId"),
+                            targetNodeId = it.getString("targetNodeId"),
+                        )
+                    },
                     username = username,
                 ).also { grant ->
                     // Base tickets are safe to cache. A reservation must be
                     // rechecked so a committed/expired grant stops immediately.
-                    if (reservationId == null) cache[key] = grant
+                    if (reservationId == null && storageMoveId == null) cache[key] = grant
                 }
             }
         }.getOrNull()
@@ -89,6 +99,7 @@ class NodeAccessClient {
         val publicReservation: PublicReservation?,
         val username: String,
         val rondo: RondoGrant? = null,
+        val storageMove: StorageMove? = null,
     )
 
     data class PublicReservation(val id: String, val bytes: Long)
@@ -98,5 +109,11 @@ class NodeAccessClient {
         val roomId: String,
         val spaceId: String,
         val storage: String,
+    )
+    data class StorageMove(
+        val cleanup: Boolean,
+        val id: String,
+        val sourceNodeId: String,
+        val targetNodeId: String,
     )
 }

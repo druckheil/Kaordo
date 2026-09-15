@@ -18,6 +18,7 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLDecoder
+import java.util.Base64
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -32,6 +33,7 @@ class NodeHttpServer(
     private val spaces: Map<NodeSpace, SpaceStorage>,
     private val authorize: (String, String?) -> AccessGrant?,
     private val authorizeRondo: ((String, String?, String?) -> AccessGrant?)? = null,
+    private val authorizeStorageMove: ((String, String?, String) -> AccessGrant?)? = null,
     private val policy: () -> NodePolicy,
     private val available: () -> Boolean,
     private val quickTest: () -> DiskBenchmark,
@@ -40,6 +42,7 @@ class NodeHttpServer(
     private val onPublicPostDeleted: (String) -> Unit = {},
     private val onPublicReservationReleased: (String) -> Unit = {},
     private val onPublicStorageChanged: () -> Unit = {},
+    private val nodeId: (() -> String?)? = null,
 ) {
     private val running = AtomicBoolean(false)
     private val clients = ThreadPoolExecutor(
@@ -163,6 +166,11 @@ class NodeHttpServer(
                         .put("usedBytes", storage.uploads.usedBytes())
                         .put("uploadCount", storage.uploads.uploadCount())) }
                 }))
+            return
+        }
+        val storageMovePath = STORAGE_MOVE_PATH.matchEntire(request.path)
+        if (storageMovePath != null) {
+            handleStorageMove(storageMovePath, request, input, output, grant)
             return
         }
         val storageItemsPath = STORAGE_ITEMS_PATH.matchEntire(request.path)
@@ -351,6 +359,10 @@ class NodeHttpServer(
             contentPath.remainder.startsWith('/') && !it.contains('/')
         }
         if ((request.method == "GET" || request.method == "HEAD") && fileId != null) {
+            if (grant.storageMove != null &&
+                nodeId?.invoke()?.let { it != grant.storageMove.sourceNodeId } == true) {
+                return writeForbidden(output)
+            }
             if (!policy().allowDownloads) return transferDenied(output)
             storageLock.read { download(storage(contentPath.space).uploads, fileId, request, output) }
             return
@@ -361,6 +373,247 @@ class NodeHttpServer(
     private fun transferDenied(output: BufferedOutputStream) {
         writeJson(output, 403, "Forbidden", JSONObject().put("error", "This transfer direction is disabled."))
     }
+
+    private fun handleStorageMove(
+        path: MatchResult,
+        request: HttpRequest,
+        input: InputStream,
+        output: BufferedOutputStream,
+        grant: AccessGrant,
+    ) {
+        val move = grant.storageMove ?: return writeForbidden(output)
+        val space = NodeSpace.entries.first { it.segment == path.groupValues[1] }
+        val kind = path.groupValues[2]
+        val key = runCatching { URLDecoder.decode(path.groupValues[3], Charsets.UTF_8.name()) }
+            .getOrElse { return writeJson(output, 400, "Bad Request", JSONObject().put("error", "Storage key is invalid.")) }
+        val localNode = nodeId?.invoke()
+        val source = localNode == null || localNode == move.sourceNodeId
+        val target = localNode == null || localNode == move.targetNodeId
+        val selected = storage(space)
+        when (request.method) {
+            "GET" -> {
+                if (!source || !policy().allowDownloads) return writeForbidden(output)
+                when (kind) {
+                    "file" -> writeJson(output, 404, "Not Found", JSONObject().put("error", "File not found."))
+                    "fluo-post" -> selected.posts.find(key)?.let { post ->
+                        writeJson(output, 200, "OK", JSONObject().put("post", postJson(post, includeReservation = true)))
+                    } ?: writeJson(output, 404, "Not Found", JSONObject().put("error", "Post not found."))
+                    "ligo-envelope" -> selected.envelopes.readForOwner(key)?.let { envelope ->
+                        writeJson(output, 200, "OK", JSONObject().put("envelope", envelopeJson(envelope)))
+                    } ?: writeJson(output, 404, "Not Found", JSONObject().put("error", "Message not found."))
+                    "rondo-message" -> {
+                        val parts = key.split('.')
+                        val message = if (parts.size == 3) {
+                            selected.messages?.read(parts[0], parts[1], parts[2])
+                        } else null
+                        if (message == null) {
+                            writeJson(output, 404, "Not Found", JSONObject().put("error", "Message not found."))
+                        } else {
+                            writeJson(output, 200, "OK", JSONObject()
+                                .put("message", messageJson(message))
+                                .put("roomId", parts[1])
+                                .put("spaceId", parts[0]))
+                        }
+                    }
+                    else -> writeJson(output, 404, "Not Found", JSONObject().put("error", "Storage item not found."))
+                }
+            }
+            "PUT" -> {
+                if (!target || move.cleanup) return writeForbidden(output)
+                if (kind != "file") return methodNotAllowed(output)
+                importStorageMoveFile(selected.uploads, key, request, input, output)
+            }
+            "POST" -> {
+                if (!target || move.cleanup) return writeForbidden(output)
+                importStorageMoveRecord(selected, kind, key, request, input, output)
+            }
+            "DELETE" -> {
+                deleteStorageMoveItem(selected, kind, key, output)
+            }
+            else -> methodNotAllowed(output)
+        }
+    }
+
+    private fun importStorageMoveFile(
+        uploads: TusUploadStore,
+        id: String,
+        request: HttpRequest,
+        input: InputStream,
+        output: BufferedOutputStream,
+    ) {
+        val length = request.contentLength
+        if (length == null || length < 0) {
+            return writeJson(output, 400, "Bad Request", JSONObject().put("error", "File length is invalid."))
+        }
+        try {
+            val metadata = decodeMoveFileMetadata(request.headers["x-kaordo-storage-metadata"])
+            val rawMetadata = buildString {
+                append("filename ")
+                append(Base64.getEncoder().encodeToString(metadata.name.toByteArray(Charsets.UTF_8)))
+                if (metadata.mimeType.isNotBlank()) {
+                    append(",filetype ")
+                    append(Base64.getEncoder().encodeToString(metadata.mimeType.toByteArray(Charsets.UTF_8)))
+                }
+            }
+            uploads.importCompleted(
+                id = id,
+                length = length,
+                metadata = rawMetadata,
+                createdBy = metadata.owner,
+                createdAt = metadata.createdAt,
+                input = input,
+            )
+            writeJson(output, 200, "OK", JSONObject().put("ok", true))
+        } catch (_: TusUploadStore.AlreadyExists) {
+            writeJson(output, 200, "OK", JSONObject().put("ok", true))
+        } catch (_: TusUploadStore.QuotaExceeded) {
+            writeJson(output, 413, "Content Too Large", JSONObject().put("error", "Allocated storage is full."))
+        } catch (_: TusUploadStore.InvalidChunk) {
+            writeJson(output, 400, "Bad Request", JSONObject().put("error", "File payload is invalid."))
+        } catch (_: Exception) {
+            writeJson(output, 400, "Bad Request", JSONObject().put("error", "File metadata is invalid."))
+        }
+    }
+
+    private fun importStorageMoveRecord(
+        selected: SpaceStorage,
+        kind: String,
+        key: String,
+        request: HttpRequest,
+        input: InputStream,
+        output: BufferedOutputStream,
+    ) {
+        if (request.headers["content-type"]?.substringBefore(';') != "application/json") {
+            return writeJson(output, 415, "Unsupported Media Type", JSONObject().put("error", "JSON is required."))
+        }
+        val length = request.contentLength
+        if (length == null || length !in 1..MAX_STORAGE_MOVE_REQUEST_BYTES) {
+            return writeJson(output, 400, "Bad Request", JSONObject().put("error", "Storage metadata is invalid."))
+        }
+        try {
+            val value = JSONObject(readBody(input, length.toInt()).toString(Charsets.UTF_8))
+            when (kind) {
+                "fluo-post" -> {
+                    val post = parseFluoPost(value.getJSONObject("post"))
+                    if (post.id != key) throw IllegalArgumentException()
+                    selected.posts.importPost(post)
+                }
+                "ligo-envelope" -> {
+                    val envelope = parseLigoEnvelope(value.getJSONObject("envelope"))
+                    if (envelope.id != key) throw IllegalArgumentException()
+                    selected.envelopes.importEnvelope(envelope)
+                }
+                "rondo-message" -> {
+                    val spaceId = value.getString("spaceId")
+                    val roomId = value.getString("roomId")
+                    val message = parseRondoMessage(value.getJSONObject("message"))
+                    if ("$spaceId.$roomId.${message.id}" != key) throw IllegalArgumentException()
+                    selected.messages?.importMessage(spaceId, roomId, message)
+                        ?: throw IllegalArgumentException()
+                }
+                else -> return writeJson(output, 404, "Not Found", JSONObject().put("error", "Storage item not found."))
+            }
+            writeJson(output, 200, "OK", JSONObject().put("ok", true))
+        } catch (_: TusUploadStore.QuotaExceeded) {
+            writeJson(output, 413, "Content Too Large", JSONObject().put("error", "Allocated storage is full."))
+        } catch (_: FluoPostStore.MissingMedia) {
+            writeJson(output, 409, "Conflict", JSONObject().put("error", "Attached media is incomplete."))
+        } catch (_: Exception) {
+            writeJson(output, 400, "Bad Request", JSONObject().put("error", "Storage metadata is invalid."))
+        }
+    }
+
+    private fun deleteStorageMoveItem(
+        selected: SpaceStorage,
+        kind: String,
+        key: String,
+        output: BufferedOutputStream,
+    ) {
+        when (kind) {
+            "file" -> selected.uploads.delete(key, isNodeOwner = true)
+            "fluo-post" -> selected.posts.delete(key, isNodeOwner = true)
+            "ligo-envelope" -> selected.envelopes.deleteForTransfer(key)
+            "rondo-message" -> {
+                val parts = key.split('.')
+                if (parts.size == 3) selected.messages?.deleteForTransfer(parts[0], parts[1], parts[2])
+            }
+        }
+        writeJson(output, 200, "OK", JSONObject().put("ok", true))
+    }
+
+    private fun decodeMoveFileMetadata(value: String?): MoveFileMetadata {
+        if (value.isNullOrBlank()) throw IllegalArgumentException()
+        val json = JSONObject(String(Base64.getUrlDecoder().decode(value), Charsets.UTF_8))
+        val name = json.getString("name")
+        val mimeType = json.optString("mimeType", "")
+        val owner = json.optString("owner", "").takeIf { it.isNotBlank() }
+        val createdAt = json.getLong("createdAt")
+        require(name.length in 1..180 && !hasControls(name))
+        require(mimeType.length <= 120 && !hasControls(mimeType))
+        require(owner == null || owner.length <= 32 && !hasControls(owner))
+        require(createdAt >= 0)
+        return MoveFileMetadata(createdAt, mimeType, name, owner)
+    }
+
+    private fun hasControls(value: String): Boolean = value.any { it.code < 32 || it.code == 127 }
+
+    private fun parseFluoPost(value: JSONObject): FluoPostStore.Post {
+        val attachments = value.optJSONArray("attachments") ?: org.json.JSONArray()
+        if (attachments.length() > FluoPostStore.MAX_ATTACHMENTS) throw IllegalArgumentException()
+        val quote = value.optJSONObject("quote")?.let { quoted ->
+            val quoteAttachments = quoted.optJSONArray("attachments") ?: org.json.JSONArray()
+            if (quoteAttachments.length() > FluoPostStore.MAX_ATTACHMENTS) throw IllegalArgumentException()
+            FluoPostStore.QuotedPost(
+                attachments = List(quoteAttachments.length()) { index -> parseFluoAttachment(quoteAttachments.getJSONObject(index)) },
+                author = quoted.getString("author"),
+                body = quoted.optString("body", ""),
+                createdAt = quoted.getLong("createdAt"),
+                id = quoted.getString("id"),
+                nodeId = quoted.getString("nodeId"),
+                space = quoted.getString("space"),
+            )
+        }
+        return FluoPostStore.Post(
+            attachments = List(attachments.length()) { index -> parseFluoAttachment(attachments.getJSONObject(index)) },
+            author = value.getString("author"),
+            body = value.getString("body"),
+            createdAt = value.getLong("createdAt"),
+            id = value.getString("id"),
+            publicReservationId = value.optString("publicReservationId").takeIf { it.isNotBlank() },
+            quote = quote,
+        )
+    }
+
+    private fun parseLigoEnvelope(value: JSONObject): LigoEnvelopeStore.Envelope {
+        val attachments = value.optJSONArray("attachments") ?: org.json.JSONArray()
+        if (attachments.length() > LigoEnvelopeStore.MAX_ATTACHMENTS) throw IllegalArgumentException()
+        return LigoEnvelopeStore.Envelope(
+            attachments = List(attachments.length()) { index -> attachments.getJSONObject(index).let {
+                LigoEnvelopeStore.Attachment(
+                    it.getString("id"), it.getString("mimeType"), it.getString("name"), it.getLong("size"),
+                )
+            } },
+            body = value.optString("body", ""),
+            createdAt = value.getLong("createdAt"),
+            id = value.getString("id"),
+            recipient = value.getString("recipient"),
+            sender = value.getString("sender"),
+        )
+    }
+
+    private fun parseRondoMessage(value: JSONObject) = RondoMessageStore.Message(
+        author = value.getString("author"),
+        body = value.getString("body"),
+        createdAt = value.getLong("createdAt"),
+        id = value.getString("id"),
+    )
+
+    private data class MoveFileMetadata(
+        val createdAt: Long,
+        val mimeType: String,
+        val name: String,
+        val owner: String?,
+    )
 
     private fun methodNotAllowed(output: BufferedOutputStream) {
         writeJson(output, 405, "Method Not Allowed", JSONObject().put("error", "Method not allowed."))
@@ -558,7 +811,7 @@ class NodeHttpServer(
                 preview = post.body.take(180),
             )
         }
-        selected.envelopes.list(grant.username).forEach { envelope ->
+        selected.envelopes.list(if (grant.isOwner) null else grant.username).forEach { envelope ->
             val size = envelope.body.toByteArray(Charsets.UTF_8).size.toLong() + envelope.attachments.sumOf { it.size }
             items += storageItemJson(
                 kind = "ligo-envelope",
@@ -1001,13 +1254,16 @@ class NodeHttpServer(
         return true
     }
 
-    private fun postJson(post: FluoPostStore.Post) = JSONObject()
+    private fun postJson(post: FluoPostStore.Post, includeReservation: Boolean = false) = JSONObject()
         .put("attachments", org.json.JSONArray(post.attachments.map(::fluoAttachmentJson)))
         .put("author", post.author)
         .put("body", post.body)
         .put("createdAt", post.createdAt)
         .put("id", post.id)
-        .apply { post.quote?.let { put("quote", quotedPostJson(it)) } }
+        .apply {
+            if (includeReservation) post.publicReservationId?.let { put("publicReservationId", it) }
+            post.quote?.let { put("quote", quotedPostJson(it)) }
+        }
 
     private fun quotedPostJson(post: FluoPostStore.QuotedPost) = JSONObject()
         .put("attachments", org.json.JSONArray(post.attachments.map(::fluoAttachmentJson)))
@@ -1220,8 +1476,11 @@ class NodeHttpServer(
             ?: request.headers[LEGACY_RONDO_SPACE_HEADER]
         val rondoRoomId = request.headers["x-kaordo-rondo-room"]
             ?: request.headers[LEGACY_RONDO_ROOM_HEADER]
+        val storageMoveId = request.headers["x-kaordo-storage-move"]
         return token.takeIf { it.length == 43 }?.let {
-            if (rondoSpaceId != null || rondoRoomId != null) {
+            if (storageMoveId != null) {
+                authorizeStorageMove?.invoke(it, reservationId, storageMoveId)
+            } else if (rondoSpaceId != null || rondoRoomId != null) {
                 authorizeRondo?.invoke(it, rondoSpaceId, rondoRoomId)
             } else authorize(it, reservationId)
         }
@@ -1300,6 +1559,8 @@ class NodeHttpServer(
             throw BadRequest()
         }
         val contentLength = headers["content-length"]?.toLongOrNull()
+            ?: headers["x-kaordo-chunk-length"]?.toLongOrNull()
+            ?: headers[LEGACY_CHUNK_LENGTH_HEADER]?.toLongOrNull()
         if (contentLength != null && contentLength < 0) throw BadRequest()
         return HttpRequest(parts[0].uppercase(), target, query, headers, contentLength)
     }
@@ -1375,10 +1636,11 @@ class NodeHttpServer(
     private fun tusHeaders() = mapOf("Tus-Resumable" to TUS_VERSION)
     private fun corsHeaders() = mapOf(
         "Access-Control-Allow-Origin" to "*",
-        "Access-Control-Allow-Methods" to "GET,HEAD,POST,PATCH,DELETE,OPTIONS",
+        "Access-Control-Allow-Methods" to "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
         "Access-Control-Allow-Headers" to listOf(
             "Authorization", "Cache-Control", "Content-Type", "Tus-Resumable", "Upload-Length", "Upload-Offset",
             "Upload-Metadata", "X-Kaordo-Chunk-Length", "X-Kaordo-Public-Reservation",
+            "X-Kaordo-Storage-Move", "X-Kaordo-Storage-Metadata",
             "X-Kaordo-Rondo-Space", "X-Kaordo-Rondo-Room", LEGACY_CHUNK_LENGTH_HEADER,
             LEGACY_PUBLIC_RESERVATION_HEADER, LEGACY_RONDO_SPACE_HEADER, LEGACY_RONDO_ROOM_HEADER,
         ).joinToString(","),
@@ -1496,7 +1758,9 @@ class NodeHttpServer(
         private const val MAX_RONDO_REQUEST_BYTES = 16 * 1_024L
         private const val MAX_VOICE_REQUEST_BYTES = 40 * 1_024L
         private const val MAX_LIGO_REQUEST_BYTES = 80 * 1_024L
+        private const val MAX_STORAGE_MOVE_REQUEST_BYTES = 256 * 1_024L
         private val STORAGE_ITEMS_PATH = Regex("^/v1/storage/items/(private|public)(?:/([a-z-]+)/([^/]+))?$")
+        private val STORAGE_MOVE_PATH = Regex("^/v1/storage/move/(private|public)/(file|fluo-post|ligo-envelope|rondo-message)/([^/]+)$")
         private val RONDO_PATH = Regex("^/v1/rondo/spaces/([0-9a-f-]{36})/rooms/([0-9a-f-]{36})/messages(?:/([0-9a-f-]{36}))?$")
         private val RONDO_VOICE_PATH = Regex("^/v1/rondo/spaces/([0-9a-f-]{36})/rooms/([0-9a-f-]{36})/voice/(join|sync|peek|signals|leave)$")
     }

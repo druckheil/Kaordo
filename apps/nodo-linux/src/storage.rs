@@ -57,7 +57,7 @@ pub struct UploadRecord {
     pub public_reservation_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Attachment {
     pub id: String,
@@ -71,7 +71,7 @@ pub struct Attachment {
     pub height: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Post {
     pub attachments: Vec<Attachment>,
@@ -89,7 +89,7 @@ pub struct Post {
     pub public_reservation_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuotedPost {
     pub attachments: Vec<Attachment>,
@@ -103,7 +103,7 @@ pub struct QuotedPost {
     pub space: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvelopeAttachment {
     pub id: String,
@@ -112,7 +112,7 @@ pub struct EnvelopeAttachment {
     pub size: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Envelope {
     pub attachments: Vec<EnvelopeAttachment>,
@@ -126,7 +126,7 @@ pub struct Envelope {
     pub sender: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RondoMessage {
     pub author: String,
@@ -314,6 +314,91 @@ impl SpaceStorage {
             return Err(StorageError::Io(error));
         }
         Ok(record)
+    }
+
+    /// Imports a completed upload with its stable ID after a storage move was
+    /// authorized by the coordinator.
+    pub fn import_upload(
+        &self,
+        id: &str,
+        length: u64,
+        metadata: String,
+        created_by: Option<String>,
+        created_at: i64,
+        input: &mut dyn Read,
+    ) -> Result<UploadRecord, StorageError> {
+        if !valid_id(id)
+            || metadata.len() > 8_192
+            || metadata.bytes().any(|byte| byte == b'\r' || byte == b'\n')
+            || created_at < 0
+        {
+            return Err(StorageError::Invalid("Upload metadata is invalid."));
+        }
+        let data_path = self.data_path(id);
+        if let Some(existing) = self.record(id)? {
+            let matches = existing.complete
+                && existing.offset == length
+                && existing.length == length
+                && existing.metadata == metadata
+                && existing.created_at == created_at
+                && existing.created_by.as_deref() == created_by.as_deref()
+                && existing.public_reservation_id.is_none()
+                && fs::metadata(&data_path)
+                    .map(|metadata| metadata.len() == length)
+                    .unwrap_or(false);
+            if matches {
+                return Ok(existing);
+            }
+            return Err(StorageError::Conflict);
+        }
+        if self.record_path(id).exists() || data_path.exists() {
+            return Err(StorageError::Conflict);
+        }
+        if self.reserved_bytes()?.saturating_add(length) > self.quota_bytes {
+            return Err(StorageError::Quota);
+        }
+        let temporary = self.root.join("files").join(format!(".{}.move.tmp", id));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(StorageError::Io)?;
+        let result = (|| {
+            let mut remaining = length;
+            let mut buffer = [0_u8; 64 * 1024];
+            while remaining > 0 {
+                let chunk_size = remaining.min(buffer.len() as u64) as usize;
+                let count = input
+                    .read(&mut buffer[..chunk_size])
+                    .map_err(StorageError::Io)?;
+                if count == 0 {
+                    return Err(StorageError::Invalid("Upload payload is incomplete."));
+                }
+                file.write_all(&buffer[..count]).map_err(StorageError::Io)?;
+                remaining -= count as u64;
+            }
+            file.sync_all().map_err(StorageError::Io)?;
+            drop(file);
+            fs::rename(&temporary, &data_path).map_err(StorageError::Io)?;
+            let record = UploadRecord {
+                complete: true,
+                created_at,
+                id: id.to_owned(),
+                length,
+                metadata,
+                offset: length,
+                updated_at: now_millis(),
+                created_by,
+                public_reservation_id: None,
+            };
+            self.write_record(&record).map_err(StorageError::Io)?;
+            Ok(record)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+            let _ = fs::remove_file(&data_path);
+        }
+        result
     }
 
     pub fn record(&self, id: &str) -> io::Result<Option<UploadRecord>> {
@@ -537,6 +622,19 @@ impl SpaceStorage {
         read_json_files(&self.root.join("fluo-posts"), ".post.json")
     }
 
+    pub fn read_post(&self, id: &str) -> io::Result<Option<Post>> {
+        if !valid_id(id) {
+            return Ok(None);
+        }
+        Ok(read_json(
+            &self
+                .root
+                .join("fluo-posts")
+                .join(format!("{}.post.json", id)),
+        )
+        .ok())
+    }
+
     pub fn create_post(
         &self,
         post: &Post,
@@ -584,6 +682,43 @@ impl SpaceStorage {
             .root
             .join("fluo-posts")
             .join(format!("{}.post.json", post.id));
+        atomic_write_json(&path, post).map_err(StorageError::Io)
+    }
+
+    pub fn import_post(&self, post: &Post) -> Result<(), StorageError> {
+        if post.id.is_empty()
+            || !valid_id(&post.id)
+            || post.created_at < 0
+            || post.author.is_empty()
+            || post.author.len() > 32
+            || post.author.chars().any(|character| character.is_control())
+            || post.body.chars().count() > MAX_POST_BODY
+            || (post.body.trim().is_empty() && post.attachments.is_empty() && post.quote.is_none())
+            || !valid_fluo_attachment_count(&post.attachments)
+        {
+            return Err(StorageError::Invalid("Post payload is invalid."));
+        }
+        if let Some(quote) = &post.quote {
+            self.validate_quote(quote)?;
+        }
+        self.validate_post_attachments_transfer(&post.attachments)?;
+        let path = self
+            .root
+            .join("fluo-posts")
+            .join(format!("{}.post.json", post.id));
+        if let Ok(existing) = read_json::<Post>(&path) {
+            return if existing == *post {
+                Ok(())
+            } else {
+                Err(StorageError::Conflict)
+            };
+        }
+        let payload_size = serde_json::to_vec(post)
+            .map_err(|_| StorageError::Invalid("Post payload is invalid."))?
+            .len() as u64;
+        if self.reserved_bytes()?.saturating_add(payload_size) > self.quota_bytes {
+            return Err(StorageError::Quota);
+        }
         atomic_write_json(&path, post).map_err(StorageError::Io)
     }
 
@@ -676,6 +811,67 @@ impl SpaceStorage {
         atomic_write_bytes(&path, &bytes).map_err(StorageError::Io)
     }
 
+    /// Imports an envelope with its stable ID after its attachments have been
+    /// copied. The operation is idempotent for the same envelope.
+    pub fn import_envelope(&self, envelope: &Envelope) -> Result<(), StorageError> {
+        if !valid_id(&envelope.id)
+            || envelope.sender.is_empty()
+            || envelope.recipient.is_empty()
+            || envelope.sender == envelope.recipient
+            || envelope.attachments.len() > MAX_LIGO_ATTACHMENTS
+            || envelope.body.len() > MAX_LIGO_BODY
+            || envelope.created_at < 0
+            || (envelope.body.trim().is_empty() && envelope.attachments.is_empty())
+        {
+            return Err(StorageError::Invalid("Message envelope is invalid."));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for attachment in &envelope.attachments {
+            if !seen.insert(&attachment.id)
+                || !valid_id(&attachment.id)
+                || attachment.name.is_empty()
+                || attachment.name.len() > 180
+                || attachment.mime_type.is_empty()
+                || attachment.mime_type.len() > 120
+                || attachment
+                    .name
+                    .chars()
+                    .chain(attachment.mime_type.chars())
+                    .any(|character| character.is_control())
+            {
+                return Err(StorageError::Invalid("Message envelope is invalid."));
+            }
+            let Some((_, path)) = self
+                .completed_file(&attachment.id)
+                .map_err(StorageError::Io)?
+            else {
+                return Err(StorageError::Missing);
+            };
+            if path.metadata().map(|metadata| metadata.len()).unwrap_or(0) != attachment.size {
+                return Err(StorageError::Missing);
+            }
+        }
+        let path = self
+            .root
+            .join("ligo-envelopes")
+            .join(format!("{}.envelope.json", envelope.id));
+        if let Ok(existing) = read_json::<Envelope>(&path) {
+            return if existing == *envelope {
+                Ok(())
+            } else {
+                Err(StorageError::Conflict)
+            };
+        }
+        let bytes = serde_json::to_vec(envelope)
+            .map_err(|_| StorageError::Invalid("Message envelope is invalid."))?;
+        if bytes.len() > 64 * 1024
+            || self.reserved_bytes()?.saturating_add(bytes.len() as u64) > self.quota_bytes
+        {
+            return Err(StorageError::Quota);
+        }
+        atomic_write_bytes(&path, &bytes).map_err(StorageError::Io)
+    }
+
     pub fn read_envelope(&self, id: &str, actor: &str) -> io::Result<Option<Envelope>> {
         if !valid_id(id) {
             return Ok(None);
@@ -692,9 +888,33 @@ impl SpaceStorage {
         Ok((envelope.sender == actor || envelope.recipient == actor).then_some(envelope))
     }
 
+    pub fn read_envelope_for_owner(&self, id: &str) -> io::Result<Option<Envelope>> {
+        if !valid_id(id) {
+            return Ok(None);
+        }
+        Ok(read_json(
+            &self
+                .root
+                .join("ligo-envelopes")
+                .join(format!("{}.envelope.json", id)),
+        )
+        .ok())
+    }
+
     pub fn list_envelopes(&self, actor: &str) -> io::Result<Vec<Envelope>> {
         let mut values = read_json_files(&self.root.join("ligo-envelopes"), ".envelope.json")?;
         values.retain(|value: &Envelope| value.sender == actor || value.recipient == actor);
+        values.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        Ok(values)
+    }
+
+    pub fn list_envelopes_for_owner(&self) -> io::Result<Vec<Envelope>> {
+        let mut values =
+            read_json_files::<Envelope>(&self.root.join("ligo-envelopes"), ".envelope.json")?;
         values.sort_by(|a, b| {
             b.created_at
                 .cmp(&a.created_at)
@@ -733,6 +953,10 @@ impl SpaceStorage {
             let _ = self.delete_upload(&attachment.id, "", true);
         }
         Ok(remove_if_exists(path).map_err(StorageError::Io)?)
+    }
+
+    pub fn delete_envelope_for_transfer(&self, id: &str) -> Result<bool, StorageError> {
+        self.delete_envelope_for_cleanup(id)
     }
 
     pub fn erase_owner(&self, owner: &str) -> io::Result<()> {
@@ -848,6 +1072,44 @@ impl SpaceStorage {
         .map_err(StorageError::Io)
     }
 
+    pub fn read_rondo(
+        &self,
+        space_id: &str,
+        room_id: &str,
+        id: &str,
+    ) -> io::Result<Option<RondoMessage>> {
+        if !valid_id(space_id) || !valid_id(room_id) || !valid_id(id) {
+            return Ok(None);
+        }
+        Ok(read_json(
+            &self
+                .rondo_dir(space_id, room_id)
+                .join(format!("{id}.message.json")),
+        )
+        .ok())
+    }
+
+    /// Imports a Rondo message with its stable ID. Reusing the regular writer
+    /// keeps the same quota and validation rules as a newly-created message.
+    pub fn import_rondo(
+        &self,
+        space_id: &str,
+        room_id: &str,
+        message: &RondoMessage,
+    ) -> Result<(), StorageError> {
+        if let Some(existing) = self
+            .read_rondo(space_id, room_id, &message.id)
+            .map_err(StorageError::Io)?
+        {
+            return if existing == *message {
+                Ok(())
+            } else {
+                Err(StorageError::Conflict)
+            };
+        }
+        self.create_rondo(space_id, room_id, message, u64::MAX)
+    }
+
     pub fn delete_rondo(
         &self,
         space_id: &str,
@@ -869,6 +1131,22 @@ impl SpaceStorage {
             return Err(StorageError::Forbidden);
         }
         Ok(remove_if_exists(path).map_err(StorageError::Io)?)
+    }
+
+    pub fn delete_rondo_for_transfer(
+        &self,
+        space_id: &str,
+        room_id: &str,
+        id: &str,
+    ) -> Result<bool, StorageError> {
+        if !valid_id(space_id) || !valid_id(room_id) || !valid_id(id) {
+            return Ok(true);
+        }
+        Ok(remove_if_exists(
+            self.rondo_dir(space_id, room_id)
+                .join(format!("{id}.message.json")),
+        )
+        .map_err(StorageError::Io)?)
     }
 
     pub fn rondo_messages(&self) -> io::Result<Vec<StoredRondoMessage>> {
@@ -941,6 +1219,28 @@ impl SpaceStorage {
                 || path.metadata().map(|m| m.len()).unwrap_or(0) != attachment.size
                 || record.public_reservation_id.as_deref() != reservation_id
             {
+                return Err(StorageError::Missing);
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_post_attachments_transfer(
+        &self,
+        attachments: &[Attachment],
+    ) -> Result<(), StorageError> {
+        let mut seen = std::collections::HashSet::new();
+        for attachment in attachments {
+            if !seen.insert(&attachment.id) || !valid_fluo_attachment_metadata(attachment) {
+                return Err(StorageError::Invalid("Post payload is invalid."));
+            }
+            let Some((_, path)) = self
+                .completed_file(&attachment.id)
+                .map_err(StorageError::Io)?
+            else {
+                return Err(StorageError::Missing);
+            };
+            if path.metadata().map(|metadata| metadata.len()).unwrap_or(0) != attachment.size {
                 return Err(StorageError::Missing);
             }
         }
@@ -1066,7 +1366,12 @@ impl SpaceStorage {
             });
         }
         self.posts_as_items(actor, owner, &mut items)?;
-        for envelope in self.list_envelopes(actor)? {
+        let envelopes = if owner {
+            self.list_envelopes_for_owner()?
+        } else {
+            self.list_envelopes(actor)?
+        };
+        for envelope in envelopes {
             let size = envelope.body.len() as u64
                 + envelope.attachments.iter().map(|a| a.size).sum::<u64>();
             items.push(StorageItem {

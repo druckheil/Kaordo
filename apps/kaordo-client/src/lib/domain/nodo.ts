@@ -106,6 +106,20 @@ export type NodoStorageClearResult = {
   deletedUploads: number;
 };
 
+export type NodoStorageMoveResult = {
+  movedItems: number;
+};
+
+export type NodoStorageMoveProgress = {
+  completedBytes: number;
+  currentItem: number;
+  phase: 'copying' | 'committing' | 'removing';
+  totalBytes: number;
+  totalItems: number;
+};
+
+export type NodoStorageMoveProgressHandler = (progress: NodoStorageMoveProgress) => void;
+
 export type NodoStorageSpace = 'private' | 'public';
 
 export type NodoStorageItemKind = 'file' | 'fluo-post' | 'ligo-envelope' | 'rondo-message';

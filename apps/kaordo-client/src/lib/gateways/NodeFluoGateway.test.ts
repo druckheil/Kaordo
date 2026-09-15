@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { NodoAccess, NodoPolicy } from '../domain/nodo';
 import type { FluoDraftAttachment } from '../domain/fluo';
 import type { NodoGateway } from './NodoGateway';
-import { NodeFluoGateway } from './NodeFluoGateway';
+import { NodeConnection, NodeFluoGateway } from './NodeFluoGateway';
 
 describe('NodeFluoGateway', () => {
   afterEach(() => {
@@ -297,6 +297,134 @@ describe('NodeFluoGateway', () => {
     ]);
   });
 
+  it('retries a storage upload through an alternate route after a WebView load failure', async () => {
+    const requests: string[] = [];
+    vi.stubGlobal('XMLHttpRequest', class {
+      upload: { onprogress: ((event: { loaded: number }) => void) | null } = { onprogress: null };
+      onabort: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onload: (() => void) | null = null;
+      responseText = '';
+      status = 200;
+      statusText = 'OK';
+      private url = '';
+
+      open(_method: string, url: string) { this.url = url; }
+      setRequestHeader() {}
+      getAllResponseHeaders() { return ''; }
+      send(body: Blob) {
+        requests.push(this.url);
+        this.upload.onprogress?.({ loaded: body.size });
+        queueMicrotask(() => {
+          if (this.url.includes('192.168.1.44')) this.onerror?.();
+          else this.onload?.();
+        });
+      }
+      abort() {}
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push(`${init?.method ?? 'GET'} ${url}`);
+      if (url.endsWith('/v1/status')) return json({ status: 'online' });
+      if (url.includes('192.168.1.44')) throw new Error('Load failed');
+      throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
+    }));
+
+    const connection = await NodeConnection.open(new AccessGateway(), NODE_ID);
+    await connection.upload('/v1/storage/move/private/file/item', new Blob(['data']), { method: 'PUT' });
+
+    expect(requests).toEqual([
+      'GET http://192.168.1.44:49321/v1/status',
+      'http://192.168.1.44:49321/v1/storage/move/private/file/item',
+      'PUT http://192.168.1.44:49321/v1/storage/move/private/file/item',
+      'GET http://203.0.113.10:49321/v1/status',
+      'http://203.0.113.10:49321/v1/storage/move/private/file/item',
+    ]);
+  });
+
+  it('treats a 5xx route response as a route failure for storage uploads', async () => {
+    const requests: string[] = [];
+    vi.stubGlobal('XMLHttpRequest', class {
+      upload: { onprogress: ((event: { loaded: number }) => void) | null } = { onprogress: null };
+      onabort: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onload: (() => void) | null = null;
+      responseText = '';
+      status = 200;
+      statusText = 'OK';
+      private url = '';
+
+      open(_method: string, url: string) { this.url = url; }
+      setRequestHeader() {}
+      getAllResponseHeaders() { return ''; }
+      send(body: Blob) {
+        requests.push(this.url);
+        this.status = this.url.includes('192.168.1.44') ? 523 : 200;
+        this.upload.onprogress?.({ loaded: body.size });
+        queueMicrotask(() => this.onload?.());
+      }
+      abort() {}
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push(`${init?.method ?? 'GET'} ${url}`);
+      if (url.endsWith('/v1/status')) return json({ status: 'online' });
+      throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
+    }));
+
+    const gateway = new AccessGateway();
+    const connection = await NodeConnection.open(gateway, NODE_ID);
+    await connection.upload('/v1/storage/move/private/file/item', new Blob(['data']), { method: 'PUT' });
+
+    expect(gateway.accessCalls).toBe(2);
+    expect(requests).toEqual([
+      'GET http://192.168.1.44:49321/v1/status',
+      'http://192.168.1.44:49321/v1/storage/move/private/file/item',
+      'GET http://203.0.113.10:49321/v1/status',
+      'http://203.0.113.10:49321/v1/storage/move/private/file/item',
+    ]);
+  });
+
+  it('switches a storage read away from a relay that returns 523', async () => {
+    vi.stubGlobal('__TAURI_INTERNALS__', {});
+    const requests: string[] = [];
+    const nodes = new AccessGateway();
+    nodes.accessNode = async () => {
+      nodes.accessCalls += 1;
+      return {
+        candidates: [
+          { address: '2001:db8::10', kind: 'public', port: 49_321 },
+          { address: 'relay', kind: 'relay', origin: 'https://api.example.test/api/nodes/node/relay', port: 443 },
+        ],
+        expiresAt: Math.floor(Date.now() / 1_000) + 600,
+        node: null as never,
+        ticket: 'A'.repeat(43),
+      };
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push(`${init?.method ?? 'GET'} ${url}`);
+      if (url.includes('/api/nodes/node/relay/v1/files/item')) {
+        return json({ error: 'upstream unavailable' }, 523);
+      }
+      if (url.endsWith('/v1/status')) return json({ status: 'online' });
+      if (url.endsWith('/v1/files/item')) return new Response('file contents', { status: 200 });
+      throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`);
+    }));
+
+    const connection = await NodeConnection.open(nodes, NODE_ID);
+    const response = await connection.fetch('/v1/files/item');
+
+    expect(await response.text()).toBe('file contents');
+    expect(nodes.accessCalls).toBe(2);
+    expect(requests).toEqual([
+      'GET https://api.example.test/api/nodes/node/relay/v1/status',
+      'GET https://api.example.test/api/nodes/node/relay/v1/files/item',
+      'GET http://[2001:db8::10]:49321/v1/status',
+      'GET http://[2001:db8::10]:49321/v1/files/item',
+    ]);
+  });
+
   it('streams large media in one continuous XHR request', async () => {
     const attachmentSize = 16 * 1_024 * 1_024 + 1;
     const patches: number[] = [];
@@ -545,6 +673,7 @@ class AccessGateway implements NodoGateway {
   }
   clearStorage() { return Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }); }
   clearPrivateStorage() { return Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }); }
+  moveStorage() { return Promise.resolve({ movedItems: 0 }); }
   deleteStorageItem() { return Promise.resolve(); }
   cancelPublicStorage() { return Promise.resolve(); }
   commitPublicStorage(reservationId: string, postId: string) {

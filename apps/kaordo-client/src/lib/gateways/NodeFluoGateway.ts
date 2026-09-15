@@ -1,3 +1,4 @@
+import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import type { NodoAccess } from '../domain/nodo';
 import type {
   FluoAttachment,
@@ -734,18 +735,165 @@ export class NodeConnection {
 
   async fetch(path: string, init: RequestInit = {}, timeout = 60_000): Promise<Response> {
     await this.ensureFreshTicket();
+    const canRetryRoute = !init.method || init.method === 'GET' || init.method === 'HEAD';
     try {
       const response = await nodeFetch(this.origin, this.access.ticket, path, init, timeout);
       this.lastSuccessfulAt = Date.now();
       return response;
     } catch (error) {
-      const canRetry = !init.method || init.method === 'GET' || init.method === 'HEAD';
-      if (error instanceof NodeRequestError ? error.status !== 401 : !canRetry) throw error;
-      await this.refreshTicket();
-      const response = await nodeFetch(this.origin, this.access.ticket, path, init, timeout);
-      this.lastSuccessfulAt = Date.now();
-      return response;
+      if (error instanceof NodeRequestError && error.status === 401) {
+        if (!canRetryRoute) throw error;
+        await this.refreshTicket();
+        try {
+          const response = await nodeFetch(this.origin, this.access.ticket, path, init, timeout);
+          this.lastSuccessfulAt = Date.now();
+          return response;
+        } catch (retryError) {
+          if (!isRetryableReadRouteError(retryError)) throw retryError;
+          return this.retryReadOnAlternateRoutes(path, init, timeout, retryError);
+        }
+      }
+      if (!canRetryRoute || !isRetryableReadRouteError(error)) throw error;
+      return this.retryReadOnAlternateRoutes(path, init, timeout, error);
     }
+  }
+
+  private async retryReadOnAlternateRoutes(
+    path: string,
+    init: RequestInit,
+    timeout: number,
+    initialError: unknown,
+  ): Promise<Response> {
+    let lastError = initialError;
+    let access: NodoAccess;
+    try {
+      access = await this.nodes.accessNode(this.nodeId, { forceRefresh: true });
+    } catch {
+      throw lastError;
+    }
+    this.access = access;
+    for (const candidate of orderedNodoCandidates(access)) {
+      const origin = nodoOrigin(candidate);
+      if (origin === this.origin) continue;
+      try {
+        await nodeFetch(origin, access.ticket, '/v1/status', {}, 4_000);
+        const response = await nodeFetch(origin, access.ticket, path, init, timeout);
+        this.origin = origin;
+        this.relay = candidate.kind === 'relay';
+        this.lastSuccessfulAt = Date.now();
+        return response;
+      } catch (error) {
+        if (!isRetryableReadRouteError(error)) throw error;
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }
+
+  async upload(
+    path: string,
+    body: Blob,
+    init: RequestInit = {},
+    onProgress?: (uploadedBytes: number) => void,
+    timeout = 60_000,
+  ): Promise<Response> {
+    await this.ensureFreshTicket();
+    try {
+      return await this.uploadOnCurrentRoute(path, body, init, onProgress, timeout);
+    } catch (firstError) {
+      if (firstError instanceof NodeRequestError) {
+        if (firstError.status === 401) {
+          await this.refreshTicket();
+          try {
+            return await this.uploadOnCurrentRoute(path, body, init, onProgress, timeout);
+          } catch (retryError) {
+            if (!isRetryableUploadRouteError(retryError)) throw retryError;
+            return this.retryUploadOnAlternateRoutes(
+              path,
+              body,
+              init,
+              onProgress,
+              timeout,
+              retryError,
+            );
+          }
+        }
+        if (!isRetryableUploadRouteError(firstError)) throw firstError;
+      }
+      return this.retryUploadOnAlternateRoutes(
+        path,
+        body,
+        init,
+        onProgress,
+        timeout,
+        firstError,
+      );
+    }
+  }
+
+  private async uploadOnCurrentRoute(
+    path: string,
+    body: Blob,
+    init: RequestInit,
+    onProgress: ((uploadedBytes: number) => void) | undefined,
+    timeout: number,
+  ): Promise<Response> {
+    const response = await nodeUpload(
+      this.origin,
+      this.access.ticket,
+      path,
+      body,
+      init,
+      onProgress,
+      timeout,
+    );
+    this.lastSuccessfulAt = Date.now();
+    return response;
+  }
+
+  private async retryUploadOnAlternateRoutes(
+    path: string,
+    body: Blob,
+    init: RequestInit,
+    onProgress: ((uploadedBytes: number) => void) | undefined,
+    timeout: number,
+    initialError: unknown,
+  ): Promise<Response> {
+    let lastError = initialError;
+    let access: NodoAccess;
+    try {
+      access = await this.nodes.accessNode(this.nodeId, { forceRefresh: true });
+    } catch {
+      throw lastError;
+    }
+    this.access = access;
+    for (const candidate of orderedNodoCandidates(access)) {
+      const origin = nodoOrigin(candidate);
+      if (origin === this.origin) continue;
+      try {
+        // A health check avoids spending the full upload timeout on a stale
+        // LAN/public address and also confirms that the refreshed ticket works
+        // before the body is sent. The relay is handled by the same protocol.
+        await nodeFetch(origin, access.ticket, '/v1/status', {}, 4_000);
+        const response = await nodeUpload(
+          origin,
+          access.ticket,
+          path,
+          body,
+          init,
+          onProgress,
+          timeout,
+        );
+        this.origin = origin;
+        this.relay = candidate.kind === 'relay';
+        this.lastSuccessfulAt = Date.now();
+        return response;
+      } catch (error) {
+        if (!isRetryableUploadRouteError(error)) throw error;
+        lastError = error;
+      }
+    }
+    throw lastError;
   }
 
   async json<T = { ok: boolean }>(
@@ -1039,6 +1187,14 @@ function isTauriRuntime(): boolean {
   return '__TAURI_INTERNALS__' in globalThis;
 }
 
+function isRetryableUploadRouteError(error: unknown): boolean {
+  return !(error instanceof NodeRequestError) || error.status >= 500;
+}
+
+function isRetryableReadRouteError(error: unknown): boolean {
+  return !(error instanceof NodeRequestError) || error.status >= 500;
+}
+
 async function nodeFetch(
   origin: string,
   ticket: string,
@@ -1069,6 +1225,149 @@ async function nodeFetch(
   }
 }
 
+async function nodeUpload(
+  origin: string,
+  ticket: string,
+  path: string,
+  body: Blob,
+  init: RequestInit,
+  onProgress: ((uploadedBytes: number) => void) | undefined,
+  timeout: number,
+): Promise<Response> {
+  if (isTauriRuntime() && path.startsWith('/v1/storage/move/')) {
+    try {
+      return await tauriMoveUpload(origin, ticket, path, body, init, onProgress);
+    } catch (error) {
+      // Keep the browser-compatible implementation as a fallback for a
+      // partially updated desktop installation or a transient IPC failure.
+      // A structured Nodo response is safe to propagate to the route retry.
+      if (error instanceof NodeRequestError) throw error;
+    }
+  }
+  if (typeof XMLHttpRequest === 'undefined') {
+    const response = await nodeFetch(origin, ticket, path, { ...init, body }, timeout);
+    onProgress?.(body.size);
+    return response;
+  }
+  try {
+    return await xhrUpload(origin, ticket, path, body, init, onProgress, timeout);
+  } catch (error) {
+    // WebKit can report a generic XHR network error for a direct Nodo PUT
+    // even after the request has been sent. Retry the idempotent storage
+    // import with Blob-backed fetch; unlike response.body, Blob is supported
+    // by Tauri's WebView request implementation. The Nodo import is keyed by
+    // the stable item ID, so a completed first attempt is safely acknowledged
+    // as an already-existing item by the target.
+    if (error instanceof NodeRequestError) throw error;
+    const response = await nodeFetch(origin, ticket, path, { ...init, body }, timeout);
+    onProgress?.(body.size);
+    return response;
+  }
+}
+
+async function tauriMoveUpload(
+  origin: string,
+  ticket: string,
+  path: string,
+  body: Blob,
+  init: RequestInit,
+  onProgress: ((uploadedBytes: number) => void) | undefined,
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const result = await tauriInvoke<{
+    error?: string | null;
+    ok: boolean;
+    status: number;
+  }>('nodo_storage_move_upload', {
+    input: {
+      bodyBase64: bytesToBase64(new Uint8Array(await body.arrayBuffer())),
+      chunkLength: body.size,
+      contentType: headers.get('content-type') ?? 'application/octet-stream',
+      origin,
+      path,
+      storageMetadata: headers.get('x-kaordo-storage-metadata') ?? '',
+      storageMove: headers.get('x-kaordo-storage-move') ?? '',
+      ticket,
+    },
+  });
+  if (!result.ok) {
+    const status = Number.isInteger(result.status) ? result.status : 500;
+    throw new NodeRequestError(
+      status,
+      result.error ?? 'Nodo request failed (' + status + ').',
+    );
+  }
+  onProgress?.(body.size);
+  return new Response(null, { status: result.status });
+}
+
+function xhrUpload(
+  origin: string,
+  ticket: string,
+  path: string,
+  body: Blob,
+  init: RequestInit,
+  onProgress: ((uploadedBytes: number) => void) | undefined,
+  timeout: number,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (error?: Error, response?: Response) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (error) {
+        request.abort();
+        reject(error);
+      } else if (response) {
+        resolve(response);
+      } else {
+        reject(new Error('Nodo upload did not return a response.'));
+      }
+    };
+
+    try {
+      request.open(init.method ?? 'PUT', `${origin}${path}`, true);
+      const headers = new Headers(init.headers);
+      headers.set('authorization', `Bearer ${ticket}`);
+      headers.forEach((value, name) => request.setRequestHeader(name, value));
+      request.upload.onprogress = (event) => {
+        onProgress?.(Math.min(body.size, event.loaded));
+      };
+      request.onload = () => {
+        if (request.status >= 200 && request.status < 300) {
+          onProgress?.(body.size);
+          finish(undefined, new Response(request.responseText || null, {
+            headers: xhrResponseHeaders(request),
+            status: request.status,
+            statusText: request.statusText,
+          }));
+          return;
+        }
+        finish(new NodeRequestError(request.status, xhrErrorMessage(request)));
+      };
+      request.onerror = () => finish(new Error('Nodo upload connection was interrupted.'));
+      request.onabort = () => finish(new Error('Nodo upload connection was aborted.'));
+      timer = setTimeout(() => finish(new Error('Nodo upload timed out.')), timeout);
+      request.send(body);
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error('Nodo upload could not be started.'));
+    }
+  });
+}
+
+function xhrResponseHeaders(request: XMLHttpRequest): Headers {
+  const headers = new Headers();
+  for (const line of request.getAllResponseHeaders().trim().split(/\r?\n/u)) {
+    const separator = line.indexOf(':');
+    if (separator <= 0) continue;
+    headers.append(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
+  }
+  return headers;
+}
+
 export class NodeRequestError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
@@ -1084,6 +1383,16 @@ function pause(milliseconds: number): Promise<void> {
 function base64(value: string): string {
   let binary = '';
   for (const byte of new TextEncoder().encode(value)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 32_768;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
   return btoa(binary);
 }
 

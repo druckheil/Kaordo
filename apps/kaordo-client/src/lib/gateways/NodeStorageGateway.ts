@@ -4,14 +4,24 @@ import type {
   NodoStorageClearResult,
   NodoStorageItem,
   NodoStorageItemKind,
+  NodoStorageMoveProgress,
+  NodoStorageMoveProgressHandler,
+  NodoStorageMoveResult,
   NodoStorageSpace,
 } from '../domain/nodo';
+import type { NodoGateway } from './NodoGateway';
+import { NodeConnection } from './NodeFluoGateway';
 import { nodoOrigin, orderedNodoCandidates } from './NodoRoute';
 
 const REQUEST_TIMEOUT_MS = 6_000;
 const DIRECT_REQUEST_TIMEOUT_MS = 2_000;
 const CLEAR_REQUEST_TIMEOUT_MS = 30_000;
 const USAGE_REQUEST_DEADLINE_MS = 4_000;
+const MOVE_CONTROL_TIMEOUT_MS = 60_000;
+const MOVE_FILE_TIMEOUT_MINIMUM_MS = 120_000;
+const STORAGE_MOVE_HEADER = 'x-kaordo-storage-move';
+const STORAGE_MOVE_METADATA_HEADER = 'x-kaordo-storage-metadata';
+const CHUNK_LENGTH_HEADER = 'x-kaordo-chunk-length';
 
 export async function clearNodeStorage(access: NodoAccess): Promise<NodoStorageClearResult> {
   return clearStorageAt(access, '/v1/storage');
@@ -55,6 +65,224 @@ export async function deleteNodeStorageItem(
     { method: 'DELETE' },
   );
   if (!isOk(value)) throw new Error('Nodo returned an invalid deletion result.');
+}
+
+/**
+ * Copies every completed item between two space-aware Nodos, commits the
+ * coordinator routes, and only then removes the source copies. The host
+ * transfer endpoints preserve IDs and authors, which is required for public
+ * content shared by accounts other than the owner of the physical Nodo.
+ */
+export async function moveNodeStorage(
+  nodes: NodoGateway,
+  sourceNodeId: string,
+  targetNodeId: string,
+  moveId: string,
+  onProgress: NodoStorageMoveProgressHandler | undefined,
+  complete: () => Promise<void>,
+  cancel: () => Promise<void>,
+): Promise<NodoStorageMoveResult> {
+  let items: NodoStorageItem[] = [];
+  let source: NodeConnection;
+  let target: NodeConnection;
+  try {
+    const sourceAccess = await nodes.accessNode(sourceNodeId);
+    const targetAccess = await nodes.accessNode(targetNodeId);
+    const [privateItems, publicItems] = await Promise.all([
+      listNodeStorageItems(sourceAccess, 'private'),
+      listNodeStorageItems(sourceAccess, 'public'),
+    ]).catch((error) => {
+      throw moveError('Reading the source Nodo content failed.', error);
+    });
+    items = [...privateItems, ...publicItems];
+    if (items.some((item) => !item.completed)) {
+      throw new Error('Complete or delete partial uploads before moving this Nodo.');
+    }
+    try {
+      source = await NodeConnection.open(nodes, sourceNodeId);
+    } catch (error) {
+      throw moveError('Opening the source Nodo failed.', error);
+    }
+    try {
+      target = await NodeConnection.open(nodes, targetNodeId);
+    } catch (error) {
+      throw moveError('Opening the destination Nodo failed.', error);
+    }
+  } catch (error) {
+    await cancel().catch(() => undefined);
+    throw error;
+  }
+  const imported: NodoStorageItem[] = [];
+  const files = items.filter((item) => item.kind === 'file');
+  const records = items.filter((item) => item.kind !== 'file');
+  const totalBytes = items.reduce((total, item) => total + item.sizeBytes, 0);
+  let completedBytes = 0;
+  let currentItem = 0;
+  const report = (phase: NodoStorageMoveProgress['phase'], bytes = completedBytes) => {
+    onProgress?.({
+      completedBytes: Math.min(totalBytes, Math.max(0, bytes)),
+      currentItem,
+      phase,
+      totalBytes,
+      totalItems: items.length,
+    });
+  };
+  report('copying');
+  try {
+    for (const item of files) {
+      imported.push(item);
+      try {
+        await copyFile(source, target, item, moveId, (uploadedBytes) => {
+          report('copying', completedBytes + uploadedBytes);
+        });
+      } catch (error) {
+        throw moveError(`Copying file “${item.name}” to the destination Nodo failed.`, error);
+      }
+      completedBytes += item.sizeBytes;
+      currentItem += 1;
+      report('copying');
+    }
+    for (const item of records) {
+      imported.push(item);
+      try {
+        await copyRecord(source, target, item, moveId);
+      } catch (error) {
+        throw moveError(`Copying ${item.kind} “${item.name}” to the destination Nodo failed.`, error);
+      }
+      completedBytes += item.sizeBytes;
+      currentItem += 1;
+      report('copying');
+    }
+  } catch (error) {
+    await cleanupImported(target, imported, moveId);
+    await cancel().catch(() => undefined);
+    throw error;
+  }
+
+  try {
+    report('committing', totalBytes);
+    await complete();
+    report('removing', totalBytes);
+  } catch (error) {
+    await cleanupImported(target, imported, moveId);
+    await cancel().catch(() => undefined);
+    throw error;
+  }
+
+  try {
+    // Metadata deletion also removes attached files on the Nodo. Keep the
+    // explicit file pass for standalone uploads and idempotent cleanup.
+    for (const item of records) await deleteTransferItem(source, item, moveId);
+    for (const item of files) await deleteTransferItem(source, item, moveId);
+  } catch (error) {
+    throw new Error(
+      `The content moved, but some source data could not be removed. Keep both Nodos online and retry. ${error instanceof Error ? error.message : ''}`.trim(),
+    );
+  }
+  await cancel().catch(() => undefined);
+  return { movedItems: items.length };
+}
+
+async function copyFile(
+  source: NodeConnection,
+  target: NodeConnection,
+  item: NodoStorageItem,
+  moveId: string,
+  onProgress: (uploadedBytes: number) => void,
+): Promise<void> {
+  const response = await source.fetch(contentPath(item), {
+    headers: { [STORAGE_MOVE_HEADER]: moveId },
+  }, fileTimeout(item.sizeBytes));
+  const size = Number(response.headers.get('content-length'));
+  if (!Number.isSafeInteger(size) || size < 0 || size !== item.sizeBytes || !response.body) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`Nodo returned invalid file data for “${item.name}”.`);
+  }
+  const body = await response.blob();
+  if (body.size !== size) {
+    throw new Error(`Nodo returned incomplete file data for “${item.name}”.`);
+  }
+  const headers = new Headers({
+    'content-type': item.mimeType ?? 'application/octet-stream',
+    [CHUNK_LENGTH_HEADER]: String(size),
+    [STORAGE_MOVE_HEADER]: moveId,
+    [STORAGE_MOVE_METADATA_HEADER]: encodeHeader(JSON.stringify({
+      createdAt: item.createdAt,
+      mimeType: item.mimeType,
+      name: item.name,
+      owner: item.owner,
+    })),
+  });
+  await target.upload(movePath(item), body, {
+    headers,
+    method: 'PUT',
+  }, (uploadedBytes) => onProgress(Math.min(size, uploadedBytes)), fileTimeout(size));
+}
+
+async function copyRecord(
+  source: NodeConnection,
+  target: NodeConnection,
+  item: NodoStorageItem,
+  moveId: string,
+): Promise<void> {
+  const value = await source.json<Record<string, unknown>>(
+    movePath(item),
+    { headers: { [STORAGE_MOVE_HEADER]: moveId } },
+    MOVE_CONTROL_TIMEOUT_MS,
+  );
+  await target.json(movePath(item), {
+    body: JSON.stringify(value),
+    headers: { 'content-type': 'application/json', [STORAGE_MOVE_HEADER]: moveId },
+    method: 'POST',
+  }, MOVE_CONTROL_TIMEOUT_MS);
+}
+
+async function cleanupImported(
+  target: NodeConnection,
+  imported: readonly NodoStorageItem[],
+  moveId: string,
+): Promise<void> {
+  for (const item of [...imported].reverse()) {
+    await deleteTransferItem(target, item, moveId).catch(() => undefined);
+  }
+}
+
+async function deleteTransferItem(
+  connection: NodeConnection,
+  item: NodoStorageItem,
+  moveId: string,
+): Promise<void> {
+  try {
+    await connection.json(movePath(item), {
+      headers: { [STORAGE_MOVE_HEADER]: moveId },
+      method: 'DELETE',
+    }, MOVE_CONTROL_TIMEOUT_MS);
+  } catch (error) {
+    // Cleanup is intentionally idempotent: a metadata record may already
+    // have removed one of its attachment files.
+    if (error instanceof Error && /not found/i.test(error.message)) return;
+    throw error;
+  }
+}
+
+function contentPath(item: NodoStorageItem): string {
+  const base = item.space === 'private' ? '/v1/files' : '/v1/spaces/public/content';
+  return `${base}/${encodeURIComponent(item.id)}`;
+}
+
+function movePath(item: NodoStorageItem): string {
+  return `/v1/storage/move/${item.space}/${encodeURIComponent(item.kind)}/${encodeURIComponent(item.storageKey)}`;
+}
+
+function fileTimeout(size: number): number {
+  return Math.max(MOVE_FILE_TIMEOUT_MINIMUM_MS, Math.ceil(Math.max(0, size) / 64_000) * 1_000);
+}
+
+function encodeHeader(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
 }
 
 async function clearStorageAt(access: NodoAccess, path: string): Promise<NodoStorageClearResult> {
@@ -211,4 +439,9 @@ function nodeError(value: unknown, status: number): string {
   return typeof value === 'object' && value !== null && 'error' in value && typeof value.error === 'string'
     ? value.error
     : `Nodo request failed (${status}).`;
+}
+
+function moveError(prefix: string, error: unknown): Error {
+  const detail = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  return new Error(detail ? `${prefix} ${detail}` : prefix);
 }

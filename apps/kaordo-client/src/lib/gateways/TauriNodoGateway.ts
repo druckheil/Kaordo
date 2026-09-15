@@ -9,6 +9,8 @@ import type {
   NodoStorageClearResult,
   NodoStorageItem,
   NodoStorageItemKind,
+  NodoStorageMoveProgressHandler,
+  NodoStorageMoveResult,
   NodoStorageSpace,
   NodoTelemetryProgress,
   PublicNodoReservation,
@@ -22,6 +24,7 @@ import {
   clearPrivateNodeStorage,
   deleteNodeStorageItem,
   listNodeStorageItems,
+  moveNodeStorage,
   readNodeUsage,
 } from './NodeStorageGateway';
 import { InFlightRequests } from './InFlightRequests';
@@ -88,6 +91,42 @@ export class TauriNodoGateway implements NodoGateway {
 
   async clearPrivateStorage(nodeId: string): Promise<NodoStorageClearResult> {
     return clearPrivateNodeStorage(await this.accessNode(nodeId));
+  }
+
+  async moveStorage(
+    sourceNodeId: string,
+    targetNodeId: string,
+    onProgress?: NodoStorageMoveProgressHandler,
+  ): Promise<NodoStorageMoveResult> {
+    const move = await this.invoke<{ expiresAt: number; moveId: string }>('nodo_prepare_storage_move', {
+      sourceNodeId,
+      targetNodeId,
+    });
+    try {
+      return await moveNodeStorage(
+        this,
+        sourceNodeId,
+        targetNodeId,
+        move.moveId,
+        onProgress,
+        async () => {
+          await this.invoke('nodo_complete_storage_move', {
+            moveId: move.moveId,
+            sourceNodeId,
+            targetNodeId,
+          });
+        },
+        async () => {
+          await this.invoke('nodo_cancel_storage_move', {
+            moveId: move.moveId,
+            sourceNodeId,
+          });
+        },
+      );
+    } finally {
+      this.#access.invalidate(sourceNodeId);
+      this.#access.invalidate(targetNodeId);
+    }
   }
 
   async listStorageItems(nodeId: string, space: NodoStorageSpace): Promise<NodoStorageItem[]> {

@@ -8,6 +8,8 @@ import type {
   NodoStorageClearResult,
   NodoStorageItem,
   NodoStorageItemKind,
+  NodoStorageMoveProgressHandler,
+  NodoStorageMoveResult,
   NodoStorageSpace,
   NodoTelemetryProgress,
   PublicNodoReservation,
@@ -20,6 +22,7 @@ import {
   clearPrivateNodeStorage,
   deleteNodeStorageItem,
   listNodeStorageItems,
+  moveNodeStorage,
   readNodeUsage,
 } from './NodeStorageGateway';
 import { requestJson } from './WebApiClient';
@@ -57,6 +60,51 @@ export class WebNodoGateway implements NodoGateway {
 
   async clearPrivateStorage(nodeId: string): Promise<NodoStorageClearResult> {
     return clearPrivateNodeStorage(await this.accessNode(nodeId));
+  }
+
+  async moveStorage(
+    sourceNodeId: string,
+    targetNodeId: string,
+    onProgress?: NodoStorageMoveProgressHandler,
+  ): Promise<NodoStorageMoveResult> {
+    const move = await requestJson<{ expiresAt: number; moveId: string }>(
+      `/api/nodes/${encodeURIComponent(sourceNodeId)}/storage-moves`,
+      {
+        body: JSON.stringify({ targetNodeId }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      },
+      NODO_UNAVAILABLE,
+      NODE_COORDINATOR_TIMEOUT_MS,
+    );
+    try {
+      return await moveNodeStorage(
+        this,
+        sourceNodeId,
+        targetNodeId,
+        move.moveId,
+        onProgress,
+        async () => {
+          await requestJson(
+            `/api/nodes/${encodeURIComponent(sourceNodeId)}/storage-moves/${encodeURIComponent(move.moveId)}/complete`,
+            { method: 'POST' },
+            NODO_UNAVAILABLE,
+            NODE_COORDINATOR_TIMEOUT_MS,
+          );
+        },
+        async () => {
+          await requestJson(
+            `/api/nodes/${encodeURIComponent(sourceNodeId)}/storage-moves/${encodeURIComponent(move.moveId)}`,
+            { method: 'DELETE' },
+            NODO_UNAVAILABLE,
+            NODE_COORDINATOR_TIMEOUT_MS,
+          );
+        },
+      );
+    } finally {
+      this.#access.invalidate(sourceNodeId);
+      this.#access.invalidate(targetNodeId);
+    }
   }
 
   async listStorageItems(nodeId: string, space: NodoStorageSpace): Promise<NodoStorageItem[]> {

@@ -36,6 +36,12 @@ class FluoPostStore(
     fun list(): List<Post> = readPage(MAX_POSTS, null, null).posts
 
     @Synchronized
+    fun find(id: String): Post? = if (ID.matches(id)) {
+        postFile(id).takeIf { it.isFile && it.length() <= MAX_POST_FILE_BYTES }
+            ?.let { runCatching { parse(JSONObject(it.readText())) }.getOrNull() }
+    } else null
+
+    @Synchronized
     fun page(limit: Int, cursor: Long? = null): Page {
         return page(limit, cursor, null)
     }
@@ -136,6 +142,34 @@ class FluoPostStore(
         return post
     }
 
+    /** Imports a post and its already-copied attachments without changing its ID. */
+    @Synchronized
+    fun importPost(post: Post): Post {
+        validatePost(post)
+        post.attachments.forEach { attachment ->
+            val (_, file) = uploads.completedFile(attachment.id) ?: throw MissingMedia()
+            if (file.length() != attachment.size) throw MissingMedia()
+        }
+        val existing = find(post.id)
+        if (existing != null) {
+            if (existing == post) return existing
+            throw AlreadyExists()
+        }
+        write(post)
+        try {
+            appendIndex(post)
+        } catch (error: Throwable) {
+            postFile(post.id).delete()
+            throw error
+        }
+        post.publicReservationId?.let { reservation ->
+            publicReservations.getOrPut(reservation) { mutableSetOf() }.add(post.id)
+        }
+        postCount += 1
+        advanceState()
+        return post
+    }
+
     @Synchronized
     fun delete(id: String, actor: String? = null, isNodeOwner: Boolean = true): DeleteResult {
         if (!ID.matches(id)) return DeleteResult.MISSING
@@ -195,6 +229,18 @@ class FluoPostStore(
         uploads.requireMetadataCapacity(bytes.size.toLong())
         temporary.writeBytes(bytes)
         moveTemporaryFile(temporary, target, replace = false)
+    }
+
+    private fun validatePost(post: Post) {
+        require(ID.matches(post.id))
+        require(post.createdAt >= 0)
+        require(post.author.length in 1..32 && !hasControls(post.author))
+        require(post.body.length <= MAX_BODY_LENGTH)
+        require(post.body.isNotEmpty() || post.attachments.isNotEmpty() || post.quote != null)
+        require(validAttachmentCount(post.attachments))
+        require(post.attachments.map { it.id }.distinct().size == post.attachments.size)
+        post.quote?.let(::validateQuote)
+        post.attachments.forEach(::validateAttachmentMetadata)
     }
 
     private fun appendIndex(post: Post) {
@@ -424,6 +470,7 @@ class FluoPostStore(
 
     class MissingMedia : Exception()
     class PublicReservationUsed : Exception()
+    class AlreadyExists : Exception()
     class ClearFailed : Exception()
     enum class DeleteResult { DELETED, FORBIDDEN, MISSING }
 

@@ -947,6 +947,7 @@ class MemoryNodoGateway implements NodoGateway {
   cancelPublicStorage() { return Promise.resolve(); }
   clearStorage() { return Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }); }
   clearPrivateStorage() { return Promise.resolve({ deletedBytes: 0, deletedPosts: 0, deletedUploads: 0 }); }
+  moveStorage() { return Promise.resolve({ movedItems: 0 }); }
   deleteStorageItem() { return Promise.resolve(); }
   commitPublicStorage() { return Promise.resolve(); }
   deleteNode(): Promise<void> { return Promise.resolve(); }

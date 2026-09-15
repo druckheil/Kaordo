@@ -3,6 +3,7 @@ use crate::config::Config;
 use crate::storage::{
     self, Envelope, NodeStorage, Post, RondoMessage, Space, StorageError, TUS_VERSION,
 };
+use base64::Engine;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -19,12 +20,15 @@ const MAX_FLUO_REQUEST_BYTES: u64 = 64 * 1024;
 const MAX_LIGO_REQUEST_BYTES: u64 = 80 * 1024;
 const MAX_RONDO_REQUEST_BYTES: u64 = 16 * 1024;
 const MAX_VOICE_REQUEST_BYTES: u64 = 40 * 1024;
+const MAX_STORAGE_MOVE_REQUEST_BYTES: u64 = 256 * 1024;
 const ONLINE_TICKET_LENGTH: usize = 43;
 const MAX_NODE_CONNECTIONS: usize = 256;
 const MAX_TICKET_CACHE_ENTRIES: usize = 1_024;
 const MAX_VOICE_SIGNALS: usize = 512;
 const MAX_VOICE_ROOMS: usize = 256;
 const CHUNK_LENGTH_HEADERS: [&str; 2] = ["x-kaordo-chunk-length", "x-veridimensio-chunk-length"];
+const STORAGE_MOVE_HEADER: &str = "x-kaordo-storage-move";
+const STORAGE_MOVE_METADATA_HEADER: &str = "x-kaordo-storage-metadata";
 
 #[derive(Debug, Clone)]
 pub struct NodeRuntime {
@@ -162,6 +166,8 @@ struct VerifyResponse {
     #[serde(rename = "publicReservation")]
     public_reservation: Option<PublicReservation>,
     rondo: Option<RondoGrant>,
+    #[serde(rename = "storageMove")]
+    storage_move: Option<StorageMoveGrant>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -180,6 +186,15 @@ struct RondoGrant {
     storage: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageMoveGrant {
+    cleanup: bool,
+    id: String,
+    source_node_id: String,
+    target_node_id: String,
+}
+
 #[derive(Debug, Clone)]
 struct AccessGrant {
     expires_at: i64,
@@ -187,6 +202,7 @@ struct AccessGrant {
     username: String,
     public_reservation: Option<PublicReservation>,
     rondo: Option<RondoGrant>,
+    storage_move: Option<StorageMoveGrant>,
 }
 
 impl TicketVerifier {
@@ -204,6 +220,7 @@ impl TicketVerifier {
         config: &Config,
         reservation: Option<&str>,
         rondo: Option<(&str, &str)>,
+        storage_move: Option<&str>,
     ) -> Option<AccessGrant> {
         if token.len() != ONLINE_TICKET_LENGTH
             || !token
@@ -215,14 +232,15 @@ impl TicketVerifier {
         }
         let node_id = config.node_id.as_deref()?;
         let cache_key = format!(
-            "{node_id}:{token}:{}:{}",
+            "{node_id}:{token}:{}:{}:{}",
             reservation.unwrap_or_default(),
             rondo
                 .map(|pair| format!("{}:{}", pair.0, pair.1))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            storage_move.unwrap_or_default()
         );
         let now = unix_seconds();
-        if reservation.is_none() && rondo.is_none() {
+        if reservation.is_none() && rondo.is_none() && storage_move.is_none() {
             if let Some(cached) = self
                 .cache
                 .lock()
@@ -240,6 +258,9 @@ impl TicketVerifier {
         if let Some((space_id, room_id)) = rondo {
             body["rondoSpaceId"] = Value::String(space_id.to_owned());
             body["rondoRoomId"] = Value::String(room_id.to_owned());
+        }
+        if let Some(value) = storage_move {
+            body["storageMoveId"] = Value::String(value.to_owned());
         }
         let response = self
             .client
@@ -266,8 +287,9 @@ impl TicketVerifier {
             username: value.username?,
             public_reservation: value.public_reservation,
             rondo: value.rondo,
+            storage_move: value.storage_move,
         };
-        if reservation.is_none() && rondo.is_none() {
+        if reservation.is_none() && rondo.is_none() && storage_move.is_none() {
             if let Ok(mut cache) = self.cache.lock() {
                 cache.retain(|_, cached| cached.expires_at > now);
                 if cache.len() >= MAX_TICKET_CACHE_ENTRIES {
@@ -451,6 +473,19 @@ fn handle_connection(stream: TcpStream, runtime: &Arc<NodeRuntime>) -> io::Resul
             &mut output,
             503,
             json!({ "error": "Nodo policy has paused transfers." }),
+        );
+    }
+    if let Some((space, kind, key)) = storage_move_route(&request.path) {
+        return handle_storage_move(
+            &mut output,
+            &mut reader,
+            &request,
+            runtime,
+            &policy,
+            space,
+            &kind,
+            &key,
+            &grant,
         );
     }
     if request.method == "GET" && request.path == "/v1/fluo/state" {
@@ -743,6 +778,18 @@ fn handle_connection(stream: TcpStream, runtime: &Arc<NodeRuntime>) -> io::Resul
         }
     }
     if let Some((space, id)) = content_route(&request.path) {
+        if grant.storage_move.is_some() {
+            let local_node_id = runtime.config.read().map_err(lock_error)?.node_id.clone();
+            let is_source = local_node_id.as_deref().map_or(true, |node_id| {
+                grant
+                    .storage_move
+                    .as_ref()
+                    .is_some_and(|move_capability| node_id == move_capability.source_node_id)
+            });
+            if !is_source {
+                return forbidden(&mut output);
+            }
+        }
         if !policy.allow_downloads || !valid_id(id) {
             return not_found(&mut output, "File not found.");
         }
@@ -870,10 +917,11 @@ fn authorize(request: &Request, runtime: &NodeRuntime) -> Option<AccessGrant> {
                 .get("x-veridimensio-rondo-room")
                 .map(String::as_str)
         });
+    let storage_move = request.headers.get(STORAGE_MOVE_HEADER).map(String::as_str);
     let config = runtime.config.read().ok()?.clone();
     runtime
         .verifier
-        .verify(token, &config, reservation, space.zip(room))
+        .verify(token, &config, reservation, space.zip(room), storage_move)
 }
 
 fn can_write(space: Space, grant: &AccessGrant) -> bool {
@@ -926,6 +974,376 @@ fn storage_items_route(path: &str) -> Option<(Space, Option<String>, Option<Stri
             .filter(|value| !value.is_empty())
             .map(|value| (*value).to_owned()),
     ))
+}
+
+fn storage_move_route(path: &str) -> Option<(Space, String, String)> {
+    let parts = path
+        .strip_prefix("/v1/storage/move/")?
+        .split('/')
+        .collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return None;
+    }
+    let space = match parts[0] {
+        "private" => Space::Private,
+        "public" => Space::Public,
+        _ => return None,
+    };
+    let kind = percent_decode(parts[1]);
+    let key = percent_decode(parts[2]);
+    if kind.is_empty()
+        || key.is_empty()
+        || kind
+            .chars()
+            .any(|character| character.is_control() || character == '/')
+        || key
+            .chars()
+            .any(|character| character.is_control() || character == '/')
+    {
+        return None;
+    }
+    Some((space, kind, key))
+}
+
+fn handle_storage_move(
+    output: &mut TcpStream,
+    reader: &mut BufReader<TcpStream>,
+    request: &Request,
+    runtime: &NodeRuntime,
+    policy: &Config,
+    space: Space,
+    kind: &str,
+    key: &str,
+    grant: &AccessGrant,
+) -> io::Result<()> {
+    let Some(capability) = grant.storage_move.as_ref() else {
+        return forbidden(output);
+    };
+    if capability.id != capability.id.trim() || !valid_id(&capability.id) {
+        return forbidden(output);
+    }
+    let local_node_id = runtime.config.read().map_err(lock_error)?.node_id.clone();
+    let is_source = local_node_id
+        .as_deref()
+        .map_or(true, |node_id| node_id == capability.source_node_id);
+    let is_target = local_node_id
+        .as_deref()
+        .map_or(true, |node_id| node_id == capability.target_node_id);
+    if !is_source && !is_target {
+        return forbidden(output);
+    }
+    match request.method.as_str() {
+        "GET" => {
+            if !is_source || !policy.allow_downloads {
+                return forbidden(output);
+            }
+            if kind == "file" {
+                return not_found(output, "File not found.");
+            }
+            let storage = runtime.storage.read().map_err(lock_error)?;
+            return match kind {
+                "fluo-post" => match storage
+                    .space(space)
+                    .read_post(key)
+                    .map_err(internal_error)?
+                {
+                    Some(post) => response_json(output, 200, json!({ "post": post })),
+                    None => not_found(output, "Post not found."),
+                },
+                "ligo-envelope" => match storage
+                    .space(space)
+                    .read_envelope_for_owner(key)
+                    .map_err(internal_error)?
+                {
+                    Some(envelope) => response_json(output, 200, json!({ "envelope": envelope })),
+                    None => not_found(output, "Message not found."),
+                },
+                "rondo-message" => {
+                    let Some((space_id, room_id, message_id)) = rondo_storage_key(key) else {
+                        return not_found(output, "Message not found.");
+                    };
+                    match storage
+                        .space(space)
+                        .read_rondo(space_id, room_id, message_id)
+                        .map_err(internal_error)?
+                    {
+                        Some(message) => response_json(
+                            output,
+                            200,
+                            json!({
+                                "message": message,
+                                "roomId": room_id,
+                                "spaceId": space_id,
+                            }),
+                        ),
+                        None => not_found(output, "Message not found."),
+                    }
+                }
+                _ => not_found(output, "Storage item not found."),
+            };
+        }
+        "PUT" => {
+            if !is_target || capability.cleanup || kind != "file" {
+                return forbidden(output);
+            }
+            let mut storage = runtime.storage.write().map_err(lock_error)?;
+            let metadata = match decode_move_file_metadata(
+                request.headers.get(STORAGE_MOVE_METADATA_HEADER),
+            ) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    return response_json_with_status(
+                        output,
+                        400,
+                        json!({ "error": error.to_string() }),
+                    );
+                }
+            };
+            return match storage.space_mut(space).import_upload(
+                key,
+                request.content_length,
+                metadata.raw_metadata(),
+                metadata.owner(),
+                metadata.created_at,
+                reader,
+            ) {
+                Ok(_) => response_json(output, 200, json!({ "ok": true })),
+                Err(error) => storage_json_error(output, error),
+            };
+        }
+        "POST" => {
+            if !is_target || capability.cleanup {
+                return forbidden(output);
+            }
+            if request
+                .headers
+                .get("content-type")
+                .map(|value| value.split(';').next().unwrap_or_default())
+                != Some("application/json")
+            {
+                return response_json_with_status(
+                    output,
+                    415,
+                    json!({ "error": "JSON is required." }),
+                );
+            }
+            if request.content_length == 0
+                || request.content_length > MAX_STORAGE_MOVE_REQUEST_BYTES
+            {
+                return response_json_with_status(
+                    output,
+                    400,
+                    json!({ "error": "Storage metadata is invalid." }),
+                );
+            }
+            let body = match read_body(
+                reader,
+                request.content_length,
+                MAX_STORAGE_MOVE_REQUEST_BYTES,
+            ) {
+                Ok(body) => body,
+                Err(error) => {
+                    return response_json_with_status(
+                        output,
+                        400,
+                        json!({ "error": error.to_string() }),
+                    );
+                }
+            };
+            let value: Value = match serde_json::from_slice(&body) {
+                Ok(value) => value,
+                Err(_) => {
+                    return response_json_with_status(
+                        output,
+                        400,
+                        json!({ "error": "Storage metadata is invalid." }),
+                    );
+                }
+            };
+            let result: Result<(), StorageError> = (|| {
+                let mut storage = runtime
+                    .storage
+                    .write()
+                    .map_err(lock_error)
+                    .map_err(StorageError::Io)?;
+                match kind {
+                    "fluo-post" => {
+                        let post: Post = value
+                            .get("post")
+                            .cloned()
+                            .ok_or(StorageError::Invalid("Storage metadata is invalid."))
+                            .and_then(|value| {
+                                serde_json::from_value(value).map_err(|_| {
+                                    StorageError::Invalid("Storage metadata is invalid.")
+                                })
+                            })?;
+                        if post.id != key {
+                            return Err(StorageError::Invalid("Storage key is invalid."));
+                        }
+                        storage.space_mut(space).import_post(&post)
+                    }
+                    "ligo-envelope" => {
+                        let envelope: Envelope = value
+                            .get("envelope")
+                            .cloned()
+                            .ok_or(StorageError::Invalid("Storage metadata is invalid."))
+                            .and_then(|value| {
+                                serde_json::from_value(value).map_err(|_| {
+                                    StorageError::Invalid("Storage metadata is invalid.")
+                                })
+                            })?;
+                        if envelope.id != key {
+                            return Err(StorageError::Invalid("Storage key is invalid."));
+                        }
+                        storage.space_mut(space).import_envelope(&envelope)
+                    }
+                    "rondo-message" => {
+                        let space_id = value
+                            .get("spaceId")
+                            .and_then(Value::as_str)
+                            .ok_or(StorageError::Invalid("Storage metadata is invalid."))?;
+                        let room_id = value
+                            .get("roomId")
+                            .and_then(Value::as_str)
+                            .ok_or(StorageError::Invalid("Storage metadata is invalid."))?;
+                        let message: RondoMessage = value
+                            .get("message")
+                            .cloned()
+                            .ok_or(StorageError::Invalid("Storage metadata is invalid."))
+                            .and_then(|value| {
+                                serde_json::from_value(value).map_err(|_| {
+                                    StorageError::Invalid("Storage metadata is invalid.")
+                                })
+                            })?;
+                        if format!("{space_id}.{room_id}.{}", message.id) != key {
+                            return Err(StorageError::Invalid("Storage key is invalid."));
+                        }
+                        storage
+                            .space_mut(space)
+                            .import_rondo(space_id, room_id, &message)
+                    }
+                    _ => Err(StorageError::Invalid("Storage item not found.")),
+                }
+            })();
+            return match result {
+                Ok(()) => response_json(output, 200, json!({ "ok": true })),
+                Err(error) => storage_json_error(output, error),
+            };
+        }
+        "DELETE" => {
+            if !policy.allow_uploads {
+                return transfer_denied(output);
+            }
+            let mut storage = runtime.storage.write().map_err(lock_error)?;
+            return match delete_storage_move_item(storage.space_mut(space), kind, key) {
+                Ok(()) => response_json(output, 200, json!({ "ok": true })),
+                Err(error) => storage_json_error(output, error),
+            };
+        }
+        _ => method_not_allowed(output),
+    }
+}
+
+fn delete_storage_move_item(
+    storage: &crate::storage::SpaceStorage,
+    kind: &str,
+    key: &str,
+) -> Result<(), StorageError> {
+    match kind {
+        "file" => {
+            if storage.record(key)?.is_some() {
+                let _ = storage.delete_upload(key, "", true)?;
+            }
+        }
+        "fluo-post" => {
+            let _ = storage.delete_post(key, "", true)?;
+        }
+        "ligo-envelope" => {
+            let _ = storage.delete_envelope_for_transfer(key)?;
+        }
+        "rondo-message" => {
+            let Some((space_id, room_id, message_id)) = rondo_storage_key(key) else {
+                return Err(StorageError::Invalid("Storage key is invalid."));
+            };
+            let _ = storage.delete_rondo_for_transfer(space_id, room_id, message_id)?;
+        }
+        _ => return Err(StorageError::Invalid("Storage item not found.")),
+    }
+    Ok(())
+}
+
+fn rondo_storage_key(key: &str) -> Option<(&str, &str, &str)> {
+    let mut parts = key.split('.');
+    let space_id = parts.next()?;
+    let room_id = parts.next()?;
+    let message_id = parts.next()?;
+    if parts.next().is_some() || !valid_id(space_id) || !valid_id(room_id) || !valid_id(message_id)
+    {
+        return None;
+    }
+    Some((space_id, room_id, message_id))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MoveFileMetadata {
+    created_at: i64,
+    mime_type: Option<String>,
+    name: String,
+    owner: String,
+}
+
+impl MoveFileMetadata {
+    fn raw_metadata(&self) -> String {
+        let mut values = vec![format!(
+            "filename {}",
+            base64::engine::general_purpose::STANDARD.encode(self.name.as_bytes())
+        )];
+        if let Some(mime_type) = self.mime_type.as_deref().filter(|value| !value.is_empty()) {
+            values.push(format!(
+                "filetype {}",
+                base64::engine::general_purpose::STANDARD.encode(mime_type.as_bytes())
+            ));
+        }
+        values.join(",")
+    }
+
+    fn owner(&self) -> Option<String> {
+        (!self.owner.is_empty()).then(|| self.owner.clone())
+    }
+}
+
+fn decode_move_file_metadata(value: Option<&String>) -> io::Result<MoveFileMetadata> {
+    let value = value.ok_or_else(|| bad_request("File metadata is invalid."))?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(value)
+        .map_err(|_| bad_request("File metadata is invalid."))?;
+    let metadata: MoveFileMetadata =
+        serde_json::from_slice(&bytes).map_err(|_| bad_request("File metadata is invalid."))?;
+    if metadata.created_at < 0
+        || metadata.name.is_empty()
+        || metadata.name.len() > 180
+        || metadata
+            .mime_type
+            .as_deref()
+            .is_some_and(|mime| mime.len() > 120)
+        || metadata.owner.len() > 32
+        || metadata
+            .name
+            .chars()
+            .any(|character| character.is_control())
+        || metadata
+            .mime_type
+            .as_deref()
+            .is_some_and(|mime| mime.chars().any(|character| character.is_control()))
+        || metadata
+            .owner
+            .chars()
+            .any(|character| character.is_control())
+    {
+        return Err(bad_request("File metadata is invalid."));
+    }
+    Ok(metadata)
 }
 
 fn space_route(path: &str, suffix: &str) -> Option<(Space, String)> {
@@ -1044,6 +1462,21 @@ fn delete_storage_item(
             .space(space)
             .delete_envelope(id, &grant.username)
             .map_err(|error| error),
+        "rondo-message" => {
+            let Some((space_id, room_id, message_id)) = rondo_storage_key(id) else {
+                return not_found(output, "Storage item not found.");
+            };
+            storage
+                .space(space)
+                .delete_rondo(
+                    space_id,
+                    room_id,
+                    message_id,
+                    &grant.username,
+                    grant.is_owner,
+                )
+                .map(|deleted| deleted)
+        }
         _ => Ok(false),
     };
     match result {
@@ -1383,17 +1816,36 @@ fn download(
         .headers
         .get("range")
         .and_then(|value| parse_range(value, length));
-    let (start, end, status, reason) = range
-        .map_or((0, length.saturating_sub(1), 200, "OK"), |(start, end)| {
-            (start, end, 206, "Partial Content")
-        });
-    if length == 0 {
-        return not_found(output, "File not found.");
-    }
     let filename = storage::metadata_filename(&record.metadata)
         .unwrap_or_else(|| format!("{}.bin", record.id));
     let mime = storage::metadata_media_type(&record.metadata)
         .unwrap_or_else(|| storage::media_type(&filename).to_owned());
+    if length == 0 {
+        return response(
+            output,
+            200,
+            "OK",
+            vec![
+                ("ETag".to_owned(), etag),
+                (
+                    "Cache-Control".to_owned(),
+                    "private, max-age=31536000, immutable".to_owned(),
+                ),
+                ("Accept-Ranges".to_owned(), "bytes".to_owned()),
+                ("Content-Type".to_owned(), mime),
+                ("Content-Length".to_owned(), "0".to_owned()),
+                (
+                    "Content-Disposition".to_owned(),
+                    format!("inline; filename=\"{}\"", filename),
+                ),
+            ],
+            None,
+        );
+    }
+    let (start, end, status, reason) = range
+        .map_or((0, length.saturating_sub(1), 200, "OK"), |(start, end)| {
+            (start, end, 206, "Partial Content")
+        });
     let mut headers = vec![
         ("ETag".to_owned(), etag),
         (
@@ -1545,7 +1997,7 @@ fn response(
     output.flush()
 }
 fn cors_headers() -> Vec<(String, String)> {
-    vec![("Access-Control-Allow-Origin".to_owned(), "*".to_owned()), ("Access-Control-Allow-Methods".to_owned(), "GET,HEAD,POST,PATCH,DELETE,OPTIONS".to_owned()), ("Access-Control-Allow-Headers".to_owned(), "Authorization,Content-Type,Tus-Resumable,Upload-Length,Upload-Offset,Upload-Metadata,X-Kaordo-Chunk-Length,X-Veridimensio-Chunk-Length,X-Kaordo-Public-Reservation,X-Veridimensio-Public-Reservation,X-Kaordo-Rondo-Space,X-Veridimensio-Rondo-Space,X-Kaordo-Rondo-Room,X-Veridimensio-Rondo-Room".to_owned()), ("Access-Control-Expose-Headers".to_owned(), "Location,Tus-Resumable,Tus-Version,Tus-Extension,Tus-Max-Size,Upload-Length,Upload-Offset,Upload-Metadata,Accept-Ranges,Content-Length,Content-Range,ETag".to_owned()), ("Access-Control-Max-Age".to_owned(), "600".to_owned()), ("Access-Control-Allow-Private-Network".to_owned(), "true".to_owned())]
+    vec![("Access-Control-Allow-Origin".to_owned(), "*".to_owned()), ("Access-Control-Allow-Methods".to_owned(), "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS".to_owned()), ("Access-Control-Allow-Headers".to_owned(), "Authorization,Content-Type,Tus-Resumable,Upload-Length,Upload-Offset,Upload-Metadata,X-Kaordo-Chunk-Length,X-Veridimensio-Chunk-Length,X-Kaordo-Public-Reservation,X-Veridimensio-Public-Reservation,X-Kaordo-Rondo-Space,X-Veridimensio-Rondo-Space,X-Kaordo-Rondo-Room,X-Veridimensio-Rondo-Room,X-Kaordo-Storage-Move,X-Kaordo-Storage-Metadata".to_owned()), ("Access-Control-Expose-Headers".to_owned(), "Location,Tus-Resumable,Tus-Version,Tus-Extension,Tus-Max-Size,Upload-Length,Upload-Offset,Upload-Metadata,Accept-Ranges,Content-Length,Content-Range,ETag".to_owned()), ("Access-Control-Max-Age".to_owned(), "600".to_owned()), ("Access-Control-Allow-Private-Network".to_owned(), "true".to_owned())]
 }
 fn tus_headers() -> Vec<(String, String)> {
     vec![
