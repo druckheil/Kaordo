@@ -291,6 +291,7 @@
 <figure
   class:media-audio={attachment.kind === 'audio'}
   class:media-equalized={isEqualized}
+  class:media-natural-image={isVisualAttachment() && Boolean(mediaUrl) && !isEqualized}
   class:media-unavailable={loadState === 'error'}
   style={`--media-ratio:${mediaLayout.ratio};--media-width:${mediaLayout.width}px;--media-height:${mediaLayout.height}px`}
 >
@@ -316,7 +317,15 @@
       aria-label={`Open ${attachment.name}`}
       onclick={() => { showPhotoViewer = true; }}
     >
-      <img src={mediaUrl} alt={attachment.name} decoding="async" onerror={handleImageError} onload={handleImageLoad} />
+      <img
+        src={mediaUrl}
+        alt={attachment.name}
+        decoding="async"
+        width={discoveredDimensions?.width ?? attachment.width ?? mediaLayout.width}
+        height={discoveredDimensions?.height ?? attachment.height ?? mediaLayout.height}
+        onerror={handleImageError}
+        onload={handleImageLoad}
+      />
     </button>
   {:else}
     <span
@@ -370,6 +379,18 @@
     height: 100%;
     object-fit: contain;
     object-position: left center;
+  }
+
+  /* Once a standalone image is available, let its decoded aspect ratio size
+     the recess. This preserves every pixel and avoids a rounded-box ratio
+     rounding seam without stretching or cropping the image. */
+  figure.media-natural-image {
+    aspect-ratio: auto;
+  }
+
+  .media-natural-image .image-trigger,
+  .media-natural-image img {
+    height: auto;
   }
 
   .image-trigger {
