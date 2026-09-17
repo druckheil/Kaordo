@@ -652,7 +652,7 @@ describe('CanvasService interaction boundaries', () => {
     });
   });
 
-  it('resizes a card and keeps attached text inside its new bounds', async () => {
+  it('resizes a card and keeps attached text at the card frame', async () => {
     const saveCanvasDocument = vi.fn().mockResolvedValue(undefined);
     const rectangle = {
       fill: '#dcece5',
@@ -703,7 +703,7 @@ describe('CanvasService interaction boundaries', () => {
     expect(state.canvasDocumentFor(workspace.id).elements).toEqual([
       { ...rectangle, height: 60, width: 80 },
       expect.objectContaining({
-        height: 100,
+        height: 60,
         id: 'text-1',
         width: 80,
         x: 100,
@@ -713,6 +713,57 @@ describe('CanvasService interaction boundaries', () => {
     expect(saveCanvasDocument).toHaveBeenCalledWith(workspace.id, expect.objectContaining({
       version: 1,
     }));
+  });
+
+  it('creates card text with the exact card frame', () => {
+    const saveCanvasDocument = vi.fn().mockResolvedValue(undefined);
+    const rectangle = {
+      fill: '#dcece5',
+      height: 160,
+      id: 'rectangle-1',
+      radius: 10,
+      stroke: '#397565',
+      strokeWidth: 2,
+      type: 'rectangle' as const,
+      width: 220,
+      x: 100,
+      y: 120,
+    };
+    const state = new CanvasGState();
+    state.setCanvasDocument(workspace.id, {
+      elements: [rectangle],
+      placements: [],
+      version: 1,
+    });
+    const service = new CanvasService(
+      state,
+      () => workspace,
+      undefined,
+      undefined,
+      saveCanvasDocument,
+    );
+
+    const text = service.editRectangleText(workspace.id, rectangle);
+
+    expect(text).toMatchObject({
+      height: rectangle.height,
+      parentElementId: rectangle.id,
+      width: rectangle.width,
+      x: rectangle.x,
+      y: rectangle.y,
+    });
+    expect(state.canvasDocumentFor(workspace.id).elements).toEqual([
+      rectangle,
+      expect.objectContaining({
+        height: rectangle.height,
+        id: text.id,
+        parentElementId: rectangle.id,
+        width: rectangle.width,
+        x: rectangle.x,
+        y: rectangle.y,
+      }),
+    ]);
+    expect(state.snapshot.editingTextId).toBe(text.id);
   });
 
   it('ends pan and captures the final camera when pointer capture is lost', () => {

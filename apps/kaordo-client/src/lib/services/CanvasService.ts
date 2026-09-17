@@ -638,6 +638,7 @@ export class CanvasService {
   createTextElement(
     workspaceId: string,
     position: {
+      height?: number;
       parentElementId?: string;
       parentObjectId?: string;
       width?: number;
@@ -648,7 +649,7 @@ export class CanvasService {
     const element: TextElement = {
       color: '#25332d',
       fontSize: 16,
-      height: 48,
+      height: position.height ?? 48,
       html: '',
       id: createCanvasElementId('text'),
       textAlign: 'left',
@@ -683,20 +684,27 @@ export class CanvasService {
         element.type === 'text' && element.parentElementId === rectangle.id,
     );
     if (existing) {
+      const synced = syncTextToRectangle(existing, rectangle);
+      if (synced !== existing) {
+        void this.saveWorkspaceCanvasDocument(workspaceId, {
+          ...document,
+          elements: document.elements.map((element) =>
+            element.id === synced.id ? synced : element,
+          ),
+        }).catch(() => this.state.announce('Text could not be matched to the card.'));
+      }
       this.state.editText(existing.id);
       this.state.announce('Text editor opened.');
-      return existing;
+      return synced;
     }
 
-    const padding = 12;
-    const width = Math.max(32, Math.min(260, rectangle.width - padding * 2));
-    const height = 48;
     return this.createTextElement(workspaceId, {
+      height: rectangle.height,
       parentElementId: rectangle.id,
       parentObjectId: rectangle.parentObjectId,
-      width,
-      x: clamp(rectangle.x + padding, rectangle.x, rectangle.x + rectangle.width - width),
-      y: clamp(rectangle.y + padding, rectangle.y, rectangle.y + rectangle.height - height),
+      width: rectangle.width,
+      x: rectangle.x,
+      y: rectangle.y,
     });
   }
 
@@ -705,10 +713,13 @@ export class CanvasService {
     updated: CanvasElement,
   ): Promise<void> {
     const document = this.state.canvasDocumentFor(workspaceId);
+    const normalized = updated.type === 'text'
+      ? syncTextToParentRectangle(document, updated)
+      : updated;
     await this.saveWorkspaceCanvasDocument(workspaceId, {
       ...document,
       elements: document.elements.map((element) =>
-        element.id === updated.id ? updated : element,
+        element.id === normalized.id ? normalized : element,
       ),
     });
   }
@@ -730,8 +741,11 @@ export class CanvasService {
       ...document,
       elements: document.elements.map((element) => {
         if (element.id === resized.id) return resized;
+        if (element.type === 'text' && element.parentElementId === resized.id) {
+          return syncTextToRectangle(element, resized);
+        }
         if (
-          (element.type !== 'text' && element.type !== 'media') ||
+          element.type !== 'media' ||
           element.parentElementId !== resized.id
         ) {
           return element;
@@ -1724,6 +1738,37 @@ function latestPointerSample(event: PointerEvent): PointerEvent {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(Math.max(minimum, maximum), value));
+}
+
+function syncTextToRectangle(
+  text: TextElement,
+  rectangle: Pick<RectangleElement, 'height' | 'width' | 'x' | 'y'>,
+): TextElement {
+  if (
+    text.x === rectangle.x &&
+    text.y === rectangle.y &&
+    text.width === rectangle.width &&
+    text.height === rectangle.height
+  ) return text;
+  return {
+    ...text,
+    height: rectangle.height,
+    width: rectangle.width,
+    x: rectangle.x,
+    y: rectangle.y,
+  };
+}
+
+function syncTextToParentRectangle(
+  document: WorkspaceCanvasDocument,
+  text: TextElement,
+): TextElement {
+  if (!text.parentElementId) return text;
+  const rectangle = document.elements.find(
+    (element): element is RectangleElement =>
+      element.type === 'rectangle' && element.id === text.parentElementId,
+  );
+  return rectangle ? syncTextToRectangle(text, rectangle) : text;
 }
 
 type CanvasBounds = {

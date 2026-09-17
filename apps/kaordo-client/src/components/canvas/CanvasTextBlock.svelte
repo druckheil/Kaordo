@@ -40,6 +40,7 @@
     maxWidth?: number;
     moving?: boolean;
     onStartMove: (event: PointerEvent, element: TextElement) => void;
+    parentFrame?: { height: number; width: number; x: number; y: number } | null;
     selected: boolean;
     workspaceId: string;
     zoom?: number;
@@ -69,6 +70,7 @@
     maxWidth = CANVAS_TEXT_MAX_WIDTH,
     moving = false,
     onStartMove,
+    parentFrame = null,
     selected,
     workspaceId,
     zoom = 1,
@@ -127,6 +129,7 @@
       }));
     });
   });
+  let parentLocked = $derived(parentFrame !== null);
   let textSearchHighlightFrames = $derived.by(() => {
     textLayoutRevision;
     const query = searchHighlight?.query.trim() ?? '';
@@ -550,7 +553,11 @@
 
   async function persistDraft(measure: boolean) {
     const html = sanitizeTextHtml(editor?.innerHTML ?? draftHtml);
-    const height = measure ? measuredBlockHeight() : element.height;
+    const height = parentFrame
+      ? parentFrame.height
+      : measure
+        ? measuredBlockHeight()
+        : element.height;
     try {
       await canvas.updateCanvasElement(workspaceId, {
         ...element,
@@ -565,6 +572,7 @@
   }
 
   function measuredBlockHeight(): number {
+    if (parentFrame) return parentFrame.height;
     const block = editor?.closest<HTMLElement>('.canvas-text-block');
     const visualHeight = block?.getBoundingClientRect().height ?? 0;
     const contentHeight = (editor?.scrollHeight ?? 0) + 4;
@@ -582,11 +590,12 @@
   }
 
   function style(element: TextElement): string {
+    const frame = parentFrame;
     return [
-      `left:${element.x}px`,
-      `top:${element.y}px`,
-      `width:${resizedWidth ?? element.width}px`,
-      `min-height:${resizedHeight ?? element.height}px`,
+      `left:${frame?.x ?? element.x}px`,
+      `top:${frame?.y ?? element.y}px`,
+      `width:${frame?.width ?? resizedWidth ?? element.width}px`,
+      `${frame ? 'height' : 'min-height'}:${frame?.height ?? resizedHeight ?? element.height}px`,
       `color:${element.color}`,
       `font-size:${element.fontSize}px`,
       `text-align:${element.textAlign}`,
@@ -657,6 +666,7 @@
   class:canvas-text-block--bars-one={element.leftBars === 1}
   class:canvas-text-block--bars-two={element.leftBars === 2}
   class:canvas-text-block--moving={moving}
+  class:canvas-text-block--parent-locked={parentLocked}
   class:canvas-text-block--arrow-source={textArrowHighlightFrames.length > 0}
   class:canvas-text-block--search-highlight={searchHighlight?.kind === 'element'}
   class:canvas-text-block--selected={selected}
@@ -743,7 +753,7 @@
     onpaste={handlePaste}
     onblur={() => void finishEditing()}
   ></div>
-  {#if selected && !editing && !moving}
+  {#if selected && !editing && !moving && !parentLocked}
     <button
       class="text-resize-handle"
       type="button"
@@ -799,6 +809,15 @@
       0 12px 30px rgb(35 67 54 / 14%),
       0 0 0 3px rgb(55 117 102 / 12%);
     cursor: text;
+  }
+
+  .canvas-text-block--parent-locked {
+    overflow: hidden;
+  }
+
+  .canvas-text-block--parent-locked .canvas-text-surface {
+    height: 100%;
+    overflow: auto;
   }
 
   .canvas-text-block--arrow-source {

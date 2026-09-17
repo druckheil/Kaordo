@@ -274,23 +274,7 @@
       if (element.type === 'text') {
         canvas.state.editText(element.id);
       } else if (element.type === 'rectangle') {
-        const point = boardPoint(event, true);
-        const width = Math.min(260, Math.max(32, element.width));
-        canvas.createTextElement(workspaceId, {
-          parentElementId: element.id,
-          parentObjectId: placement.id,
-          width,
-          x: clamp(
-            point.x - 20,
-            element.x,
-            element.x + element.width - width,
-          ),
-          y: clamp(
-            point.y - 18,
-            element.y,
-            element.y + element.height - 48,
-          ),
-        });
+        canvas.editRectangleText(workspaceId, element);
       } else {
         const point = boardPoint(event, true);
         canvas.createTextElement(workspaceId, {
@@ -380,6 +364,39 @@
     event.preventDefault();
     event.stopPropagation();
     canvas.editRectangleText(workspaceId, rectangle);
+  }
+
+  function parentFrameFor(element: TextElement) {
+    const parent = element.parentElementId
+      ? elements.find((candidate): candidate is RectangleElement =>
+          candidate.type === 'rectangle' && candidate.id === element.parentElementId)
+      : null;
+    return parent
+      ? {
+          height: parent.height,
+          width: parent.width,
+          x: parent.x,
+          y: parent.y,
+        }
+      : null;
+  }
+
+  function startTextMove(event: PointerEvent, element: TextElement) {
+    const parent = element.parentElementId
+      ? elements.find((candidate): candidate is RectangleElement =>
+          candidate.type === 'rectangle' && candidate.id === element.parentElementId)
+      : null;
+    if (!parent || snapshot.activeTool === 'arrow') {
+      startMove(event, element);
+      return;
+    }
+    if (snapshot.activeTool === 'text') {
+      event.preventDefault();
+      event.stopPropagation();
+      canvas.state.editText(element.id);
+      return;
+    }
+    startMove(event, parent);
   }
 
   function continueGesture(event: PointerEvent) {
@@ -1405,7 +1422,8 @@
           Math.max(100, placement.width - element.x),
         )}
         moving={false}
-        onStartMove={startMove}
+        onStartMove={startTextMove}
+        parentFrame={parentFrameFor(element)}
         selected={selectionResolver.isHighlighted(element)}
         {zoom}
         {workspaceId}
