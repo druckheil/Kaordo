@@ -76,6 +76,7 @@
     zoom = 1,
   }: Props = $props();
   let editor = $state<HTMLDivElement>();
+  let textRoot = $state<HTMLDivElement>();
   let elementId = $derived(element.id);
   let draftHtml = $state('');
   let savedRange: Range | null = null;
@@ -149,7 +150,7 @@
         textLayoutRevision += 1;
       }
     });
-    const block = editor?.closest<HTMLElement>('.canvas-text-block') ?? editor;
+    const block = textRoot ?? editor?.closest<HTMLElement>('.canvas-text-block') ?? editor;
     const observer = typeof ResizeObserver === 'function' && block
       ? new ResizeObserver(notify)
       : null;
@@ -661,6 +662,7 @@
 </script>
 
 <div
+  bind:this={textRoot}
   class="canvas-text-block"
   class:canvas-text-block--editing={editing}
   class:canvas-text-block--bars-one={element.leftBars === 1}

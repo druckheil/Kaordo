@@ -45,6 +45,7 @@ type ObjectPointerDrag = {
   applicationScale: number;
   liveElementIds: readonly string[];
   group: readonly GroupPanelDrag[];
+  liveGroupTargets: PanelGroupLiveTargets;
   selectionToggle: boolean;
   wasOnCanvas: boolean;
 };
@@ -56,6 +57,11 @@ type GroupPanelDrag = {
   originCanvasY: number;
   placement: CanvasPlacement;
   positionElement: HTMLElement | null;
+};
+
+type PanelGroupLiveTargets = {
+  elementIds: readonly string[];
+  objectIds: readonly string[];
 };
 
 /** Owns pointer capture and the imperative, frame-rate drag visuals. */
@@ -133,7 +139,7 @@ export class CanvasDragService {
       : this.#viewport.findPositioner(object.id);
     const sourceBounds = sourceElement.getBoundingClientRect();
     const grabBounds = positionElement?.getBoundingClientRect() ?? sourceBounds;
-    const zoom = workspace ? this.#state.zoomFor(workspace.id) : 1;
+    const zoom = workspace ? this.#viewport.currentZoom(workspace.id) : 1;
     const applicationScale = canvasApplicationScale();
     const liveElementIds = workspace
       ? [...canvasElementIdsForObject(
@@ -168,14 +174,19 @@ export class CanvasDragService {
         positionElement,
       });
     }
+    const liveGroupTargets = panelGroupLiveTargets(group);
 
     if (workspace && existing && canvasCard) {
       this.#state.clearEntering(workspace.id, object.id);
       canvasCard.classList.remove('canvas-card--entering');
     }
-    if (positionElement) positionElement.style.willChange = 'transform';
+    if (positionElement) {
+      positionElement.style.willChange = 'transform';
+      positionElement.classList.add('canvas-canvas-item--dragging');
+    }
     for (const item of group) {
       item.positionElement?.style.setProperty('will-change', 'transform');
+      item.positionElement?.classList.add('canvas-canvas-item--dragging');
     }
 
     sourceElement.setPointerCapture?.(event.pointerId);
@@ -207,6 +218,7 @@ export class CanvasDragService {
       applicationScale,
       liveElementIds,
       group,
+      liveGroupTargets,
       selectionToggle,
       wasOnCanvas: existing !== undefined,
     };
@@ -328,7 +340,7 @@ export class CanvasDragService {
       this.releasePointerCapture(drag);
       void tick().then(() => {
         if (this.#finishingDrag !== drag) return;
-        dispatchPanelGroupLiveDrag(drag.group, 0, 0, 'end');
+        dispatchPanelGroupLiveDrag(drag.group, 0, 0, 'end', drag.liveGroupTargets);
         this.#finishingDrag = null;
       });
       return;
@@ -459,7 +471,7 @@ export class CanvasDragService {
     }
     const finishing = this.#finishingDrag;
     if (finishing) {
-      dispatchPanelGroupLiveDrag(finishing.group, 0, 0, 'end');
+      dispatchPanelGroupLiveDrag(finishing.group, 0, 0, 'end', finishing.liveGroupTargets);
     }
     this.#finishingDrag = null;
     this.#drag = null;
@@ -575,13 +587,13 @@ export class CanvasDragService {
           item.positionElement.style.zIndex = '6';
         }
       }
-      dispatchPanelGroupLiveDrag(drag.group, deltaX, deltaY, 'move');
+      dispatchPanelGroupLiveDrag(drag.group, deltaX, deltaY, 'move', drag.liveGroupTargets);
     } else if (drag.wasOnCanvas) {
       for (const item of drag.group) {
         this.restoreGroupPosition(item);
         item.positionElement?.style.removeProperty('z-index');
       }
-      dispatchPanelGroupLiveDrag(drag.group, 0, 0, 'end');
+      dispatchPanelGroupLiveDrag(drag.group, 0, 0, 'end', drag.liveGroupTargets);
     }
 
     const floating = this.#floatingCard;
@@ -637,15 +649,17 @@ export class CanvasDragService {
     drag.canvasCard?.classList.remove('canvas-card--dragging');
     drag.positionElement?.style.removeProperty('will-change');
     drag.positionElement?.style.removeProperty('z-index');
+    drag.positionElement?.classList.remove('canvas-canvas-item--dragging');
     for (const item of drag.group) {
       item.canvasCard?.classList.remove('canvas-card--dragging');
       item.positionElement?.style.removeProperty('will-change');
       item.positionElement?.style.removeProperty('z-index');
+      item.positionElement?.classList.remove('canvas-canvas-item--dragging');
       if (restorePosition) this.restoreGroupPosition(item);
     }
     if (drag.wasOnCanvas && endLive) {
       if (drag.group.length > 0) {
-        dispatchPanelGroupLiveDrag(drag.group, 0, 0, 'end');
+        dispatchPanelGroupLiveDrag(drag.group, 0, 0, 'end', drag.liveGroupTargets);
       } else {
         dispatchArrowLiveDrag({
           elementIds: drag.liveElementIds,
@@ -720,21 +734,32 @@ function dispatchPanelGroupLiveDrag(
   deltaX: number,
   deltaY: number,
   phase: 'end' | 'move',
+  targets = panelGroupLiveTargets(group),
 ): void {
   if (group.length === 0) return;
+  dispatchArrowLiveDrag({
+    deltaX,
+    deltaY,
+    elementIds: targets.elementIds,
+    objectIds: targets.objectIds,
+    phase,
+  });
+}
+
+function panelGroupLiveTargets(
+  group: readonly GroupPanelDrag[],
+): PanelGroupLiveTargets {
+  if (group.length === 0) return { elementIds: [], objectIds: [] };
   const elementIds = new Set<string>();
   const objectIds: string[] = [];
   for (const item of group) {
     objectIds.push(item.placement.id);
     for (const elementId of item.liveElementIds) elementIds.add(elementId);
   }
-  dispatchArrowLiveDrag({
-    deltaX,
-    deltaY,
+  return {
     elementIds: [...elementIds],
     objectIds,
-    phase,
-  });
+  };
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

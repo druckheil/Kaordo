@@ -242,7 +242,47 @@ describe('CanvasService interaction boundaries', () => {
     });
   });
 
+  it('coalesces blank-canvas pan writes to one animation frame', () => {
+    let frame: FrameRequestCallback | undefined;
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+      frame = callback;
+      return 31;
+    }));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const state = new CanvasGState();
+    const service = new CanvasViewportService(state, () => workspace);
+    const viewport = createViewport();
+    viewport.scrollLeft = 100;
+    viewport.scrollTop = 80;
+    service.attach(viewport);
+    const start = pointerEvent(viewport, {
+      clientX: 220,
+      clientY: 180,
+      pointerId: 9,
+    });
+    service.startPan(start, false);
+
+    service.continuePan(pointerEvent(viewport, {
+      clientX: 200,
+      clientY: 160,
+      pointerId: 9,
+    }));
+    service.continuePan(pointerEvent(viewport, {
+      clientX: 180,
+      clientY: 150,
+      pointerId: 9,
+    }));
+
+    expect(viewport.scrollLeft).toBe(100);
+    expect(viewport.scrollTop).toBe(80);
+    expect(frame).toBeDefined();
+    frame?.(16);
+    expect(viewport.scrollLeft).toBe(140);
+    expect(viewport.scrollTop).toBe(110);
+  });
+
   it('applies native wheel deltas on the next frame around the pointer', () => {
+    vi.useFakeTimers();
     let frame: FrameRequestCallback | undefined;
     vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
       frame = callback;
@@ -273,14 +313,60 @@ describe('CanvasService interaction boundaries', () => {
     expect(frame).toBeDefined();
     frame?.(16);
 
-    const zoom = state.zoomFor(workspace.id);
+    const zoom = service.currentZoom();
     expect(wheel.defaultPrevented).toBe(true);
     expect(zoom).toBeCloseTo(Math.exp(0.12), 5);
+    const offsetX = 1160 * (1 - zoom);
+    const offsetY = 920 * (1 - zoom);
+    expect(viewport.scrollLeft).toBe(1000);
+    expect(viewport.scrollTop).toBe(800);
+    expect((viewport.scrollLeft + 160 - offsetX) / zoom).toBeCloseTo(1160, 5);
+    expect((viewport.scrollTop + 120 - offsetY) / zoom).toBeCloseTo(920, 5);
+    expect(zoomSpace.style.width).toBe(`${CANVAS_WIDTH}px`);
+    expect(zoomSpace.style.height).toBe(`${CANVAS_HEIGHT}px`);
+    expect(surface.style.transform).toContain('translate3d(');
+    expect(surface.style.transform).toContain(`scale(${zoom})`);
+    expect(state.zoomFor(workspace.id)).toBe(1);
+
+    vi.advanceTimersByTime(160);
+
+    expect(state.zoomFor(workspace.id)).toBeCloseTo(zoom, 5);
     expect((viewport.scrollLeft + 160) / zoom).toBeCloseTo(1160, 5);
     expect((viewport.scrollTop + 120) / zoom).toBeCloseTo(920, 5);
     expect(zoomSpace.style.width).toBe(`${CANVAS_WIDTH * zoom}px`);
     expect(zoomSpace.style.height).toBe(`${CANVAS_HEIGHT * zoom}px`);
     expect(surface.style.transform).toBe(`scale(${zoom})`);
+  });
+
+  it('keeps the canvas in a cheap overview mode at far zoom-out', () => {
+    vi.useFakeTimers();
+    let frame: FrameRequestCallback | undefined;
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+      frame = callback;
+      return 19;
+    }));
+    const state = new CanvasGState();
+    const service = new CanvasService(state, () => workspace);
+    const viewport = createViewport();
+    const zoomSpace = document.createElement('div');
+    zoomSpace.className = 'canvas-zoom-space';
+    const surface = document.createElement('div');
+    surface.className = 'canvas-surface';
+    zoomSpace.append(surface);
+    viewport.append(zoomSpace);
+    service.attachViewport(viewport);
+
+    for (let index = 0; index < 8; index += 1) service.zoomOut();
+    frame?.(16);
+
+    expect(viewport).toHaveClass('canvas-viewport--zooming');
+    expect(viewport).toHaveClass('canvas-viewport--overview');
+
+    vi.advanceTimersByTime(160);
+
+    expect(viewport).not.toHaveClass('canvas-viewport--zooming');
+    expect(viewport).toHaveClass('canvas-viewport--overview');
+    expect(state.zoomFor(workspace.id)).toBe(0.25);
   });
 
   it('leaves two-finger scrolling native and handles ctrl-wheel as pinch zoom', () => {

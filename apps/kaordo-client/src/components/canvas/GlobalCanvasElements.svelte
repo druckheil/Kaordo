@@ -165,7 +165,7 @@
 
   function canvasPoint(event: PointerEvent) {
     const bounds = layer?.getBoundingClientRect();
-    const zoom = canvas.state.zoomFor(workspaceId);
+    const zoom = canvas.currentZoom();
     const applicationScale = canvasApplicationScale();
     return {
       x: clamp(
@@ -205,7 +205,7 @@
         return;
       }
       const bounds = layer?.getBoundingClientRect();
-      const zoom = canvas.state.zoomFor(workspaceId);
+      const zoom = canvas.currentZoom();
       const applicationScale = canvasApplicationScale();
       const canvasWidth = (bounds?.width || CANVAS_WIDTH * applicationScale * zoom) /
         applicationScale /
@@ -680,7 +680,7 @@
     elements: readonly CanvasElement[] = document.elements,
   ): RectangleElement {
     const bounds = layer?.getBoundingClientRect();
-    const zoom = canvas.state.zoomFor(workspaceId);
+    const zoom = canvas.currentZoom();
     const applicationScale = canvasApplicationScale();
     const geometry = rectangleGeometry(draw, {
       boundsHeight: (bounds?.height || CANVAS_HEIGHT * applicationScale * zoom) /
@@ -1007,7 +1007,7 @@
 
   function movedElement(move: MoveGesture): CanvasElement {
     const bounds = layer?.getBoundingClientRect();
-    const zoom = canvas.state.zoomFor(workspaceId);
+    const zoom = canvas.currentZoom();
     const applicationScale = canvasApplicationScale();
     const deltaX = move.currentX - move.startX;
     const deltaY = move.currentY - move.startY;
@@ -1270,6 +1270,7 @@
     const transform = `translate3d(${x}px, ${y}px, 0)`;
     dispatchCanvasLiveMove(move, document.elements, x, y);
     for (const node of move.visualNodes) {
+      node.classList.add('canvas-canvas-item--dragging');
       if (node.classList.contains('canvas-arrow')) continue;
       node.style.transform = transform;
       node.style.willChange = 'transform';
@@ -1300,6 +1301,7 @@
     if (active?.kind === 'move') {
       dispatchCanvasLiveEnd(active, document.elements);
       for (const node of active.visualNodes) {
+        node.classList.remove('canvas-canvas-item--dragging');
         node.style.removeProperty('transform');
         node.style.removeProperty('will-change');
         node.style.removeProperty('z-index');

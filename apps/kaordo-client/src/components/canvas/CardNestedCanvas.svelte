@@ -69,6 +69,7 @@
   type Props = {
     canvas: CanvasService;
     document: WorkspaceCanvasDocument;
+    panelElements: readonly CanvasElement[];
     placement: CanvasPlacement;
     snapshot: Readonly<CanvasSnapshot>;
     workspaceId: string;
@@ -99,7 +100,7 @@
     overflow: string;
   };
 
-  let { canvas, document, placement, snapshot, workspaceId }: Props = $props();
+  let { canvas, document, panelElements, placement, snapshot, workspaceId }: Props = $props();
   let board = $state<HTMLDivElement>();
   let draftElement: HTMLSpanElement | undefined;
   let draftArrow: SVGSVGElement | undefined;
@@ -112,11 +113,7 @@
   let lastRectanglePointerDown: { at: number; id: string } | null = null;
   let zoom = $derived(snapshot.zooms[workspaceId] ?? 1);
   let dragOverflowNodes: DragOverflowNode[] = [];
-  let elements = $derived(
-    document.elements.filter(
-      (element) => element.parentObjectId === placement.id,
-    ),
-  );
+  let elements = $derived(panelElements);
   let selectionResolver = $derived.by(() => createCanvasSelectionResolver(
     snapshot.selectedItems,
     elements,
@@ -135,7 +132,7 @@
 
   function boardPoint(event: PointerEvent, constrained = false) {
     const bounds = board?.getBoundingClientRect();
-    const zoom = canvas.state.zoomFor(workspaceId);
+    const zoom = canvas.currentZoom();
     const applicationScale = canvasApplicationScale();
     const x = (event.clientX - (bounds?.left ?? 0)) / applicationScale / zoom;
     const y = (event.clientY - (bounds?.top ?? 0)) / applicationScale / zoom;
@@ -634,7 +631,7 @@
 
   function drawnRectangle(draw: RectangleDrawGesture): RectangleElement {
     const bounds = board?.getBoundingClientRect();
-    const zoom = canvas.state.zoomFor(workspaceId);
+    const zoom = canvas.currentZoom();
     const applicationScale = canvasApplicationScale();
     const geometry = rectangleGeometry(draw, {
       boundsHeight: (bounds?.height ?? placement.height * applicationScale * zoom) / applicationScale / zoom,
@@ -1157,6 +1154,7 @@
     const transform = `translate3d(${x}px, ${y}px, 0)`;
     dispatchCanvasLiveMove(move, document.elements, x, y);
     for (const node of move.visualNodes) {
+      node.classList.add('canvas-canvas-item--dragging');
       if (node.classList.contains('canvas-arrow')) continue;
       node.style.transform = transform;
       node.style.willChange = 'transform';
@@ -1188,6 +1186,7 @@
       endDragOverflow();
       dispatchCanvasLiveEnd(active, document.elements);
       for (const node of active.visualNodes) {
+        node.classList.remove('canvas-canvas-item--dragging');
         node.style.removeProperty('transform');
         node.style.removeProperty('will-change');
         node.style.removeProperty('z-index');
@@ -1218,6 +1217,8 @@
       // where :has() selectors may be unavailable or delayed during a drag.
       if (node === board) {
         node.classList.add('card-nested-canvas--moving');
+      } else if (node.classList.contains('canvas-card-positioner')) {
+        node.classList.add('canvas-canvas-item--dragging');
       } else if (node.classList.contains('canvas-card')) {
         node.classList.add('canvas-card--nested-element-moving');
       }
@@ -1229,6 +1230,8 @@
     for (const { node, overflow } of dragOverflowNodes) {
       if (node === board) {
         node.classList.remove('card-nested-canvas--moving');
+      } else if (node.classList.contains('canvas-card-positioner')) {
+        node.classList.remove('canvas-canvas-item--dragging');
       } else if (node.classList.contains('canvas-card')) {
         node.classList.remove('canvas-card--nested-element-moving');
       }

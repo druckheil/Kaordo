@@ -10,6 +10,10 @@ import {
   clampCanvasZoom,
   pointerToCanvas,
 } from '../features/canvas';
+import {
+  refreshCanvasVisibility,
+  suspendCanvasVisibility,
+} from '../features/canvasMediaVisibility';
 import { notifyAllTextLayoutsChanged } from '../features/textLayout';
 import { CanvasGState } from '../states/CanvasGState';
 
@@ -29,6 +33,20 @@ type PendingZoom = {
   zoom: number;
 };
 
+type LiveZoom = {
+  offsetX: number;
+  offsetY: number;
+  workspaceId: string;
+  zoom: number;
+};
+
+type WheelViewportGeometry = {
+  height: number;
+  left: number;
+  top: number;
+  width: number;
+};
+
 /** Owns the viewport element, pan lifecycle, and camera restoration. */
 export class CanvasViewportService {
   readonly #getWorkspace: () => WorkspaceDetail | null;
@@ -37,14 +55,21 @@ export class CanvasViewportService {
   #cameraCommitTimer: number | null = null;
   #isRestoringCamera = false;
   #pan: PanStart | null = null;
+  #panFrame: number | null = null;
+  #pendingPan: { scrollLeft: number; scrollTop: number } | null = null;
+  #liveZoom: LiveZoom | null = null;
   #pendingZoom: PendingZoom | null = null;
   #pendingCameraWorkspaceId: string | null = null;
   #viewport: HTMLDivElement | null = null;
   #wheelGesture: 'mouse' | 'trackpad' | null = null;
   #wheelGestureAt = 0;
+  #wheelGeometry: WheelViewportGeometry | null = null;
+  #wheelGeometryAt = 0;
   #zoomFrame: number | null = null;
+  #zoomCommitTimer: number | null = null;
   #textLayoutFrame: number | null = null;
-  #zoomWillChangeTimer: number | null = null;
+  #zoomSpace: HTMLElement | null = null;
+  #surface: HTMLElement | null = null;
 
   constructor(
     state: CanvasGState,
@@ -59,13 +84,49 @@ export class CanvasViewportService {
   }
 
   attach(element: HTMLDivElement | null): void {
+    if (this.#viewport && this.#viewport !== element) {
+      this.commitLiveZoom();
+      this.clearScrollPerformanceMode();
+    }
     this.#viewport = element;
+    this.#wheelGeometry = null;
+    this.#wheelGeometryAt = 0;
+    this.#zoomSpace = element?.querySelector<HTMLElement>('.canvas-zoom-space') ?? null;
+    this.#surface = element?.querySelector<HTMLElement>('.canvas-surface') ?? null;
+    const zoom = this.currentZoom();
+    if (element) {
+      element.style.setProperty('--canvas-zoom', `${zoom}`);
+      this.syncZoomSpace(zoom);
+      if (this.#surface) {
+        this.#surface.style.transform = Math.abs(zoom - 1) < 0.0001
+          ? ''
+          : `scale(${zoom})`;
+      }
+    }
+    this.updateZoomPresentation(zoom);
     if (!element) {
       this.cancelScheduledCameraCapture();
+      this.cancelPanFrame();
       this.cancelZoomAnimation();
       this.cancelTextLayoutRefresh();
-      this.clearZoomWillChange();
     }
+  }
+
+  /**
+   * Marks native scrolling as a short-lived compositor-critical phase.
+   * Rendering keeps its state untouched; CSS only removes expensive effects
+   * until the scroll gesture has settled.
+   */
+  handleScroll(): void {
+    const viewport = this.#viewport;
+    if (!viewport) return;
+    viewport.classList.add('canvas-viewport--scrolling');
+  }
+
+  /** Returns the visual zoom, including a zoom gesture not committed to state yet. */
+  currentZoom(workspaceId = this.#getWorkspace()?.id ?? ''): number {
+    if (this.#liveZoom?.workspaceId === workspaceId) return this.#liveZoom.zoom;
+    return this.#state.zoomFor(workspaceId);
   }
 
   bounds(): CanvasBounds | null {
@@ -84,13 +145,14 @@ export class CanvasViewportService {
     applicationScale = canvasApplicationScale(),
   ): CanvasPoint | null {
     if (!this.#viewport || !bounds) return null;
+    const visualScroll = this.visualScroll();
     return pointerToCanvas(
       { x: clientX, y: clientY },
       bounds,
-      this.#viewport,
+      visualScroll,
       { x: grabOffsetX, y: grabOffsetY },
       size,
-      this.#state.zoomFor(this.#getWorkspace()?.id ?? ''),
+      this.currentZoom(),
       applicationScale,
     );
   }
@@ -101,16 +163,17 @@ export class CanvasViewportService {
       return { height: 0, scrollLeft: 0, scrollTop: 0, width: 0 };
     }
     const { clientHeight, clientWidth } = viewport;
-    const zoom = this.#state.zoomFor(this.#getWorkspace()?.id ?? '');
+    const zoom = this.currentZoom();
     const applicationScale = canvasApplicationScale();
+    const visualScroll = this.visualScroll();
     const bounds =
       clientHeight > 0 && clientWidth > 0
         ? null
         : viewport.getBoundingClientRect();
     return {
       height: (clientHeight || (bounds?.height ?? 0) / applicationScale) / zoom,
-      scrollLeft: viewport.scrollLeft / zoom,
-      scrollTop: viewport.scrollTop / zoom,
+      scrollLeft: visualScroll.scrollLeft / zoom,
+      scrollTop: visualScroll.scrollTop / zoom,
       width: (clientWidth || (bounds?.width ?? 0) / applicationScale) / zoom,
     };
   }
@@ -120,7 +183,11 @@ export class CanvasViewportService {
     const viewport = this.#viewport;
     if (!workspace || !viewport || event.deltaY === 0) return false;
     if (!event.ctrlKey && this.isTrackpadScroll(event)) {
-      if (this.#zoomFrame !== null || this.#pendingZoom !== null) {
+      if (
+        this.#zoomFrame !== null ||
+        this.#pendingZoom !== null ||
+        this.#liveZoom !== null
+      ) {
         this.cancelZoomAnimation();
       }
       return false;
@@ -133,20 +200,31 @@ export class CanvasViewportService {
         : 1);
     const base = this.#pendingZoom?.workspaceId === workspace.id
       ? this.#pendingZoom.zoom
-      : this.#state.zoomFor(workspace.id);
-    const bounds = viewport.getBoundingClientRect();
+      : this.currentZoom(workspace.id);
     const applicationScale = canvasApplicationScale();
+    const now = performance.now();
+    if (!this.#wheelGeometry || now - this.#wheelGeometryAt > WHEEL_GEOMETRY_CACHE_MS) {
+      const bounds = viewport.getBoundingClientRect();
+      this.#wheelGeometry = {
+        height: viewport.clientHeight,
+        left: bounds.left,
+        top: bounds.top,
+        width: viewport.clientWidth,
+      };
+      this.#wheelGeometryAt = now;
+    }
+    const geometry = this.#wheelGeometry;
     this.requestZoom(
       workspace.id,
       base * Math.exp(-delta * (event.ctrlKey ? 0.008 : 0.0012)),
       {
         x: Math.max(
           0,
-          Math.min(viewport.clientWidth, (event.clientX - bounds.left) / applicationScale),
+          Math.min(geometry.width, (event.clientX - geometry.left) / applicationScale),
         ),
         y: Math.max(
           0,
-          Math.min(viewport.clientHeight, (event.clientY - bounds.top) / applicationScale),
+          Math.min(geometry.height, (event.clientY - geometry.top) / applicationScale),
         ),
       },
     );
@@ -159,7 +237,7 @@ export class CanvasViewportService {
     if (!workspace || !viewport) return;
     this.requestZoom(
       workspace.id,
-      (this.#pendingZoom?.zoom ?? this.#state.zoomFor(workspace.id)) * factor,
+      (this.#pendingZoom?.zoom ?? this.currentZoom(workspace.id)) * factor,
       { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 },
     );
   }
@@ -212,6 +290,7 @@ export class CanvasViewportService {
     }
 
     this.cancelZoomAnimation();
+    this.cancelPanFrame();
     event.preventDefault();
     this.#pan = {
       clientX: event.clientX,
@@ -227,16 +306,27 @@ export class CanvasViewportService {
   continuePan(event: PointerEvent): void {
     const pan = this.#pan;
     if (!pan || pan.pointerId !== event.pointerId || !this.#viewport) return;
+    const sample = event.getCoalescedEvents?.().at(-1) ?? event;
     const applicationScale = canvasApplicationScale();
-    this.#viewport.scrollLeft =
-      pan.scrollLeft - (event.clientX - pan.clientX) / applicationScale;
-    this.#viewport.scrollTop =
-      pan.scrollTop - (event.clientY - pan.clientY) / applicationScale;
+    this.#pendingPan = {
+      scrollLeft: pan.scrollLeft - (sample.clientX - pan.clientX) / applicationScale,
+      scrollTop: pan.scrollTop - (sample.clientY - pan.clientY) / applicationScale,
+    };
+    if (typeof window.requestAnimationFrame !== 'function') {
+      this.flushPan();
+      return;
+    }
+    if (this.#panFrame !== null) return;
+    this.#panFrame = window.requestAnimationFrame(() => {
+      this.#panFrame = null;
+      this.flushPan();
+    });
   }
 
   finishPan(event: PointerEvent): void {
     const pan = this.#pan;
     if (!pan || pan.pointerId !== event.pointerId) return;
+    this.continuePan(event);
     this.endPan(pan, true);
   }
 
@@ -271,17 +361,26 @@ export class CanvasViewportService {
     this.#cameraCommitTimer = window.setTimeout(() => {
       this.#cameraCommitTimer = null;
       const pendingWorkspaceId = this.#pendingCameraWorkspaceId;
+      if (
+        this.#liveZoom ||
+        this.#zoomFrame !== null ||
+        this.#pendingZoom !== null
+      ) return;
       this.#pendingCameraWorkspaceId = null;
       this.captureCameraNow(pendingWorkspaceId ?? undefined);
+      this.clearScrollPerformanceMode();
     }, CAMERA_IDLE_CAPTURE_MS);
   }
 
   captureCamera(workspaceId = this.#getWorkspace()?.id): void {
     this.cancelScheduledCameraCapture();
+    this.commitLiveZoom();
+    this.clearScrollPerformanceMode();
     this.captureCameraNow(workspaceId);
   }
 
   async restoreCamera(workspaceId: string): Promise<void> {
+    this.commitLiveZoom();
     this.cancelScheduledCameraCapture();
     const attempt = ++this.#cameraRestoreAttempt;
     this.#isRestoringCamera = true;
@@ -307,6 +406,7 @@ export class CanvasViewportService {
     viewport.scrollTop = scroll.y * zoom;
     viewport.style.removeProperty('scroll-behavior');
     this.#isRestoringCamera = false;
+    this.clearScrollPerformanceMode();
     this.#state.cameraRestored(
       workspaceId,
       cameraFromScroll(scroll, metrics),
@@ -331,6 +431,7 @@ export class CanvasViewportService {
     const reduceMotion = window.matchMedia?.(
       '(prefers-reduced-motion: reduce)',
     ).matches;
+    if (card) revealCanvasTarget(card);
     card?.scrollIntoView?.({
       behavior: reduceMotion ? 'auto' : 'smooth',
       block: position,
@@ -350,6 +451,7 @@ export class CanvasViewportService {
     const reduceMotion = window.matchMedia?.(
       '(prefers-reduced-motion: reduce)',
     ).matches;
+    if (element) revealCanvasTarget(element);
     element?.scrollIntoView?.({
       behavior: reduceMotion ? 'auto' : 'smooth',
       block: 'center',
@@ -359,6 +461,7 @@ export class CanvasViewportService {
   }
 
   private endPan(pan: PanStart, releaseCapture: boolean): void {
+    this.flushPan();
     this.#pan = null;
     this.#state.setPanning(false);
     if (
@@ -370,6 +473,26 @@ export class CanvasViewportService {
     this.captureCamera();
   }
 
+  private flushPan(): void {
+    if (this.#panFrame !== null) {
+      window.cancelAnimationFrame?.(this.#panFrame);
+      this.#panFrame = null;
+    }
+    const pending = this.#pendingPan;
+    this.#pendingPan = null;
+    if (!pending || !this.#pan || !this.#viewport) return;
+    this.#viewport.scrollLeft = pending.scrollLeft;
+    this.#viewport.scrollTop = pending.scrollTop;
+  }
+
+  private cancelPanFrame(): void {
+    if (this.#panFrame !== null) {
+      window.cancelAnimationFrame?.(this.#panFrame);
+      this.#panFrame = null;
+    }
+    this.#pendingPan = null;
+  }
+
   private requestZoom(
     workspaceId: string,
     requestedZoom: number,
@@ -378,9 +501,11 @@ export class CanvasViewportService {
     const viewport = this.#viewport;
     if (!viewport) return;
     const target = clampCanvasZoom(requestedZoom);
+    const current = this.currentZoom(workspaceId);
     if (
-      Math.abs(target - this.#state.zoomFor(workspaceId)) < 0.0001 &&
-      this.#zoomFrame === null
+      Math.abs(target - current) < 0.0001 &&
+      this.#zoomFrame === null &&
+      this.#pendingZoom === null
     ) return;
 
     this.#pendingZoom = { anchor, workspaceId, zoom: target };
@@ -405,49 +530,48 @@ export class CanvasViewportService {
     const viewport = this.#viewport;
     if (!viewport) return;
 
-    const current = this.#state.zoomFor(workspaceId);
+    const live = this.#liveZoom?.workspaceId === workspaceId
+      ? this.#liveZoom
+      : null;
+    const current = live?.zoom ?? this.#state.zoomFor(workspaceId);
     const canvasAnchor = {
-      x: (viewport.scrollLeft + anchor.x) / current,
-      y: (viewport.scrollTop + anchor.y) / current,
+      x: (viewport.scrollLeft + anchor.x - (live?.offsetX ?? 0)) / current,
+      y: (viewport.scrollTop + anchor.y - (live?.offsetY ?? 0)) / current,
     };
+    const offsetX = viewport.scrollLeft + anchor.x - canvasAnchor.x * next;
+    const offsetY = viewport.scrollTop + anchor.y - canvasAnchor.y * next;
 
-    this.#state.setZoom(workspaceId, next);
-    const zoomSpace = viewport.querySelector<HTMLElement>('.canvas-zoom-space');
-    const surface = viewport.querySelector<HTMLElement>('.canvas-surface');
-    if (zoomSpace) {
-      zoomSpace.style.width = `${CANVAS_WIDTH * next}px`;
-      zoomSpace.style.height = `${CANVAS_HEIGHT * next}px`;
-    }
+    // Keep the high-frequency part of zoom outside the reactive snapshot.
+    // Publishing here would make every CanvasCard and every canvas element
+    // re-run its Svelte update path once per wheel frame.
+    this.#liveZoom = {
+      offsetX,
+      offsetY,
+      workspaceId,
+      zoom: next,
+    };
+    viewport.classList.add('canvas-viewport--zooming');
+    suspendCanvasVisibility(viewport);
+    const surface = this.#surface ?? viewport.querySelector<HTMLElement>('.canvas-surface');
     if (surface) {
-      // Promote the large surface only while zooming. Keeping a permanent
-      // The large compositor layer makes native scrolling compete for GPU
-      // memory, especially in scaled Tauri windows.
-      viewport.style.setProperty('--canvas-zoom', `${next}`);
       if (Math.abs(next - 1) < 0.0001) {
-        surface.style.removeProperty('transform');
+        surface.style.transform = `translate3d(${offsetX}px, ${offsetY}px, 0)`;
       } else {
-        surface.style.willChange = 'transform';
-        surface.style.transform = `scale(${next})`;
+        surface.style.transform =
+          `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${next})`;
       }
-      if (this.#zoomWillChangeTimer !== null) {
-        window.clearTimeout(this.#zoomWillChangeTimer);
-      }
-      this.#zoomWillChangeTimer = window.setTimeout(() => {
-        this.#zoomWillChangeTimer = null;
-        surface.style.removeProperty('will-change');
-      }, ZOOM_WILL_CHANGE_MS);
     }
-    this.scheduleTextLayoutRefresh();
-    viewport.scrollLeft = canvasAnchor.x * next - anchor.x;
-    viewport.scrollTop = canvasAnchor.y * next - anchor.y;
+    this.updateZoomPresentation(next);
+    this.scheduleZoomCommit(workspaceId);
   }
 
-  private cancelZoomAnimation(): void {
+  private cancelZoomAnimation(commitLive = true): void {
     if (this.#zoomFrame !== null) {
       window.cancelAnimationFrame?.(this.#zoomFrame);
     }
     this.#zoomFrame = null;
     this.#pendingZoom = null;
+    if (commitLive) this.commitLiveZoom();
   }
 
   /**
@@ -477,13 +601,102 @@ export class CanvasViewportService {
     this.#textLayoutFrame = null;
   }
 
-  private clearZoomWillChange(): void {
-    if (this.#zoomWillChangeTimer !== null) {
-      window.clearTimeout(this.#zoomWillChangeTimer);
-      this.#zoomWillChangeTimer = null;
+  private clearScrollPerformanceMode(): void {
+    this.#viewport?.classList.remove(
+      'canvas-viewport--scrolling',
+      'canvas-viewport--zooming',
+    );
+  }
+
+  private scheduleZoomCommit(workspaceId: string): void {
+    if (this.#zoomCommitTimer !== null) {
+      window.clearTimeout(this.#zoomCommitTimer);
     }
-    this.#viewport?.querySelector<HTMLElement>('.canvas-surface')
-      ?.style.removeProperty('will-change');
+    this.#zoomCommitTimer = window.setTimeout(() => {
+      this.#zoomCommitTimer = null;
+      this.commitLiveZoom(workspaceId);
+    }, ZOOM_IDLE_COMMIT_MS);
+  }
+
+  private commitLiveZoom(workspaceId = this.#liveZoom?.workspaceId): void {
+    if (
+      !this.#liveZoom ||
+      (workspaceId && this.#liveZoom.workspaceId !== workspaceId)
+    ) return;
+    const liveZoom = this.#liveZoom;
+    this.#liveZoom = null;
+    if (this.#zoomCommitTimer !== null) {
+      window.clearTimeout(this.#zoomCommitTimer);
+      this.#zoomCommitTimer = null;
+    }
+    const viewport = this.#viewport;
+    const scrollLeft = viewport?.scrollLeft ?? 0;
+    const scrollTop = viewport?.scrollTop ?? 0;
+    const nextScrollLeft = scrollLeft - liveZoom.offsetX;
+    const nextScrollTop = scrollTop - liveZoom.offsetY;
+    this.syncZoomSpace(liveZoom.zoom);
+    if (viewport) {
+      viewport.style.setProperty('--canvas-zoom', `${liveZoom.zoom}`);
+      viewport.scrollLeft = clampScroll(
+        nextScrollLeft,
+        CANVAS_WIDTH * liveZoom.zoom,
+        viewport.clientWidth,
+      );
+      viewport.scrollTop = clampScroll(
+        nextScrollTop,
+        CANVAS_HEIGHT * liveZoom.zoom,
+        viewport.clientHeight,
+      );
+    }
+    if (this.#surface) {
+      if (Math.abs(liveZoom.zoom - 1) < 0.0001) {
+        this.#surface.style.removeProperty('transform');
+      } else {
+        this.#surface.style.transform = `scale(${liveZoom.zoom})`;
+      }
+    }
+    const changed = Math.abs(
+      this.#state.zoomFor(liveZoom.workspaceId) - liveZoom.zoom,
+    ) >= 0.0001;
+    if (changed) {
+      this.#state.setZoom(liveZoom.workspaceId, liveZoom.zoom);
+      this.scheduleTextLayoutRefresh();
+    }
+    this.updateZoomPresentation(liveZoom.zoom);
+    this.#viewport?.classList.remove(
+      'canvas-viewport--scrolling',
+      'canvas-viewport--zooming',
+    );
+    refreshCanvasVisibility(this.#viewport);
+    const pendingCameraWorkspaceId = this.#pendingCameraWorkspaceId;
+    if (pendingCameraWorkspaceId) {
+      this.#pendingCameraWorkspaceId = null;
+      this.captureCameraNow(pendingCameraWorkspaceId);
+    }
+  }
+
+  private updateZoomPresentation(zoom: number): void {
+    this.#viewport?.classList.toggle(
+      'canvas-viewport--overview',
+      zoom <= CANVAS_OVERVIEW_ZOOM,
+    );
+  }
+
+  private syncZoomSpace(
+    zoom: number,
+    zoomSpace = this.#zoomSpace,
+  ): void {
+    if (!zoomSpace) return;
+    zoomSpace.style.width = `${CANVAS_WIDTH * zoom}px`;
+    zoomSpace.style.height = `${CANVAS_HEIGHT * zoom}px`;
+  }
+
+  private visualScroll(): { scrollLeft: number; scrollTop: number } {
+    const live = this.#liveZoom;
+    return {
+      scrollLeft: (this.#viewport?.scrollLeft ?? 0) - (live?.offsetX ?? 0),
+      scrollTop: (this.#viewport?.scrollTop ?? 0) - (live?.offsetY ?? 0),
+    };
   }
 
   private isTrackpadScroll(event: WheelEvent): boolean {
@@ -523,5 +736,20 @@ export class CanvasViewportService {
   }
 }
 
+function revealCanvasTarget(target: HTMLElement): void {
+  let current: HTMLElement | null = target;
+  while (current) {
+    current.classList.remove('canvas-canvas-item--offscreen');
+    if (current.classList.contains('canvas-viewport')) break;
+    current = current.parentElement;
+  }
+}
+
 const CAMERA_IDLE_CAPTURE_MS = 140;
-const ZOOM_WILL_CHANGE_MS = 180;
+const ZOOM_IDLE_COMMIT_MS = 160;
+const CANVAS_OVERVIEW_ZOOM = 0.6;
+const WHEEL_GEOMETRY_CACHE_MS = 500;
+
+function clampScroll(value: number, contentSize: number, viewportSize: number): number {
+  return Math.max(0, Math.min(Math.max(0, contentSize - viewportSize), value));
+}

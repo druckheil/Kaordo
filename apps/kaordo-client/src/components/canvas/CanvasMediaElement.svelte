@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import type { MediaElement } from '../../lib/domain/workspace';
   import {
     CANVAS_MEDIA_MAX_HEIGHT,
@@ -12,6 +12,7 @@
     isCanvasSelectionActive,
     isCanvasSelectionModifier,
   } from '../../lib/features/canvasSelection';
+  import { observeCanvasVisibility } from '../../lib/features/canvasMediaVisibility';
   import type { CanvasService } from '../../lib/services/CanvasService';
   import KaordoVideoPlayer from '../ui/KaordoVideoPlayer.svelte';
   import PhotoViewer from '../ui/PhotoViewer.svelte';
@@ -44,8 +45,10 @@
     selected,
     workspaceId,
   }: Props = $props();
+  let mediaRoot = $state<HTMLDivElement>();
   let mediaUrl = $state<string | null>(null);
-  let loadState = $state<'loading' | 'ready' | 'error'>('loading');
+  let mediaLoadRequested = $state(false);
+  let loadState = $state<'deferred' | 'loading' | 'ready' | 'error'>('deferred');
   let showPhotoViewer = $state(false);
   let audio = $state<HTMLAudioElement>();
   let audioPlaying = $state(false);
@@ -59,7 +62,20 @@
   let resize = $state<ResizeGesture | null>(null);
   let resizedSize = $state<{ height: number; width: number } | null>(null);
 
+  onMount(() => {
+    if (!mediaRoot) {
+      mediaLoadRequested = true;
+      return;
+    }
+    const root = mediaRoot.closest<HTMLElement>('.canvas-viewport');
+    return observeCanvasVisibility(mediaRoot, root, (visible) => {
+      mediaRoot?.classList.toggle('canvas-canvas-item--offscreen', !visible);
+      if (visible) mediaLoadRequested = true;
+    }, { rootMargin: '320px' });
+  });
+
   $effect(() => {
+    if (!mediaLoadRequested) return;
     const currentWorkspaceId = workspaceId;
     const mediaId = element.mediaId;
     const mimeType = element.mimeType;
@@ -101,6 +117,7 @@
 
   function startInteraction(event: PointerEvent) {
     if (event.button !== 0) return;
+    mediaLoadRequested = true;
     event.stopPropagation();
     if (moving) return;
     if (isDragHandle(event.target)) {
@@ -173,6 +190,10 @@
     event.preventDefault();
     event.stopPropagation();
     onStartMove(event, element);
+  }
+
+  function requestMediaLoad() {
+    mediaLoadRequested = true;
   }
 
   function startResize(event: PointerEvent) {
@@ -340,6 +361,7 @@
 </script>
 
 <div
+  bind:this={mediaRoot}
   class="canvas-media"
   class:canvas-media--selected={selected}
   class:canvas-media--moving={moving}
@@ -352,15 +374,22 @@
   onpointermove={continueInteraction}
   onpointerup={finishInteraction}
   onpointercancel={finishInteraction}
-  oncontextmenu={(event) => onContextMenu?.(
-    event,
-    element.kind === 'image' || element.kind === 'gif'
-      ? () => { showPhotoViewer = true; }
-      : undefined,
-  )}
+  oncontextmenu={(event) => {
+    requestMediaLoad();
+    onContextMenu?.(
+      event,
+      element.kind === 'image' || element.kind === 'gif'
+        ? () => { showPhotoViewer = true; }
+        : undefined,
+    );
+  }}
 >
-  {#if loadState === 'loading'}
-    <div class="canvas-media-loading" aria-label="Loading media"><span></span></div>
+  {#if loadState === 'deferred' || loadState === 'loading'}
+    <div
+      class="canvas-media-loading"
+      class:canvas-media-loading--deferred={loadState === 'deferred'}
+      aria-label={loadState === 'loading' ? 'Loading media' : 'Media preview deferred'}
+    ><span></span></div>
   {:else if loadState === 'error' || !mediaUrl}
     <div class="canvas-media-error">Media unavailable</div>
   {:else if element.kind === 'image' || element.kind === 'gif'}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import type { CanvasPlacement } from '../../lib/domain/canvas';
   import type { ArrowElement, ArrowAttachment, CanvasElement } from '../../lib/domain/workspace';
   import {
@@ -9,9 +9,9 @@
     type ArrowPoint,
   } from '../../lib/features/arrowGeometry';
   import {
-    ARROW_LIVE_DRAG_EVENT,
     type ArrowHandle,
     type ArrowLiveDragDetail,
+    subscribeArrowLiveDrag,
   } from '../../lib/features/arrowLive';
   import {
     ALL_TEXT_LAYOUTS,
@@ -46,6 +46,7 @@
   let liveControlDeltas = $state<Record<number, { deltaX: number; deltaY: number }>>({});
   let pendingLiveDrags = new Map<string, ArrowLiveDragDetail>();
   let liveFrame: number | null = null;
+  let arrowRoot = $state<SVGSVGElement>();
   let textLayoutRevision = $state(0);
   let points = $derived.by(() => {
     textLayoutRevision;
@@ -84,20 +85,6 @@
   );
 
   onMount(() => {
-    const handleLiveDrag = (event: Event) => {
-      const detail = (event as CustomEvent<ArrowLiveDragDetail>).detail;
-      if (!detail) return;
-      pendingLiveDrags.set(liveDetailKey(detail), detail);
-      if (liveFrame !== null) return;
-      liveFrame = requestAnimationFrame(() => {
-        liveFrame = null;
-        const next = [...pendingLiveDrags.values()];
-        pendingLiveDrags = new Map();
-        for (const drag of next) applyLiveDrag(drag);
-      });
-    };
-
-    window.addEventListener(ARROW_LIVE_DRAG_EVENT, handleLiveDrag);
     const refreshFrame = window.requestAnimationFrame?.(() => {
       textLayoutRevision += 1;
     }) ?? null;
@@ -111,13 +98,39 @@
       }
     });
     return () => {
-      window.removeEventListener(ARROW_LIVE_DRAG_EVENT, handleLiveDrag);
       unsubscribeTextLayout();
       if (refreshFrame !== null) window.cancelAnimationFrame?.(refreshFrame);
-      if (liveFrame !== null) cancelAnimationFrame(liveFrame);
-      liveFrame = null;
-      pendingLiveDrags.clear();
     };
+  });
+
+  $effect(() => {
+    const unsubscribe = subscribeArrowLiveDrag({
+      arrowIds: [arrow.id],
+      elementIds: [
+        arrow.startAttachment?.elementId,
+        arrow.endAttachment?.elementId,
+      ].filter((id): id is string => Boolean(id)),
+      objectIds: [
+        arrow.startAttachment?.objectId,
+        arrow.endAttachment?.objectId,
+      ].filter((id): id is string => Boolean(id)),
+    }, (detail) => {
+      pendingLiveDrags.set(liveDetailKey(detail), detail);
+      if (liveFrame !== null) return;
+      liveFrame = requestAnimationFrame(() => {
+        liveFrame = null;
+        const next = [...pendingLiveDrags.values()];
+        pendingLiveDrags = new Map();
+        for (const drag of next) applyLiveDrag(drag);
+      });
+    });
+    return unsubscribe;
+  });
+
+  onDestroy(() => {
+    if (liveFrame !== null) cancelAnimationFrame(liveFrame);
+    liveFrame = null;
+    pendingLiveDrags.clear();
   });
 
   function applyLiveDrag(detail: ArrowLiveDragDetail): void {
@@ -262,6 +275,7 @@
 </script>
 
 <svg
+  bind:this={arrowRoot}
   class="canvas-arrow"
   class:canvas-arrow--selected={selected}
   class:canvas-arrow--search-highlight={searchHighlighted}

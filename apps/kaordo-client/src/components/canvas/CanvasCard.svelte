@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { CanvasPlacement } from '../../lib/domain/canvas';
+  import type { CanvasElement, WorkspaceCanvasDocument } from '../../lib/domain/workspace';
   import type { CanvasService } from '../../lib/services/CanvasService';
   import type { CanvasSnapshot } from '../../lib/states/CanvasGState';
+  import { observeCanvasVisibility } from '../../lib/features/canvasMediaVisibility';
   import {
     isCanvasSelectionActive,
     isCanvasPanelHighlighted,
@@ -14,6 +17,8 @@
 
   type Props = {
     canvas: CanvasService;
+    document: WorkspaceCanvasDocument;
+    panelElements: readonly CanvasElement[];
     entering: boolean;
     onRenamePanel: (panel: CanvasPlacement) => void;
     placement: CanvasPlacement;
@@ -21,10 +26,20 @@
     workspaceId: string;
   };
 
-  let { canvas, entering, onRenamePanel, placement, snapshot, workspaceId }: Props = $props();
+  let { canvas, document, entering, onRenamePanel, panelElements, placement, snapshot, workspaceId }: Props = $props();
+  let positioner = $state<HTMLElement>();
+
+  onMount(() => {
+    if (!positioner) return;
+    const root = positioner.closest<HTMLElement>('.canvas-viewport');
+    return observeCanvasVisibility(positioner, root, (visible) => {
+      positioner?.classList.toggle('canvas-canvas-item--offscreen', !visible);
+    });
+  });
 </script>
 
 <article
+  bind:this={positioner}
   class="canvas-card-positioner"
   data-canvas-positioner-id={placement.id}
   style={`width:${placement.width}px;height:${placement.height}px;transform:translate3d(${placement.x}px, ${placement.y}px, 0);`}
@@ -120,12 +135,9 @@
     </button>
     <CardNestedCanvas
       {canvas}
-      document={snapshot.canvasDocuments[workspaceId] ?? {
-        elements: [],
-        placements: [],
-        version: 1,
-      }}
+      {document}
       {placement}
+      {panelElements}
       {snapshot}
       {workspaceId}
     />

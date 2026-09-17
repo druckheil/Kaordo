@@ -7,6 +7,79 @@
   transform-origin: top left;
 }
 
+/* Keep off-screen canvas subtrees in the layout map without painting or
+   hit-testing them. The observer toggles this class outside a generous
+   prefetch window, so scrolling does not mount/unmount Svelte components. */
+.canvas-card-positioner.canvas-canvas-item--offscreen,
+.canvas-media.canvas-canvas-item--offscreen {
+  content-visibility: hidden;
+}
+
+.canvas-card-positioner.canvas-canvas-item--dragging,
+.canvas-card-positioner.canvas-canvas-item--offscreen:focus,
+.canvas-card-positioner.canvas-canvas-item--offscreen:focus-within,
+.canvas-media.canvas-canvas-item--offscreen:focus,
+.canvas-media.canvas-canvas-item--offscreen:focus-within,
+.canvas-text-block--editing {
+  content-visibility: visible !important;
+}
+
+/* Native scrolling should stay paint-cheap while the document is moving.
+   The full SoftUI treatment returns as soon as the gesture settles. */
+.canvas-viewport--scrolling .canvas-card,
+.canvas-viewport--zooming .canvas-card,
+.canvas-viewport--overview .canvas-card,
+.canvas-viewport--scrolling .canvas-media,
+.canvas-viewport--zooming .canvas-media,
+.canvas-viewport--overview .canvas-media,
+.canvas-viewport--scrolling .canvas-text-block,
+.canvas-viewport--zooming .canvas-text-block,
+.canvas-viewport--overview .canvas-text-block,
+.canvas-viewport--scrolling .global-rectangle,
+.canvas-viewport--zooming .global-rectangle,
+.canvas-viewport--overview .global-rectangle,
+.canvas-viewport--scrolling .nested-rectangle,
+.canvas-viewport--zooming .nested-rectangle,
+.canvas-viewport--overview .nested-rectangle {
+  box-shadow: none !important;
+  transition: none !important;
+}
+
+.canvas-viewport--scrolling .canvas-arrow-line--selected,
+.canvas-viewport--zooming .canvas-arrow-line--selected,
+.canvas-viewport--overview .canvas-arrow-line--selected {
+  filter: none !important;
+}
+
+.canvas-viewport--scrolling .canvas-media-loading,
+.canvas-viewport--zooming .canvas-media-loading,
+.canvas-viewport--overview .canvas-media-loading,
+.canvas-viewport--scrolling .canvas-media-loading span,
+.canvas-viewport--zooming .canvas-media-loading span,
+.canvas-viewport--overview .canvas-media-loading span {
+  animation: none !important;
+}
+
+.canvas-viewport--overview .canvas-card,
+.canvas-viewport--overview .card-nested-canvas,
+.canvas-viewport--overview .canvas-media .media-resize-handle,
+.canvas-viewport--overview .canvas-text-arrow-highlight,
+.canvas-viewport--overview .canvas-text-search-highlight {
+  box-shadow: none !important;
+}
+
+.canvas-viewport--overview .canvas-card--search-highlight,
+.canvas-viewport--overview .canvas-media--search-highlight,
+.canvas-viewport--overview .canvas-element--search-highlight,
+.canvas-viewport--overview .canvas-text-arrow-highlight--active {
+  animation: none !important;
+}
+
+.canvas-media-loading--deferred,
+.canvas-media-loading--deferred span {
+  animation: none !important;
+}
+
 .canvas-card-resize-handle {
   position: absolute;
   right: 3px;

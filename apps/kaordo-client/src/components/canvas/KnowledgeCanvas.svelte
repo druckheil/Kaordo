@@ -2,7 +2,7 @@
   import type { CanvasSnapshot } from '../../lib/states/CanvasGState';
   import type { CanvasService } from '../../lib/services/CanvasService';
   import type { CanvasPlacement } from '../../lib/domain/canvas';
-  import type { WorkspaceDetail } from '../../lib/domain/workspace';
+  import type { CanvasElement, WorkspaceCanvasDocument, WorkspaceDetail } from '../../lib/domain/workspace';
   import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../../lib/features/canvas';
   import { readCanvasMediaDimensions } from '../../lib/features/canvasMediaDimensions';
   import { clipboardMediaFiles } from '../../lib/features/clipboardMedia';
@@ -19,72 +19,47 @@
     workspace: WorkspaceDetail;
   };
 
+  const EMPTY_CANVAS_ELEMENTS: CanvasElement[] = [];
+  const EMPTY_CANVAS_DOCUMENT: WorkspaceCanvasDocument = {
+    elements: EMPTY_CANVAS_ELEMENTS,
+    placements: [],
+    version: 1,
+  };
+
   let { canvas, onRenamePanel, snapshot, workspace }: Props = $props();
   let placements = $derived(snapshot.placements[workspace.id] ?? []);
-  let zoom = $derived(snapshot.zooms[workspace.id] ?? 1);
+  let canvasDocument = $derived(snapshot.canvasDocuments[workspace.id] ?? EMPTY_CANVAS_DOCUMENT);
+  let elementsByObject = $derived.by(() => {
+    const grouped = new Map<string, CanvasElement[]>();
+    for (const element of canvasDocument.elements) {
+      if (!element.parentObjectId) continue;
+      const elements = grouped.get(element.parentObjectId) ?? [];
+      elements.push(element);
+      grouped.set(element.parentObjectId, elements);
+    }
+    return grouped;
+  });
   let canvasElementCount = $derived(
-    snapshot.canvasDocuments[workspace.id]?.elements.length ?? 0,
+    canvasDocument.elements.length,
   );
 
   function attachViewport(node: HTMLDivElement) {
     canvas.attachViewport(node);
 
-    // Native touchpad scrolling must stay on the compositor. A permanently
-    // non-passive wheel listener makes the browser wait for JavaScript before
-    // every scroll update, even when the handler ultimately does nothing.
-    // Start passively and install the blocking listener only after a wheel
-    // gesture is identified as zoom input (mouse wheel or pinch).
-    const passiveOptions: AddEventListenerOptions = { passive: true };
-    const blockingOptions: AddEventListenerOptions = { passive: false };
-    let blocking = false;
-    let releaseTimer: number | null = null;
-
-    function switchToPassive(): void {
-      if (!blocking) return;
-      if (releaseTimer !== null) {
-        window.clearTimeout(releaseTimer);
-        releaseTimer = null;
-      }
-      node.removeEventListener('wheel', onBlockingWheel, blockingOptions);
-      node.addEventListener('wheel', onPassiveWheel, passiveOptions);
-      blocking = false;
-    }
-
-    function schedulePassiveSwitch(): void {
-      if (releaseTimer !== null) window.clearTimeout(releaseTimer);
-      releaseTimer = window.setTimeout(() => {
-        releaseTimer = null;
-        switchToPassive();
-      }, 180);
-    }
-
-    function onPassiveWheel(event: WheelEvent): void {
-      const shouldBlock = canvas.handleCanvasWheel(event, false);
-      if (!shouldBlock) return;
-      node.removeEventListener('wheel', onPassiveWheel, passiveOptions);
-      node.addEventListener('wheel', onBlockingWheel, blockingOptions);
-      blocking = true;
-      schedulePassiveSwitch();
-    }
-
-    function onBlockingWheel(event: WheelEvent): void {
-      const shouldBlock = canvas.handleCanvasWheel(event, true);
-      if (!shouldBlock) {
-        switchToPassive();
-        return;
-      }
-      schedulePassiveSwitch();
-    }
-
-    node.addEventListener('wheel', onPassiveWheel, passiveOptions);
+    // The first wheel event must be cancelable. If it is handled passively,
+    // the browser can scroll the viewport before we classify the gesture as
+    // zoom; that one native scroll is the visible jump under the pointer.
+    // The handler stays tiny for two-finger scrolling: CanvasViewportService
+    // returns before any layout read and does not prevent the event unless it
+    // is actually a mouse-wheel/pinch zoom.
+    const wheelOptions: AddEventListenerOptions = { passive: false };
+    const onWheel = (event: WheelEvent) => {
+      canvas.handleCanvasWheel(event, true);
+    };
+    node.addEventListener('wheel', onWheel, wheelOptions);
     return {
       destroy: () => {
-        if (releaseTimer !== null) window.clearTimeout(releaseTimer);
-        if (blocking) {
-          node.removeEventListener('wheel', onBlockingWheel, blockingOptions);
-        } else {
-          node.removeEventListener('wheel', onPassiveWheel, passiveOptions);
-        }
+        node.removeEventListener('wheel', onWheel, wheelOptions);
         canvas.attachViewport(null);
       },
     };
@@ -136,7 +111,6 @@
     class:canvas-viewport--drop-target={snapshot.isDropTarget}
     class:canvas-viewport--panning={snapshot.isPanning}
     class:canvas-viewport--camera-pending={!snapshot.isCameraReady}
-    style={`--canvas-zoom:${zoom};`}
     use:attachViewport
     role="region"
     aria-label="Knowledge canvas"
@@ -181,19 +155,14 @@
   >
     <div
       class="canvas-zoom-space"
-      style={`width: ${CANVAS_WIDTH * zoom}px; height: ${CANVAS_HEIGHT * zoom}px;`}
     >
       <div
         class="canvas-surface"
-        style={`width: ${CANVAS_WIDTH}px; height: ${CANVAS_HEIGHT}px;${zoom === 1 ? '' : ` transform:scale(${zoom});`}`}
+        style={`width: ${CANVAS_WIDTH}px; height: ${CANVAS_HEIGHT}px;`}
       >
         <GlobalCanvasElements
           {canvas}
-          document={snapshot.canvasDocuments[workspace.id] ?? {
-            elements: [],
-            placements: [],
-            version: 1,
-          }}
+          document={canvasDocument}
           {snapshot}
           workspaceId={workspace.id}
         />
@@ -207,7 +176,9 @@
         {#each placements as placement (placement.id)}
           <CanvasCard
             {canvas}
+            document={canvasDocument}
             {onRenamePanel}
+            panelElements={elementsByObject.get(placement.id) ?? EMPTY_CANVAS_ELEMENTS}
             {placement}
             {snapshot}
             workspaceId={workspace.id}
@@ -297,12 +268,44 @@
     cursor: grab;
     outline: none;
     overscroll-behavior: contain;
+    /* The viewport owns the scroll range. Do not let a transformed canvas
+       descendant make WebKit/WebView adjust that range during a live zoom. */
+    overflow-anchor: none;
     touch-action: none;
     scrollbar-color: #aab8b0 #edf1ed;
     scrollbar-width: thin;
     transition:
       background-color 220ms ease,
       box-shadow 220ms ease;
+  }
+
+  /* Repeating gradients are useful at rest but expensive to repaint against
+     a rapidly moving scroll layer. The canvas itself keeps its geometry, so
+     hiding the decorative grid for the short gesture window is safe. */
+  :global(.canvas-viewport--scrolling),
+  :global(.canvas-viewport--zooming) {
+    background-image: none;
+    transition: none;
+  }
+
+  /* At overview scale the viewport covers a much larger logical area. Keep
+     only one coarse dot layer; the three fine repeating layers otherwise
+     become a large full-viewport repaint during every zoom-out gesture. */
+  :global(.canvas-viewport--overview) {
+    background-image:
+      radial-gradient(
+        circle at 1px 1px,
+        rgb(67 104 91 / 18%) 1px,
+        transparent 1.2px
+      );
+    background-size: 96px 96px;
+    background-attachment: scroll;
+    transition: none;
+  }
+
+  :global(.canvas-viewport--overview.canvas-viewport--scrolling),
+  :global(.canvas-viewport--overview.canvas-viewport--zooming) {
+    background-image: none;
   }
 
   .canvas-viewport:focus-visible {
@@ -351,7 +354,10 @@
 
   .canvas-zoom-space {
     position: relative;
-    overflow: visible;
+    /* Keep the live transform inside the stable scroll spacer. Without this,
+       transformed overflow changes scrollWidth/scrollHeight on every zoom
+       frame and makes the browser move the viewport underneath the content. */
+    overflow: hidden;
   }
 
   .canvas-viewport--camera-pending .canvas-surface {

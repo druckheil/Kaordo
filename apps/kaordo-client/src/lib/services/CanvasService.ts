@@ -373,7 +373,7 @@ export class CanvasService {
   }
 
   currentZoom(): number {
-    return this.state.zoomFor(this.#getWorkspace()?.id ?? '');
+    return this.#viewport.currentZoom(this.#getWorkspace()?.id ?? '');
   }
 
   currentWorkspaceId(): string {
@@ -1291,6 +1291,7 @@ export class CanvasService {
   }
 
   handleCanvasScroll(): void {
+    this.#viewport.handleScroll();
     this.#drag.handleViewportScroll();
     this.#viewport.scheduleCameraCapture();
   }
