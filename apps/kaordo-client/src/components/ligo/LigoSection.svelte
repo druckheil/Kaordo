@@ -38,6 +38,7 @@
   const messageGap = 6;
   const messagePadding = 24;
   const messageOverscan = 50;
+  const messageGroupWindowMs = 5 * 60 * 1000;
   let visibleConversations = $derived(snapshot.conversations.slice(conversationStart, conversationEnd));
   let publicAvailable = $derived(Boolean(snapshot.publicStorage?.nodeCandidates.length));
   let selectedPrivate = $derived(snapshot.nodes.find(({ id }) => id === snapshot.selectedNodeId));
@@ -349,6 +350,14 @@
     return attachment.mimeType.startsWith('image/') || attachment.mimeType.startsWith('video/');
   }
   function isMine(message: LigoMessage): boolean { return message.senderId !== snapshot.activeUser?.id; }
+  function sameMessageGroup(index: number, adjacentIndex: number): boolean {
+    if (adjacentIndex < 0 || adjacentIndex >= snapshot.messages.length) return false;
+    const message = snapshot.messages[index];
+    const adjacent = snapshot.messages[adjacentIndex];
+    if (!message || !adjacent || message.senderId !== adjacent.senderId) return false;
+    return new Date(message.createdAt).toDateString() === new Date(adjacent.createdAt).toDateString() &&
+      Math.abs(message.createdAt - adjacent.createdAt) <= messageGroupWindowMs;
+  }
   function statusMark(message: LigoMessage): string {
     if (message.status === 'read') return '✓✓';
     if (message.status === 'delivered') return '✓';
@@ -466,7 +475,7 @@
         </div>
       </header>
 
-      <div bind:this={messageList} class="message-list" onscroll={onScroll}>
+      <div bind:this={messageList} class="message-list sui-chat-inset" onscroll={onScroll}>
         {#if snapshot.loadingOlder || snapshot.loadingHistory}<div class="history-loader"><LoadingSpinner compact /> {snapshot.loadingHistory ? 'Checking message clouds' : 'Loading older messages'}</div>{/if}
         {#if !snapshot.messages.length}<div class="chat-empty">
           <span class="avatar avatar--hero">{avatar(snapshot.activeUser.username)}</span>
@@ -477,10 +486,18 @@
             {#each virtualMessages as row (row.key)}
               {@const message = snapshot.messages[row.index]}
               {#if message}
+                {@const mine = isMine(message)}
+                {@const groupedBefore = sameMessageGroup(row.index, row.index - 1)}
+                {@const groupedAfter = sameMessageGroup(row.index, row.index + 1)}
                 <div class="virtual-message" data-index={row.index} data-message-id={message.id}
                   style={`transform:translateY(${row.start}px)`} use:measureMessage>
-                  <div class="message-slot" class:mine={isMine(message)}>
-                    <article class="message" class:media-message={message.attachments.some((attachment) =>
+                  <div class="message-slot sui-chat-message"
+                    class:mine={mine}
+                    class:sui-chat-message-sent={mine}
+                    class:sui-chat-message-received={!mine}
+                    class:grouped-before={groupedBefore}
+                    class:grouped-after={groupedAfter}>
+                    <article class="message sui-chat-bubble" class:media-message={message.attachments.some((attachment) =>
                         attachment.mimeType.startsWith('image/') || attachment.mimeType.startsWith('video/'))}
                       class:sending={message.status === 'sending'}
                       class:failed={message.status === 'failed'}
@@ -511,7 +528,14 @@
                         {/each}
                       </div>{/if}
                       {#if message.body}<p>{message.body}</p>{/if}
-                      <footer><time>{time(message.createdAt)}</time>{#if isMine(message)}<span title={statusTitle(message)}>{statusMark(message)}</span>{/if}</footer>
+                      <footer class="sui-chat-meta"><time>{time(message.createdAt)}</time>{#if mine}
+                        <span class="sui-chat-status"
+                          class:sui-chat-status-sent={message.status === 'sending' || message.status === 'queued'}
+                          class:sui-chat-status-delivered={message.status === 'delivered'}
+                          class:sui-chat-status-read={message.status === 'read'}
+                          class:sui-chat-status-failed={message.status === 'failed'}
+                          title={statusTitle(message)}>{statusMark(message)}</span>
+                      {/if}</footer>
                     </article>
                   </div>
                 </div>
@@ -951,32 +975,55 @@
   .chat-empty h2, .welcome h2 { margin: 0 0 8px; color: var(--sui-text); font-size: calc(20px * var(--text-scale)); letter-spacing: -.025em; }
   .chat-empty p, .welcome p { margin: 0; color: var(--sui-text-muted); font-size: calc(12px * var(--text-scale)); line-height: 1.6; }
 
-  .message-slot { display: flex; flex: 0 0 auto; min-width: 0; width: 100%; align-items: flex-start; justify-content: flex-start; }
+  /* SoftUI Chat Bubble: inset messages keep adjacent bubbles from stacking
+     large external shadows over each other. Grouped corners preserve the
+     visual rhythm when one sender sends several messages in a row. */
+  .message-slot.sui-chat-message { display: flex; flex: 0 0 auto; min-width: 0; width: 100%; max-width: none; align-items: flex-end; justify-content: flex-start; gap: 0; flex-direction: row; }
+  .message-slot.sui-chat-message.sui-chat-message-sent { align-self: flex-end; }
+  .message-slot.sui-chat-message.sui-chat-message-received { align-self: flex-start; }
   .message-slot.mine { justify-content: flex-end; }
 
   .message {
     box-sizing: border-box;
     min-width: 0;
     max-width: min(70%, 680px);
-    padding: 10px 13px 7px;
+    padding: 10px 14px 7px;
     color: var(--sui-text);
     background: var(--sui-bg);
     border: 0;
-    border-radius: 7px 17px 17px 17px;
-    box-shadow: var(--sui-shadow-raised);
+    border-radius: var(--sui-radius);
     transition: opacity 150ms ease, box-shadow 150ms ease, transform 150ms ease;
   }
 
+  .message-list.sui-chat-inset .message { box-shadow: var(--sui-shadow-inset-sm); }
   .message.media-message { width: min(70%, 584px); padding: 6px 6px 7px; }
-  .message-slot.mine .message { background: color-mix(in srgb, var(--sui-primary) 11%, var(--sui-bg)); border-radius: 17px 7px 17px 17px; }
+  .message-slot.sui-chat-message-received .message { border-bottom-left-radius: 4px; }
+  .message-slot.sui-chat-message-sent .message {
+    background: color-mix(in srgb, var(--sui-primary) 15%, var(--sui-bg));
+    color: var(--sui-text);
+    border-bottom-right-radius: 4px;
+  }
+  .message-slot:not(.mine).grouped-before .message { border-top-left-radius: 4px; }
+  .message-slot:not(.mine).grouped-after .message { border-bottom-left-radius: 4px; }
+  .message-slot.mine.grouped-before .message { border-top-right-radius: 4px; }
+  .message-slot.mine.grouped-after .message { border-bottom-right-radius: 4px; }
   .message.sending { opacity: .48; }
-  .message.failed { box-shadow: 0 5px 14px color-mix(in srgb, var(--sui-danger) 26%, transparent); opacity: .78; }
+  .message.failed {
+    box-shadow: var(--sui-shadow-inset-sm);
+    outline: 1px solid color-mix(in srgb, var(--sui-danger) 44%, transparent);
+    outline-offset: -1px;
+    opacity: .78;
+  }
   .message p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; font-size: calc(13px * var(--text-scale)); line-height: 1.48; }
   .message.media-message > p { padding: 3px 7px 0; }
-  .message footer { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; color: var(--sui-text-light); font-size: calc(9px * var(--text-scale)); }
+  .message footer.sui-chat-meta { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 4px; padding: 0 4px; color: var(--sui-text-muted); font-size: calc(9px * var(--text-scale)); }
   .message.media-message > footer { padding-inline: 6px; }
-  .message-slot.mine footer span { color: var(--sui-primary); font-weight: 800; letter-spacing: -.12em; }
-  .message.failed footer span { color: var(--sui-danger); }
+  .sui-chat-status { display: inline-flex; font-size: 11px; }
+  .sui-chat-status-sent, .sui-chat-status-delivered { color: var(--sui-text-muted); }
+  .sui-chat-status-read { color: var(--sui-primary); }
+  .message-slot.mine footer .sui-chat-status { font-weight: 800; letter-spacing: -.12em; }
+  .message.failed footer .sui-chat-status,
+  .sui-chat-status-failed { color: var(--sui-danger); }
 
   .message-files { display: grid; gap: 6px; max-width: 100%; margin-bottom: 7px; }
   .message-files img { display: block; max-width: 100%; max-height: 380px; border-radius: 11px; background: #11131a; object-fit: contain; }
