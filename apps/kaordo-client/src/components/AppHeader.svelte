@@ -20,7 +20,12 @@
 
   let { activeSection, interactive = true, onNavigate, platform, sections }: Props = $props();
   let navigationSections = $derived(
-    sections.filter((section) => !['mi', 'regado', 'agordoj'].includes(section.id)),
+    sections.filter((section) => !['ligo', 'mi', 'rondo', 'regado', 'agordoj'].includes(section.id)),
+  );
+  let communicationSections = $derived(
+    ['rondo', 'ligo']
+      .map((id) => sections.find((section) => section.id === id))
+      .filter((section): section is AppSectionDefinition => section !== undefined),
   );
   let utilitySections = $derived(
     sections.filter((section) => section.id === 'mi' || section.id === 'regado'),
@@ -28,6 +33,8 @@
   let appBarElement = $state<HTMLElement>();
   let segmentedElement = $state<HTMLElement>();
   let indicatorElement = $state<HTMLDivElement>();
+  let communicationSegmentedElement = $state<HTMLElement>();
+  let communicationIndicatorElement = $state<HTMLDivElement>();
   let indicatorFrame = 0;
   let appWindow: ReturnType<typeof getCurrentWindow> | null = null;
 
@@ -55,22 +62,30 @@
     return target instanceof Element && !target.closest(INTERACTIVE_SELECTOR);
   }
 
-  function syncSegmentedIndicator() {
+  function updateSegmentedIndicator(
+    segmented: HTMLElement | undefined,
+    indicator: HTMLDivElement | undefined,
+  ): void {
+    if (!segmented || !indicator) return;
+
+    const checkedInput = segmented.querySelector<HTMLInputElement>('input:checked');
+    const activeLabel = checkedInput?.nextElementSibling;
+    if (!(activeLabel instanceof HTMLElement)) {
+      indicator.style.width = '0px';
+      return;
+    }
+
+    indicator.style.left = `${activeLabel.offsetLeft}px`;
+    indicator.style.width = `${activeLabel.offsetWidth}px`;
+  }
+
+  function syncSegmentedIndicators() {
     if (indicatorFrame) cancelAnimationFrame(indicatorFrame);
 
     indicatorFrame = requestAnimationFrame(() => {
       indicatorFrame = 0;
-      if (!segmentedElement || !indicatorElement) return;
-
-      const checkedInput = segmentedElement.querySelector<HTMLInputElement>('input:checked');
-      const activeLabel = checkedInput?.nextElementSibling;
-      if (!(activeLabel instanceof HTMLElement)) {
-        indicatorElement.style.width = '0px';
-        return;
-      }
-
-      indicatorElement.style.left = `${activeLabel.offsetLeft}px`;
-      indicatorElement.style.width = `${activeLabel.offsetWidth}px`;
+      updateSegmentedIndicator(segmentedElement, indicatorElement);
+      updateSegmentedIndicator(communicationSegmentedElement, communicationIndicatorElement);
     });
   }
 
@@ -92,8 +107,9 @@
   $effect(() => {
     const currentSection = activeSection;
     const sectionCount = navigationSections.length;
-    if (!currentSection || sectionCount === 0) return;
-    syncSegmentedIndicator();
+    const communicationSectionCount = communicationSections.length;
+    if (!currentSection || sectionCount + communicationSectionCount === 0) return;
+    syncSegmentedIndicators();
   });
 
   onDestroy(() => {
@@ -125,15 +141,18 @@
     appBarElement.addEventListener('mouseup', blockNativeDoubleClick, true);
     const resizeObserver = typeof ResizeObserver === 'undefined'
       ? null
-      : new ResizeObserver(() => syncSegmentedIndicator());
-    resizeObserver?.observe(segmentedElement ?? appBarElement);
-    window.addEventListener('resize', syncSegmentedIndicator);
+      : new ResizeObserver(() => syncSegmentedIndicators());
+    resizeObserver?.observe(appBarElement);
+    if (segmentedElement) resizeObserver?.observe(segmentedElement);
+    if (communicationSegmentedElement) resizeObserver?.observe(communicationSegmentedElement);
+    syncSegmentedIndicators();
+    window.addEventListener('resize', syncSegmentedIndicators);
 
     return () => {
       appBarElement?.removeEventListener('mousedown', blockNativeDoubleClick, true);
       appBarElement?.removeEventListener('mouseup', blockNativeDoubleClick, true);
       resizeObserver?.disconnect();
-      window.removeEventListener('resize', syncSegmentedIndicator);
+      window.removeEventListener('resize', syncSegmentedIndicators);
     };
   });
 
@@ -232,6 +251,42 @@
   </nav>
 
   <div class="section-context">
+    <nav
+      class="communication-tabs sui-segmented sui-segmented-secondary"
+      bind:this={communicationSegmentedElement}
+      aria-label="Communication sections"
+    >
+      <div class="sui-segmented-indicator" bind:this={communicationIndicatorElement} aria-hidden="true"></div>
+      {#each communicationSections as section}
+        <input
+          id={`kaordo-communication-${section.id}`}
+          type="radio"
+          name="kaordo-communication-sections"
+          value={section.id}
+          checked={activeSection === section.id}
+          aria-label={section.label}
+          disabled={!interactive}
+          onchange={() => onNavigate(section.id)}
+        />
+        <label for={`kaordo-communication-${section.id}`} title={section.description}>
+          {#if section.id === 'rondo'}
+            <svg class="section-tab__icon" viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="10" cy="6" r="2.5" />
+              <circle cx="5.5" cy="10.5" r="2" />
+              <circle cx="14.5" cy="10.5" r="2" />
+              <path d="M6.5 16c.4-2 1.5-3 3.5-3s3.1 1 3.5 3M3 16c.2-1.4 1-2.1 2.5-2.1M17 16c-.2-1.4-1-2.1-2.5-2.1" />
+            </svg>
+          {:else}
+            <svg class="section-tab__icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M4 5.5h12v8H9l-3.5 3v-3H4z" />
+              <path d="M7 8.5h6M7 11h4" />
+            </svg>
+          {/if}
+          <span>{section.label}</span>
+        </label>
+      {/each}
+    </nav>
+
     <div class="header-actions" aria-label="Account and application controls">
       {#each utilitySections as section}
         <button
@@ -601,6 +656,10 @@
     max-width: 100%;
   }
 
+  .communication-tabs {
+    flex: 0 0 auto;
+  }
+
   @media (max-width: 1120px) {
     .app-bar {
       grid-template-columns: minmax(140px, 1fr) auto minmax(140px, 1fr);
@@ -609,6 +668,10 @@
 
     .sui-segmented label {
       padding-inline: 7px;
+    }
+
+    .section-context {
+      gap: 6px;
     }
 
   }
