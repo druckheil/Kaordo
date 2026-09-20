@@ -7,7 +7,6 @@
   import LingvolernandoLearningPulse from './lingvolernando/LingvolernandoLearningPulse.svelte';
   import LingvolernandoRewardSequence from './lingvolernando/LingvolernandoRewardSequence.svelte';
   import TaglibroplaniloSection from './TaglibroplaniloSection.svelte';
-  import DesegnLernadoSection from './DesegnLernadoSection.svelte';
   import type { IloCard, IloCardInput, IloSnapshot, IloTab } from '../../lib/domain/ilo';
   import type { LingvolernandoRewardOutcome } from '../../lib/domain/lingvolernando';
   import type { IloGState } from '../../lib/states/IloGState';
@@ -21,7 +20,7 @@
   let copyingLogs = $state(false);
   let copiedLogs = $state(false);
   let copiedLogsTimer: ReturnType<typeof setTimeout> | null = null;
-  let activeTool = $state<'desegnlernado' | 'lingvolernado' | 'taglibroplanilo'>('lingvolernado');
+  let activeTool = $state<'lingvolernado' | 'taglibroplanilo'>('lingvolernado');
   let learningReward = $state<LingvolernandoRewardOutcome | null>(null);
   let learningReaction = $state<'forgot' | 'remember' | null>(null);
   let learningReactionSequence = $state(0);
@@ -50,7 +49,6 @@
   function openTool(tool: typeof activeTool): void {
     activeTool = tool;
     if (tool === 'taglibroplanilo') void iloState.refreshTaglibro(false);
-    if (tool === 'desegnlernado') void iloState.loadDesegnLernado(false);
   }
 
   async function grade(action: 'forgot' | 'remember'): Promise<void> {
@@ -150,18 +148,12 @@
       </span>
       <span><strong>Taglibroplanilo</strong><small>Daily planner & diary</small></span>
     </button>
-    <button class:active={activeTool === 'desegnlernado'} class="tool-card drawing-tool" type="button" aria-current={activeTool === 'desegnlernado' ? 'page' : undefined} onclick={() => openTool('desegnlernado')}>
-      <span class="tool-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M5 19c3.5-7.5 8-12 14-14-2 6.5-6.5 11-13 14.5zM9 16l-3 3.5M14.5 9.5l2 2"/></svg>
-      </span>
-      <span><strong>DesegnLernado</strong><small>Drawing gallery</small></span>
-    </button>
     <div class="rail-spacer"></div>
     <div class="storage-note">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 7.5 10 4l6 3.5v6L10 17l-6-3.5zM10 10.5V17M4 7.5l6 3 6-3"/></svg>
       <span>
-        <strong>{activeTool === 'desegnlernado' ? 'Local studio' : 'Synced safely'}</strong>
-        <small>{activeTool === 'desegnlernado' ? 'Drawings stay on this device' : 'Kaordo account storage'}</small>
+        <strong>Synced safely</strong>
+        <small>Kaordo account storage</small>
       </span>
     </div>
   </aside>
@@ -169,8 +161,6 @@
   <main class:standalone-active={activeTool !== 'lingvolernado'} class="tool-workspace">
     {#if activeTool === 'taglibroplanilo'}
       <TaglibroplaniloSection snapshot={snapshot.taglibro} state={iloState} />
-    {:else if activeTool === 'desegnlernado'}
-      <DesegnLernadoSection snapshot={snapshot.desegnLernado} state={iloState} />
     {:else}
     <nav class="tool-tabs" aria-label="Lingvolernando sections">
       {#each tabs as tab}
@@ -453,8 +443,7 @@
   }
 
   .tool-workspace.standalone-active { display: block; overflow: auto; }
-  .tool-workspace.standalone-active > :global(.taglibro-shell),
-  .tool-workspace.standalone-active > :global(.desegn-shell) { min-height: 100%; }
+  .tool-workspace.standalone-active > :global(.taglibro-shell) { min-height: 100%; }
 
   .eyebrow { color: var(--sui-primary); font-size: calc(8px * var(--text-scale)); font-weight: 770; letter-spacing: .13em; text-transform: uppercase; }
 

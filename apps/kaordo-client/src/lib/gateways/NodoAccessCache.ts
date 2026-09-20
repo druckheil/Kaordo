@@ -10,6 +10,8 @@ import { InFlightRequests } from './InFlightRequests';
  */
 export class NodoAccessCache {
   #entries = new Map<string, { access: NodoAccess; expiresAt: number }>();
+  #generations = new Map<string, number>();
+  #epoch = 0;
   readonly #inFlight = new InFlightRequests();
 
   constructor(private readonly ttlMilliseconds = 15_000) {}
@@ -24,6 +26,8 @@ export class NodoAccessCache {
     // request separate while still coalescing concurrent callers of the same
     // kind.
     const requestKey = `access:${nodeId}:${forceRefresh ? 'force' : 'normal'}`;
+    const epoch = this.#epoch;
+    const generation = this.#generations.get(nodeId) ?? 0;
     return this.#inFlight.get(requestKey, async () => {
       const current = this.#entries.get(nodeId);
       if (!forceRefresh && current && current.expiresAt > Date.now()) {
@@ -32,17 +36,21 @@ export class NodoAccessCache {
       const access = await request();
       const ticketExpiry = access.expiresAt * 1_000 - 30_000;
       const expiresAt = Math.min(Date.now() + this.ttlMilliseconds, ticketExpiry);
-      if (expiresAt > Date.now()) this.#entries.set(nodeId, { access, expiresAt });
-      else this.#entries.delete(nodeId);
+      const isCurrent = epoch === this.#epoch && generation === (this.#generations.get(nodeId) ?? 0);
+      if (isCurrent && expiresAt > Date.now()) this.#entries.set(nodeId, { access, expiresAt });
+      else if (isCurrent) this.#entries.delete(nodeId);
       return access;
     });
   }
 
   invalidate(nodeId: string): void {
+    this.#generations.set(nodeId, (this.#generations.get(nodeId) ?? 0) + 1);
     this.#entries.delete(nodeId);
   }
 
   clear(): void {
+    this.#epoch += 1;
+    this.#generations.clear();
     this.#entries.clear();
     this.#inFlight.clear();
   }

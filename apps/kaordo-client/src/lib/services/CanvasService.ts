@@ -422,14 +422,29 @@ export class CanvasService {
     if (!added && files.length) this.state.announce('The selected media format is not supported.');
     if (!added) return 0;
 
-    try {
-      // File writes are independent (each media item has its own id), so let
-      // the platform perform them concurrently instead of blocking the UI on
-      // one file at a time.
-      await Promise.all(pending.map(async ({ element, file }) => {
+    // File writes are independent (each media item has its own id), so let
+    // the platform perform them concurrently instead of blocking the UI on
+    // one file at a time. Wait for every write before starting cleanup: a
+    // rejected Promise.all can otherwise delete a file while a slower sibling
+    // is still writing it, leaving an orphaned media object on the Nodo.
+    const saveResults = await Promise.allSettled(pending.map(async ({ element, file }) => {
         await this.#saveCanvasMedia(workspaceId, element.mediaId, file);
         this.cacheMediaBlob(mediaKey(workspaceId, element.mediaId), file);
-      }));
+    }));
+    const failedSave = saveResults.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (failedSave) {
+      await Promise.allSettled(
+        pending.map(({ element }) => this.#deleteCanvasMedia(workspaceId, element.mediaId)),
+      );
+      for (const { element } of pending) {
+        this.forgetMediaBlob(mediaKey(workspaceId, element.mediaId));
+      }
+      throw failedSave.reason;
+    }
+
+    try {
       // Another interaction may have committed while the platform was
       // writing a large file. Merge into the latest snapshot instead of
       // replacing a concurrently created text/card element.

@@ -248,6 +248,7 @@
     background: linear-gradient(145deg, var(--sui-bg-light), var(--sui-bg));
     box-shadow: var(--sui-shadow-raised-lg), inset 1px 1px 0 rgb(255 255 255 / 5%);
   }
+  :global(html[data-theme='dark']) .profile-shell .avatar { box-shadow: 8px 8px 16px rgb(0 0 0 / 42%); }
 
   .profile-layout { width: min(100%, 960px); min-height: 100%; margin: 0 auto; padding: 26px 30px 54px; }
   .profile-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 17px; padding: 0 2px; }

@@ -41,6 +41,8 @@ const CONNECTION_IDLE_MILLISECONDS = 90 * 60_000;
 const PROFILE_DOCUMENT_MAX_BYTES = 32 * 1024;
 const PROFILE_LOAD_CONCURRENCY = 6;
 const NODE_REQUEST_CONCURRENCY = 6;
+const MAX_FEED_SESSIONS = 24;
+const FEED_SESSION_IDLE_MILLISECONDS = 10 * 60_000;
 export type NodoUploadFile = { blob: Blob; mimeType: string; name: string; size: number };
 let feedSessionSequence = 0;
 
@@ -119,10 +121,26 @@ export class NodeFluoGateway implements FluoGateway {
         author,
       );
       this.feedSessions.set(scopeKey, session);
+      this.pruneFeedSessions(scopeKey);
     }
     const page = await session.next(Math.max(1, Math.min(50, limit)));
+    session.touch();
     if (!page.hasMore) this.feedSessions.delete(scopeKey);
     return page;
+  }
+
+  private pruneFeedSessions(keepKey: string): void {
+    const now = Date.now();
+    for (const [key, session] of this.feedSessions) {
+      if (key !== keepKey && session.isIdle(now)) this.feedSessions.delete(key);
+    }
+    while (this.feedSessions.size > MAX_FEED_SESSIONS) {
+      const oldest = [...this.feedSessions.entries()]
+        .filter(([key]) => key !== keepKey)
+        .sort(([, left], [, right]) => left.lastUsedAt - right.lastUsedAt)[0];
+      if (!oldest) break;
+      this.feedSessions.delete(oldest[0]);
+    }
   }
 
   async listFeedStates(nodeIds: readonly string[]): Promise<FluoNodeFeedState[]> {
@@ -578,12 +596,26 @@ type FeedSource = {
 };
 
 class FeedSession {
+  private lastUsedAtTimestamp = Date.now();
+
   private constructor(
     readonly id: string,
     readonly key: string,
     private readonly sources: FeedSource[],
     private readonly author: string | null,
   ) {}
+
+  get lastUsedAt(): number {
+    return this.lastUsedAtTimestamp;
+  }
+
+  touch(): void {
+    this.lastUsedAtTimestamp = Date.now();
+  }
+
+  isIdle(now: number): boolean {
+    return now - this.lastUsedAtTimestamp > FEED_SESSION_IDLE_MILLISECONDS;
+  }
 
   static async open(
     connect: (nodeId: string) => Promise<NodeConnection>,
@@ -607,6 +639,7 @@ class FeedSession {
   }
 
   async next(limit: number): Promise<FluoFeedPage> {
+    this.touch();
     const posts: RemoteFluoPost[] = [];
     while (posts.length < limit) {
       const empty = this.sources.filter(({ buffer, exhausted }) => !buffer.length && !exhausted);
@@ -716,15 +749,19 @@ export class NodeConnection {
     private relay = false,
   ) {}
 
-  static async open(nodes: NodoGateway, nodeId: string): Promise<NodeConnection> {
-    const access = await nodes.accessNode(nodeId);
+  static async open(
+    nodes: NodoGateway,
+    nodeId: string,
+    initialAccess?: NodoAccess,
+  ): Promise<NodeConnection> {
+    const access = initialAccess ?? await nodes.accessNode(nodeId);
     let lastError: unknown = null;
     const candidates = orderedNodoCandidates(access);
     if (!candidates.length) throw new Error('Nodo access returned no usable routes.');
     for (const candidate of candidates) {
       const origin = nodoOrigin(candidate);
       try {
-        await nodeFetch(origin, access.ticket, '/v1/status', {}, 4_000);
+        await probeNode(origin, access.ticket);
         return new NodeConnection(nodes, nodeId, access, origin, candidate.kind === 'relay');
       } catch (error) {
         lastError = error;
@@ -735,7 +772,9 @@ export class NodeConnection {
 
   async fetch(path: string, init: RequestInit = {}, timeout = 60_000): Promise<Response> {
     await this.ensureFreshTicket();
-    const canRetryRoute = !init.method || init.method === 'GET' || init.method === 'HEAD';
+    const method = init.method?.toUpperCase();
+    const canRetryRoute = !method || method === 'GET' || method === 'HEAD' ||
+      (path.startsWith('/v1/storage/move/') && (method === 'POST' || method === 'DELETE'));
     try {
       const response = await nodeFetch(this.origin, this.access.ticket, path, init, timeout);
       this.lastSuccessfulAt = Date.now();
@@ -763,6 +802,7 @@ export class NodeConnection {
     init: RequestInit,
     timeout: number,
     initialError: unknown,
+    probeBeforeRequest = true,
   ): Promise<Response> {
     let lastError = initialError;
     let access: NodoAccess;
@@ -776,7 +816,7 @@ export class NodeConnection {
       const origin = nodoOrigin(candidate);
       if (origin === this.origin) continue;
       try {
-        await nodeFetch(origin, access.ticket, '/v1/status', {}, 4_000);
+        if (probeBeforeRequest) await probeNode(origin, access.ticket);
         const response = await nodeFetch(origin, access.ticket, path, init, timeout);
         this.origin = origin;
         this.relay = candidate.kind === 'relay';
@@ -874,7 +914,7 @@ export class NodeConnection {
         // A health check avoids spending the full upload timeout on a stale
         // LAN/public address and also confirms that the refreshed ticket works
         // before the body is sent. The relay is handled by the same protocol.
-        await nodeFetch(origin, access.ticket, '/v1/status', {}, 4_000);
+        await probeNode(origin, access.ticket);
         const response = await nodeUpload(
           origin,
           access.ticket,
@@ -979,10 +1019,24 @@ export class NodeConnection {
     if (this.validatePromise) return this.validatePromise;
     const validation = (async () => {
       try {
-        await nodeFetch(this.origin, this.access.ticket, '/v1/status', {}, 4_000);
-      } catch {
-        await this.refreshTicket();
-        await nodeFetch(this.origin, this.access.ticket, '/v1/status', {}, 4_000);
+        await probeNode(this.origin, this.access.ticket);
+      } catch (firstError) {
+        let routeError = firstError;
+        let validated = false;
+        if (firstError instanceof NodeRequestError && firstError.status === 401) {
+          await this.refreshTicket();
+          try {
+            await probeNode(this.origin, this.access.ticket);
+            validated = true;
+          } catch (retryError) {
+            routeError = retryError;
+          }
+        }
+        if (!validated && isRetryableReadRouteError(routeError)) {
+          await this.retryReadOnAlternateRoutes('/v1/status', {}, 4_000, routeError, false);
+        } else if (!validated) {
+          throw routeError;
+        }
       }
       this.lastSuccessfulAt = Date.now();
     })();
@@ -1223,6 +1277,14 @@ async function nodeFetch(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function probeNode(origin: string, ticket: string): Promise<void> {
+  const response = await nodeFetch(origin, ticket, '/v1/status', {}, 4_000);
+  // Health probes are intentionally short, but they still have a response
+  // body. Drain it so WebView/native connection pools can reuse the socket
+  // instead of retaining an unread response for every route check.
+  await response.arrayBuffer();
 }
 
 async function nodeUpload(

@@ -518,6 +518,12 @@ class NodeHttpServer(
             writeJson(output, 413, "Content Too Large", JSONObject().put("error", "Allocated storage is full."))
         } catch (_: FluoPostStore.MissingMedia) {
             writeJson(output, 409, "Conflict", JSONObject().put("error", "Attached media is incomplete."))
+        } catch (_: FluoPostStore.AlreadyExists) {
+            writeJson(output, 409, "Conflict", JSONObject().put("error", "Storage item already exists."))
+        } catch (_: LigoEnvelopeStore.AlreadyExists) {
+            writeJson(output, 409, "Conflict", JSONObject().put("error", "Storage item already exists."))
+        } catch (_: RondoMessageStore.AlreadyExists) {
+            writeJson(output, 409, "Conflict", JSONObject().put("error", "Storage item already exists."))
         } catch (_: Exception) {
             writeJson(output, 400, "Bad Request", JSONObject().put("error", "Storage metadata is invalid."))
         }
@@ -529,14 +535,33 @@ class NodeHttpServer(
         key: String,
         output: BufferedOutputStream,
     ) {
-        when (kind) {
-            "file" -> selected.uploads.delete(key, isNodeOwner = true)
-            "fluo-post" -> selected.posts.delete(key, isNodeOwner = true)
-            "ligo-envelope" -> selected.envelopes.deleteForTransfer(key)
+        val failed = when (kind) {
+            "file" -> selected.uploads.record(key) != null && !selected.uploads.delete(key, isNodeOwner = true)
+            "fluo-post" -> when (selected.posts.delete(key, isNodeOwner = true)) {
+                FluoPostStore.DeleteResult.DELETED,
+                FluoPostStore.DeleteResult.MISSING -> false
+                FluoPostStore.DeleteResult.FAILED,
+                FluoPostStore.DeleteResult.FORBIDDEN -> true
+            }
+            "ligo-envelope" -> !selected.envelopes.deleteForTransfer(key)
             "rondo-message" -> {
                 val parts = key.split('.')
-                if (parts.size == 3) selected.messages?.deleteForTransfer(parts[0], parts[1], parts[2])
+                if (parts.size != 3 || selected.messages == null) {
+                    true
+                } else {
+                    val exists = selected.messages.read(parts[0], parts[1], parts[2]) != null
+                    exists && !selected.messages.deleteForTransfer(parts[0], parts[1], parts[2])
+                }
             }
+            else -> true
+        }
+        if (failed) {
+            return writeJson(
+                output,
+                500,
+                "Internal Server Error",
+                JSONObject().put("error", "Storage item could not be removed."),
+            )
         }
         writeJson(output, 200, "OK", JSONObject().put("ok", true))
     }
@@ -899,11 +924,23 @@ class NodeHttpServer(
                     }
                 }
                 FluoPostStore.DeleteResult.FORBIDDEN -> return writeForbidden(output)
+                FluoPostStore.DeleteResult.FAILED -> return writeJson(
+                    output,
+                    500,
+                    "Internal Server Error",
+                    JSONObject().put("error", "Post could not be removed."),
+                )
                 FluoPostStore.DeleteResult.MISSING -> return writeJson(output, 404, "Not Found", JSONObject().put("error", "Post not found."))
             }
             "ligo-envelope" -> when (selected.envelopes.delete(storageKey, grant.username)) {
                 LigoEnvelopeStore.DeleteResult.DELETED -> if (space == NodeSpace.PUBLIC) onPublicStorageChanged()
                 LigoEnvelopeStore.DeleteResult.FORBIDDEN -> return writeForbidden(output)
+                LigoEnvelopeStore.DeleteResult.FAILED -> return writeJson(
+                    output,
+                    500,
+                    "Internal Server Error",
+                    JSONObject().put("error", "Message could not be removed."),
+                )
                 LigoEnvelopeStore.DeleteResult.MISSING -> return writeJson(output, 404, "Not Found", JSONObject().put("error", "Message not found."))
             }
             "rondo-message" -> {
@@ -914,6 +951,12 @@ class NodeHttpServer(
                 when (selected.messages.delete(parts[0], parts[1], parts[2], grant.username, grant.isOwner)) {
                     RondoMessageStore.DeleteResult.DELETED -> Unit
                     RondoMessageStore.DeleteResult.FORBIDDEN -> return writeForbidden(output)
+                    RondoMessageStore.DeleteResult.FAILED -> return writeJson(
+                        output,
+                        500,
+                        "Internal Server Error",
+                        JSONObject().put("error", "Message could not be removed."),
+                    )
                     RondoMessageStore.DeleteResult.MISSING -> return writeJson(output, 404, "Not Found", JSONObject().put("error", "Message not found."))
                 }
             }
@@ -982,6 +1025,7 @@ class NodeHttpServer(
         when (messages.delete(scope.spaceId, scope.roomId, messageId, grant.username, scope.owner)) {
             RondoMessageStore.DeleteResult.DELETED -> writeJson(output, 200, "OK", JSONObject().put("ok", true))
             RondoMessageStore.DeleteResult.FORBIDDEN -> writeForbidden(output)
+            RondoMessageStore.DeleteResult.FAILED -> writeJson(output, 500, "Internal Server Error", JSONObject().put("error", "Message could not be removed."))
             RondoMessageStore.DeleteResult.MISSING -> writeJson(output, 404, "Not Found", JSONObject().put("error", "Message not found."))
         }
     }
@@ -1049,6 +1093,7 @@ class NodeHttpServer(
         when (envelopes.delete(id, grant.username)) {
             LigoEnvelopeStore.DeleteResult.DELETED -> writeJson(output, 200, "OK", JSONObject().put("ok", true))
             LigoEnvelopeStore.DeleteResult.FORBIDDEN -> writeForbidden(output)
+            LigoEnvelopeStore.DeleteResult.FAILED -> writeJson(output, 500, "Internal Server Error", JSONObject().put("error", "Message could not be removed."))
             LigoEnvelopeStore.DeleteResult.MISSING -> writeJson(output, 404, "Not Found", JSONObject().put("error", "Message not found."))
         }
     }
@@ -1246,6 +1291,10 @@ class NodeHttpServer(
             }
             FluoPostStore.DeleteResult.FORBIDDEN -> {
                 writeForbidden(output)
+                return false
+            }
+            FluoPostStore.DeleteResult.FAILED -> {
+                writeJson(output, 500, "Internal Server Error", JSONObject().put("error", "Post could not be removed."))
                 return false
             }
             FluoPostStore.DeleteResult.DELETED -> Unit

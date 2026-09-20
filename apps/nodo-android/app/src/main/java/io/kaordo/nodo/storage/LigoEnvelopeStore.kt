@@ -98,7 +98,7 @@ class LigoEnvelopeStore(root: File, private val uploads: TusUploadStore) {
         val envelope = parseFile(target) ?: return DeleteResult.MISSING
         if (envelope.sender != actor && envelope.recipient != actor) return DeleteResult.FORBIDDEN
         envelope.attachments.forEach { uploads.delete(it.id, null, true) }
-        return if (target.delete()) DeleteResult.DELETED else DeleteResult.MISSING
+        return if (target.delete()) DeleteResult.DELETED else DeleteResult.FAILED
     }
 
     @Synchronized
@@ -199,7 +199,7 @@ class LigoEnvelopeStore(root: File, private val uploads: TusUploadStore) {
         val recipient: String,
         val sender: String,
     )
-    enum class DeleteResult { DELETED, FORBIDDEN, MISSING }
+    enum class DeleteResult { DELETED, FAILED, FORBIDDEN, MISSING }
     class AlreadyExists : Exception()
     class MissingAttachment : Exception()
     class ClearFailed : Exception()

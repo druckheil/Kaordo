@@ -298,6 +298,7 @@ class NodeForegroundService : Service() {
                                     reconciliation.recordPostDeletion(postId)
                                     reconciledPosts = true
                                 }
+                                FluoPostStore.DeleteResult.FAILED -> Unit
                                 FluoPostStore.DeleteResult.FORBIDDEN -> Unit
                             }
                         }

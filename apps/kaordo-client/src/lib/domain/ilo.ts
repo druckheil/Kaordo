@@ -1,5 +1,4 @@
 import type { LingvolernandoGameSnapshot } from './lingvolernando';
-import type { DesegnLernadoSnapshot } from './desegnLernado';
 
 export const ILO_THEMES = [
   'food', 'work', 'action', 'home', 'nature', 'travel', 'health', 'people',
@@ -140,7 +139,6 @@ export type IloSnapshot = {
   cardsHasMore: boolean;
   cardsLoaded: boolean;
   cardsLoading: boolean;
-  desegnLernado: DesegnLernadoSnapshot;
   error: string | null;
   logs: IloErrorEntry[];
   lingvolernando: LingvolernandoGameSnapshot;

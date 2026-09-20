@@ -380,6 +380,33 @@
     --sui-shadow-inset-sm: inset 2px 2px 6px rgb(0 0 0 / 32%), inset -2px -2px 5px rgb(255 255 255 / 4%);
   }
 
+  :global(html[data-theme='dark']) .softui-dialog {
+    color: var(--sui-text) !important;
+    background: var(--sui-bg) !important;
+    border-color: transparent !important;
+    box-shadow: var(--sui-shadow-raised) !important;
+  }
+
+  :global(html[data-theme='dark']) .softui-dialog .dialog-heading,
+  :global(html[data-theme='dark']) .softui-dialog .dialog-actions {
+    color: var(--sui-text) !important;
+    background: linear-gradient(145deg, var(--sui-bg-light), var(--sui-bg)) !important;
+    border-color: color-mix(in srgb, var(--sui-text-light) 16%, transparent) !important;
+  }
+
+  :global(html[data-theme='dark']) .softui-dialog .dialog-heading h2,
+  :global(html[data-theme='dark']) .softui-dialog .dialog-form :global(.dialog-field label),
+  :global(html[data-theme='dark']) .softui-dialog .dialog-form :global(.accent-picker legend) {
+    color: var(--sui-text) !important;
+  }
+
+  :global(html[data-theme='dark']) .softui-dialog .dialog-form :global(input),
+  :global(html[data-theme='dark']) .softui-dialog .dialog-form :global(textarea) {
+    color: var(--sui-text) !important;
+    background: var(--sui-bg) !important;
+    border-color: transparent !important;
+  }
+
   .softui-modal-layer .modal-backdrop {
     background: rgb(35 44 61 / 52%);
     backdrop-filter: blur(7px);

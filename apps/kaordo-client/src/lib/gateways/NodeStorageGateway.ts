@@ -12,6 +12,7 @@ import type {
 import type { NodoGateway } from './NodoGateway';
 import { NodeConnection } from './NodeFluoGateway';
 import { nodoOrigin, orderedNodoCandidates } from './NodoRoute';
+import { allSettledConcurrent } from '../services/async';
 
 const REQUEST_TIMEOUT_MS = 6_000;
 const DIRECT_REQUEST_TIMEOUT_MS = 2_000;
@@ -22,6 +23,7 @@ const MOVE_FILE_TIMEOUT_MINIMUM_MS = 120_000;
 const STORAGE_MOVE_HEADER = 'x-kaordo-storage-move';
 const STORAGE_MOVE_METADATA_HEADER = 'x-kaordo-storage-metadata';
 const CHUNK_LENGTH_HEADER = 'x-kaordo-chunk-length';
+const SOURCE_DELETE_CONCURRENCY = 4;
 
 export async function clearNodeStorage(access: NodoAccess): Promise<NodoStorageClearResult> {
   return clearStorageAt(access, '/v1/storage');
@@ -86,8 +88,10 @@ export async function moveNodeStorage(
   let source: NodeConnection;
   let target: NodeConnection;
   try {
-    const sourceAccess = await nodes.accessNode(sourceNodeId);
-    const targetAccess = await nodes.accessNode(targetNodeId);
+    const [sourceAccess, targetAccess] = await Promise.all([
+      nodes.accessNode(sourceNodeId),
+      nodes.accessNode(targetNodeId),
+    ]);
     const [privateItems, publicItems] = await Promise.all([
       listNodeStorageItems(sourceAccess, 'private'),
       listNodeStorageItems(sourceAccess, 'public'),
@@ -99,14 +103,12 @@ export async function moveNodeStorage(
       throw new Error('Complete or delete partial uploads before moving this Nodo.');
     }
     try {
-      source = await NodeConnection.open(nodes, sourceNodeId);
+      [source, target] = await Promise.all([
+        NodeConnection.open(nodes, sourceNodeId, sourceAccess),
+        NodeConnection.open(nodes, targetNodeId, targetAccess),
+      ]);
     } catch (error) {
-      throw moveError('Opening the source Nodo failed.', error);
-    }
-    try {
-      target = await NodeConnection.open(nodes, targetNodeId);
-    } catch (error) {
-      throw moveError('Opening the destination Nodo failed.', error);
+      throw moveError('Opening the Nodos failed.', error);
     }
   } catch (error) {
     await cancel().catch(() => undefined);
@@ -169,14 +171,24 @@ export async function moveNodeStorage(
     throw error;
   }
 
-  try {
-    // Metadata deletion also removes attached files on the Nodo. Keep the
-    // explicit file pass for standalone uploads and idempotent cleanup.
-    for (const item of records) await deleteTransferItem(source, item, moveId);
-    for (const item of files) await deleteTransferItem(source, item, moveId);
-  } catch (error) {
+  // Metadata deletion also removes attached files on the Nodo. Keep the
+  // explicit file pass for standalone uploads and idempotent cleanup. Do not
+  // stop at the first failure: otherwise one locked item strands every later
+  // source item even though the move has already been committed.
+  const removalItems = [...records, ...files];
+  const removalResults = await allSettledConcurrent(
+    removalItems,
+    SOURCE_DELETE_CONCURRENCY,
+    (item) => deleteTransferItem(source, item, moveId),
+  );
+  const removalFailures = removalResults
+    .map((result, index) => result.status === 'rejected' ? { error: result.reason, item: removalItems[index]! } : null)
+    .filter((failure): failure is { error: unknown; item: NodoStorageItem } => failure !== null);
+  if (removalFailures.length) {
+    const first = removalFailures[0]!;
+    const detail = first.error instanceof Error ? ` ${first.error.message}` : '';
     throw new Error(
-      `The content moved, but some source data could not be removed. Keep both Nodos online and retry. ${error instanceof Error ? error.message : ''}`.trim(),
+      `The content moved, but ${removalFailures.length} source item${removalFailures.length === 1 ? '' : 's'} could not be removed. Keep both Nodos online and retry.${detail}`,
     );
   }
   await cancel().catch(() => undefined);
@@ -355,11 +367,13 @@ async function requestCandidate(
   timeoutMilliseconds = REQUEST_TIMEOUT_MS,
 ): Promise<unknown> {
   const timer = setTimeout(() => controller.abort(), timeoutMilliseconds);
+  const headers = new Headers(init.headers);
+  headers.set('authorization', `Bearer ${access.ticket}`);
   try {
     const response = await fetch(`${nodoOrigin(candidate)}${path}`, {
       ...init,
       cache: 'no-store',
-      headers: { ...(init.headers ?? {}), authorization: `Bearer ${access.ticket}` },
+      headers,
       signal: controller.signal,
     });
     const value: unknown = await response.json().catch(() => null);

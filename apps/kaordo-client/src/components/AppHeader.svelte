@@ -371,13 +371,29 @@
   }
 
   :global(html[data-theme='dark']) .app-bar {
-    --header-background: var(--chrome);
-    --header-border: rgb(255 255 255 / 8%);
-    --header-text: var(--chrome-text);
-    --header-muted: rgb(246 250 247 / 54%);
-    --header-control: rgb(255 255 255 / 7%);
-    --header-control-border: rgb(255 255 255 / 10%);
-    --header-primary: var(--accent);
+    --header-background: #2a2d35;
+    --header-border: #3b3f49;
+    --header-text: #e2e8f0;
+    --header-muted: #aab4c5;
+    --header-control: #31343c;
+    --header-control-border: #3c414d;
+    --header-primary: #918cf2;
+  }
+
+  :global(html[data-theme='dark']) .header-action {
+    box-shadow: 2px 2px 7px rgb(0 0 0 / 36%);
+  }
+
+  :global(html[data-theme='dark']) .header-action:hover {
+    box-shadow: 1px 1px 5px rgb(0 0 0 / 42%);
+  }
+
+  :global(html[data-theme='dark']) .header-action:active {
+    box-shadow: inset 2px 2px 5px rgb(0 0 0 / 32%);
+  }
+
+  :global(html[data-theme='dark']) .header-action--active {
+    box-shadow: 0 2px 8px rgb(0 0 0 / 40%);
   }
 
   :global(html[data-theme='dark']) .sui-segmented {

@@ -143,7 +143,7 @@ class RondoMessageStore(private val root: File, private val uploads: TusUploadSt
         val message = runCatching { parse(JSONObject(file.readText())) }.getOrNull()
             ?: return DeleteResult.MISSING
         if (!canModerate && message.author != actor) return DeleteResult.FORBIDDEN
-        return if (file.delete()) DeleteResult.DELETED else DeleteResult.MISSING
+        return if (file.delete()) DeleteResult.DELETED else DeleteResult.FAILED
     }
 
     @Synchronized
@@ -246,7 +246,7 @@ class RondoMessageStore(private val root: File, private val uploads: TusUploadSt
     data class Message(val author: String, val body: String, val createdAt: Long, val id: String)
     data class StoredMessage(val spaceId: String, val roomId: String, val message: Message)
     data class Page(val messages: List<Message>, val nextCursor: Long?)
-    enum class DeleteResult { DELETED, FORBIDDEN, MISSING }
+    enum class DeleteResult { DELETED, FAILED, FORBIDDEN, MISSING }
     class QuotaExceeded : Exception()
     class AlreadyExists : Exception()
     class ClearFailed : Exception()

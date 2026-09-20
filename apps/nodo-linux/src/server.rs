@@ -508,11 +508,11 @@ fn handle_connection(stream: TcpStream, runtime: &Arc<NodeRuntime>) -> io::Resul
         );
     }
     if let Some((space, kind, id)) = storage_items_route(&request.path) {
-        let storage = runtime.storage.write().map_err(lock_error)?;
         if request.method == "GET" && kind.is_none() {
             if !policy.allow_downloads {
                 return transfer_denied(&mut output);
             }
+            let storage = runtime.storage.read().map_err(lock_error)?;
             let items = storage
                 .storage_items(space, &grant.username, grant.is_owner)
                 .map_err(internal_error)?;
@@ -522,6 +522,7 @@ fn handle_connection(stream: TcpStream, runtime: &Arc<NodeRuntime>) -> io::Resul
             if !policy.allow_uploads {
                 return transfer_denied(&mut output);
             }
+            let storage = runtime.storage.write().map_err(lock_error)?;
             delete_storage_item(
                 &mut output,
                 &storage,
@@ -1231,9 +1232,10 @@ fn handle_storage_move(
             };
         }
         "DELETE" => {
-            if !policy.allow_uploads {
-                return transfer_denied(output);
-            }
+            // The move capability already authorizes cleanup on either side.
+            // Do not apply the regular upload policy here: a source may have
+            // uploads disabled while still allowing downloads, and the
+            // coordinator intentionally permits that safe move direction.
             let mut storage = runtime.storage.write().map_err(lock_error)?;
             return match delete_storage_move_item(storage.space_mut(space), kind, key) {
                 Ok(()) => response_json(output, 200, json!({ "ok": true })),

@@ -207,4 +207,9 @@
     background: linear-gradient(145deg, var(--rondo-surface-strong, #343740), var(--rondo-surface, #2d3038));
     box-shadow: var(--rondo-shadow-raised, 7px 8px 18px rgb(0 0 0 / 42%));
   }
+
+  :global(html[data-theme='dark']) .space-button:hover .space-avatar,
+  :global(html[data-theme='dark']) .space-button--active .space-avatar {
+    box-shadow: var(--rondo-shadow-raised-sm, 4px 5px 11px rgb(0 0 0 / 42%));
+  }
 </style>

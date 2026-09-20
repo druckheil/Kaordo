@@ -177,7 +177,7 @@ class FluoPostStore(
         if (!file.isFile) return DeleteResult.MISSING
         val post = runCatching { parse(JSONObject(file.readText())) }.getOrNull()
         if (!isNodeOwner && (actor == null || post?.author != actor)) return DeleteResult.FORBIDDEN
-        if (!file.delete()) return DeleteResult.MISSING
+        if (!file.delete()) return DeleteResult.FAILED
         removePublicReservation(post?.publicReservationId, id)
         post?.attachments?.forEach { uploads.delete(it.id, actor, isNodeOwner) }
         postCount = (postCount - 1).coerceAtLeast(0)
@@ -472,7 +472,7 @@ class FluoPostStore(
     class PublicReservationUsed : Exception()
     class AlreadyExists : Exception()
     class ClearFailed : Exception()
-    enum class DeleteResult { DELETED, FORBIDDEN, MISSING }
+    enum class DeleteResult { DELETED, FAILED, FORBIDDEN, MISSING }
 
     companion object {
         const val MAX_ATTACHMENTS = 9

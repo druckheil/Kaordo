@@ -191,18 +191,20 @@ export async function nodeHeartbeat(request: Request, env: Env): Promise<Respons
     );
     await acknowledgeCloudCleanup(env, input.deletedLigoMessageIds, nodeId);
     await acknowledgeAdminEraseJobs(env, nodeId, input.completedEraseJobIds);
-    const tombstones = await env.DB.prepare(
-      `SELECT post_id FROM fluo_public_tombstones
-        WHERE node_id = ?1 ORDER BY created_at ASC, post_id ASC LIMIT ?2`,
-    ).bind(nodeId, MAX_RECONCILIATION_IDS).all<{ post_id: string }>();
-    const ligoTombstones = await env.DB.prepare(
-      `SELECT message_id, storage_kind FROM ligo_cloud_tombstones
-        WHERE node_id = ?1 ORDER BY created_at ASC, message_id ASC LIMIT ?2`,
-    ).bind(nodeId, MAX_RECONCILIATION_IDS).all<{
-      message_id: string;
-      storage_kind: number;
-    }>();
-    const eraseJobs = await pendingAdminEraseJobs(env, nodeId);
+    const [tombstones, ligoTombstones, eraseJobs] = await Promise.all([
+      env.DB.prepare(
+        `SELECT post_id FROM fluo_public_tombstones
+          WHERE node_id = ?1 ORDER BY created_at ASC, post_id ASC LIMIT ?2`,
+      ).bind(nodeId, MAX_RECONCILIATION_IDS).all<{ post_id: string }>(),
+      env.DB.prepare(
+        `SELECT message_id, storage_kind FROM ligo_cloud_tombstones
+          WHERE node_id = ?1 ORDER BY created_at ASC, message_id ASC LIMIT ?2`,
+      ).bind(nodeId, MAX_RECONCILIATION_IDS).all<{
+        message_id: string;
+        storage_kind: number;
+      }>(),
+      pendingAdminEraseJobs(env, nodeId),
+    ]);
     return json({
       heartbeatAfterSeconds: 120,
       deviceName: row.device_name,
@@ -261,16 +263,8 @@ export async function nodeRoute(request: Request, env: Env, nodeId: string): Pro
   if (!NODE_ID.test(nodeId)) return json({ error: 'Node not found.' }, 404);
   const row = await ownedNode(env, nodeId, session.userId);
   if (!row) return json({ error: 'Node not found.' }, 404);
-  const local = parseAddresses(row.local_addresses);
-  const candidates = [
-    ...local.map((address) => ({ address, kind: 'lan' as const, port: row.port })),
-    ...(row.observed_address
-      ? [{ address: row.observed_address, kind: 'public' as const, port: row.port }]
-      : []),
-    relayCandidate(request, nodeId),
-  ];
   return json({
-    candidates,
+    candidates: nodeCandidates(request, nodeId, row),
     node: publicNode(row, unixNow()),
     strategy: ['lan', 'public', 'relay'],
   });
@@ -307,15 +301,8 @@ export async function issueNodeAccess(
       (token_hash, node_id, user_id, created_at, expires_at)
      VALUES (?1, ?2, ?3, ?4, ?5)`,
   ).bind(await tokenHash(ticket), nodeId, session.userId, now, expiresAt).run();
-  const local = parseAddresses(row.local_addresses);
   return json({
-    candidates: [
-      ...local.map((address) => ({ address, kind: 'lan' as const, port: row.port })),
-      ...(row.observed_address
-        ? [{ address: row.observed_address, kind: 'public' as const, port: row.port }]
-        : []),
-      relayCandidate(request, nodeId),
-    ],
+    candidates: nodeCandidates(request, nodeId, row),
     expiresAt,
     node: publicNode(row, now),
     ticket,
@@ -358,84 +345,81 @@ export async function prepareNodeStorageMove(
       return json({ error: 'The destination Nodo does not have enough space in one of its spaces.' }, 409);
     }
 
-    const checks = await env.DB.batch([
-      env.DB.prepare(
-        'SELECT 1 AS found FROM fluo_public_tombstones WHERE node_id IN (?1, ?2) LIMIT 1',
-      ).bind(sourceNodeId, targetNodeId),
-      env.DB.prepare(
-        `SELECT 1 AS found FROM fluo_public_allocations
-          WHERE node_id IN (?1, ?2) AND committed = 0 AND expires_at > ?3 LIMIT 1`,
-      ).bind(sourceNodeId, targetNodeId, now),
-      env.DB.prepare(
-        `SELECT 1 AS found FROM profile_public_allocations
-          WHERE node_id IN (?1, ?2) AND committed = 0 AND expires_at > ?3 LIMIT 1`,
-      ).bind(sourceNodeId, targetNodeId, now),
-      env.DB.prepare(
-        'SELECT 1 AS found FROM ligo_cloud_tombstones WHERE node_id IN (?1, ?2) LIMIT 1',
-      ).bind(sourceNodeId, targetNodeId),
-      env.DB.prepare(
-        `SELECT 1 AS found FROM node_storage_moves
-          WHERE user_id = ?1 AND expires_at > ?2
-            AND completed_at IS NULL
-            AND (source_node_id IN (?3, ?4) OR target_node_id IN (?3, ?4))
-          LIMIT 1`,
-      ).bind(session.userId, now, sourceNodeId, targetNodeId),
-      env.DB.prepare(
-        `SELECT 1 AS found FROM fluo_public_allocations AS source
-          JOIN fluo_public_allocations AS target
-            ON target.node_id = ?2 AND target.post_id = source.post_id
-         WHERE source.node_id = ?1 AND source.post_id IS NOT NULL LIMIT 1`,
-      ).bind(sourceNodeId, targetNodeId),
-      env.DB.prepare(
-        `SELECT 1 AS found FROM profile_public_allocations AS source
-          JOIN profile_public_allocations AS target
-            ON target.node_id = ?2 AND target.user_id = source.user_id
-           AND target.profile_id = source.profile_id
-         WHERE source.node_id = ?1 AND source.profile_id IS NOT NULL LIMIT 1`,
-      ).bind(sourceNodeId, targetNodeId),
-      env.DB.prepare(
-        `SELECT 1 AS found FROM fluo_post_likes AS source
-          JOIN fluo_post_likes AS target
-            ON target.node_id = ?2 AND target.space = source.space
-           AND target.post_id = source.post_id AND target.user_id = source.user_id
-         WHERE source.node_id = ?1 LIMIT 1`,
-      ).bind(sourceNodeId, targetNodeId),
-      env.DB.prepare(
-        `SELECT 1 AS found FROM rondo_space_nodes AS source
-          JOIN rondo_space_nodes AS target
-            ON target.space_id = source.space_id AND target.node_id = ?2
-         WHERE source.node_id = ?1 LIMIT 1`,
-      ).bind(sourceNodeId, targetNodeId),
-      env.DB.prepare(
-        `SELECT 1 AS found FROM ligo_cloud_messages AS source
-          JOIN ligo_cloud_messages AS target
-            ON target.id = source.id AND target.node_id = ?2
-         WHERE source.node_id = ?1 LIMIT 1`,
-      ).bind(sourceNodeId, targetNodeId),
-      env.DB.prepare(
-        `SELECT 1 AS found FROM ligo_deliveries AS source
-          JOIN ligo_deliveries AS target
-            ON target.id = source.id AND target.node_id = ?2
-         WHERE source.node_id = ?1 LIMIT 1`,
-      ).bind(sourceNodeId, targetNodeId),
-      env.DB.prepare(
-        `SELECT 1 AS found FROM ligo_cloud_tombstones AS source
-          JOIN ligo_cloud_tombstones AS target
-            ON target.message_id = source.message_id AND target.node_id = ?2
-         WHERE source.node_id = ?1 LIMIT 1`,
-      ).bind(sourceNodeId, targetNodeId),
-    ]);
-    if (checks.some((result) => result.results.length > 0)) {
-      return json({ error: 'The Nodos have pending reconciliation or conflicting content. Retry after it is resolved.' }, 409);
-    }
-
     const moveId = crypto.randomUUID();
     const expiresAt = now + STORAGE_MOVE_SECONDS;
-    await env.DB.prepare(
+    const result = await env.DB.prepare(
       `INSERT INTO node_storage_moves
         (id, user_id, source_node_id, target_node_id, created_at, expires_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6
+        WHERE NOT EXISTS (
+          SELECT 1 FROM fluo_public_tombstones
+           WHERE node_id IN (?3, ?4)
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM fluo_public_allocations
+             WHERE node_id IN (?3, ?4) AND committed = 0 AND expires_at > ?5
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM profile_public_allocations
+             WHERE node_id IN (?3, ?4) AND committed = 0 AND expires_at > ?5
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM ligo_cloud_tombstones
+             WHERE node_id IN (?3, ?4)
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM node_storage_moves
+             WHERE user_id = ?2 AND expires_at > ?5 AND completed_at IS NULL
+               AND (source_node_id IN (?3, ?4) OR target_node_id IN (?3, ?4))
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM fluo_public_allocations AS source
+              JOIN fluo_public_allocations AS target
+                ON target.node_id = ?4 AND target.post_id = source.post_id
+             WHERE source.node_id = ?3 AND source.post_id IS NOT NULL
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM profile_public_allocations AS source
+              JOIN profile_public_allocations AS target
+                ON target.node_id = ?4 AND target.user_id = source.user_id
+               AND target.profile_id = source.profile_id
+             WHERE source.node_id = ?3 AND source.profile_id IS NOT NULL
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM fluo_post_likes AS source
+              JOIN fluo_post_likes AS target
+                ON target.node_id = ?4 AND target.space = source.space
+               AND target.post_id = source.post_id AND target.user_id = source.user_id
+             WHERE source.node_id = ?3
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM rondo_space_nodes AS source
+              JOIN rondo_space_nodes AS target
+                ON target.space_id = source.space_id AND target.node_id = ?4
+             WHERE source.node_id = ?3
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM ligo_cloud_messages AS source
+              JOIN ligo_cloud_messages AS target
+                ON target.id = source.id AND target.node_id = ?4
+             WHERE source.node_id = ?3
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM ligo_deliveries AS source
+              JOIN ligo_deliveries AS target
+                ON target.id = source.id AND target.node_id = ?4
+             WHERE source.node_id = ?3
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM ligo_cloud_tombstones AS source
+              JOIN ligo_cloud_tombstones AS target
+                ON target.message_id = source.message_id AND target.node_id = ?4
+             WHERE source.node_id = ?3
+          )`,
     ).bind(moveId, session.userId, sourceNodeId, targetNodeId, now, expiresAt).run();
+    if ((result.meta.changes ?? 0) === 0) {
+      return json({ error: 'The Nodos have pending reconciliation or conflicting content. Retry after it is resolved.' }, 409);
+    }
     return json({ expiresAt, moveId });
   } catch (error) {
     return json({
@@ -690,6 +674,21 @@ function relayBodyLength(request: Request): number | null {
 function relayCandidate(request: Request, nodeId: string) {
   const origin = new URL(`/api/nodes/${nodeId}/relay`, request.url).toString().replace(/\/$/u, '');
   return { address: 'relay', kind: 'relay' as const, origin, port: 443 };
+}
+
+function nodeCandidates(
+  request: Request,
+  nodeId: string,
+  row: Pick<NodeRow, 'local_addresses' | 'observed_address' | 'port'>,
+) {
+  const local = parseAddresses(row.local_addresses);
+  return [
+    ...local.map((address) => ({ address, kind: 'lan' as const, port: row.port })),
+    ...(row.observed_address
+      ? [{ address: row.observed_address, kind: 'public' as const, port: row.port }]
+      : []),
+    relayCandidate(request, nodeId),
+  ];
 }
 
 function relayHost(address: string): string {
@@ -955,17 +954,23 @@ export async function updateNodeSpaces(
     if (publicQuotaBytes < row.public_used_bytes || privateQuotaBytes < row.private_used_bytes) {
       return json({ error: 'A space cannot be smaller than the data already stored in it.' }, 409);
     }
-    const reserved = await env.DB.prepare(
-      `SELECT COALESCE((SELECT SUM(bytes) FROM fluo_public_allocations
-          WHERE node_id = ?1 AND committed = 0 AND expires_at > ?2), 0) AS bytes`,
-    ).bind(nodeId, unixNow()).first<{ bytes: number }>();
-    if (publicQuotaBytes < row.public_used_bytes + (reserved?.bytes ?? 0)) {
-      return json({ error: 'Public allocation cannot be smaller than its active reservations.' }, 409);
-    }
-    await env.DB.prepare(
+    const result = await env.DB.prepare(
       `UPDATE nodes SET public_quota_bytes = ?1, private_quota_bytes = ?2
-        WHERE id = ?3 AND user_id = ?4`,
-    ).bind(publicQuotaBytes, privateQuotaBytes, nodeId, session.userId).run();
+        WHERE id = ?3 AND user_id = ?4
+          AND private_used_bytes <= ?2
+          AND public_used_bytes + COALESCE((
+            SELECT SUM(bytes) FROM profile_public_allocations
+             WHERE node_id = ?3 AND committed = 0 AND expires_at > ?5
+          ), 0) + COALESCE((
+            SELECT SUM(bytes) FROM fluo_public_allocations
+             WHERE node_id = ?3 AND committed = 0 AND expires_at > ?5
+          ), 0)
+            <= ?1
+      `,
+    ).bind(publicQuotaBytes, privateQuotaBytes, nodeId, session.userId, unixNow()).run();
+    if ((result.meta.changes ?? 0) === 0) {
+      return json({ error: 'The Nodo allocation changed while it was being updated. Refresh and try again.' }, 409);
+    }
     return json({ spaces: spaces({
       ...row,
       public_quota_bytes: publicQuotaBytes,

@@ -35,6 +35,15 @@ html[data-theme='dark'] .workspace-shell {
   background: var(--canvas);
 }
 
+/* Tauri renders the rounded app shell on a transparent window. Keep the
+   document itself transparent in dark mode so the dark canvas is clipped by
+   the shell instead of filling the square window behind its corners. */
+html[data-theme='dark'][data-kaordo-platform='desktop'],
+html[data-theme='dark'][data-kaordo-platform='desktop'] body,
+html[data-theme='dark'][data-kaordo-platform='desktop'] #app {
+  background: transparent !important;
+}
+
 html[data-theme='dark'] :is(
   .fluo-shell,
   .ilo-shell,
@@ -480,6 +489,106 @@ html[data-theme='dark'] :is(.auth-card .input-shell, .auth-card input) {
   border-color: #45534b !important;
 }
 
+/* Agordoj has its own SoftUI tokens in the settings components. Scope these
+   overrides to the page-level settings surface so the older generic dark
+   fallback rules cannot repaint it green. Rondo's nested .settings-shell is
+   intentionally excluded by the direct-child selector. */
+html[data-theme='dark'] .app-content > .settings-shell {
+  color: var(--sui-text) !important;
+  background:
+    radial-gradient(circle at 76% 2%, rgb(145 140 242 / 8%), transparent 33%),
+    var(--sui-bg) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell :is(
+  .settings-card,
+  .account-settings-heading,
+  .account-card,
+  .seed-card,
+  .sessions-card,
+  .public-storage-card,
+  .logout-card,
+  .media-settings-card
+) {
+  color: var(--sui-text) !important;
+  background: var(--sui-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--sui-shadow-raised) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell :is(.theme-option, .theme-option--selected) {
+  color: var(--sui-text-muted) !important;
+  background: var(--sui-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--sui-shadow-raised-sm) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell .theme-option--selected {
+  color: var(--sui-primary) !important;
+  box-shadow: var(--sui-shadow-inset-sm), 0 0 0 2px color-mix(in srgb, var(--sui-primary) 22%, transparent) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell .scale-options {
+  color: var(--sui-text-muted) !important;
+  background: var(--sui-bg-dark) !important;
+  border-color: transparent !important;
+  box-shadow: var(--sui-shadow-inset-sm) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell .scale-options .scale-option--selected {
+  color: var(--sui-primary) !important;
+  background: var(--sui-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--sui-shadow-raised-sm) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell :is(
+  .reset-button,
+  .account-actions button,
+  .terminate-session,
+  .logout-card button,
+  .storage-list-button,
+  .seed-hide-button,
+  .media-settings-card .reset-media,
+  .media-settings-card .access-row button,
+  .media-settings-card .test-panel button
+) {
+  color: var(--sui-primary) !important;
+  background: var(--sui-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--sui-shadow-raised-sm) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell :is(
+  .media-settings-card .test-panel,
+  .media-settings-card select,
+  .media-settings-card .camera-preview
+) {
+  color: var(--sui-text) !important;
+  background: var(--sui-bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--sui-shadow-inset-sm) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell .media-settings-card .microphone-meter {
+  color: var(--sui-text-muted) !important;
+  background: var(--sui-bg-dark) !important;
+  border-color: transparent !important;
+  box-shadow: var(--sui-shadow-inset-sm) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell :is(.settings-heading p, .card-heading p, .option-copy small) {
+  color: var(--sui-text-light) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell :is(.card-heading, .media-heading, .test-grid) {
+  border-color: color-mix(in srgb, var(--sui-text-light) 18%, transparent) !important;
+}
+
+html[data-theme='dark'] .app-content > .settings-shell :is(.card-heading h2, .card-heading h3, .media-heading h2, .test-copy strong) {
+  color: var(--sui-text) !important;
+}
+
 /* Rondo owns its own SoftUI palette. Keep the dark theme on the same raised /
    inset surfaces instead of flattening the space into the legacy green panels. */
 html[data-theme='dark'] .rondo-shell {
@@ -487,9 +596,14 @@ html[data-theme='dark'] .rondo-shell {
   background: var(--rondo-bg) !important;
 }
 
-html[data-theme='dark'] .rondo-shell :is(.rondo-form-shell, .join-shell, .space-shell, .settings-shell, .detail-loading) {
+html[data-theme='dark'] .rondo-shell :is(.rondo-form-shell, .join-shell, .space-shell, .settings-shell, .settings-scroll, .detail-loading, .rondo-empty, .rondo-loading) {
   color: var(--rondo-text) !important;
   background: var(--rondo-bg) !important;
+}
+
+html[data-theme='dark'] .rondo-shell :is(.rondo-empty, .rondo-loading) {
+  background: linear-gradient(145deg, var(--rondo-surface-strong), var(--rondo-surface)) !important;
+  box-shadow: var(--rondo-shadow-raised) !important;
 }
 
 html[data-theme='dark'] .rondo-shell :is(.rondo-form, .join-shell form, .rooms-panel, .room-content, .members-panel, .settings-nav, .settings-content) {

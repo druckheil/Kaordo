@@ -394,12 +394,15 @@ describe('workspace navigation and objects', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     expect(screen.queryByText('Hello from this device.')).not.toBeInTheDocument();
 
+    const communicationNavigation = screen.getByRole('navigation', {
+      name: 'Communication sections',
+    });
     await fireEvent.click(
-      within(navigation).getByRole('radio', { name: 'Ligo' }),
+      within(communicationNavigation).getByRole('radio', { name: 'Ligo' }),
     );
     expect(screen.getByRole('heading', { name: 'Ligo' })).toBeInTheDocument();
 
-    await fireEvent.click(within(navigation).getByRole('radio', { name: 'Rondo' }));
+    await fireEvent.click(within(communicationNavigation).getByRole('radio', { name: 'Rondo' }));
     expect(screen.getByRole('heading', { name: 'Rondo' })).toBeInTheDocument();
 
     await fireEvent.click(within(navigation).getByRole('radio', { name: 'Klaro' }));
@@ -1780,11 +1783,12 @@ describe('workspace navigation and objects', () => {
     await waitFor(() => {
       expect(savedDocuments.at(-1)?.elements).toEqual(expect.arrayContaining([
         expect.objectContaining({
+          height: 120,
           parentElementId: 'rectangle-1',
           type: 'text',
-          width: 196,
-          x: 112,
-          y: 112,
+          width: 220,
+          x: 100,
+          y: 100,
         }),
       ]));
     });
@@ -2299,10 +2303,12 @@ describe('workspace navigation and objects', () => {
         (element) => element.type === 'text',
       );
       expect(text).toMatchObject({
+        height: 120,
         parentElementId: 'rectangle-1',
         type: 'text',
+        width: 200,
         x: 100,
-        y: 122,
+        y: 100,
       });
     });
     expect(screen.getByText('Text · Card')).toBeInTheDocument();
@@ -2480,6 +2486,10 @@ describe('workspace navigation and objects', () => {
     await openResearchFile();
 
     const canvas = screen.getByRole('region', { name: 'Knowledge canvas' });
+    Object.defineProperties(canvas, {
+      scrollHeight: { configurable: true, value: CANVAS_HEIGHT },
+      scrollWidth: { configurable: true, value: CANVAS_WIDTH },
+    });
     canvas.scrollLeft = 300;
     canvas.scrollTop = 200;
     await fireEvent.pointerDown(canvas, {
@@ -2494,6 +2504,7 @@ describe('workspace navigation and objects', () => {
       clientY: 100,
       pointerId: 7,
     });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     expect(canvas.scrollLeft).toBe(360);
     expect(canvas.scrollTop).toBe(280);
     await fireEvent.pointerUp(canvas, { pointerId: 7 });
