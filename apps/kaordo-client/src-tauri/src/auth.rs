@@ -4,7 +4,10 @@ use std::{
     time::Duration,
 };
 
-use base64::{Engine as _, engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}};
+use base64::{
+    Engine as _,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
 use keyring::{Entry, Error as KeyringError};
 use pbkdf2::pbkdf2_hmac;
 use reqwest::{Client, Method, StatusCode, redirect::Policy};
@@ -557,7 +560,7 @@ impl AuthClient {
             .map_err(|_| "The secure authentication client could not start.".to_owned())?;
         let nodo_http = Client::builder()
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30 * 60))
+            .timeout(Duration::from_mins(30))
             .redirect(Policy::none())
             .user_agent("Kaordo/0.1 desktop")
             .build()
@@ -2011,7 +2014,8 @@ pub async fn nodo_storage_move_upload(
 ) -> Result<NodoStorageMoveUploadResponse, String> {
     client.require_authenticated()?;
     validate_nodo_ticket(&input.ticket)?;
-    if input.chunk_length == 0 || input.storage_move.is_empty() || input.storage_metadata.is_empty() {
+    if input.chunk_length == 0 || input.storage_move.is_empty() || input.storage_metadata.is_empty()
+    {
         return Err("Nodo storage move upload metadata is invalid.".to_owned());
     }
     if input.content_type.is_empty() || input.content_type.len() > 256 {
@@ -2034,7 +2038,7 @@ pub async fn nodo_storage_move_upload(
         .header("x-kaordo-storage-move", &input.storage_move)
         .header("x-kaordo-storage-metadata", &input.storage_metadata)
         .body(body)
-        .timeout(Duration::from_secs(30 * 60))
+        .timeout(Duration::from_mins(30))
         .send()
         .await
         .map_err(|_| "Nodo upload connection was interrupted.".to_owned())?;
@@ -2439,8 +2443,8 @@ fn validate_nodo_ticket(value: &str) -> Result<(), String> {
 
 fn nodo_storage_move_upload_url(origin: &str, path: &str) -> Result<String, String> {
     let origin = origin.trim_end_matches('/');
-    let parsed = reqwest::Url::parse(origin)
-        .map_err(|_| "The Nodo route is invalid.".to_owned())?;
+    let parsed =
+        reqwest::Url::parse(origin).map_err(|_| "The Nodo route is invalid.".to_owned())?;
     if !matches!(parsed.scheme(), "http" | "https")
         || parsed.host_str().is_none()
         || !parsed.username().is_empty()
@@ -2451,7 +2455,7 @@ fn nodo_storage_move_upload_url(origin: &str, path: &str) -> Result<String, Stri
         || !path.starts_with("/v1/storage/move/")
         || path.contains("..")
         || path.contains('%')
-        || path.chars().any(|character| character.is_control())
+        || path.chars().any(char::is_control)
     {
         return Err("The Nodo route is invalid.".to_owned());
     }
@@ -2459,9 +2463,10 @@ fn nodo_storage_move_upload_url(origin: &str, path: &str) -> Result<String, Stri
 }
 
 fn nodo_response_error_message(status: u16, body: &str) -> String {
-    serde_json::from_str::<ErrorResponse>(body)
-        .map(|response| response.error)
-        .unwrap_or_else(|_| format!("Nodo request failed ({status})."))
+    serde_json::from_str::<ErrorResponse>(body).map_or_else(
+        |_| format!("Nodo request failed ({status})."),
+        |response| response.error,
+    )
 }
 
 fn normalize_fluo_like_target(target: &FluoLikeTargetInput) -> Result<FluoLikeTargetInput, String> {
