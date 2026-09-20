@@ -9,7 +9,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "dev": "tauri dev",
     "dev:web": "vite",
-    "icons": "tauri icon src-tauri/app-icon.png --output src-tauri/icons",
+    "build:mac": "./scripts/build-macos-release.sh",
+    "icons": "tauri icon src-tauri/AppIcon.icon/Assets/app-icon.png --output src-tauri/icons",
     "tauri": "tauri",
     "test": "vitest run"
   },
