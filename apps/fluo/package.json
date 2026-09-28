@@ -1,0 +1,42 @@
+{
+  "name": "@kaordo/fluo",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "prepare": "svelte-kit sync || echo ''",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.63.0",
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@tailwindcss/vite": "^4.3.0",
+    "svelte": "^5.56.1",
+    "svelte-check": "^4.6.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  },
+  "dependencies": {
+    "@kaordo/api-client": "workspace:*",
+    "@kaordo/auth": "workspace:*",
+    "@kaordo/contracts": "workspace:*",
+    "@kaordo/crypto": "workspace:*",
+    "@kaordo/links": "workspace:*",
+    "@kaordo/ui": "workspace:*",
+    "@tanstack/svelte-query": "^6.3.0",
+    "@tanstack/svelte-virtual": "^3.13.39",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "@uppy/core": "^6.0.2",
+    "@uppy/tus": "^6.0.0",
+    "photoswipe": "^5.4.4",
+    "pica": "^10.0.3",
+    "video.js": "^8.24.1"
+  }
+}

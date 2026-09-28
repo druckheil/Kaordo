@@ -1,0 +1,11 @@
+{
+  "name": "kaordo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "build:pages": "node scripts/build-pages.mjs",
+    "check:front": "pnpm -r --filter \"@kaordo/*\" check"
+  }
+}

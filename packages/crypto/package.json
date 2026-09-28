@@ -1,0 +1,15 @@
+{
+  "name": "@kaordo/crypto",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "libsodium-wrappers-sumo": "^0.8.4"
+  }
+}
