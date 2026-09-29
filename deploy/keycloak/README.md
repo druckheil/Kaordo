@@ -1,3 +1,7 @@
 # Keycloak
 
-Self-hosted OIDC for username/password, mandatory TOTP, and recovery codes. Registration abuse protection is planned with self-hosted ALTCHA. Configuration comes in a later scope.
+The local Compose profile imports `kaordo-realm.json` into Keycloak 26.7.4. Registration is enabled. `CONFIGURE_TOTP` is a default required action, the browser client requires PKCE S256, and its access tokens include the `kerno-api` audience. The default `basic` and `profile` scopes supply `sub` and `preferred_username` for Kerno. Password grant and implicit flow are disabled for the browser client.
+
+`registration-profile.json` leaves only Username editable on the registration form. The Kaordo login theme renders one Password input and submits the confirmation value required by Keycloak's built-in password validator. `pnpm dev` applies the registration profile, the web client's `kerno-api` audience mapper, and the `basic` and `profile` default scopes through the local Admin API on every start, including realms imported earlier. If Keycloak is started manually, run `pnpm auth:configure` after it is ready. This updates the configuration without deleting existing users and checks an example access token for `aud`, `sub`, and `preferred_username`. Existing access tokens must be refreshed after a scope change before Kerno will accept them.
+
+The `kaordo` login theme inherits Keycloak's supported form templates and applies Kaordo colors and spacing. Passwords and OTP secrets remain with Keycloak. Recovery codes and public abuse controls are not configured yet. Startup import skips a realm that already exists; changing the JSON does not mutate an existing local realm.

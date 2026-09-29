@@ -2,4 +2,90 @@ openapi: 3.1.0
 info:
   title: Kaordo API
   version: 0.0.1
-paths: {}
+servers:
+  - url: http://localhost:8081
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak access token with aud=kerno-api
+  schemas:
+    UserIdentity:
+      type: object
+      required: [id, username, displayName, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Kaordo UUIDv7; distinct from the Keycloak subject.
+        username:
+          type: string
+        displayName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: A stable, non-sensitive reason when an authentication request is rejected.
+paths:
+  /healthz:
+    get:
+      operationId: health
+      responses:
+        '204':
+          description: Process is available.
+  /v1/session:
+    post:
+      operationId: bootstrapSession
+      summary: Create or refresh the local account projection for an authenticated user.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Stable Kaordo identity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserIdentity' }
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/me:
+    get:
+      operationId: getMe
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current Kaordo identity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserIdentity' }
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: Account projection has not been created yet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }

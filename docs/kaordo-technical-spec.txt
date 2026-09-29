@@ -1,0 +1,52 @@
+KAORDO — TECHNICAL SPECIFICATION
+Version: scope-0.0.1, authentication slice
+
+Repository: independent SvelteKit applications in apps/, shared browser
+packages in packages/, Go services in services/, local service definitions in
+deploy/. The static Pages artifact combines the independently built apps under
+/, /ligo/, /fluo/, /rondo/ and /regado/.
+
+Identity provider: self-hosted Keycloak 26.7.4 in a separate PostgreSQL 18.6
+database. Keycloak owns passwords, OTP secrets, authentication sessions and
+the browser login/registration forms. The kaordo-web client is public and
+uses Authorization Code + PKCE S256. Direct password grants and implicit flow
+are disabled. New accounts must configure TOTP before a token is issued;
+subsequent sign-ins use the browser flow's OTP step. Keycloak protects against
+repeated failed sign-ins. Passwords and OTP codes never pass through Kerno or
+Svelte application code.
+
+UI: /login/ and /register/ are Svelte 5 pages using the shared Tailwind,
+shadcn-svelte/Rhea and Lucide system. Their actions launch the Keycloak-hosted
+forms. A Keycloak CSS theme visually aligns the hosted credential forms with
+the site. The credential form is not a Svelte component: it must run within
+Keycloak to preserve the OIDC browser flow and TOTP required action.
+
+Tokens: @kaordo/auth uses keycloak-js. Access and refresh tokens remain in
+browser memory. authorizedFetch refreshes the access token before adding its
+Bearer header. Separate applications on the same site call check-sso against
+the same Keycloak realm; each obtains its own current token after redirect.
+No bearer token is written to localStorage or the URL. The kaordo-web access
+token contains aud=kerno-api through an explicit audience mapper, sub through
+the basic client scope, and preferred_username through the profile scope.
+Kerno checks signature, issuer, audience and expiration against Keycloak discovery/JWKS.
+The ID token is not accepted as the API access token.
+
+Kaordo users: PostgreSQL table users contains a generated UUIDv7 primary key,
+unique Keycloak subject, username, display name and timestamps. POST /v1/session
+requires a valid access token and idempotently creates/updates the local row.
+GET /v1/me reads the same row. OpenAPI is the source for generated TypeScript
+types and the openapi-fetch client. The Keycloak subject is the immutable join key;
+the Kaordo UUID is the identity used by future modules. Kerno never stores a
+password, OTP seed or refresh token. API errors are JSON and private responses
+carry Cache-Control: no-store.
+
+Local binding: Keycloak and application PostgreSQL bind to 127.0.0.1 in the
+development Compose file; Kerno defaults to 127.0.0.1:8081. Browser origins
+are explicitly listed for the OIDC client and Kerno CORS. Production values
+require an HTTPS site origin and an HTTPS Keycloak issuer with tunnel ingress.
+The development Compose profile and start-dev command are for local use only.
+
+Scope boundary: Ligo, Fluo, Rondo and Regado remain scaffolds; each uses the
+shared @kaordo/account-ui gate backed by @kaordo/auth and @kaordo/api-client.
+No module role policy, account recovery UI, email verification, backup or
+public deployment is implemented in this slice.

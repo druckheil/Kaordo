@@ -5,8 +5,15 @@
   "type": "module",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
+    "dev": "node scripts/dev-local.mjs",
+    "dev:web": "pnpm build:pages && node scripts/serve-pages.mjs",
+    "dev:stop": "node scripts/stop-local.mjs",
+    "auth:configure": "node scripts/sync-keycloak.mjs",
     "build:pages": "node scripts/build-pages.mjs",
     "check:front": "pnpm -r --filter \"@kaordo/*\" check",
     "test:pages": "pnpm build:pages && node --test scripts/pages.test.mjs"
+  },
+  "devDependencies": {
+    "sirv": "3.0.2"
   }
 }

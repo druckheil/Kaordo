@@ -1,6 +1,6 @@
 # Kaordo architecture boundary
 
-Scope 0.0.1 establishes package boundaries without implementing product workflows.
+Scope 0.0.1 establishes package boundaries. Its first working slice is local registration, TOTP and shared account identity.
 
 ```mermaid
 flowchart LR
@@ -16,9 +16,9 @@ flowchart LR
   Nodo --> Disks[Local mirrored storage]
 ```
 
-The browser apps are separately built from one pnpm workspace and assembled as one static Pages site. Shared TypeScript packages hold UI, OIDC integration, API client, contracts, cryptography, and cross-app links.
+The browser apps are separately built from one pnpm workspace and assembled as one static Pages site. Shared TypeScript packages hold UI, OIDC integration, account access, API client, contracts, cryptography, and cross-app links.
 
-Kerno is a modular Go service for business data and authorization. Nodo is an independent Go service for resumable direct file uploads. The Go workspace keeps both modules buildable together while allowing separate binaries. Keycloak, Synapse, LiveKit, PostgreSQL, and observability services have reserved deployment folders. Their configuration and production network routing come in later scopes.
+Kerno is a modular Go service for business data and authorization. Its first routes validate Keycloak access tokens and create the local user record. Nodo is an independent Go service for resumable direct file uploads. The Go workspace keeps both modules buildable together while allowing separate binaries. Local Keycloak and PostgreSQL are defined in `deploy/local/compose.yaml`; Synapse, LiveKit and observability services still have reserved deployment folders.
 
 The initial frontend dependency ownership is:
 
@@ -28,4 +28,4 @@ The initial frontend dependency ownership is:
 - Regado: TanStack Query.
 - All apps: Tailwind CSS, shared shadcn-svelte Rhea UI, Bits UI, Lucide, and shared browser packages.
 
-The root Pages build has paths `/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. The domain, home-server network access, authentication, data model, recovery key workflow, and deployment configuration are later work.
+The root Pages build has paths `/`, `/login/`, `/register/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. Local authentication and the user projection are implemented. Domain routing, home-server network access, recovery keys and public deployment are not configured.

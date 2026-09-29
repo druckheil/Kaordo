@@ -10,6 +10,8 @@
     }
   },
   "dependencies": {
+    "@kaordo/auth": "workspace:*",
+    "@kaordo/contracts": "workspace:*",
     "openapi-fetch": "^0.17.0"
   }
 }

@@ -6,7 +6,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Open creates the database pool after deployment configuration is supplied.
+// Open creates and verifies the application database pool.
 func Open(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	return pgxpool.New(ctx, dsn)
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return pool, nil
 }
