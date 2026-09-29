@@ -24,20 +24,7 @@
   },
   "dependencies": {
     "@kaordo/account-ui": "workspace:*",
-    "@kaordo/api-client": "workspace:*",
-    "@kaordo/auth": "workspace:*",
-    "@kaordo/contracts": "workspace:*",
-    "@kaordo/crypto": "workspace:*",
     "@kaordo/links": "workspace:*",
-    "@kaordo/ui": "workspace:*",
-    "@tanstack/svelte-query": "^6.3.0",
-    "@tanstack/svelte-virtual": "^3.13.39",
-    "@tiptap/core": "^3.31.3",
-    "@tiptap/starter-kit": "^3.31.3",
-    "@uppy/core": "^6.0.2",
-    "@uppy/tus": "^6.0.0",
-    "photoswipe": "^5.4.4",
-    "pica": "^10.0.3",
-    "video.js": "^8.24.1"
+    "@kaordo/ui": "workspace:*"
   }
 }

@@ -57,11 +57,13 @@ test('failed refresh immediately clears the previous account', async () => {
 test('a late response cannot overwrite a newer session', async () => {
   let resolveFirst;
   let calls = 0;
+  const cachedUsernames = [];
   const controller = createAccountSessionController(environment, {
     initializeAuth: async () => ({ authenticated: true }),
     bootstrapIdentity: async () => ++calls === 1
       ? new Promise((resolve) => { resolveFirst = resolve; })
-      : user
+      : user,
+    rememberPreview: (account) => cachedUsernames.push(account.username)
   });
   const { snapshots, refresh } = capture(controller);
   const first = refresh();
@@ -73,6 +75,25 @@ test('a late response cannot overwrite a newer session', async () => {
   await first;
   assert.equal(snapshots.length, count);
   assert.equal(snapshots.at(-1).user.username, 'tester');
+  assert.deepEqual(cachedUsernames, ['tester']);
+});
+
+test('a cancelled account check cannot restore the preview after sign-out', async () => {
+  let resolveIdentity;
+  const cachedUsernames = [];
+  const controller = createAccountSessionController(environment, {
+    initializeAuth: async () => ({ authenticated: true }),
+    bootstrapIdentity: async () => new Promise((resolve) => { resolveIdentity = resolve; }),
+    rememberPreview: (account) => cachedUsernames.push(account.username)
+  });
+  const { snapshots, refresh } = capture(controller);
+  const pending = refresh();
+  await Promise.resolve();
+  controller.cancelPending();
+  resolveIdentity(user);
+  await pending;
+  assert.equal(snapshots.length, 1);
+  assert.deepEqual(cachedUsernames, []);
 });
 
 test('disposed controllers do not publish late results', async () => {

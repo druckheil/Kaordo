@@ -16,6 +16,7 @@
     "test:auth": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs scripts/api-client.test.mjs scripts/auth-config.test.mjs",
     "test:auth:live": "node --test scripts/auth-live.integration.mjs",
     "test:backup": "node --test scripts/backup-config.test.mjs",
+    "test:dependencies": "node --test scripts/dependencies.test.mjs",
     "test:dev": "node --test scripts/dev-local.test.mjs",
     "build:pages": "node scripts/build-pages.mjs",
     "check:front": "pnpm -r --filter \"@kaordo/*\" check",

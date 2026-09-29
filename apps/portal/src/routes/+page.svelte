@@ -2,10 +2,9 @@
   import { onMount } from 'svelte';
   import { appPaths } from '@kaordo/links';
   import { signOut } from '@kaordo/auth';
-  import { clearAccountPreview, readAccountPreview, type AccountPreview } from '@kaordo/account-ui';
+  import { clearAccountPreview, createAccountSessionController, readAccountPreview, type AccountPreview } from '@kaordo/account-ui';
   import { ArrowUpRightIcon, Button, LogOutIcon } from '@kaordo/ui';
   import type { UserIdentity } from '@kaordo/contracts';
-  import { loadSession } from '$lib/session';
 
   const modules = [
     { name: 'Ligo', path: appPaths.ligo, description: 'Messages' },
@@ -13,35 +12,39 @@
     { name: 'Rondo', path: appPaths.rondo, description: 'Communities' },
     { name: 'Regado', path: appPaths.regado, description: 'Administration' }
   ];
+  const accountSession = createAccountSessionController(import.meta.env);
 
   let user = $state<UserIdentity | null>(null);
   let authenticated = $state<boolean | null>(null);
   let error = $state<string | null>(null);
   let loading = $state(true);
   let accountPreview = $state<AccountPreview | null>(null);
-  let sessionTask: Promise<void> | null = null;
 
-  async function refreshAccount() {
-    const result = await loadSession();
-    user = result.user;
-    authenticated = result.authenticated;
-    error = result.error;
-    accountPreview = readAccountPreview();
-    loading = false;
+  function refreshAccount(): Promise<void> {
+    return accountSession.refresh((result) => {
+      user = result.user;
+      authenticated = result.loading ? null : result.authenticated;
+      error = result.loading ? null : result.error;
+      if (!result.loading) accountPreview = readAccountPreview();
+      loading = result.loading;
+    });
   }
 
   onMount(() => {
     accountPreview = readAccountPreview();
-    sessionTask = refreshAccount();
+    void refreshAccount();
+    return () => accountSession.dispose();
   });
 
   async function logOut() {
+    accountSession.cancelPending();
+    clearAccountPreview();
+    accountPreview = null;
     try {
-      await sessionTask;
-      clearAccountPreview();
-      accountPreview = null;
       await signOut(window.location.origin + appPaths.portal);
     } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not sign out.';
+      await refreshAccount();
       error = cause instanceof Error ? cause.message : 'Could not sign out.';
     }
   }
@@ -49,8 +52,7 @@
   async function retryAccount() {
     accountPreview = readAccountPreview();
     loading = true;
-    sessionTask = refreshAccount();
-    await sessionTask;
+    await refreshAccount();
   }
 </script>
 

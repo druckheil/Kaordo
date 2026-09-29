@@ -33,6 +33,7 @@ jobs:
         run: |
           pnpm test:auth
           pnpm test:backup
+          pnpm test:dependencies
           pnpm test:dev
           pnpm test:pages
       - name: Check Go services

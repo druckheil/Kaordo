@@ -44,6 +44,7 @@ pnpm build:pages
 pnpm test:pages
 pnpm test:auth
 pnpm test:dev
+pnpm test:dependencies
 pnpm test:auth:live # while pnpm dev runs in another terminal
 pnpm test:backup
 pnpm test:backup:live # with the local database containers running

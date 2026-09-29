@@ -20,12 +20,8 @@ The browser apps are separately built from one pnpm workspace and assembled as o
 
 Kerno is a modular Go service for business data and authorization. Its first routes validate Keycloak access tokens and create the local user record. Nodo is an independent Go service for resumable direct file uploads. The Go workspace keeps both modules buildable together while allowing separate binaries. Local Keycloak and PostgreSQL are defined in `deploy/local/compose.yaml`; Synapse, LiveKit and observability services still have reserved deployment folders.
 
-The initial frontend dependency ownership is:
+The scope 0.0.1 apps currently depend only on imported account, navigation, and UI packages. Domain libraries for Matrix, LiveKit, TanStack, Tiptap, Uppy, PhotoSwipe, Pica, and Video.js are deliberately deferred until their owning module implements a feature that imports them. This keeps the lockfile and install surface aligned with shipped code; dependency ownership can be assigned in the module's own manifest when that work starts.
 
-- Ligo: Matrix JS SDK, TanStack Query and Virtual, Uppy Tus, PhotoSwipe, Video.js.
-- Fluo: TanStack Query and Virtual, Tiptap core, Uppy Tus, Pica, PhotoSwipe, Video.js.
-- Rondo: Matrix JS SDK, LiveKit client, TanStack Query, Uppy Tus.
-- Regado: TanStack Query.
-- All apps: Tailwind CSS, shared shadcn-svelte Rhea UI, Bits UI, Lucide, and shared browser packages.
+All apps use the shared Tailwind CSS, shadcn-svelte/Rhea, Bits UI, and Lucide system through `@kaordo/ui`.
 
 The root Pages build has paths `/`, `/login/`, `/register/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. Local authentication and the user projection are implemented. Domain routing, home-server network access, recovery keys and public deployment are not configured.

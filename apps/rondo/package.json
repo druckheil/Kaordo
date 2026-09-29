@@ -24,16 +24,7 @@
   },
   "dependencies": {
     "@kaordo/account-ui": "workspace:*",
-    "@kaordo/api-client": "workspace:*",
-    "@kaordo/auth": "workspace:*",
-    "@kaordo/contracts": "workspace:*",
-    "@kaordo/crypto": "workspace:*",
     "@kaordo/links": "workspace:*",
-    "@kaordo/ui": "workspace:*",
-    "@tanstack/svelte-query": "^6.3.0",
-    "@uppy/core": "^6.0.2",
-    "@uppy/tus": "^6.0.0",
-    "livekit-client": "^2.22.3",
-    "matrix-js-sdk": "^42.4.0"
+    "@kaordo/ui": "workspace:*"
   }
 }

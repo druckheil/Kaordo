@@ -20,6 +20,8 @@ export const initialAccountSnapshot: AccountSnapshot = {
 type Dependencies = {
   initializeAuth: typeof initializeAuth;
   bootstrapIdentity: typeof bootstrapIdentity;
+  rememberPreview?: typeof rememberAccountPreview;
+  clearPreview?: typeof clearAccountPreview;
 };
 
 export async function loadAccountSnapshot(
@@ -31,13 +33,11 @@ export async function loadAccountSnapshot(
     const session = await dependencies.initializeAuth(authConfigFromEnv(environment));
     authenticated = session.authenticated;
     if (!authenticated) {
-      clearAccountPreview();
       return { loading: false, authenticated: false, user: null, error: null };
     }
     const apiUrl = environment.VITE_KAORDO_API_URL;
     if (!apiUrl) throw new Error('The API is not configured.');
     const user = await dependencies.bootstrapIdentity(apiUrl);
-    rememberAccountPreview(user);
     return { loading: false, authenticated: true, user, error: null };
   } catch (cause) {
     return {
@@ -54,14 +54,25 @@ export function createAccountSessionController(
   dependencies: Dependencies = { initializeAuth, bootstrapIdentity }
 ) {
   let generation = 0;
+  let disposed = false;
+  const rememberPreview = dependencies.rememberPreview ?? rememberAccountPreview;
+  const clearPreview = dependencies.clearPreview ?? clearAccountPreview;
 
   return {
     async refresh(publish: (snapshot: AccountSnapshot) => void): Promise<void> {
+      if (disposed) return;
       const current = ++generation;
       publish({ loading: true, authenticated: false, user: null, error: null });
       const snapshot = await loadAccountSnapshot(environment, dependencies);
-      if (current === generation) publish(snapshot);
+      if (disposed || current !== generation) return;
+      if (snapshot.user) rememberPreview(snapshot.user);
+      else if (snapshot.authenticated || !snapshot.error) clearPreview();
+      publish(snapshot);
     },
-    dispose(): void { generation++; }
+    cancelPending(): void { generation++; },
+    dispose(): void {
+      disposed = true;
+      generation++;
+    }
   };
 }

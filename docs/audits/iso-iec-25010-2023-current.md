@@ -1,160 +1,132 @@
 # Kaordo product quality audit — ISO/IEC 25010:2023
 
-**Baseline audited:** 2026-09-29, `scope-0.0.1` at `7e993d8`. Results below score the checkout before the authentication fixes described in the post-fix evidence section. The earlier `iso-iec-25010-2023-scope-0.0.1.md` remains a historical audit of the pre-authentication scaffold.
+**Audit date:** 2026-09-29. **Scope:** current `scope-0.0.1` working tree, including the account slice and reserved-but-unimplemented Ligo, Fluo, Rondo, Nodo and Regado areas. **Result:** Quality Score **61.3/100**, lowest characteristic **48.0/100**, **0 demonstrated Critical vulnerabilities and 3 High release blockers**. The requested gates (≥99 overall, every characteristic ≥95, no Critical/High) are **not met**. This is a code-and-test engineering assessment, not ISO certification.
 
-**Baseline decision:** Quality Score **39.3/100**; minimum characteristic **24.3/100**; **0 Critical, 5 High** release blockers. The requested gates (overall ≥98, every characteristic ≥95, no Critical/High) were **not met**. This is an engineering assessment, not ISO certification. It scores the intended Kaordo suite: the working account slice receives credit; absent Ligo, Fluo, Rondo, Nodo and Regado workflows do not. Post-fix evidence closes two findings but does not establish a 100/100 score.
+[ISO/IEC 25010:2023](https://www.iso.org/standard/78176.html) defines the nine-characteristic product-quality model; ISO does not prescribe this audit's score or passing threshold. Ratings below use an explicit 0–100 engineering rubric: 0–20 absent/planned; 21–45 partial/static; 46–70 working narrow flow with focused tests; 71–94 representative integrated verification; 95–100 production-like acceptance targets met with functional, failure, accessibility, security and load evidence. Subcharacteristics within each characteristic are equally weighted; nine characteristics are equally weighted in the overall score. Ratings are rounded to one decimal only in summaries. They reflect evidence and substantial feature gaps; they are not statistical measurements.
 
-[ISO/IEC 25010:2023](https://www.iso.org/standard/78176.html) supplies the nine-characteristic product-quality model, not a 0–100 formula or a required passing score. Names follow the [2023 preview](https://cdn.standards.iteh.ai/samples/78176/13ff8ea97048443f99318920757df124/ISO-IEC-25010-2023.pdf). Every subcharacteristic is rated against the intended product: 0–20 absent/planned; 21–45 partial/static; 46–70 working narrow flow with focused tests; 71–94 representative integrated verification; 95–100 documented acceptance targets met with production-like functional, failure, accessibility, security and load evidence. Characteristic scores are unweighted means of their subcharacteristics; the overall score is the unweighted mean of nine characteristics. Intermediate points express engineering judgment tied to evidence, not statistical precision.
+No manual website interaction was performed. Evidence came from source/configuration review, dependency and advisory scans, type checks, builds, unit tests, headless integration tests, and disposable-database restoration. No public Tunnel, production topology, RTC, representative user load, real-world backup destination, assistive device or recovery into active databases was tested.
 
-No manual website interaction was performed. The baseline review used source, configuration, generated artifacts and automated tests, but did not run the live Keycloak/PostgreSQL journey. The post-fix work used the running local Docker stack and automated headless browser and disposable-restore tests. No public endpoint, Tunnel, RTC, assistive device, representative load or recovery into active databases was tested.
+## Score summary
+
+| ISO/IEC 25010:2023 characteristic | Score |
+| --- | ---: |
+| Functional suitability | **54.0** |
+| Performance efficiency | **48.0** |
+| Compatibility | **66.5** |
+| Interaction capability | **65.8** |
+| Reliability | **62.5** |
+| Security | **53.8** |
+| Maintainability | **81.2** |
+| Flexibility | **57.0** |
+| Safety | **63.2** |
+| **Quality Score** | **61.3** |
 
 ## Evidence ledger
 
-| ID | Reproducible evidence |
-| --- | --- |
-| E1 | `README.md`, `AGENTS.md`, `docs/architecture.md` and the four domain app `+page.svelte` files: five independently built SvelteKit apps; only shared account access is functional; messaging, feed, communities and administration say “not available yet.” |
-| E2 | `pnpm check:front`: six Svelte projects, **0 errors/0 warnings**. `pnpm test:pages`: five builds and **3/3** artifact tests pass. `node --test scripts/*.test.mjs`: **20/20** pass, including those three artifact tests. `dist/pages`: **111 files**, **2.8 MiB on disk**; size is not a page-load or transfer metric. |
-| E3 | `go test -cover ./services/kerno/... ./services/nodo/...`, `go vet ./services/kerno/... ./services/nodo/...`, and `go build ./services/kerno/... ./services/nodo/...` pass. Kerno HTTP and OIDC package statement coverage: **81.7%** and **85.2%**; Kerno entrypoint/Postgres and both Nodo packages: **0%**. These are package-local coverage figures. |
-| E4 | `packages/auth`, `api-client`, `contracts`, `services/kerno/internal/{httpapi,identity,postgres}`: Keycloak JS Authorization Code/PKCE, one forced refresh after 401, typed `openapi-fetch`, go-oidc signature/issuer/audience/expiry validation, authenticated user upsert/lookup, parameterized pgx queries, origin allowlist and `no-store` responses. Tests cover selected bearer/JWKS/retry/error cases. Regenerating OpenAPI types caused no diff. |
-| E5 | `deploy/local/compose.yaml`, Keycloak realm/profile JSON, `deploy/postgres/001_users.sql`, `scripts/{dev-local,sync-keycloak}.mjs`: localhost-only development Keycloak/PostgreSQL, UUIDv7 user IDs, PKCE S256, configured default TOTP action and brute-force protection. Initial realm JSON is imported only into an empty realm; sync repairs profile/scopes/audience, **not** TOTP policy or password policy on an existing realm. No live integration proof here. |
-| E6 | `services/nodo/cmd/nodo/main.go` logs a scaffold message. Its tusd handler is constructed but unmounted and has no auth/quota admission. `deploy/{cloudflare,livekit,synapse,storage,observability}` hold README plans, not operational configurations. |
-| E7 | Direct runtime dependency source-reference inventory: **74** declarations across `apps/*` and `packages/*`; **32** referenced in the declaring package's `src/`, **42** without a direct source reference. This is not a bundle-size or transitive-use count. Kerno production uses chi, pgx and go-oidc; its direct go-jose dependency is test-only. Nodo only constructs an unused tusd handler. |
-| E8 | `pnpm audit --audit-level=low` and `pnpm audit --prod --audit-level=low`: **one Low** transitive `cookie@0.6.0` advisory ([GHSA-pxg6-pf52-xh8x](https://github.com/advisories/GHSA-pxg6-pf52-xh8x)); no reported Moderate/High/Critical npm advisory. `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` in each Go module: **No vulnerabilities found**. Container images, config and unknown vulnerabilities are outside these scans. |
-| E9 | Tracked files contain no CI workflow, project `LICENSE`, integrated stack test, browser accessibility test, capacity benchmark, threat model, backup/restore drill or operations telemetry. Five tracked test-source files exist; Go tests target HTTP/OIDC only. |
-| E10 | `packages/ui/components.json` selects Rhea/Lucide. Actual code imports Tailwind, shadcn-svelte CSS, Bits UI Dialog primitives, Lucide icons, Inter and generated Button/Input/Dialog. Pages use Button and icons; no application Dialog/input behavior or automated assistive-technology test is shown. |
-| E11 | Portal/AuthScreen/AccountGate source displays a session-check state before guest actions, account/error text and retries. `AccountGate.refresh()` does not clear an already loaded `user` before a later failed refresh, so a future private view could retain stale content. Current scaffold pages reveal only a display name. |
-| E12 | `pnpm licenses list --json`: 263 installed npm package records grouped by license; 262 have recognized license metadata and one, `combine-errors@3.0.3`, is “Unknown” in package metadata. Its [upstream README](https://github.com/matthewmueller/combine-errors#license) says MIT. This does not audit Go/container licenses or substitute for legal review. The Kaordo repository itself has no `LICENSE` (E9). |
+| ID | Verifiable evidence | What it proves / does not prove |
+| --- | --- | --- |
+| E1 | `AGENTS.md`, `README.md`, `docs/architecture.md`, app routes and service entry points | Five independent SvelteKit apps and two Go modules exist. Account access is implemented; messaging/feed/communities/file-storage/admin workflows remain stubs. |
+| E2 | `pnpm check:front` | Six frontend projects type-check with **0 errors and 0 warnings**. Vite prints its expected SvelteKit `root` override notices. |
+| E3 | `pnpm test:auth` | **31/31** unit tests pass, including login configuration, TOTP/recovery policy reconciliation, API retry, preview-cache privacy, session refresh, cancellation and late-response races. |
+| E4 | `pnpm test:auth:live` with the existing local Compose stack and headless browser | **1/1** integrated journey passes: registration, TOTP and recovery login, Kerno account lookup, app SSO, sign-out, reused recovery-code rejection and account-cache/session transitions. It also reports zero automated axe-core WCAG A/AA violations for the tested states and checks a narrow keyboard path. A local run of 32 concurrent account lookups measured **11 ms p95**. This is a local identity endpoint result, not a product capacity or page-performance test. The temporary test user is removed. |
+| E5 | `pnpm test:backup` and `pnpm test:backup:live` | Unit tests **4/4**; live encrypted restic/PostgreSQL check **1/1**, including restore to disposable databases and data checks. No independent repository, separate key copy, recurring schedule or active-database recovery drill is configured. |
+| E6 | `pnpm test:pages` | All five frontend builds complete; **4/4** static-artifact checks pass, including prerendered app routes, auth entry states, Keycloak silent-SSO callback and local asset references. |
+| E7 | `pnpm test:dependencies` and the direct-import inventory | **24/24** checks pass across 12 workspace packages; all **32/32** declared runtime dependencies are referenced in their owning package source, and workspace packages are declared directly. Removing 42 unused declarations pruned **136 installed packages** and 1,217 lockfile lines. Deferred feature libraries are no longer installed until implementation needs them. |
+| E8 | `pnpm audit --audit-level=moderate`, `pnpm audit --audit-level=low`, `pnpm licenses list --json` | No npm Moderate/High/Critical advisories; one Low transitive `cookie@0.6.0` advisory remains through SvelteKit ([GHSA-pxg6-pf52-xh8x](https://github.com/advisories/GHSA-pxg6-pf52-xh8x)). The pruned npm tree reports **135 package records** with metadata under MIT, Apache-2.0, BSD-3-Clause, ISC, MPL-2.0, OFL-1.1, Python-2.0, 0BSD, or MIT/CC0. This does not audit Go or container licenses, nor grant a license to Kaordo itself. |
+| E9 | `go test ./services/kerno/... ./services/nodo/...`, `go vet ...`, `go build ...` | Both Go modules test, vet and build. Kerno has the active account API; Nodo's tusd handler is constructed but not mounted and has no authentication, ownership or quota admission. The Go code was unchanged by this refactor. |
+| E10 | Local Compose, Keycloak realm configuration, PostgreSQL schema, Kerno routes and backup scripts | Demonstrates a local identity/account stack with OIDC/JWT verification, parameterized pgx access, loopback development binding and local backup/restore tooling. It is not production deployment evidence. |
+| E11 | `pnpm test:dev` | **1 passed, 2 skipped** because the user's existing local services already occupy the Kerno/site ports. No process was stopped. Port preflight runs; the two destructive duplicate-launch checks were not repeated in this run. |
+| E12 | `.github/workflows/checks.yml` | Least-privilege push/PR checks include frontend, API contract, account/backup/dependency/dev/Pages tests and Go test/vet/build. The workflow was not run by hosted CI in this audit; `actionlint` is unavailable in the local environment. |
+| E13 | `packages/ui`, `packages/account-ui`, `packages/auth`, `packages/api-client`, `packages/contracts` | The STaSBLR system is centralized: Tailwind and shadcn-svelte/Rhea configuration, Bits UI behavior, Lucide icons and shared account/session/API contracts. The shared session controller now guards stale responses and logout cancellation; account preview stores display metadata only, not tokens. |
 
 ## All characteristics and subcharacteristics
 
-| Characteristic | Score |
-| --- | ---: |
-| Functional suitability | **38.3** |
-| Performance efficiency | **24.3** |
-| Compatibility | **55.0** |
-| Interaction capability | **45.5** |
-| Reliability | **27.5** |
-| Security | **33.2** |
-| Maintainability | **58.4** |
-| Flexibility | **39.0** |
-| Safety | **32.8** |
-| **Quality Score, mean of nine** | **39.3** |
-
-| Characteristic / subcharacteristic | 0–100 | Evidence-based basis |
+| Characteristic / subcharacteristic | Score | Evidence-based assessment |
 | --- | ---: | --- |
-| **Functional suitability** | **38.3** | Mean of three rows. |
-| Functional completeness | 25 | Account journey exists; chat, feed, calls, files and admin journeys are absent (E1, E6). |
-| Functional correctness | 55 | Auth/API/config tests pass; no live Keycloak/Postgres or product journey test (E2–E5). |
-| Functional appropriateness | 35 | Account gates and links help enter modules, but no communication/storage task completes (E1, E11). |
-| **Performance efficiency** | **24.3** | Mean of three rows. |
-| Time behaviour | 30 | No measured login, startup, DB, transfer or RTC latency; build size cannot substitute (E2). |
-| Resource utilization | 38 | Pre-rendering bounds current static work; no client, DB or identity-server CPU/memory measurement (E2, E5). |
-| Capacity | 5 | No representative users/data/concurrency, targets or load tests (E6, E9). |
-| **Compatibility** | **55.0** | Mean of two rows. |
-| Co-existence | 65 | Five apps build under disjoint routes; simultaneous service deployment unverified (E1, E2, E5). |
-| Interoperability | 45 | OIDC/OpenAPI identity contracts are tested; Matrix, tus, LiveKit and Tunnel are not integrated (E4, E6). |
-| **Interaction capability** | **45.5** | Mean of eight rows. |
-| Appropriateness recognizability | 65 | Pages label product areas and account purpose but show placeholders (E1, E11). |
-| Learnability | 50 | Entry steps are described in code; no observed completed user task (E2, E11). |
-| Operability | 52 | Sign-in/register/retry/sign-out controls exist; no domain controls or live UI proof (E4, E11). |
-| User error protection | 42 | Configured password/profile validation and bounded retry; no live form or account-recovery validation (E4, E5). |
-| User engagement | 35 | Rhea styling/status states exist; no real product task or user feedback evidence (E10, E11). |
-| Inclusivity | 28 | Some semantic labels/status roles; no keyboard, screen-reader, contrast or focus test (E9–E11). |
-| User assistance | 30 | Login guidance, local docs and retry text; no lost-TOTP path or product-task help (E5, E11). |
-| Self-descriptiveness | 62 | Pages identify modules, session states and unavailable services (E1, E11). |
-| **Reliability** | **27.5** | Mean of four rows. |
-| Faultlessness | 55 | Build/type/unit/vet pass; DB, Nodo and live login untested (E2, E3, E5). |
-| Availability | 25 | Local health checks exist; no uptime target, monitoring or public deployment (E4, E5, E9). |
-| Fault tolerance | 25 | One token refresh and manual retry; service/network/disk failures untested (E4, E6, E11). |
-| Recoverability | 5 | Volumes exist; independent backup, restore and authenticator recovery do not (E5, E9). |
-| **Security** | **33.2** | Mean of six rows. |
-| Confidentiality | 38 | Bearer-protected identity, loopback dev binding and in-memory tokens; no content encryption or public TLS configuration (E4–E6). |
-| Integrity | 42 | Signed tokens, SQL parameters and schema constraints; no payload integrity/reconciliation proof (E3–E6). |
-| Non-repudiation | 5 | No signed event receipts or durable sensitive-action evidence (E6, E9). |
-| Accountability | 22 | Stable subject-to-UUID account mapping; no admin or action audit trail (E4, E5, E9). |
-| Authenticity | 62 | PKCE/TOTP config and JWT signature/issuer/audience tests; no live MFA proof and existing-realm policy drift (E4, E5). |
-| Resistance | 30 | Brute-force flag, origin allowlist, bearer rejection; no public abuse/rate/quota tests or Nodo admission (E4–E6). |
-| **Maintainability** | **58.4** | Mean of five rows. |
-| Modularity | 70 | Independent apps, packages and Go services; many reserved boundaries still empty (E1, E6, E7). |
-| Reusability | 62 | Shared account/UI/API contracts actually used; domain libraries mostly declarations (E4, E7, E10). |
-| Analysability | 55 | Small tree, docs, generator and focused tests; no telemetry, CI history or DB integration (E2–E4, E9). |
-| Modifiability | 60 | Clear boundaries; unused dependencies and thin product regression tests raise change risk (E1, E7, E9). |
-| Testability | 45 | HTTP/OIDC seams tested; DB, Nodo, live auth, component behavior, accessibility and load are not (E2, E3, E9). |
-| **Flexibility** | **39.0** | Mean of four rows. |
-| Adaptability | 58 | App/service/environment boundaries exist; only one local topology is described (E1, E5, E6). |
-| Scalability | 15 | No feed/chat/file scaling implementation or measured capacity (E1, E6, E9). |
-| Installability | 48 | `pnpm dev` can orchestrate a local stack and builds pass; no Docker or production install proof here (E2, E5, E9). |
-| Replaceability | 35 | Contracts exist; no provider migration, export/import or replacement test (E4, E6, E7). |
-| **Safety** | **32.8** | Mean of five rows; evidence rating, not a claim of safety-critical use. |
-| Operational constraint | 32 | Loopback dev binding and identity checks; no public storage/admin limits (E4–E6). |
-| Risk identification | 35 | Docs acknowledge local-only/media/backup gaps; no structured hazard or abuse register (E5, E6, E9). |
-| Fail safe | 40 | Kerno rejects invalid bearer/origin; Nodo unmounted, but its handler lacks guards if exposed (E4, E6). |
-| Hazard warning | 32 | UI/docs mark failures and unavailable features; no incident or lost-TOTP response path (E1, E5, E11). |
-| Safe integration | 25 | Identity contract unit tests exist; production ingress, storage and RTC lack integrated validation (E4–E6, E9). |
+| **Functional suitability** | **54.0** | Mean of its three subcharacteristics. |
+| Functional completeness | 31 | Registration/login/TOTP/account bootstrap exist, but chat, feed, calls, file sharing and admin functions are absent (E1, E4, E9). |
+| Functional correctness | 73 | Focused and live auth paths, recovery-code behavior, session races, builds and service checks pass; domain behaviors do not exist to verify (E2–E6, E9). |
+| Functional appropriateness | 58 | A shared account session unlocks each app and gives useful error/retry states; there are no domain tasks (E1, E4, E13). |
+| **Performance efficiency** | **48.0** | Mean of its three subcharacteristics. |
+| Time behaviour | 57 | Kerno lookup p95 is 11 ms for 32 local concurrent requests; auth flow is integrated. No cold-start, page CWV, upload, feed, chat or RTC latency targets/results (E4, E6). |
+| Resource utilization | 62 | Removing unused dependencies pruned 136 installed packages; apps build as separate artifacts. No CPU, memory, bandwidth or DB-profile measurements (E6, E7). |
+| Capacity | 25 | A modest 32-request identity lookup is the only concurrency evidence; no representative data volume, user load, storage capacity or load target exists (E4, E9). |
+| **Compatibility** | **66.5** | Mean of its two subcharacteristics. |
+| Co-existence | 72 | Five apps build independently into the Pages route set; the local app/services detect occupied ports. Multi-version/runtime coexistence is not tested (E6, E11). |
+| Interoperability | 61 | OIDC/Keycloak, PostgreSQL and OpenAPI/Kerno are exercised in local integration. Matrix, LiveKit, tus upload and Tunnel are not integrated (E4, E9, E10). |
+| **Interaction capability** | **65.8** | Mean of its eight subcharacteristics. |
+| Appropriateness recognizability | 73 | App names, account purpose, loading, unavailable-service and retry states are clear; most domain pages are placeholders (E1, E6). |
+| Learnability | 62 | English auth flow, setup guidance and recovery-code journey work in a headless run; domain onboarding is absent (E4). |
+| Operability | 69 | Sign in, registration, retry, sign out and shared account gates operate in integration tests; domain controls are absent (E4, E13). |
+| User error protection | 70 | Registration inputs, TOTP setup, one-time recovery-code rejection and session-error paths have targeted tests; there is no broader domain validation (E3, E4). |
+| User engagement | 52 | Shared STaSBLR components and loading/feedback states exist, but there is no working feed, dialogue or user feedback evidence (E1, E6, E13). |
+| Inclusivity | 62 | axe-core found zero automatic A/AA violations in tested states; tab/Enter path is narrow. No complete keyboard, screen-reader, contrast or assistive-device validation (E4). |
+| User assistance | 62 | Auth prompts, errors, retry, recovery setup and local setup docs are present; no domain help/support paths (E1, E4). |
+| Self-descriptiveness | 76 | Each current account state labels what happened and available action; future service behavior remains unspecified (E4, E13). |
+| **Reliability** | **62.5** | Mean of its four subcharacteristics. |
+| Faultlessness | 80 | Frontend checks, 31 auth tests, 4 backup tests, 24 dependency checks, 4 artifact checks, live auth/backup checks and Go build/test/vet pass (E2–E9). |
+| Availability | 32 | Local services have health checks and a usable dev stack; there is no production rollout, uptime SLO, alerting or failover evidence (E10, E12). |
+| Fault tolerance | 66 | Token refresh-on-401, one bounded retry, stale-response cancellation and backup verification are tested; no disk-full, service-loss, network-partition or quota behavior for product modules (E3–E5). |
+| Recoverability | 72 | TOTP recovery-code login and encrypted backup restore into disposable databases pass; the real backup destination/key copy/schedule and active restoration remain unconfigured (E4, E5). |
+| **Security** | **53.8** | Mean of its six subcharacteristics. No Critical or High exploitable vulnerability was demonstrated by the scoped source/test audit. |
+| Confidentiality | 67 | OIDC bearer auth, in-memory session tokens, metadata-only preview and encrypted restic repository test are evidenced; private-content encryption and public TLS/ingress configuration are absent (E4, E5, E10, E13). |
+| Integrity | 72 | OIDC signature/issuer/audience checks, parameterized SQL, schema constraints, token-refresh tests and backup restore checks provide evidence; content-level integrity/reconciliation is incomplete (E3–E5, E9). |
+| Non-repudiation | 8 | No signed event receipts or immutable evidence for sensitive product actions (E1, E9). |
+| Accountability | 32 | Identity maps OIDC subject to stable local UUID and the test identity can be traced; no admin/action audit trail or retained operational logs (E4, E9). |
+| Authenticity | 82 | PKCE and live registration/TOTP/recovery login, JWT/JWKS/issuer/audience checks and reused-code rejection pass. No production federation or enrolled-device hardening evidence (E3, E4, E10). |
+| Resistance | 62 | Keycloak brute-force policy, origin checks, bearer enforcement, error-safe session handling and one Low dependency advisory are evidenced; no public abuse controls, upload admission, rate/quota or adversarial load tests (E4, E8–E10). |
+| **Maintainability** | **81.2** | Mean of its five subcharacteristics. |
+| Modularity | 84 | Separate SvelteKit apps, shared packages and independent Go modules have clear ownership; several domain modules are still empty scaffolds (E1, E9, E13). |
+| Reusability | 84 | Account/session resolver, UI, auth/API clients and contracts are shared rather than copied; reuse is limited to account flows (E3, E13). |
+| Analysability | 76 | Explicit architecture docs, unit/live checks, artifact tests, Go vet and dependency/advisory scans improve diagnosis; no deployed telemetry and hosted CI evidence (E2–E12). |
+| Modifiability | 79 | Removing 42 unused declarations and centralizing session lifecycle lowers change surface; live integration coverage only exists for account/backup slices (E4–E7, E13). |
+| Testability | 83 | Injectable account dependencies, fast race tests, headless auth, disposable backup restore and independent app builds support repeatable checks; domain modules remain untested because absent (E2–E9). |
+| **Flexibility** | **57.0** | Mean of its four subcharacteristics. |
+| Adaptability | 69 | Workspace apps/packages and independent Go services can evolve separately; only the local identity topology has a runnable integration (E1, E9, E10). |
+| Scalability | 25 | No feed/chat/storage/RTC scale design or representative load data; a small auth lookup result is not scale evidence (E4, E9). |
+| Installability | 72 | `pnpm dev`, Compose, standalone Pages artifact and documented backup commands work locally; no clean-host production install/deployment proof (E5, E6, E10). |
+| Replaceability | 62 | OpenAPI/OIDC contracts and package boundaries help replace providers; no provider migration, user export/import or replacement test (E9, E10, E13). |
+| **Safety** | **63.2** | Mean of its five subcharacteristics; product is not safety-critical, but account/storage loss and unsafe public exposure are operational hazards. |
+| Operational constraint | 52 | Local development binding and authenticated Kerno paths constrain present exposure; no public ingress, quota or storage guardrail (E9, E10). |
+| Risk identification | 64 | This evidence-based audit identifies feature, backup, ingress and upload risks; there is no maintained hazard/abuse register or operational owner (E8–E12). |
+| Fail safe | 75 | Invalid/missing bearer, bad origin, unavailable account service and stale session response fail closed; future Nodo handler is not safe to expose yet (E3, E4, E9, E13). |
+| Hazard warning | 70 | UI presents sign-in, service failure and retry states; backup destination absence and future storage/RTC failures are not surfaced to users (E4, E5, E13). |
+| Safe integration | 55 | Local Keycloak/Postgres/Kerno and restore integration are checked; no public edge, object-storage, RTC or multi-service production test (E4, E5, E9, E10). |
 
-## Findings
+## High-priority release blockers
 
-High means a **release blocker for the intended product**, not a claim that an unmounted scaffold can currently be exploited. No Critical issue was demonstrated by this source-and-test audit.
+High here means a blocker for the intended Kaordo suite, not a claim of current remote exploit. No Critical or High exploitable dependency advisory was reported; the following product gaps still prevent the requested quality gate.
 
-| ID | Severity | Finding / evidence needed to close |
+| ID | Severity | Finding and closure evidence |
 | --- | --- | --- |
-| Q-01 | **High** | Core Ligo/Fluo/Rondo/Nodo/Regado tasks absent (E1, E6). Implement representative positive/negative end-to-end journeys. |
-| Q-02 | **High** | Account databases have no independent backup, verified restore or lost-TOTP recovery (E5, E9). Require a documented recovery path and timed restore test before real user data is entrusted. |
-| Q-03 | **High** | TOTP/password policy is import-only; `syncKeycloak` does not reconcile an existing realm (E5). Require an idempotent policy migration and effective-state test for persisted realms. |
-| Q-04 | **High** | No safe public local-server ingress: only loopback `start-dev`, no production Tunnel/TLS, RTC/TURN or reachability proof (E5, E6). Validate a production-like deployment. |
-| Q-05 | **High** | tusd handler has no authentication, ownership or quota admission (E6). It remains unmounted; add and test these guards before exposure. |
-| Q-06 | Medium | No live stack, browser accessibility, failure/load or CI evidence (E2, E3, E9). Automated representative checks are required for high scores. |
-| Q-07 | Medium | **42/74** direct runtime declarations have no direct source reference (E7). Align declarations with actual callers as each module is implemented. |
-| Q-08 | Medium | `AccountGate.refresh()` can retain an old `user` after a failed later refresh (E11). Clear stale account state and add a regression test before it guards private content. |
-| Q-09 | Medium | No CI, container-image vulnerability/digest control, product license or operations telemetry (E8, E9, E12). npm license metadata alone does not establish full ecosystem licensing. |
-| Q-10 | Low | Transitive `cookie@0.6.0` advisory (E8). Track an upstream compatible fix. |
+| H-01 | **High** | Core Ligo/Fluo/Rondo/Nodo/Regado tasks are absent. Implement and verify representative positive/negative end-to-end journeys. |
+| H-02 | **High** | No production-like local-server ingress, Cloudflare Tunnel, public TLS, RTC/TURN or reachability test. Validate the intended deployment before exposing user data. |
+| H-03 | **High** | The tested backup restore is disposable only; no independent repository, separately stored key copy or schedule is configured. Configure these and pass a timed recovery drill against an isolated copy before real user data. |
+| M-01 | Medium | Nodo's tusd handler has no auth, file ownership, quota, cleanup or publication gate and is unmounted. Add and test the gates before mounting it. |
+| M-02 | Medium | No root `LICENSE` is present; dependency license metadata does not license the product repository. Choose and add the intended project license before distribution. |
+| M-03 | Medium | No representative load, availability SLO/telemetry, full accessibility or production installation proof. Set targets and gather these before a release score above 95. |
+| L-01 | Low | SvelteKit brings `cookie@0.6.0`, below the advisory's patched `0.7.0` floor. Keep tracked for an upstream-compatible update; no moderate-or-higher npm advisory appears (E8). |
 
-## Third-party implementation and duplicate-work check
+## Dependency and library-use audit
 
-The direct dependency inventory searches each declaring package's `src/` for its dependency names, including CSS imports. Transitive use through another workspace package is not counted as direct use. A declaration alone is never credited as an implemented feature.
+The source-reference check walks `.css`, `.js`, `.svelte` and `.ts` source files in each `apps/*` and `packages/*` package. It verifies every direct runtime dependency has a source import and every imported `@kaordo/*` package is declared directly. It is intentionally not a claim about transitive imports, dynamic plugin loading or Go dependencies.
 
-The installed npm license inventory contains MIT, Apache-2.0, BSD-3-Clause, ISC, MPL-2.0, OFL-1.1 and other reported free/open-source license identifiers; one package needs the upstream README to resolve absent machine-readable metadata (E12). Container images and Go transitive packages were not licensed individually in this audit, so a claim that **every** eventual service is unrestricted and free is not evidenced.
-
-| Workspace package | Direct runtime declarations | Source-referenced | Unused examples |
-| --- | ---: | ---: | --- |
-| `apps/fluo` | 16 | 3 | TanStack, Tiptap, Uppy, Pica, PhotoSwipe, Video.js, indirect shared packages. |
-| `apps/ligo` | 14 | 3 | Matrix, TanStack, Uppy, PhotoSwipe, Video.js, indirect shared packages. |
-| `apps/portal` | 6 | 5 | `@kaordo/crypto`. |
-| `apps/regado` | 8 | 3 | TanStack and indirect shared packages. |
-| `apps/rondo` | 12 | 3 | LiveKit, Matrix, TanStack, Uppy, indirect shared packages. |
-| `packages/account-ui` | 4 | 4 | None. |
-| `packages/api-client` | 3 | 3 | None. |
-| `packages/auth` | 1 | 1 | None. |
-| `packages/contracts` | 0 | 0 | OpenAPI generator is a development dependency. |
-| `packages/crypto` | 1 | 0 | libsodium. |
-| `packages/links` | 1 | 0 | `uuid`. |
-| `packages/ui` | 8 | 7 | `@internationalized/date`. |
-| **Total** | **74** | **32** | **42 without direct source reference.** |
-
-| Technology | Actual use and correct-use limit |
+| Area | Current evidence and conclusion |
 | --- | --- |
-| STaSBLR | SvelteKit/Tailwind build; Rhea configured; generated shadcn-svelte Button/Input/Dialog, Bits UI, Lucide and Inter imported. Button/icons are used. No application Input/Dialog interaction or accessibility test. |
-| Keycloak, OIDC, OpenAPI | `keycloak-js`, `go-oidc`, `chi`, `pgx`, `openapi-fetch` and generated types are invoked; focused tests pass. Keycloak owns password/TOTP rather than a custom implementation. Live Keycloak/Postgres and persisted-policy behavior remain unverified. |
-| tusd/Uppy | tusd only constructs an unmounted local handler; Uppy has no import. Protected resumable transfer is not implemented. Wire auth/quota/cleanup around tusd before mounting; avoid a parallel custom protocol. |
-| Matrix, LiveKit, TanStack, Tiptap, Pica, PhotoSwipe, Video.js | Declared only; no source imports, integrated service or homemade substitute. Do not credit these as working features. |
-| libsodium/UUID | Both browser declarations are unused. PostgreSQL generates account UUIDv7 IDs; private-content encryption does not exist. |
+| Runtime dependency ownership | **32/32** direct runtime declarations are referenced in their owning package; **0/32** are currently dead declarations by this check. The test is wired into the CI workflow. |
+| Deferred domain libraries | TanStack Query/Virtual, Matrix SDK, LiveKit, Tiptap, Uppy/tus client, PhotoSwipe, Pica, Video.js and libsodium are not installed as unused promises. Add each to its owning package when implementation imports it; do not write substitute functionality preemptively. |
+| STaSBLR | Shared UI package owns Tailwind, shadcn-svelte/Rhea setup, Bits UI behavior, Lucide icons and Inter. Current app imports resolve through that package and successful build/check confirms integration; no claim that unbuilt interaction types are proven accessible beyond E4. |
+| Authentication | `keycloak-js`, `go-oidc`, `chi`, `pgx`, `openapi-fetch` and generated contracts are used by the login/account flow and covered by automated checks. Keycloak owns passwords/TOTP; Kaordo does not create its own credential or cryptography subsystem. |
+| File uploads and media | Go has a tusd handler scaffold, currently unmounted and unguarded. Uppy/PhotoSwipe/Pica/Video.js are deferred. No resumable upload, ownership, media processing or secure file sharing is implemented. |
+| Encryption | The placeholder crypto package has no unused libsodium runtime dependency. There is no private-content encryption, Matrix E2EE or recovery model in the current code. |
+| Licenses | Current npm license report has 135 package records with stated metadata; Go transitive modules, container images and the repository license need separate review (E8, M-02). |
 
-The baseline checks supported a narrow authentication-code baseline. The follow-up below establishes a live local account journey, while the intended communication/storage suite remains unimplemented.
+## Refactor performed and quality conclusion
 
-## Post-fix evidence for the existing account slice
+- Removed **42** unused direct runtime dependencies and their lockfile entries; the installed package set dropped by **136** packages. Feature libraries are documented as deferred, not presented as integrated.
+- Added `pnpm test:dependencies` (24 checks) and wired it into the repository check workflow so unused runtime declarations and undeclared Kaordo workspace imports are caught.
+- Made account snapshot loading side-effect free. The shared controller now writes or clears its display-only preview only after confirming the response is current; cancellation on sign-out prevents a late response from repopulating it. Added regression coverage for stale responses, cancellation and disposal.
+- Unified the portal's session refresh with the same controller used by app account gates. Exported the controller from `@kaordo/account-ui`; frontend type-check caught and verified this public API wiring.
+- Updated architecture docs to match what the repository imports and actually implements.
 
-Changes were verified on 2026-09-29 in the working tree after `7e993d8`. These results do not retroactively change the baseline scores in the tables above.
-
-| Evidence | Result |
-| --- | --- |
-| `pnpm test:auth` | **30/30** focused tests pass, including shared account resolution, stale account state, concurrent refresh, Keycloak policy reconciliation, audience/claim checks, registration fields, API retry, and presentation-only account preview storage/expiry/clear behavior. |
-| `pnpm test:backup` | **4/4** tests pass, including incomplete-pair rejection, latest-complete-run selection, and refusal to store a repository or key inside the source tree. |
-| `pnpm test:dev` and a live duplicate-launch check | **3/3** tests pass: free/occupied loopback port detection, a second `pnpm dev` failing before Docker or the ready message, and a standalone site reporting port conflict without an uncaught exception. A normal `pnpm dev` then reached ready, while a simultaneous second launch exited with status 1 and a specific occupied-port message. The test server was stopped afterward. |
-| `pnpm test:auth:live` with local Compose, Kerno and headless Chrome | **1/1** integrated journey passes: Username/Password registration, TOTP setup, recovery-code setup, Kerno UUIDv7 account, authenticated `GET /v1/me`, 401 without bearer, 403 from an untrusted origin, signed-in refresh without guest-action flash, sign-out, recovery-code login, normal TOTP login, SSO across Ligo/Fluo/Rondo/Regado, and rejection of a reused recovery code. The journey holds Kerno's session response to verify the cached account preview remains visible during portal reload and module navigation, confirms preview storage contains no token, checks sign-out clears it, and returns Kerno 503 to verify preview and account-gated content disappear. API responses have `no-store` and allowed-origin headers. A local run of 32 concurrent authenticated account lookups had **8 ms p95**; this is not a representative capacity result. axe-core reports **zero automatically detectable WCAG A/AA violations** in the tested entry, registration, TOTP, recovery, portal, and app-gate states. Tab focus and Enter activation were verified for registration entry and submit. The unique test identity and Kerno row are deleted afterward. |
-| `pnpm auth:configure` twice on a persisted realm | Both runs succeed. A controlled change to `failureFactor` was then repaired and verified by the sync command without replacing users. |
-| `pnpm test:backup:live` with restic 0.19.1 and PostgreSQL 18 | **1/1** isolated repository test passes: direct encrypted dumps of the app and Keycloak databases, full repository data check, restore into temporary databases, table/realm verification, subject reconciliation, and cleanup. No external repository or recurring schedule was configured. |
-| `pnpm check:front`, `pnpm test:pages`, Go test/vet/build | Six Svelte projects: **0 errors/0 warnings**; static artifact tests **4/4**, including the silent SSO callback artifact; Go checks pass. |
-| `.github/workflows/checks.yml` | A least-privilege push/PR workflow now runs the frontend checks, regenerated API-contract diff, fast account/backup and Pages tests, Go test/vet/build, and an npm Moderate-or-worse advisory gate. `actionlint` accepted the workflow; every workflow command passed locally. No hosted CI run is claimed yet. |
-| `pnpm audit --audit-level=low` | One known **Low** transitive `cookie@0.6.0` advisory remains through SvelteKit; no Moderate/High/Critical npm advisory reported. The [upstream SvelteKit issue](https://github.com/sveltejs/kit/issues/13399) notes a breaking dependency upgrade. The current product artifacts are static, and Kaordo does not supply an untrusted cookie name/path/domain to this library; replacing a transitive version outside SvelteKit's declared range would need separate compatibility proof. |
-
-Q-03 (persisted realm policy) and Q-08 (stale account state) are closed by implementation and tests. The portal and app gates now use the same account-session resolver from `packages/account-ui`, so auth/API bootstrap has one implementation. Q-02 is mitigated by built-in one-time recovery codes and tested encrypted backup/disposable-restore commands, but an independent destination, schedule, password copy and actual recovery drill are still unconfigured. Q-06 and Q-09 have new automated evidence, but the first hosted CI run, image/security checks and production telemetry remain outstanding. Q-01, Q-04 and Q-05 concern planned modules and public deployment, so they remain open for the complete product. Automated WCAG and a narrow keyboard path now pass, while complete keyboard/screen-reader testing, representative capacity/load, cross-browser behavior and operational availability have no passing evidence. A **100/100 score for the existing account slice is not supportable** from these checks, and the full Kaordo product still fails the original ≥98/≥95/zero-High gates.
+The **current login/registration/account bootstrap** is a reasonably well-tested prototype path: 31 focused auth tests, one live registration/TOTP/recovery/SSO journey, session-race regression checks, no guest-action flash in the tested states, and zero automatically detected axe A/AA violations in those states. That does not make the intended Kaordo suite 99/100: most product functions are absent, the only performance result is a small local account lookup, real backup operations are not configured, the public deployment and storage paths are untested, and one Low transitive advisory remains. Current overall score is **61.3/100**; the full requested thresholds and no-High gate are not satisfied.

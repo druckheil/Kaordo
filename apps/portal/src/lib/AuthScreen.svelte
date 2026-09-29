@@ -22,6 +22,7 @@
       const result = await loadSession();
       error = result.error;
       signedIn = result.authenticated;
+      if (!result.authenticated && !result.error) clearAccountPreview();
       accountPreview = readAccountPreview();
       ready = true;
     })();

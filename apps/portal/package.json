@@ -27,7 +27,6 @@
     "@kaordo/auth": "workspace:*",
     "@kaordo/account-ui": "workspace:*",
     "@kaordo/contracts": "workspace:*",
-    "@kaordo/crypto": "workspace:*",
     "@kaordo/links": "workspace:*"
   }
 }
