@@ -1,0 +1,44 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/setup@v3
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            services/kerno/go.sum
+            services/nodo/go.sum
+      - name: Check frontend and generated API contract
+        run: |
+          pnpm check:front
+          pnpm --filter @kaordo/contracts generate
+          git diff --exit-code -- packages/contracts/src/openapi.d.ts
+      - name: Test browser-independent code and static Pages artifact
+        run: |
+          pnpm test:auth
+          pnpm test:backup
+          pnpm test:dev
+          pnpm test:pages
+      - name: Check Go services
+        run: |
+          go test ./services/kerno/... ./services/nodo/...
+          go vet ./services/kerno/... ./services/nodo/...
+          go build ./services/kerno/... ./services/nodo/...
+      - name: Reject moderate or worse npm advisories
+        run: pnpm audit --audit-level=moderate

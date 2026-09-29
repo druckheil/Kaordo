@@ -42,7 +42,11 @@ pnpm install
 pnpm dev
 pnpm build:pages
 pnpm test:pages
-node --test scripts/auth-config.test.mjs
+pnpm test:auth
+pnpm test:dev
+pnpm test:auth:live # while pnpm dev runs in another terminal
+pnpm test:backup
+pnpm test:backup:live # with the local database containers running
 go test ./services/kerno/...
 go build ./services/kerno/... ./services/nodo/...
 ```
@@ -51,4 +55,4 @@ The other product modules and Nodo remain scaffolds. The current authentication 
 
 The complete previous codebase and Git history are preserved outside this repository at `/Users/druckheil/Projects/Archive/Kaordo-before-0.0.1`.
 
-The [ISO/IEC 25010:2023 gap audit](docs/audits/iso-iec-25010-2023-scope-0.0.1.md) records current evidence and release blockers for this scaffold.
+The [current ISO/IEC 25010:2023 audit](docs/audits/iso-iec-25010-2023-current.md) records evidence and release blockers. The [earlier scaffold audit](docs/audits/iso-iec-25010-2023-scope-0.0.1.md) remains available for comparison.
