@@ -166,9 +166,9 @@ importers:
 
   apps/portal:
     dependencies:
-      '@kaordo/api-client':
+      '@kaordo/account-ui':
         specifier: workspace:*
-        version: link:../../packages/api-client
+        version: link:../../packages/account-ui
       '@kaordo/auth':
         specifier: workspace:*
         version: link:../../packages/auth

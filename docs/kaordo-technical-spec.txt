@@ -24,9 +24,17 @@ Keycloak to preserve the OIDC browser flow and TOTP required action.
 Tokens: @kaordo/auth uses keycloak-js. Access and refresh tokens remain in
 browser memory. authorizedFetch refreshes the access token before adding its
 Bearer header. Separate applications on the same site call check-sso against
-the same Keycloak realm; each obtains its own current token after redirect.
-No bearer token is written to localStorage or the URL. The kaordo-web access
-token contains aud=kerno-api through an explicit audience mapper, sub through
+the same Keycloak realm using the static /silent-check-sso.html callback and
+a hidden iframe where browser policy permits it. Navigation between apps still
+loads a separate app document; it does not create one SPA. A per-tab
+sessionStorage preview keeps only the verified account ID, username and display
+name visible during the next session check. It expires after one hour and is
+cleared when signed out or when Keycloak confirms there is no session. This
+preview is presentation-only: API requests and account-gated content wait for
+the current Keycloak session and Kerno response. If iframe SSO is blocked or
+Kerno cannot verify the account, the UI falls back to normal sign-in or an
+account-service error. No bearer token is written to storage or the URL. The
+kaordo-web access token contains aud=kerno-api through an explicit audience mapper, sub through
 the basic client scope, and preferred_username through the profile scope.
 Kerno checks signature, issuer, audience and expiration against Keycloak discovery/JWKS.
 The ID token is not accepted as the API access token.

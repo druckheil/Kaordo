@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { signIn, signUp } from '@kaordo/auth';
+  import { clearAccountPreview, readAccountPreview, type AccountPreview } from '@kaordo/account-ui';
   import { appPaths } from '@kaordo/links';
   import { ArrowRightIcon, Button, KeyRoundIcon, ShieldCheckIcon } from '@kaordo/ui';
   import { loadSession } from './session';
@@ -11,14 +12,17 @@
   let error = $state<string | null>(null);
   let signedIn = $state<boolean | null>(null);
   let returnPath = $state<string>(appPaths.portal);
+  let accountPreview = $state<AccountPreview | null>(null);
 
   onMount(() => {
+    accountPreview = readAccountPreview();
     const next = new URL(window.location.href).searchParams.get('next');
     if (next && Object.values(appPaths).some((path) => path === next)) returnPath = next;
     void (async () => {
       const result = await loadSession();
       error = result.error;
       signedIn = result.authenticated;
+      accountPreview = readAccountPreview();
       ready = true;
     })();
   });
@@ -27,6 +31,8 @@
     busy = true;
     error = null;
     try {
+      clearAccountPreview();
+      accountPreview = null;
       const redirectUri = window.location.origin + returnPath;
       if (mode === 'login') await signIn(redirectUri);
       else await signUp(redirectUri);
@@ -97,8 +103,12 @@
       {/if}
 
       {#if !ready}
-        <div class="mt-8 h-9 w-full rounded-2xl bg-muted/70" aria-hidden="true"></div>
-        <p class="mt-4 text-center text-xs leading-5 text-muted-foreground" role="status">Checking your session…</p>
+        {#if accountPreview}
+          <p class="mt-8 text-sm text-muted-foreground" data-kaordo-preview aria-busy="true">Welcome back, {accountPreview.displayName}.</p>
+        {:else}
+          <div class="mt-8 h-9 w-full rounded-2xl bg-muted/70" aria-hidden="true"></div>
+          <p class="sr-only" role="status">Checking your session…</p>
+        {/if}
       {:else if signedIn}
         <p class="mt-6 text-sm text-muted-foreground">You are already signed in.</p>
         {#if error}

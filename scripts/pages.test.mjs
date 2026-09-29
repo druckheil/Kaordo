@@ -33,6 +33,11 @@ test('authentication entry points are prerendered without showing guest actions 
   assert.doesNotMatch(register, />Continue to registration</);
 });
 
+test('the static Pages artifact includes the Keycloak silent SSO callback', () => {
+  const callback = readFileSync(join(site, 'silent-check-sso.html'), 'utf8');
+  assert.match(callback, /parent\.postMessage\(location\.href, location\.origin\)/);
+});
+
 test('all local HTML asset references exist in the Pages artifact', () => {
   for (const route of routes) {
     const html = pageAt(route);

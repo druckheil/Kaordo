@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { appPaths } from '@kaordo/links';
   import { signOut } from '@kaordo/auth';
+  import { clearAccountPreview, readAccountPreview, type AccountPreview } from '@kaordo/account-ui';
   import { ArrowUpRightIcon, Button, LogOutIcon } from '@kaordo/ui';
   import type { UserIdentity } from '@kaordo/contracts';
   import { loadSession } from '$lib/session';
@@ -17,19 +18,28 @@
   let authenticated = $state<boolean | null>(null);
   let error = $state<string | null>(null);
   let loading = $state(true);
+  let accountPreview = $state<AccountPreview | null>(null);
+  let sessionTask: Promise<void> | null = null;
+
+  async function refreshAccount() {
+    const result = await loadSession();
+    user = result.user;
+    authenticated = result.authenticated;
+    error = result.error;
+    accountPreview = readAccountPreview();
+    loading = false;
+  }
 
   onMount(() => {
-    void (async () => {
-      const result = await loadSession();
-      user = result.user;
-      authenticated = result.authenticated;
-      error = result.error;
-      loading = false;
-    })();
+    accountPreview = readAccountPreview();
+    sessionTask = refreshAccount();
   });
 
   async function logOut() {
     try {
+      await sessionTask;
+      clearAccountPreview();
+      accountPreview = null;
       await signOut(window.location.origin + appPaths.portal);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Could not sign out.';
@@ -37,12 +47,10 @@
   }
 
   async function retryAccount() {
+    accountPreview = readAccountPreview();
     loading = true;
-    const result = await loadSession();
-    user = result.user;
-    authenticated = result.authenticated;
-    error = result.error;
-    loading = false;
+    sessionTask = refreshAccount();
+    await sessionTask;
   }
 </script>
 
@@ -55,7 +63,11 @@
       <h1 class="mt-2 text-4xl font-semibold tracking-tight">Your connected space.</h1>
     </div>
     {#if authenticated === null}
-      <div class="h-8 w-44 rounded-2xl bg-muted/70" aria-hidden="true"></div>
+      {#if accountPreview}
+        <Button variant="outline" onclick={logOut}><LogOutIcon class="size-4" /> Sign out</Button>
+      {:else}
+        <div class="h-8 w-44 rounded-2xl bg-muted/70" aria-hidden="true"></div>
+      {/if}
     {:else if authenticated}
       <Button variant="outline" onclick={logOut}><LogOutIcon class="size-4" /> Sign out</Button>
     {:else}
@@ -71,7 +83,15 @@
   {/if}
 
   {#if loading}
-    <p class="mt-10 text-sm text-muted-foreground" role="status">Checking your session…</p>
+    {#if accountPreview}
+      <div data-kaordo-preview aria-busy="true">
+        <p class="mt-8 text-muted-foreground">Welcome, {accountPreview.displayName}.</p>
+        <p class="mt-1 text-xs text-muted-foreground">Account ID: {accountPreview.id}</p>
+      </div>
+    {:else}
+      <div class="mt-8 h-6 w-48 rounded-lg bg-muted/70" aria-hidden="true"></div>
+      <p class="sr-only" role="status">Checking your session…</p>
+    {/if}
   {:else if user}
     <p class="mt-8 text-muted-foreground">Welcome, {user.displayName}.</p>
     <p class="mt-1 text-xs text-muted-foreground">Account ID: {user.id}</p>

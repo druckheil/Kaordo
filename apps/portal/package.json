@@ -25,7 +25,7 @@
   "dependencies": {
     "@kaordo/ui": "workspace:*",
     "@kaordo/auth": "workspace:*",
-    "@kaordo/api-client": "workspace:*",
+    "@kaordo/account-ui": "workspace:*",
     "@kaordo/contracts": "workspace:*",
     "@kaordo/crypto": "workspace:*",
     "@kaordo/links": "workspace:*"

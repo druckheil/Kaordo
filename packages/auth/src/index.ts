@@ -33,7 +33,8 @@ export async function initializeAuth(config: AuthConfig): Promise<AuthSession> {
     await instance.init({
       onLoad: 'check-sso',
       pkceMethod: 'S256',
-      checkLoginIframe: false
+      checkLoginIframe: false,
+      silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`
     });
     adapter = instance;
     return instance;

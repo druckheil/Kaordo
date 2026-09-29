@@ -10,8 +10,11 @@
   <p class="text-sm text-muted-foreground">Kaordo 0.0.1</p>
   <h1 class="mt-2 text-3xl font-semibold">Regado</h1>
   <AccountGate appName="Regado" returnPath={appPaths.regado} environment={import.meta.env}>
+    {#snippet preview(account)}
+      <p class="mt-4 text-muted-foreground">Welcome, {account.displayName}. Administration requires a separate role check and is not available yet.</p>
+    {/snippet}
     {#snippet children(user)}
-      <p class="mt-4 text-muted-foreground">Signed in as {user.displayName}. Administration requires a separate role check and is not available yet.</p>
+      <p class="mt-4 text-muted-foreground">Welcome, {user.displayName}. Administration requires a separate role check and is not available yet.</p>
     {/snippet}
   </AccountGate>
   <Button href={appPaths.portal} rel="external" variant="outline" class="mt-8">Back to Kaordo</Button>
