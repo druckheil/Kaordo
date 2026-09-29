@@ -3,12 +3,14 @@ import { randomBytes } from 'node:crypto';
 import { copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseEnv } from 'node:util';
+import { assertAvailablePorts } from './local-ports.mjs';
 import { syncKeycloak } from './sync-keycloak.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const compose = ['compose', '--env-file', 'deploy/local/.env', '-f', 'deploy/local/compose.yaml'];
 const siteOrigin = 'http://localhost:8765';
 const children = new Set();
+const startErrors = new WeakMap();
 let stopping = false;
 
 async function exists(path) {
@@ -58,7 +60,8 @@ async function ensureConfiguration() {
 function start(command, args, environment = process.env) {
   const child = spawn(command, args, { cwd: root, env: environment, stdio: 'inherit' });
   children.add(child);
-  child.once('exit', () => children.delete(child));
+  child.once('error', (error) => startErrors.set(child, error));
+  child.once('close', () => children.delete(child));
   return child;
 }
 
@@ -76,18 +79,30 @@ function run(command, args, environment = process.env) {
 async function waitFor(url, timeoutMs, child) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline && !stopping) {
-    if (child && child.exitCode !== null) {
-      throw new Error(`A local service exited before ${url} became available.`);
-    }
+    assertRunning(child, url);
+    let response;
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
-      if (response.ok) return;
+      response = await fetch(url, { signal: AbortSignal.timeout(2000) });
     } catch {
       // A service may still be starting.
+    }
+    if (response?.ok) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+      assertRunning(child, url);
+      return;
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000));
   }
   throw new Error(`Timed out waiting for ${url}.`);
+}
+
+function assertRunning(child, url) {
+  if (!child) return;
+  const error = startErrors.get(child);
+  if (error) throw new Error(`Could not start the service for ${url}: ${error.message}`);
+  if (child.exitCode !== null || child.signalCode !== null) {
+    throw new Error(`The service for ${url} exited before it was ready (${child.exitCode ?? child.signalCode}).`);
+  }
 }
 
 function stop() {
@@ -100,6 +115,10 @@ process.once('SIGINT', stop);
 process.once('SIGTERM', stop);
 
 try {
+  await assertAvailablePorts([
+    { name: 'Kerno', port: 8081 },
+    { name: 'Kaordo site', port: 8765 }
+  ]);
   const privateConfig = await ensureConfiguration();
   try {
     await run('docker', ['compose', 'version']);
@@ -133,11 +152,24 @@ try {
   console.log('Ready: http://localhost:8765/login/');
   console.log('Press Ctrl+C to stop Kerno and the site. Run pnpm dev:stop to stop Docker services.');
 
-  await new Promise((resolveDone) => {
-    process.once('SIGINT', resolveDone);
-    process.once('SIGTERM', resolveDone);
-    kerno.once('exit', resolveDone);
-    web.once('exit', resolveDone);
+  await new Promise((resolveDone, rejectDone) => {
+    const onStop = () => resolveDone();
+    const onExit = (name) => (code, signal) => {
+      if (stopping) resolveDone();
+      else rejectDone(new Error(`${name} exited unexpectedly (${code ?? signal}).`));
+    };
+    if (kerno.exitCode !== null || kerno.signalCode !== null) {
+      rejectDone(new Error(`Kerno exited unexpectedly (${kerno.exitCode ?? kerno.signalCode}).`));
+      return;
+    }
+    if (web.exitCode !== null || web.signalCode !== null) {
+      rejectDone(new Error(`Kaordo site exited unexpectedly (${web.exitCode ?? web.signalCode}).`));
+      return;
+    }
+    process.once('SIGINT', onStop);
+    process.once('SIGTERM', onStop);
+    kerno.once('exit', onExit('Kerno'));
+    web.once('exit', onExit('Kaordo site'));
   });
   stop();
 } catch (error) {
