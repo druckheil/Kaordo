@@ -3,6 +3,8 @@ node_modules/
 build/
 dist/
 coverage/
+backups/
+*.dump
 .env
 .env.*
 !.env.example
