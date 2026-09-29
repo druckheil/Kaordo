@@ -114,7 +114,7 @@
   {#if error}<p class="mt-3 text-sm text-destructive" role="alert">{error}</p>{/if}
   <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
     <div class="flex items-center gap-3">
-      <input bind:this={fileInput} type="file" accept="image/jpeg,image/png,video/mp4,video/webm,video/quicktime,.mov" multiple class="sr-only" aria-label="Choose photos or videos" onchange={chooseFiles} />
+      <input bind:this={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime,.mov" multiple class="sr-only" aria-label="Choose photos or videos" onchange={chooseFiles} />
       <Button size="sm" variant="outline" disabled={pending} onclick={() => fileInput?.click()}><ImagePlusIcon class="size-4" /> Media</Button>
       <select aria-label="Post visibility" bind:value={visibility} disabled={pending || !!replyTo}
         class="h-8 rounded-xl border bg-background px-2 text-xs focus-visible:outline-2 focus-visible:outline-ring">

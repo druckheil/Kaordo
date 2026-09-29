@@ -8,6 +8,7 @@ require (
 	github.com/druckheil/Kaordo/services/mediaauth v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/tus/tusd/v2 v2.10.1
+	golang.org/x/image v0.46.0
 )
 
 require (

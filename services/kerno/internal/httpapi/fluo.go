@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
@@ -41,6 +42,8 @@ func mountFluo(router chi.Router, verify VerifyFunc, users UserStore, deps FluoD
 	router.Route("/v1/fluo", func(r chi.Router) {
 		r.Get("/posts", h.list)
 		r.Post("/posts", h.create)
+		r.Put("/posts/{id}/saved", h.savePost)
+		r.Delete("/posts/{id}/saved", h.unsavePost)
 		r.Get("/posts/{id}", h.get)
 		r.Delete("/posts/{id}", h.delete)
 		r.Get("/posts/{id}/comments", h.comments)
@@ -79,8 +82,8 @@ func fluoError(w http.ResponseWriter, err error) {
 	case errors.Is(err, fluo.ErrRateLimited):
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "Posting too quickly. Try again in a minute.")
-	case errors.Is(err, fluo.ErrAlreadyClaimed):
-		writeError(w, http.StatusConflict, "An attachment can be used in one post only. Upload it again.")
+	case errors.Is(err, fluo.ErrMediaOwner):
+		writeError(w, http.StatusBadRequest, "An attachment is unavailable or not yours.")
 	default:
 		writeError(w, http.StatusInternalServerError, "Fluo could not complete the request.")
 	}
@@ -112,8 +115,12 @@ func readPageOptions(r *http.Request, viewerID string, parentID *string) (fluo.L
 	if feed == "" {
 		feed = "latest"
 	}
-	if feed != "latest" && feed != "following" && feed != "mine" {
-		return fluo.ListOptions{}, errors.New("feed must be latest, following or mine")
+	if feed != "latest" && feed != "following" && feed != "mine" && feed != "saved" {
+		return fluo.ListOptions{}, errors.New("feed must be latest, following, mine or saved")
+	}
+	search := strings.TrimSpace(query.Get("q"))
+	if utf8.RuneCountInString(search) > 100 || (search != "" && utf8.RuneCountInString(search) < 2) {
+		return fluo.ListOptions{}, errors.New("search must contain between 2 and 100 characters")
 	}
 	limit := 20
 	if raw := query.Get("limit"); raw != "" {
@@ -127,7 +134,7 @@ func readPageOptions(r *http.Request, viewerID string, parentID *string) (fluo.L
 	if err != nil {
 		return fluo.ListOptions{}, err
 	}
-	return fluo.ListOptions{ViewerID: viewerID, ParentID: parentID, Feed: feed, Limit: limit, Cursor: cursor}, nil
+	return fluo.ListOptions{ViewerID: viewerID, ParentID: parentID, Feed: feed, Search: search, Limit: limit, Cursor: cursor}, nil
 }
 
 func (h fluoHandler) page(w http.ResponseWriter, r *http.Request, parentID *string) {
@@ -301,6 +308,28 @@ func (h fluoHandler) delete(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h fluoHandler) savePost(w http.ResponseWriter, r *http.Request) { h.setSaved(w, r, true) }
+
+func (h fluoHandler) unsavePost(w http.ResponseWriter, r *http.Request) { h.setSaved(w, r, false) }
+
+func (h fluoHandler) setSaved(w http.ResponseWriter, r *http.Request, saved bool) {
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !fluo.ValidID(id) {
+		writeError(w, http.StatusBadRequest, "Invalid post ID.")
+		return
+	}
+	if err := h.deps.Store.SetSaved(r.Context(), actor.ID, id, saved); err != nil {
+		fluoError(w, err)
+		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)

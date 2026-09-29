@@ -297,12 +297,12 @@ func (server *Server) beforeCreate(event tusd.HookEvent) (tusd.HTTPResponse, tus
 	if info.SizeIsDeferred || info.Size <= 0 || info.IsPartial || info.IsFinal {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_INVALID_MEDIA", "a known file size is required", http.StatusBadRequest)
 	}
-	if ((mediaType == "image/jpeg" || mediaType == "image/png") && info.Size > 20*1024*1024) ||
+	if ((mediaType == "image/jpeg" || mediaType == "image/png" || mediaType == "image/webp") && info.Size > 20*1024*1024) ||
 		((mediaType == "video/mp4" || mediaType == "video/webm" || mediaType == "video/quicktime") && info.Size > maxUploadSize) {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.ErrMaxSizeExceeded
 	}
-	if mediaType != "image/jpeg" && mediaType != "image/png" && mediaType != "video/mp4" && mediaType != "video/webm" && mediaType != "video/quicktime" {
-		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_UNSUPPORTED_MEDIA", "JPEG, PNG, MP4, WebM or MOV required", http.StatusUnsupportedMediaType)
+	if mediaType != "image/jpeg" && mediaType != "image/png" && mediaType != "image/webp" && mediaType != "video/mp4" && mediaType != "video/webm" && mediaType != "video/quicktime" {
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_UNSUPPORTED_MEDIA", "JPEG, PNG, WebP, MP4, WebM or MOV required", http.StatusUnsupportedMediaType)
 	}
 	id, err := uuid.NewV7()
 	if err != nil {

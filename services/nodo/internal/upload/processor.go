@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	_ "golang.org/x/image/webp"
 )
 
 type mediaInfo struct {
@@ -67,7 +69,7 @@ func (server *Server) process(id string) error {
 	var item mediaInfo
 	var output string
 	switch info.MetaData["filetype"] {
-	case "image/jpeg", "image/png":
+	case "image/jpeg", "image/png", "image/webp":
 		item, output, err = server.processImage(source, id, info.MetaData["filetype"])
 	case "video/mp4", "video/webm", "video/quicktime":
 		item, output, err = server.processVideo(source, id)
@@ -111,9 +113,8 @@ func (server *Server) processImage(source, id, declaredType string) (mediaInfo, 
 	}
 	defer file.Close()
 	config, format, err := image.DecodeConfig(file)
-	if err != nil || (format != "jpeg" && format != "png") ||
-		(format == "jpeg" && declaredType != "image/jpeg") ||
-		(format == "png" && declaredType != "image/png") {
+	if err != nil || (format != "jpeg" && format != "png" && format != "webp") ||
+		(declaredType != "image/jpeg" && declaredType != "image/png" && declaredType != "image/webp") {
 		return mediaInfo{}, "", errors.New("image format does not match its declared type")
 	}
 	if config.Width < 1 || config.Height < 1 || config.Width > 8192 || config.Height > 8192 ||

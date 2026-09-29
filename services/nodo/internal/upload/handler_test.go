@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -17,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -183,6 +185,148 @@ func TestResumableImageUploadAndAccess(t *testing.T) {
 	again.Header = post.Header.Clone()
 	newUpload := response(again, http.StatusCreated)
 	newUpload.Body.Close()
+}
+
+func TestFourConcurrentImageUploadsAcceptMislabeledWebP(t *testing.T) {
+	webpBytes, err := base64.StdEncoding.DecodeString("UklGRiwAAABXRUJQVlA4TB8AAAAvAUAAAB8gEEjeHzqN+RcQFPwf3fxHZA/gBgwR/Q8BAA==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pngSource bytes.Buffer
+	if err := png.Encode(&pngSource, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+
+	key := []byte(strings.Repeat("k", 32))
+	handler, err := NewHandler(Config{
+		Directory: t.TempDir(), MediaKey: key, MaxOwnerUploads: 4,
+		VerifyOwner: func(_ context.Context, bearer string) (string, error) {
+			if bearer == "Bearer alice" {
+				return "alice", nil
+			}
+			return "", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client := server.Client()
+
+	type upload struct {
+		id      string
+		payload []byte
+	}
+	inputs := []struct {
+		payload      []byte
+		declaredMIME string
+	}{
+		{payload: pngSource.Bytes(), declaredMIME: "image/png"},
+		{payload: webpBytes, declaredMIME: "image/jpeg"},
+		{payload: pngSource.Bytes(), declaredMIME: "image/png"},
+		{payload: webpBytes, declaredMIME: "image/webp"},
+	}
+	uploads := make([]upload, 0, len(inputs))
+	for _, input := range inputs {
+		request, err := http.NewRequest(http.MethodPost, server.URL+"/v1/uploads/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer alice")
+		request.Header.Set("Tus-Resumable", "1.0.0")
+		request.Header.Set("Upload-Length", strconv.Itoa(len(input.payload)))
+		request.Header.Set("Upload-Metadata", "filetype "+base64.StdEncoding.EncodeToString([]byte(input.declaredMIME)))
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusCreated {
+			body, _ := io.ReadAll(response.Body)
+			response.Body.Close()
+			t.Fatalf("create upload = %d: %s", response.StatusCode, body)
+		}
+		location, err := url.Parse(response.Header.Get("Location"))
+		response.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		id := strings.TrimPrefix(location.Path, "/v1/uploads/")
+		if !validUploadID(id) {
+			t.Fatalf("invalid upload ID: %q", id)
+		}
+		uploads = append(uploads, upload{id: id, payload: input.payload})
+	}
+
+	var wait sync.WaitGroup
+	errorsFound := make(chan error, len(uploads))
+	for _, item := range uploads {
+		wait.Add(1)
+		go func(item upload) {
+			defer wait.Done()
+			request, err := http.NewRequest(http.MethodPatch, server.URL+"/v1/uploads/"+item.id, bytes.NewReader(item.payload))
+			if err != nil {
+				errorsFound <- err
+				return
+			}
+			request.Header.Set("Authorization", "Bearer alice")
+			request.Header.Set("Tus-Resumable", "1.0.0")
+			request.Header.Set("Upload-Offset", "0")
+			request.Header.Set("Content-Type", "application/offset+octet-stream")
+			response, err := client.Do(request)
+			if err != nil {
+				errorsFound <- err
+				return
+			}
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusNoContent {
+				errorsFound <- fmt.Errorf("PATCH upload %s = %d", item.id, response.StatusCode)
+			}
+		}(item)
+	}
+	wait.Wait()
+	close(errorsFound)
+	for err := range errorsFound {
+		t.Error(err)
+	}
+
+	for _, item := range uploads {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			request, err := http.NewRequest(http.MethodGet, server.URL+"/v1/uploads/"+item.id+"/meta", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set("Authorization", "Bearer alice")
+			response, err := client.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var metadata struct {
+				Complete bool   `json:"complete"`
+				MIMEType string `json:"mimeType"`
+				Error    string `json:"error"`
+			}
+			decodeErr := json.NewDecoder(response.Body).Decode(&metadata)
+			response.Body.Close()
+			if decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if response.StatusCode == http.StatusUnprocessableEntity {
+				t.Fatalf("upload %s failed processing: %s", item.id, metadata.Error)
+			}
+			if response.StatusCode == http.StatusOK && metadata.Complete {
+				if metadata.MIMEType != "image/png" {
+					t.Errorf("normalized upload MIME type = %q, want image/png", metadata.MIMEType)
+				}
+				break
+			}
+			if response.StatusCode != http.StatusAccepted || time.Now().After(deadline) {
+				t.Fatalf("upload %s did not finish processing: status %d", item.id, response.StatusCode)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
 }
 
 func TestVideoProcessing(t *testing.T) {

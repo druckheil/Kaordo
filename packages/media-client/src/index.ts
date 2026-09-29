@@ -4,7 +4,7 @@ import Uppy from '@uppy/core';
 import Tus from '@uppy/tus';
 import pica from 'pica';
 
-const imageTypes = new Set(['image/jpeg', 'image/png']);
+const imageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const videoTypes = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 const maxImageSize = 20 * 1024 * 1024;
 const maxVideoSize = 100 * 1024 * 1024;
@@ -29,7 +29,7 @@ async function prepared(file: File): Promise<File> {
     const scaler = pica();
     await scaler.resize(source, target);
     const blob = await scaler.toBlob(target, file.type, file.type === 'image/jpeg' ? 0.85 : undefined);
-    return new File([blob], file.name, { type: file.type, lastModified: file.lastModified });
+    return new File([blob], file.name, { type: blob.type, lastModified: file.lastModified });
   } finally {
     bitmap.close();
   }
@@ -44,7 +44,7 @@ export async function uploadMedia(
   const chosen = await Promise.all(files.map(prepared));
   for (const file of chosen) {
     if (!imageTypes.has(file.type) && !videoTypes.has(file.type)) {
-      throw new Error('Choose JPEG, PNG, MP4, WebM or MOV files.');
+      throw new Error('Choose JPEG, PNG, WebP, MP4, WebM or MOV files.');
     }
     if (file.size < 1 || file.size > (imageTypes.has(file.type) ? maxImageSize : maxVideoSize)) {
       throw new Error(`${file.name} exceeds its upload limit.`);

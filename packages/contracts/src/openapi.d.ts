@@ -137,6 +137,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/fluo/posts/{id}/saved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["saveFluoPost"];
+        post?: never;
+        delete: operations["unsaveFluoPost"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/fluo/posts/{id}/reaction": {
         parameters: {
             query?: never;
@@ -253,6 +271,8 @@ export interface components {
             counts: components["schemas"]["FluoCounts"];
             /** @enum {string|null} */
             myReaction: "good" | "bad" | null;
+            /** @description Whether the current user saved this post. */
+            saved: boolean;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -475,7 +495,9 @@ export interface operations {
     listFluoPosts: {
         parameters: {
             query?: {
-                feed?: "latest" | "following" | "mine";
+                feed?: "latest" | "following" | "mine" | "saved";
+                /** @description Search post text and author names */
+                q?: string;
                 cursor?: string;
                 limit?: number;
             };
@@ -619,6 +641,64 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["FluoPage"];
                 };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    saveFluoPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved the accessible post to the current user's private list. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    unsaveFluoPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed the post from the current user's saved list. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Access or server error. */
             default: {

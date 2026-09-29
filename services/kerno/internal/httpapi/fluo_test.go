@@ -21,6 +21,8 @@ type fluoStoreStub struct {
 	created   int
 	listed    int
 	lastMedia []fluo.Media
+	saved     map[string]bool
+	lastList  fluo.ListOptions
 }
 
 func (store *fluoStoreStub) Create(_ context.Context, actor string, input fluo.NewPost, text string, media []fluo.Media) (fluo.Post, error) {
@@ -32,14 +34,22 @@ func (store *fluoStoreStub) Create(_ context.Context, actor string, input fluo.N
 func (store *fluoStoreStub) Get(context.Context, string, string) (fluo.Post, error) {
 	return fluo.Post{}, fluo.ErrNotFound
 }
-func (store *fluoStoreStub) List(context.Context, fluo.ListOptions) (fluo.Page, error) {
+func (store *fluoStoreStub) List(_ context.Context, options fluo.ListOptions) (fluo.Page, error) {
 	store.listed++
+	store.lastList = options
 	return fluo.Page{Items: []fluo.Post{}}, nil
 }
 func (store *fluoStoreStub) Delete(context.Context, string, string) ([]string, error) {
 	return nil, fluo.ErrNotFound
 }
 func (store *fluoStoreStub) MediaReferenced(context.Context, string) (bool, error) { return false, nil }
+func (store *fluoStoreStub) SetSaved(_ context.Context, userID, postID string, saved bool) error {
+	if store.saved == nil {
+		store.saved = make(map[string]bool)
+	}
+	store.saved[userID+":"+postID] = saved
+	return nil
+}
 func (store *fluoStoreStub) React(context.Context, string, string, *string) (fluo.Post, error) {
 	return fluo.Post{}, fluo.ErrNotFound
 }
@@ -107,6 +117,48 @@ func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 	mediaURL, err := url.Parse(post.Media[0].URL)
 	if err != nil || !mediaauth.Verify(id, mediaURL.Query().Get("exp"), mediaURL.Query().Get("sig"), key, time.Now()) {
 		t.Fatal("media URL is not correctly signed")
+	}
+	reused := invoke(requestBody, "valid")
+	if reused.Code != http.StatusCreated || store.created != 2 || len(store.lastMedia) != 1 || store.lastMedia[0].ID != id {
+		t.Fatalf("reused owned media = %d, writes %d: %s", reused.Code, store.created, reused.Body.String())
+	}
+}
+
+func TestSavedPostRoutesAndSearchQuery(t *testing.T) {
+	store := &fluoStoreStub{}
+	users := &fakeUsers{user: postgres.User{ID: "01999111-2222-7333-8444-555555555554", Username: "alice", DisplayName: "Alice"}}
+	verify := func(_ context.Context, token string) (identity.Claims, error) {
+		if token != "valid" {
+			return identity.Claims{}, errors.New("invalid token")
+		}
+		return identity.Claims{Subject: "alice-subject", Username: "alice", Name: "Alice"}, nil
+	}
+	handler := NewRouterWithFluo(verify, users, FluoDependencies{Store: store}, nil)
+	postID := "01999111-2222-7333-8444-555555555551"
+
+	request := func(method, path, bearer string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, nil)
+		if bearer != "" {
+			r.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	if response := request(http.MethodPut, "/v1/fluo/posts/"+postID+"/saved", ""); response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated save = %d", response.Code)
+	}
+	if response := request(http.MethodPut, "/v1/fluo/posts/"+postID+"/saved", "valid"); response.Code != http.StatusNoContent || !store.saved[users.user.ID+":"+postID] {
+		t.Fatalf("save post = %d, saved %t", response.Code, store.saved[users.user.ID+":"+postID])
+	}
+	if response := request(http.MethodGet, "/v1/fluo/posts?feed=saved", "valid"); response.Code != http.StatusOK || store.lastList.Feed != "saved" {
+		t.Fatalf("saved list = %d, feed %q", response.Code, store.lastList.Feed)
+	}
+	if response := request(http.MethodGet, "/v1/fluo/posts?q=blue%20bird", "valid"); response.Code != http.StatusOK || store.lastList.Search != "blue bird" {
+		t.Fatalf("search posts = %d, term %q", response.Code, store.lastList.Search)
+	}
+	if response := request(http.MethodDelete, "/v1/fluo/posts/"+postID+"/saved", "valid"); response.Code != http.StatusNoContent || store.saved[users.user.ID+":"+postID] {
+		t.Fatalf("unsave post = %d, saved %t", response.Code, store.saved[users.user.ID+":"+postID])
 	}
 }
 

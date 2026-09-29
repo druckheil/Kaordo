@@ -25,6 +25,7 @@ const postColumns = `
 	COALESCE((SELECT count(*) FROM fluo_reactions r WHERE r.post_id = p.id AND r.value = 'bad'), 0),
 	COALESCE((SELECT count(*) FROM fluo_posts c WHERE c.parent_id = p.id), 0),
 	(SELECT r.value FROM fluo_reactions r WHERE r.post_id = p.id AND r.user_id = $1::uuid),
+	EXISTS (SELECT 1 FROM fluo_saved_posts s WHERE s.user_id = $1::uuid AND s.post_id = p.id),
 	COALESCE((SELECT jsonb_agg(jsonb_build_object(
 		'id', m.upload_id::text, 'kind', m.kind, 'mimeType', m.mime_type,
 		'width', m.width, 'height', m.height, 'size', m.size_bytes
@@ -49,7 +50,7 @@ func scanPost(row scanner) (fluo.Post, error) {
 		&post.ID, &post.Author.ID, &post.Author.Username, &post.Author.DisplayName, &post.Author.Following,
 		&post.Content, &post.Text, &post.Visibility, &parent, &quote,
 		&quotePreviewID, &quoteAuthorID, &quoteUsername, &quoteName, &quoteText,
-		&post.Counts.Good, &post.Counts.Bad, &post.Counts.Comments, &reaction,
+		&post.Counts.Good, &post.Counts.Bad, &post.Counts.Comments, &reaction, &post.Saved,
 		&mediaJSON, &post.CreatedAt, &post.UpdatedAt,
 	)
 	if err != nil {
@@ -113,6 +114,9 @@ func (store *Fluo) List(ctx context.Context, options fluo.ListOptions) (fluo.Pag
 		AND (p.visibility = 'public' OR p.author_id = $1::uuid)
 		AND ($2::uuid IS NOT NULL OR $3::text = 'latest'
 			OR ($3::text = 'mine' AND p.author_id = $1::uuid)
+			OR ($3::text = 'saved' AND EXISTS (
+				SELECT 1 FROM fluo_saved_posts s WHERE s.user_id = $1::uuid AND s.post_id = p.id
+			))
 			OR ($3::text = 'following' AND (
 				p.author_id = $1::uuid OR EXISTS (
 					SELECT 1 FROM fluo_follows f
@@ -120,8 +124,10 @@ func (store *Fluo) List(ctx context.Context, options fluo.ListOptions) (fluo.Pag
 				)
 			)))
 		AND ($4::timestamptz IS NULL OR (p.created_at, p.id) < ($4::timestamptz, $5::uuid))
+		AND ($7::text = '' OR strpos(lower(p.plain_text), lower($7)) > 0
+			OR strpos(lower(a.username), lower($7)) > 0 OR strpos(lower(a.display_name), lower($7)) > 0)
 		ORDER BY p.created_at DESC, p.id DESC LIMIT $6`
-	rows, err := store.pool.Query(ctx, query, options.ViewerID, options.ParentID, options.Feed, cursorTime, cursorID, options.Limit+1)
+	rows, err := store.pool.Query(ctx, query, options.ViewerID, options.ParentID, options.Feed, cursorTime, cursorID, options.Limit+1, options.Search)
 	if err != nil {
 		return fluo.Page{}, err
 	}
@@ -195,12 +201,14 @@ func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPos
 	}
 	for position, item := range media {
 		claimed, err := tx.Exec(ctx, `INSERT INTO fluo_upload_claims (upload_id, owner_id)
-			VALUES ($1::uuid, $2::uuid) ON CONFLICT DO NOTHING`, item.ID, actorID)
+			VALUES ($1::uuid, $2::uuid)
+			ON CONFLICT (upload_id) DO UPDATE SET owner_id = EXCLUDED.owner_id
+			WHERE fluo_upload_claims.owner_id = EXCLUDED.owner_id`, item.ID, actorID)
 		if err != nil {
 			return fluo.Post{}, err
 		}
 		if claimed.RowsAffected() == 0 {
-			return fluo.Post{}, fluo.ErrAlreadyClaimed
+			return fluo.Post{}, fluo.ErrMediaOwner
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO fluo_post_media
 			(post_id, upload_id, position, kind, mime_type, width, height, size_bytes)
@@ -261,6 +269,19 @@ func (store *Fluo) MediaReferenced(ctx context.Context, id string) (bool, error)
 	var referenced bool
 	err := store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM fluo_post_media WHERE upload_id = $1::uuid)`, id).Scan(&referenced)
 	return referenced, err
+}
+
+func (store *Fluo) SetSaved(ctx context.Context, viewerID, postID string, saved bool) error {
+	if _, err := store.Get(ctx, viewerID, postID); err != nil {
+		return err
+	}
+	if saved {
+		_, err := store.pool.Exec(ctx, `INSERT INTO fluo_saved_posts (user_id, post_id)
+			VALUES ($1::uuid, $2::uuid) ON CONFLICT (user_id, post_id) DO NOTHING`, viewerID, postID)
+		return err
+	}
+	_, err := store.pool.Exec(ctx, `DELETE FROM fluo_saved_posts WHERE user_id = $1::uuid AND post_id = $2::uuid`, viewerID, postID)
+	return err
 }
 
 func (store *Fluo) React(ctx context.Context, actorID, postID string, value *string) (fluo.Post, error) {

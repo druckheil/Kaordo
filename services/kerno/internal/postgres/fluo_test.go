@@ -52,6 +52,27 @@ func TestFluoPostFlow(t *testing.T) {
 	if err != nil || len(latest.Items) != 1 || latest.Items[0].ID != public.ID {
 		t.Fatalf("public feed = %+v, %v", latest, err)
 	}
+	search, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Search: "hello", Limit: 20})
+	if err != nil || len(search.Items) != 1 || search.Items[0].ID != public.ID {
+		t.Fatalf("search exposed an inaccessible post: %+v, %v", search, err)
+	}
+	if err := store.SetSaved(ctx, b.ID, public.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "saved", Limit: 20})
+	if err != nil || len(saved.Items) != 1 || saved.Items[0].ID != public.ID || !saved.Items[0].Saved {
+		t.Fatalf("saved list = %+v, %v", saved, err)
+	}
+	privateSaved, err := store.List(ctx, fluo.ListOptions{ViewerID: a.ID, Feed: "saved", Limit: 20})
+	if err != nil || len(privateSaved.Items) != 0 {
+		t.Fatalf("saved list leaked to another user: %+v, %v", privateSaved, err)
+	}
+	if err := store.SetSaved(ctx, b.ID, public.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSaved(ctx, b.ID, private.ID, true); !errors.Is(err, fluo.ErrNotFound) {
+		t.Fatalf("private post was saved by another user: %v", err)
+	}
 	if err := store.Follow(ctx, b.ID, a.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -79,23 +100,32 @@ func TestFluoPostFlow(t *testing.T) {
 	}
 	attachment := fluo.Media{ID: "01999111-2222-7333-8444-555555555551", Kind: "image", MimeType: "image/png", Width: 8, Height: 6, Size: 80}
 	withMedia := makePost(a.ID, "public", nil, nil, []fluo.Media{attachment})
+	reusedMedia := makePost(a.ID, "public", nil, nil, []fluo.Media{attachment})
+	if len(reusedMedia.Media) != 1 || reusedMedia.Media[0].ID != attachment.ID {
+		t.Fatalf("reused post media = %+v", reusedMedia.Media)
+	}
+	if _, err := store.Create(ctx, b.ID, fluo.NewPost{Content: content, Visibility: "public"}, "hello", []fluo.Media{attachment}); !errors.Is(err, fluo.ErrMediaOwner) {
+		t.Fatalf("another owner's media was accepted: %v", err)
+	}
 	referenced, err := store.MediaReferenced(ctx, attachment.ID)
 	if err != nil || !referenced {
 		t.Fatalf("media reference = %t, %v", referenced, err)
-	}
-	if _, err := store.Create(ctx, a.ID, fluo.NewPost{Content: content, Visibility: "public"}, "hello", []fluo.Media{attachment}); !errors.Is(err, fluo.ErrAlreadyClaimed) {
-		t.Fatalf("media reused across posts: %v", err)
 	}
 	removedMedia, err := store.Delete(ctx, a.ID, withMedia.ID)
 	if err != nil || len(removedMedia) != 1 || removedMedia[0] != attachment.ID {
 		t.Fatalf("deleted media IDs = %v, %v", removedMedia, err)
 	}
 	referenced, err = store.MediaReferenced(ctx, attachment.ID)
+	if err != nil || !referenced {
+		t.Fatalf("media with a remaining post reference = %t, %v", referenced, err)
+	}
+	removedMedia, err = store.Delete(ctx, a.ID, reusedMedia.ID)
+	if err != nil || len(removedMedia) != 1 || removedMedia[0] != attachment.ID {
+		t.Fatalf("deleted reused media IDs = %v, %v", removedMedia, err)
+	}
+	referenced, err = store.MediaReferenced(ctx, attachment.ID)
 	if err != nil || referenced {
 		t.Fatalf("deleted media reference = %t, %v", referenced, err)
-	}
-	if _, err := store.Create(ctx, a.ID, fluo.NewPost{Content: content, Visibility: "public"}, "hello", []fluo.Media{attachment}); !errors.Is(err, fluo.ErrAlreadyClaimed) {
-		t.Fatalf("deleted media was reused: %v", err)
 	}
 	page, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Limit: 1})
 	if err != nil || len(page.Items) != 1 || page.NextCursor == nil {

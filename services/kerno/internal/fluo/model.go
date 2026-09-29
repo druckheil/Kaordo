@@ -14,7 +14,7 @@ var (
 	ErrInvalidRelation = errors.New("post cannot reference that item")
 	ErrSelfFollow      = errors.New("you cannot follow yourself")
 	ErrRateLimited     = errors.New("posting too quickly")
-	ErrAlreadyClaimed  = errors.New("upload already attached to a post")
+	ErrMediaOwner      = errors.New("media upload belongs to another account")
 	uuidPattern        = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 
@@ -59,6 +59,7 @@ type Post struct {
 	QuoteID    *string         `json:"quoteId"`
 	Quote      *Quote          `json:"quote"`
 	Media      []Media         `json:"media"`
+	Saved      bool            `json:"saved"`
 	Counts     Counts          `json:"counts"`
 	MyReaction *string         `json:"myReaction"`
 	CreatedAt  time.Time       `json:"createdAt"`
@@ -81,6 +82,7 @@ type Page struct {
 type ListOptions struct {
 	ViewerID string
 	Feed     string
+	Search   string
 	ParentID *string
 	Cursor   *Cursor
 	Limit    int
@@ -119,6 +121,7 @@ type Store interface {
 	Get(context.Context, string, string) (Post, error)
 	List(context.Context, ListOptions) (Page, error)
 	Delete(context.Context, string, string) ([]string, error)
+	SetSaved(context.Context, string, string, bool) error
 	MediaReferenced(context.Context, string) (bool, error)
 	React(context.Context, string, string, *string) (Post, error)
 	Follow(context.Context, string, string, bool) error

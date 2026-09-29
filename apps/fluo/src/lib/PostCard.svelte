@@ -2,11 +2,11 @@
   import { createInfiniteQuery, type QueryClient } from '@tanstack/svelte-query';
   import { commentsOptions, type FluoApi } from '@kaordo/api-client';
   import type { FluoPost } from '@kaordo/contracts';
-  import { Button, MessageCircleIcon, Repeat2Icon, ThumbsDownIcon, ThumbsUpIcon, Trash2Icon } from '@kaordo/ui';
+  import { BookmarkIcon, Button, MessageCircleIcon, Repeat2Icon, ThumbsDownIcon, ThumbsUpIcon, Trash2Icon } from '@kaordo/ui';
   import MediaGallery from './MediaGallery.svelte';
   import RichText from './RichText.svelte';
 
-  let { post, viewerId, api, queryClient, onReply, onQuote, onReact, onFollow, onDelete }: {
+  let { post, viewerId, api, queryClient, onReply, onQuote, onReact, onFollow, onSave, onDelete }: {
     post: FluoPost;
     viewerId: string;
     api: FluoApi;
@@ -15,11 +15,23 @@
     onQuote: () => void;
     onReact: (value: 'good' | 'bad' | null) => void;
     onFollow: () => void;
+    onSave: () => Promise<void>;
     onDelete: () => void;
   } = $props();
   let expanded = $state(false);
+  let saving = $state(false);
   const comments = createInfiniteQuery(() => commentsOptions(api, post.id, expanded), () => queryClient);
   const date = $derived(new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(post.createdAt)));
+
+  async function toggleSaved() {
+    if (saving) return;
+    saving = true;
+    try {
+      await onSave();
+    } finally {
+      saving = false;
+    }
+  }
 </script>
 
 <article data-post-id={post.id} class="border-b px-4 py-5 last:border-b-0 sm:px-6" aria-label={`Post by ${post.author.username}`}>
@@ -52,6 +64,7 @@
     <Button variant="ghost" size="sm" aria-expanded={expanded} onclick={() => expanded = !expanded}><MessageCircleIcon class="size-4" /> {post.counts.comments}</Button>
     <Button variant="ghost" size="sm" onclick={onReply}>Reply</Button>
     {#if post.visibility === 'public'}<Button variant="ghost" size="sm" onclick={onQuote}><Repeat2Icon class="size-4" /> Quote</Button>{/if}
+    <Button variant={post.saved ? 'secondary' : 'ghost'} size="sm" aria-label={post.saved ? 'Remove from saved posts' : 'Save post'} aria-pressed={post.saved} disabled={saving} onclick={toggleSaved}><BookmarkIcon class={post.saved ? 'size-4 fill-current' : 'size-4'} /> {post.saved ? 'Saved' : 'Save'}</Button>
   </div>
 
   {#if expanded}

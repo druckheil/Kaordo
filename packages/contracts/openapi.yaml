@@ -85,7 +85,7 @@ components:
         comments: { type: integer, format: int64 }
     FluoPost:
       type: object
-      required: [id, author, content, text, visibility, parentId, quoteId, quote, media, counts, myReaction, createdAt, updatedAt]
+      required: [id, author, content, text, visibility, parentId, quoteId, quote, media, counts, myReaction, saved, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         author: { $ref: '#/components/schemas/FluoAuthor' }
@@ -100,6 +100,7 @@ components:
           items: { $ref: '#/components/schemas/FluoMedia' }
         counts: { $ref: '#/components/schemas/FluoCounts' }
         myReaction: { type: [string, 'null'], enum: [good, bad, null] }
+        saved: { type: boolean, description: Whether the current user saved this post. }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     FluoPage:
@@ -241,7 +242,8 @@ paths:
       operationId: listFluoPosts
       security: [{ bearerAuth: [] }]
       parameters:
-        - { name: feed, in: query, schema: { type: string, enum: [latest, following, mine] } }
+        - { name: feed, in: query, schema: { type: string, enum: [latest, following, mine, saved] } }
+        - { name: q, in: query, description: Search post text and author names, schema: { type: string, minLength: 2, maxLength: 100 } }
         - { name: cursor, in: query, schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
       responses:
@@ -314,6 +316,29 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/FluoPage' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts/{id}/saved:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: saveFluoPost
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Saved the accessible post to the current user's private list. }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      operationId: unsaveFluoPost
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Removed the post from the current user's saved list. }
         default:
           description: Access or server error.
           content:
