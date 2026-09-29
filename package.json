@@ -10,11 +10,15 @@
     "dev:stop": "node scripts/stop-local.mjs",
     "auth:configure": "node scripts/sync-keycloak.mjs",
     "test:account-preview": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs",
+    "test:auth": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs scripts/api-client.test.mjs scripts/auth-config.test.mjs",
+    "test:auth:live": "node --test scripts/auth-live.integration.mjs",
     "build:pages": "node scripts/build-pages.mjs",
     "check:front": "pnpm -r --filter \"@kaordo/*\" check",
     "test:pages": "pnpm build:pages && node --test scripts/pages.test.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "playwright-core": "^1.63.0",
     "sirv": "3.0.2"
   }
 }

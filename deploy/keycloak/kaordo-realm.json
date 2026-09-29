@@ -22,6 +22,13 @@
       "providerId": "CONFIGURE_TOTP",
       "enabled": true,
       "defaultAction": true
+    },
+    {
+      "alias": "CONFIGURE_RECOVERY_AUTHN_CODES",
+      "name": "Recovery Authentication Codes",
+      "providerId": "CONFIGURE_RECOVERY_AUTHN_CODES",
+      "enabled": true,
+      "defaultAction": true
     }
   ],
   "clients": [

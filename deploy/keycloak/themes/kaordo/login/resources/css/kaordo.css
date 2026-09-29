@@ -20,6 +20,9 @@ body.login-pf, .login-pf body {
 }
 
 #kc-page-title { color: #17221e; font-weight: 650; letter-spacing: -.03em; }
+.subtitle { color: #40584b; }
+.pf-c-alert.pf-m-warning p { color: #40584b; }
+#kc-registration span { color: #40584b; }
 
 .form-control,
 .pf-c-form-control {

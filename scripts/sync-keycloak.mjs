@@ -5,8 +5,80 @@ import { parseEnv } from 'node:util';
 
 const root = resolve(import.meta.dirname, '..');
 
-export async function syncKeycloak(privateConfig, fetcher = fetch) {
-  const tokenResponse = await fetcher('http://127.0.0.1:8080/realms/master/protocol/openid-connect/token', {
+const securityFields = [
+  'registrationAllowed', 'registrationEmailAsUsername', 'loginWithEmailAllowed',
+  'verifyEmail', 'resetPasswordAllowed', 'bruteForceProtected', 'failureFactor',
+  'passwordPolicy', 'otpPolicyType', 'otpPolicyAlgorithm', 'otpPolicyDigits', 'otpPolicyPeriod'
+];
+
+async function requireJSON(fetcher, url, headers, label) {
+  const response = await fetcher(url, { headers, signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) throw new Error(`Keycloak ${label} failed (${response.status}).`);
+  return response.json();
+}
+
+async function requireUpdate(fetcher, url, headers, method, value, label) {
+  const response = await fetcher(url, {
+    method,
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(value),
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error(`Keycloak ${label} failed (${response.status}).`);
+}
+
+export async function syncRealmSecurity(fetcher, adminBase, authorization, desiredRealm) {
+  const current = await requireJSON(fetcher, adminBase, authorization, 'realm lookup');
+  const desired = Object.fromEntries(securityFields.map((field) => [field, desiredRealm[field]]));
+  if (Object.entries(desired).some(([field, value]) => current[field] !== value)) {
+    await requireUpdate(fetcher, adminBase, authorization, 'PUT', desired, 'realm policy update');
+  }
+  const actual = await requireJSON(fetcher, adminBase, authorization, 'realm policy verification');
+  if (Object.entries(desired).some(([field, value]) => actual[field] !== value)) {
+    throw new Error('Keycloak did not apply the required realm security policy.');
+  }
+
+  const actionsUrl = `${adminBase}/authentication/required-actions`;
+  for (const desiredAction of desiredRealm.requiredActions) {
+    let actions = await requireJSON(fetcher, actionsUrl, authorization, 'required action lookup');
+    let action = actions.find((item) => item.alias === desiredAction.alias);
+    if (!action) {
+      const unregistered = await requireJSON(fetcher, `${adminBase}/authentication/unregistered-required-actions`, authorization, 'available required action lookup');
+      const provider = unregistered.find((item) => item.providerId === desiredAction.providerId);
+      if (!provider) throw new Error(`Keycloak does not provide ${desiredAction.alias}.`);
+      await requireUpdate(fetcher, `${adminBase}/authentication/register-required-action`, authorization, 'POST', provider, `${desiredAction.alias} registration`);
+      actions = await requireJSON(fetcher, actionsUrl, authorization, 'registered action verification');
+      action = actions.find((item) => item.alias === desiredAction.alias);
+      if (!action) throw new Error(`Keycloak did not register ${desiredAction.alias}.`);
+    }
+    if (action.enabled !== desiredAction.enabled || action.defaultAction !== desiredAction.defaultAction) {
+      await requireUpdate(fetcher, `${actionsUrl}/${encodeURIComponent(desiredAction.alias)}`, authorization, 'PUT',
+        { ...action, enabled: desiredAction.enabled, defaultAction: desiredAction.defaultAction }, `${desiredAction.alias} policy update`);
+    }
+    const applied = await requireJSON(fetcher, `${actionsUrl}/${encodeURIComponent(desiredAction.alias)}`, authorization, `${desiredAction.alias} verification`);
+    if (applied.enabled !== desiredAction.enabled || applied.defaultAction !== desiredAction.defaultAction) {
+      throw new Error(`Keycloak did not apply ${desiredAction.alias} policy.`);
+    }
+  }
+
+  const flowUrl = `${adminBase}/authentication/flows/${encodeURIComponent(actual.browserFlow || 'browser')}/executions`;
+  for (const displayName of ['OTP Form', 'Recovery Authentication Code Form']) {
+    const executions = await requireJSON(fetcher, flowUrl, authorization, 'browser flow lookup');
+    const execution = executions.find((item) => item.displayName === displayName);
+    if (!execution?.id) throw new Error(`Keycloak browser flow is missing ${displayName}.`);
+    if (execution.requirement !== 'ALTERNATIVE') {
+      await requireUpdate(fetcher, flowUrl, authorization, 'PUT',
+        { id: execution.id, requirement: 'ALTERNATIVE' }, `${displayName} flow update`);
+    }
+    const verified = await requireJSON(fetcher, flowUrl, authorization, `${displayName} flow verification`);
+    if (verified.find((item) => item.id === execution.id)?.requirement !== 'ALTERNATIVE') {
+      throw new Error(`Keycloak did not enable ${displayName}.`);
+    }
+  }
+}
+
+export async function syncKeycloak(privateConfig, fetcher = fetch, identityOrigin = 'http://127.0.0.1:8080') {
+  const tokenResponse = await fetcher(`${identityOrigin}/realms/master/protocol/openid-connect/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -22,7 +94,7 @@ export async function syncKeycloak(privateConfig, fetcher = fetch) {
   if (!accessToken) throw new Error('Keycloak did not issue an administrator token.');
 
   const profileJson = await readFile(resolve(root, 'deploy/keycloak/registration-profile.json'), 'utf8');
-  const response = await fetcher('http://127.0.0.1:8080/admin/realms/kaordo/users/profile', {
+  const response = await fetcher(`${identityOrigin}/admin/realms/kaordo/users/profile`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: profileJson,
@@ -34,7 +106,7 @@ export async function syncKeycloak(privateConfig, fetcher = fetch) {
   const webClient = realm.clients.find((client) => client.clientId === 'kaordo-web');
   const desiredMapper = webClient?.protocolMappers?.find((mapper) => mapper.name === 'kerno-api-audience');
   if (!desiredMapper) throw new Error('The Kerno audience mapper is missing from the realm configuration.');
-  const adminBase = 'http://127.0.0.1:8080/admin/realms/kaordo';
+  const adminBase = `${identityOrigin}/admin/realms/kaordo`;
   const authorization = { Authorization: `Bearer ${accessToken}` };
   const clientsResponse = await fetcher(`${adminBase}/clients?clientId=kaordo-web`, {
     headers: authorization,
@@ -132,13 +204,15 @@ export async function syncKeycloak(privateConfig, fetcher = fetch) {
       throw new Error('Keycloak does not include preferred_username in the web client access token. Check its profile scope.');
     }
   }
+
+  await syncRealmSecurity(fetcher, adminBase, authorization, realm);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
     const privateConfig = parseEnv(await readFile(resolve(root, 'deploy/local/.env'), 'utf8'));
     await syncKeycloak(privateConfig);
-    console.log('Keycloak registration, basic/profile scopes, and Kerno audience are configured.');
+    console.log('Keycloak registration, TOTP/recovery, basic/profile scopes, and Kerno audience are configured.');
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

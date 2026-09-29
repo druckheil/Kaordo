@@ -3,12 +3,35 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { addPasswordConfirmation } from '../deploy/keycloak/themes/kaordo/login/resources/js/register.js';
-import { syncKeycloak } from './sync-keycloak.mjs';
+import { syncKeycloak, syncRealmSecurity } from './sync-keycloak.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const realm = JSON.parse(readFileSync(resolve(root, 'deploy/keycloak/kaordo-realm.json'), 'utf8'));
 const web = realm.clients.find((client) => client.clientId === 'kaordo-web');
 const registrationProfile = JSON.parse(readFileSync(resolve(root, 'deploy/keycloak/registration-profile.json'), 'utf8'));
+const adminBase = 'http://127.0.0.1:8080/admin/realms/kaordo';
+
+// Existing client-mapper tests isolate that contract; realm policy has its own
+// stateful tests below instead of making every unrelated mock emulate Keycloak.
+function syncClient(config, fetcher) {
+  const policy = Object.fromEntries([
+    'registrationAllowed', 'registrationEmailAsUsername', 'loginWithEmailAllowed',
+    'verifyEmail', 'resetPasswordAllowed', 'bruteForceProtected', 'failureFactor',
+    'passwordPolicy', 'otpPolicyType', 'otpPolicyAlgorithm', 'otpPolicyDigits', 'otpPolicyPeriod'
+  ].map((field) => [field, realm[field]]));
+  const actions = realm.requiredActions.map((action) => ({ ...action }));
+  const executions = ['OTP Form', 'Recovery Authentication Code Form'].map((displayName, index) =>
+    ({ displayName, id: `execution-${index}`, requirement: 'ALTERNATIVE' }));
+  return syncKeycloak(config, (url, options = {}) => {
+    if (url === adminBase && !options.method) return Response.json({ ...policy, browserFlow: 'browser' });
+    if (url === `${adminBase}/authentication/required-actions` && !options.method) return Response.json(actions);
+    if (url.startsWith(`${adminBase}/authentication/required-actions/`) && !options.method) {
+      return Response.json(actions.find((action) => url.endsWith(`/${action.alias}`)));
+    }
+    if (url === `${adminBase}/authentication/flows/browser/executions` && !options.method) return Response.json(executions);
+    return fetcher(url, options);
+  });
+}
 
 test('web client uses PKCE, an API audience, and no password grant', () => {
   assert.equal(web.publicClient, true);
@@ -31,6 +54,9 @@ test('new users must configure TOTP before login completes', () => {
   assert.equal(realm.otpPolicyType, 'totp');
   assert.ok(realm.requiredActions.some((action) =>
     action.providerId === 'CONFIGURE_TOTP' && action.enabled && action.defaultAction
+  ));
+  assert.ok(realm.requiredActions.some((action) =>
+    action.providerId === 'CONFIGURE_RECOVERY_AUTHN_CODES' && action.enabled && action.defaultAction
   ));
 });
 
@@ -82,7 +108,7 @@ test('registration script attaches the confirmation to the submitted form data',
 
 test('local identity sync repairs an existing realm without replacing users', async () => {
   const calls = [];
-  await syncKeycloak({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
+  await syncClient({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
     calls.push({ url, options });
     if (calls.length === 1) return Response.json({ access_token: 'test-token' });
     if (url.endsWith('/clients?clientId=kaordo-web')) return Response.json([{ id: 'web-id', clientId: 'kaordo-web' }]);
@@ -107,7 +133,7 @@ test('identity sync updates a stale audience mapper and leaves a correct one alo
   const desired = web.protocolMappers.find((mapper) => mapper.name === 'kerno-api-audience');
   for (const stale of [true, false]) {
     const calls = [];
-    await syncKeycloak({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
+    await syncClient({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
       calls.push({ url, options });
       if (url.includes('/protocol/openid-connect/token')) return Response.json({ access_token: 'test-token' });
       if (url.endsWith('/clients?clientId=kaordo-web')) return Response.json([{ id: 'web-id', clientId: 'kaordo-web' }]);
@@ -130,7 +156,7 @@ test('identity sync updates a stale audience mapper and leaves a correct one alo
 
 test('identity sync attaches basic and profile scopes to an existing client', async () => {
   const calls = [];
-  await syncKeycloak({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
+  await syncClient({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
     calls.push({ url, options });
     if (url.includes('/protocol/openid-connect/token')) return Response.json({ access_token: 'test-token' });
     if (url.endsWith('/clients?clientId=kaordo-web')) return Response.json([{ id: 'web-id', clientId: 'kaordo-web' }]);
@@ -147,7 +173,7 @@ test('identity sync attaches basic and profile scopes to an existing client', as
 
 test('identity sync repairs the missing basic scope without replacing an existing profile scope', async () => {
   const calls = [];
-  await syncKeycloak({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
+  await syncClient({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
     calls.push({ url, options });
     if (url.includes('/protocol/openid-connect/token')) return Response.json({ access_token: 'test-token' });
     if (url.endsWith('/clients?clientId=kaordo-web')) return Response.json([{ id: 'web-id', clientId: 'kaordo-web' }]);
@@ -163,7 +189,7 @@ test('identity sync repairs the missing basic scope without replacing an existin
 });
 
 test('identity sync refuses to report success when the effective access token lacks Kerno audience', async () => {
-  await assert.rejects(syncKeycloak({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
+  await assert.rejects(syncClient({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
     if (url.includes('/protocol/openid-connect/token')) return Response.json({ access_token: 'test-token' });
     if (url.endsWith('/clients?clientId=kaordo-web')) return Response.json([{ id: 'web-id', clientId: 'kaordo-web' }]);
     if (url.endsWith('/protocol-mappers/models') && options.method !== 'POST') return Response.json([]);
@@ -176,7 +202,7 @@ test('identity sync refuses to report success when the effective access token la
 });
 
 test('identity sync rejects an effective token without a username', async () => {
-  await assert.rejects(syncKeycloak({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
+  await assert.rejects(syncClient({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
     if (url.includes('/protocol/openid-connect/token')) return Response.json({ access_token: 'test-token' });
     if (url.endsWith('/clients?clientId=kaordo-web')) return Response.json([{ id: 'web-id', clientId: 'kaordo-web' }]);
     if (url.endsWith('/protocol-mappers/models') && options.method !== 'POST') return Response.json([]);
@@ -189,7 +215,7 @@ test('identity sync rejects an effective token without a username', async () => 
 });
 
 test('identity sync rejects an effective token without a subject', async () => {
-  await assert.rejects(syncKeycloak({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
+  await assert.rejects(syncClient({ KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'test-only' }, async (url, options) => {
     if (url.includes('/protocol/openid-connect/token')) return Response.json({ access_token: 'test-token' });
     if (url.endsWith('/clients?clientId=kaordo-web')) return Response.json([{ id: 'web-id', clientId: 'kaordo-web' }]);
     if (url.endsWith('/protocol-mappers/models') && options.method !== 'POST') return Response.json([]);
@@ -199,4 +225,80 @@ test('identity sync rejects an effective token without a subject', async () => {
     if (url.includes('/generate-example-access-token?userId=user-id')) return Response.json({ aud: ['kerno-api'], preferred_username: 'alice' });
     return Response.json({});
   }), /does not include sub/);
+});
+
+function securityMock({ missingRecoveryProvider = false, ignoreRealmUpdate = false } = {}) {
+  const desired = Object.fromEntries([
+    'registrationAllowed', 'registrationEmailAsUsername', 'loginWithEmailAllowed',
+    'verifyEmail', 'resetPasswordAllowed', 'bruteForceProtected', 'failureFactor',
+    'passwordPolicy', 'otpPolicyType', 'otpPolicyAlgorithm', 'otpPolicyDigits', 'otpPolicyPeriod'
+  ].map((field) => [field, realm[field]]));
+  let current = { ...desired, browserFlow: 'browser', unrelatedSetting: 'keep', bruteForceProtected: false, passwordPolicy: 'length(8)', otpPolicyType: 'hotp' };
+  const actions = [{ ...realm.requiredActions[0], enabled: false, defaultAction: false }];
+  const executions = ['OTP Form', 'Recovery Authentication Code Form'].map((displayName, index) =>
+    ({ displayName, id: `execution-${index}`, requirement: 'DISABLED' }));
+  const writes = [];
+  const fetcher = async (url, options = {}) => {
+    const method = options.method || 'GET';
+    if (method !== 'GET') writes.push({ url, method, body: JSON.parse(options.body) });
+    if (url === adminBase) {
+      if (method === 'PUT' && !ignoreRealmUpdate) current = { ...current, ...JSON.parse(options.body) };
+      return method === 'GET' ? Response.json(current) : new Response(null, { status: 204 });
+    }
+    const actionsUrl = `${adminBase}/authentication/required-actions`;
+    if (url === actionsUrl && method === 'GET') return Response.json(actions);
+    if (url === `${adminBase}/authentication/unregistered-required-actions`) {
+      return Response.json(missingRecoveryProvider ? [] : [
+        { providerId: 'CONFIGURE_RECOVERY_AUTHN_CODES', name: 'Recovery Authentication Codes' }
+      ]);
+    }
+    if (url === `${adminBase}/authentication/register-required-action` && method === 'POST') {
+      const provider = JSON.parse(options.body);
+      actions.push({ alias: provider.providerId, ...provider, enabled: false, defaultAction: false });
+      return new Response(null, { status: 204 });
+    }
+    if (url.startsWith(`${actionsUrl}/`)) {
+      const action = actions.find((item) => url.endsWith(`/${item.alias}`));
+      if (!action) return new Response(null, { status: 404 });
+      if (method === 'PUT') Object.assign(action, JSON.parse(options.body));
+      return method === 'GET' ? Response.json(action) : new Response(null, { status: 204 });
+    }
+    const flowUrl = `${adminBase}/authentication/flows/browser/executions`;
+    if (url === flowUrl) {
+      if (method === 'PUT') {
+        const update = JSON.parse(options.body);
+        Object.assign(executions.find((item) => item.id === update.id), update);
+      }
+      return method === 'GET' ? Response.json(executions) : new Response(null, { status: 204 });
+    }
+    throw new Error(`Unexpected policy request: ${method} ${url}`);
+  };
+  return { fetcher, writes, current: () => current, actions, executions };
+}
+
+test('realm security sync repairs existing TOTP and recovery settings once', async () => {
+  const mock = securityMock();
+  await syncRealmSecurity(mock.fetcher, adminBase, { Authorization: 'Bearer test-token' }, realm);
+  assert.equal(mock.current().bruteForceProtected, true);
+  assert.equal(mock.current().passwordPolicy, 'length(12)');
+  assert.equal(mock.current().otpPolicyType, 'totp');
+  assert.equal(mock.current().unrelatedSetting, 'keep');
+  assert.equal('unrelatedSetting' in mock.writes.find((write) => write.url === adminBase).body, false);
+  assert.deepEqual(mock.actions.map(({ alias, enabled, defaultAction }) => ({ alias, enabled, defaultAction })),
+    realm.requiredActions.map(({ alias, enabled, defaultAction }) => ({ alias, enabled, defaultAction })));
+  assert.ok(mock.executions.every((execution) => execution.requirement === 'ALTERNATIVE'));
+  const firstWrites = mock.writes.length;
+  assert.ok(firstWrites >= 5);
+  await syncRealmSecurity(mock.fetcher, adminBase, { Authorization: 'Bearer test-token' }, realm);
+  assert.equal(mock.writes.length, firstWrites, 'an unchanged realm must not be rewritten');
+});
+
+test('realm security sync fails closed when recovery action is unavailable', async () => {
+  const mock = securityMock({ missingRecoveryProvider: true });
+  await assert.rejects(syncRealmSecurity(mock.fetcher, adminBase, {}, realm), /does not provide CONFIGURE_RECOVERY_AUTHN_CODES/);
+});
+
+test('realm security sync verifies effective policy after an ignored update', async () => {
+  const mock = securityMock({ ignoreRealmUpdate: true });
+  await assert.rejects(syncRealmSecurity(mock.fetcher, adminBase, {}, realm), /did not apply the required realm security policy/);
 });
