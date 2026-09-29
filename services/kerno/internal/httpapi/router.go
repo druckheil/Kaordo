@@ -19,6 +19,10 @@ type UserStore interface {
 }
 
 func NewRouter(verify VerifyFunc, users UserStore, allowedOrigins []string) http.Handler {
+	return NewRouterWithFluo(verify, users, FluoDependencies{}, allowedOrigins)
+}
+
+func NewRouterWithFluo(verify VerifyFunc, users UserStore, social FluoDependencies, allowedOrigins []string) http.Handler {
 	router := chi.NewRouter()
 	origins := make(map[string]bool, len(allowedOrigins))
 	for _, origin := range allowedOrigins {
@@ -36,7 +40,7 @@ func NewRouter(verify VerifyFunc, users UserStore, allowedOrigins []string) http
 					return
 				}
 				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			}
 			if r.Method == http.MethodOptions {
@@ -78,6 +82,9 @@ func NewRouter(verify VerifyFunc, users UserStore, allowedOrigins []string) http
 		}
 		writeJSON(w, http.StatusOK, user)
 	})
+	if social.Store != nil {
+		mountFluo(router, verify, users, social)
+	}
 	return router
 }
 

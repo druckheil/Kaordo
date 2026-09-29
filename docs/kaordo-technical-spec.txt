@@ -1,5 +1,5 @@
 KAORDO — TECHNICAL SPECIFICATION
-Version: scope-0.0.1, authentication slice
+Version: scope-0.0.1, authentication and Fluo slices
 
 Repository: independent SvelteKit applications in apps/, shared browser
 packages in packages/, Go services in services/, local service definitions in
@@ -49,19 +49,57 @@ the Kaordo UUID is the identity used by future modules. Kerno never stores a
 password, OTP seed or refresh token. API errors are JSON and private responses
 carry Cache-Control: no-store.
 
+Fluo data: fluo_posts stores UUIDv7 IDs, Tiptap JSON restricted to paragraphs,
+text, line breaks and bold/italic/strike marks, extracted plain text, author,
+public/private visibility, optional direct-comment parent or public quote,
+and timestamps. fluo_reactions stores one good/bad reaction per user/post;
+fluo_follows maps users; fluo_post_media stores ordered upload references and
+validated width/height, MIME type and processed byte size. Public posts are
+visible to signed-in users; private posts and their comments are visible only
+to their author. Comments inherit the parent visibility. The three initial
+feeds are Latest (public and own private), Following (followed authors and
+own posts), and My posts. Reverse chronological (created_at, id) cursors
+avoid training data requirements and offset pagination. Deleting a post also
+deletes its comments and reactions; a quote of a deleted post remains without
+the quoted content. A 30-post/minute per-author limit protects creation.
+
+Fluo client: the standalone /fluo/ SvelteKit app uses the account gate,
+TanStack Query for cached cursor pages, TanStack Virtual for visible cards,
+Tiptap for JSON editing, PhotoSwipe for photos and Video.js for processed
+video. @kaordo/api-client holds typed requests and pagination policy.
+@kaordo/media-client uses Pica for large image resize and Uppy/Tus for
+resumable upload. Post content is rendered as structured text, not HTML.
+
+Nodo media: POST/HEAD/PATCH /v1/uploads/ are tusd 1.0 endpoints. Nodo asks
+Kerno /v1/me to verify the bearer token and gates each upload by owner. An
+account can store up to 200 source uploads and 2 GiB of source bytes. JPEG and
+PNG uploads are decoded and re-encoded; ffprobe validates video duration and
+dimensions before FFmpeg produces H.264/AAC MP4. GET /v1/uploads/{id}/meta
+returns processed dimensions and bytes only to the owner. Kerno checks those
+metadata before linking a file to a post, then issues a short-lived HMAC-
+signed URL for accessible media. GET /v1/media/{id} serves only processed
+bytes with a valid signature. Files are mode 0600 in the ignored local media
+directory. Post deletion asks Nodo to purge its media immediately; Nodo first
+checks Kerno for any remaining post reference. A six-hour scan removes
+unreferenced uploads older than 24 hours. On failed reference checks it keeps
+the files for a later attempt. Disk mirroring, at-rest encryption and remote
+deployment are not implemented yet.
+
 Local binding: Keycloak and application PostgreSQL bind to 127.0.0.1 in the
-development Compose file; Kerno defaults to 127.0.0.1:8081. Browser origins
+development Compose file; Kerno defaults to 127.0.0.1:8081 and Nodo to
+127.0.0.1:8082. Browser origins
 are explicitly listed for the OIDC client and Kerno CORS. Production values
 require an HTTPS site origin and an HTTPS Keycloak issuer with tunnel ingress.
 The development Compose profile and start-dev command are for local use only.
 
 Local backups: pg_dump streams both databases directly into separate encrypted
-restic snapshots with a shared run ID. A verification command checks all stored
-data and restores the latest complete pair into disposable databases. Operators
+restic snapshots and the local media directory into a third snapshot with one
+run ID. A verification command checks stored data and restores the latest
+complete set into disposable databases and a temporary media directory. Operators
 must provide a separate repository, private password file, backup schedule and
-independent key copy. The dumps are not transactionally atomic across databases.
+independent key copy. The dumps and media are not transactionally atomic.
 
-Scope boundary: Ligo, Fluo, Rondo and Regado remain scaffolds; each uses the
+Scope boundary: Ligo, Rondo and Regado remain scaffolds. All apps use the
 shared @kaordo/account-ui gate backed by @kaordo/auth and @kaordo/api-client.
 No module role policy, self-service password recovery, email verification,
 automated backup schedule or public deployment is implemented in this slice.

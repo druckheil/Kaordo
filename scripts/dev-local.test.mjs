@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:net';
-import { resolve } from 'node:path';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 import { assertAvailablePorts } from './local-ports.mjs';
+import { startLocalSession, stopLocalSession } from './local-session.mjs';
 
 const exec = promisify(execFile);
 const root = resolve(import.meta.dirname, '..');
@@ -33,6 +36,37 @@ test('local port preflight accepts a free loopback port and rejects an occupied 
     await close(blocker);
   }
   await assertAvailablePorts([{ name: 'Test service', port }]);
+});
+
+test('a managed local session stops its own process through an authenticated control channel', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'kaordo-dev-session-'));
+  const file = join(directory, 'dev-session.json');
+  let closeSession;
+  let closed = false;
+  const closeOnce = async () => {
+    if (closed || !closeSession) return;
+    closed = true;
+    await closeSession();
+  };
+  let reportStopped;
+  let reportFailure;
+  const stopped = new Promise((resolveStopped, rejectStopped) => {
+    reportStopped = resolveStopped;
+    reportFailure = rejectStopped;
+  });
+  try {
+    closeSession = await startLocalSession(() => {
+      void closeOnce().then(reportStopped, reportFailure);
+    }, file);
+    assert.equal((await stat(file)).mode & 0o777, 0o600);
+    await assert.rejects(startLocalSession(() => {}, file), /Kaordo is already running/);
+    assert.equal(await stopLocalSession(file), true);
+    await stopped;
+    assert.equal(await stopLocalSession(file), false);
+  } finally {
+    await closeOnce();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('a second pnpm dev fails before starting Docker or reporting ready', async (t) => {

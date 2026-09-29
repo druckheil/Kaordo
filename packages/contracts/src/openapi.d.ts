@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/v1/uploads/{id}/meta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The owning account can read processing state for a resumable upload. */
+        get: operations["getNodoUploadMetadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/internal/media/{id}/referenced": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Internal Nodo cleanup gate. A missing or invalid response must preserve the file. */
+        get: operations["isFluoMediaReferenced"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -53,6 +87,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/fluo/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listFluoPosts"];
+        put?: never;
+        post: operations["createFluoPost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/posts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getFluoPost"];
+        put?: never;
+        post?: never;
+        delete: operations["deleteFluoPost"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/posts/{id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listFluoComments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/posts/{id}/reaction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["setFluoReaction"];
+        post?: never;
+        delete: operations["clearFluoReaction"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/users/{id}/follow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["followFluoUser"];
+        post?: never;
+        delete: operations["unfollowFluoUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -73,6 +191,106 @@ export interface components {
             /** @description A stable, non-sensitive reason when an authentication request is rejected. */
             code?: string;
         };
+        /** @description Tiptap JSON document. Only paragraphs, text, line breaks and bold/italic/strike marks are accepted. */
+        FluoDocument: {
+            /** @constant */
+            type: "doc";
+            content: {
+                [key: string]: unknown;
+            }[];
+        };
+        FluoAuthor: {
+            /** Format: uuid */
+            id: string;
+            username: string;
+            displayName: string;
+            following: boolean;
+        };
+        FluoMedia: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "image" | "video";
+            mimeType: string;
+            width: number;
+            height: number;
+            /** Format: int64 */
+            size: number;
+            /**
+             * Format: uri
+             * @description Short lived signed Nodo URL.
+             */
+            url: string;
+        };
+        FluoQuote: {
+            /** Format: uuid */
+            id: string;
+            author: components["schemas"]["FluoAuthor"];
+            text: string;
+        };
+        FluoCounts: {
+            /** Format: int64 */
+            good: number;
+            /** Format: int64 */
+            bad: number;
+            /** Format: int64 */
+            comments: number;
+        };
+        FluoPost: {
+            /** Format: uuid */
+            id: string;
+            author: components["schemas"]["FluoAuthor"];
+            content: components["schemas"]["FluoDocument"];
+            text: string;
+            /** @enum {string} */
+            visibility: "public" | "private";
+            /** Format: uuid */
+            parentId: string | null;
+            /** Format: uuid */
+            quoteId: string | null;
+            quote: components["schemas"]["FluoQuote"] | null;
+            media: components["schemas"]["FluoMedia"][];
+            counts: components["schemas"]["FluoCounts"];
+            /** @enum {string|null} */
+            myReaction: "good" | "bad" | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        FluoPage: {
+            items: components["schemas"]["FluoPost"][];
+            nextCursor: string | null;
+        };
+        FluoNewPost: {
+            content: components["schemas"]["FluoDocument"];
+            /** @enum {string} */
+            visibility: "public" | "private";
+            /** Format: uuid */
+            parentId?: string;
+            /** Format: uuid */
+            quoteId?: string;
+            attachmentIds?: string[];
+        };
+        FluoReaction: {
+            /** @enum {string} */
+            value: "good" | "bad";
+        };
+        NodoUpload: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "image" | "video";
+            mimeType: string;
+            width: number;
+            height: number;
+            /** Format: int64 */
+            size: number;
+            complete: boolean;
+        };
+        MediaReference: {
+            referenced: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -82,6 +300,75 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getNodoUploadMetadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Processed upload metadata, ready for a Fluo post. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodoUpload"];
+                };
+            };
+            /** @description Upload or media processing is not complete. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid, expired, failed or inaccessible upload. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    isFluoMediaReferenced: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current database reference state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaReference"];
+                };
+            };
+            /** @description The reference state could not be checked. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -173,6 +460,289 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApiError"];
                 };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listFluoPosts: {
+        parameters: {
+            query?: {
+                feed?: "latest" | "following" | "mine";
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accessible root posts in reverse chronological order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoPage"];
+                };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createFluoPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FluoNewPost"];
+            };
+        };
+        responses: {
+            /** @description Created post. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoPost"];
+                };
+            };
+            /** @description Validation, access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getFluoPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accessible post. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoPost"];
+                };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteFluoPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted own post and its comments. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listFluoComments: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accessible direct comments. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoPage"];
+                };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setFluoReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FluoReaction"];
+            };
+        };
+        responses: {
+            /** @description Updated post. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoPost"];
+                };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    clearFluoReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated post. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoPost"];
+                };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    followFluoUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Followed user. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    unfollowFluoUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unfollowed user. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Access or server error. */
             default: {

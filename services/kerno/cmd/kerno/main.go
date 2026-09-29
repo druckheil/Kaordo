@@ -15,6 +15,7 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/httpapi"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
+	"github.com/druckheil/Kaordo/services/mediaauth"
 )
 
 func main() {
@@ -28,8 +29,12 @@ func run() error {
 	issuer := os.Getenv("OIDC_ISSUER")
 	audience := os.Getenv("OIDC_AUDIENCE")
 	originList := os.Getenv("KAORDO_ALLOWED_ORIGINS")
-	if dsn == "" || issuer == "" || audience == "" || originList == "" {
-		return errors.New("DATABASE_URL, OIDC_ISSUER, OIDC_AUDIENCE and KAORDO_ALLOWED_ORIGINS are required")
+	nodoInternalURL := os.Getenv("NODO_INTERNAL_URL")
+	nodoPublicURL := os.Getenv("NODO_PUBLIC_URL")
+	mediaKey, keyError := mediaauth.ParseKey(os.Getenv("NODO_MEDIA_SIGNING_KEY"))
+	if dsn == "" || issuer == "" || audience == "" || originList == "" ||
+		nodoInternalURL == "" || nodoPublicURL == "" || keyError != nil {
+		return errors.New("DATABASE_URL, OIDC_ISSUER, OIDC_AUDIENCE, KAORDO_ALLOWED_ORIGINS, NODO_INTERNAL_URL, NODO_PUBLIC_URL and NODO_MEDIA_SIGNING_KEY are required")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -47,6 +52,13 @@ func run() error {
 	if !usersTableExists {
 		return errors.New("users table is missing; apply deploy/postgres/001_users.sql")
 	}
+	var postsTableExists bool
+	if err := pool.QueryRow(ctx, "SELECT to_regclass('public.fluo_posts') IS NOT NULL").Scan(&postsTableExists); err != nil {
+		return err
+	}
+	if !postsTableExists {
+		return errors.New("Fluo tables are missing; apply deploy/postgres/002_fluo.sql")
+	}
 
 	provider, err := identity.NewProvider(ctx, issuer)
 	if err != nil {
@@ -62,8 +74,13 @@ func run() error {
 		address = "127.0.0.1:8081"
 	}
 	server := &http.Server{
-		Addr:              address,
-		Handler:           httpapi.NewRouter(verify, postgres.NewUsers(pool), strings.Split(originList, ",")),
+		Addr: address,
+		Handler: httpapi.NewRouterWithFluo(verify, postgres.NewUsers(pool), httpapi.FluoDependencies{
+			Store:        postgres.NewFluo(pool),
+			Media:        httpapi.NodoClient{BaseURL: nodoInternalURL, InternalKey: mediaKey},
+			MediaBaseURL: nodoPublicURL,
+			MediaSignKey: mediaKey,
+		}, strings.Split(originList, ",")),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,

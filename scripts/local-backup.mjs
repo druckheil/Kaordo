@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
-import { stat } from 'node:fs/promises';
-import { relative, resolve, sep } from 'node:path';
+import { mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -13,6 +14,8 @@ const databases = [
   { name: 'app-db', container: 'local-app-db-1', role: 'kaordo', database: 'kaordo', table: 'users' },
   { name: 'identity-db', container: 'local-identity-db-1', role: 'keycloak', database: 'keycloak', table: 'realm' }
 ];
+const media = { name: 'media', path: resolve(projectRoot, 'deploy/local/media') };
+const components = [...databases.map((database) => database.name), media.name];
 
 async function run(command, args) {
   try {
@@ -60,15 +63,15 @@ export function latestPair(items) {
   const runs = new Map();
   for (const snapshot of items) {
     const runTag = snapshot.tags.find((tag) => tag.startsWith('run:'));
-    const name = databases.find((database) => snapshot.tags.includes(database.name))?.name;
+    const name = components.find((component) => snapshot.tags.includes(component));
     if (!runTag || !name) continue;
     const pair = runs.get(runTag) || {};
     pair[name] = snapshot;
     runs.set(runTag, pair);
   }
-  const complete = [...runs.entries()].filter(([, pair]) => databases.every((database) => pair[database.name]));
+  const complete = [...runs.entries()].filter(([, pair]) => components.every((component) => pair[component]));
   complete.sort(([a], [b]) => b.localeCompare(a));
-  if (complete.length === 0) throw new Error('No complete local backup pair exists in this repository.');
+  if (complete.length === 0) throw new Error('No complete local backup set exists in this repository.');
   return complete[0];
 }
 
@@ -89,6 +92,7 @@ async function streamRestore(snapshot, database, temporaryName) {
 
 export async function backupLocal() {
   await preflight();
+  await mkdir(media.path, { recursive: true, mode: 0o700 });
   const runId = `${new Date().toISOString().replace(/\D/g, '')}-${randomBytes(3).toString('hex')}`;
   for (const database of databases) {
     await run('restic', [
@@ -98,6 +102,10 @@ export async function backupLocal() {
       'pg_dump', '-U', database.role, '-Fc', database.database
     ]);
   }
+  await run('restic', [
+    'backup', '--quiet', '--tag', 'kaordo-local', '--tag', `run:${runId}`, '--tag', media.name,
+    media.path
+  ]);
   const [completedRun] = latestPair(await snapshots());
   if (completedRun !== `run:${runId}`) throw new Error('The new backup pair is incomplete.');
   console.log(`Encrypted local backup complete: ${runId}`);
@@ -108,7 +116,16 @@ export async function verifyLocalBackup() {
   const [runTag, pair] = latestPair(await snapshots());
   await run('restic', ['check', '--read-data', '--quiet']);
   const temporaryNames = new Map();
+  const mediaRestore = await mkdtemp(join(tmpdir(), 'kaordo-media-restore-'));
   try {
+    await run('restic', ['restore', pair[media.name].id, '--target', mediaRestore]);
+    const restoredMedia = join(mediaRestore, relative('/', media.path));
+    const mediaFiles = await readdir(restoredMedia);
+    for (const file of mediaFiles.filter((name) => name.endsWith('.ready.json'))) {
+      const id = file.slice(0, -'.ready.json'.length);
+      await stat(join(restoredMedia, `${id}.display`));
+      await stat(join(restoredMedia, `${id}.info`));
+    }
     for (const database of databases) {
       const temporaryName = `${database.database}_restore_${randomBytes(4).toString('hex')}`;
       await run('docker', ['exec', database.container, 'createdb', '-U', database.role, '-T', 'template0', temporaryName]);
@@ -145,6 +162,7 @@ export async function verifyLocalBackup() {
       const temporaryName = temporaryNames.get(database.name);
       if (temporaryName) await run('docker', ['exec', database.container, 'dropdb', '-U', database.role, temporaryName]);
     }
+    await rm(mediaRestore, { recursive: true, force: true });
   }
   console.log(`Encrypted backup and disposable restore verified: ${runTag.slice(4)}`);
 }

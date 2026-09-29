@@ -1,0 +1,23 @@
+{
+  "name": "@kaordo/media-client",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@kaordo/api-client": "workspace:*",
+    "@kaordo/auth": "workspace:*",
+    "@uppy/core": "^6.1.0",
+    "@uppy/tus": "^6.0.0",
+    "pica": "^10.0.3"
+  },
+  "devDependencies": {
+    "@types/pica": "^9.0.5",
+    "typescript": "^6.0.3"
+  }
+}

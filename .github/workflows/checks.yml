@@ -38,8 +38,21 @@ jobs:
           pnpm test:pages
       - name: Check Go services
         run: |
-          go test ./services/kerno/... ./services/nodo/...
-          go vet ./services/kerno/... ./services/nodo/...
-          go build ./services/kerno/... ./services/nodo/...
+          go test ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
+          go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
+          go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
+      - name: Test Fluo PostgreSQL integration
+        run: |
+          cat > deploy/local/.env <<EOF
+          KAORDO_DB_PASSWORD=$(openssl rand -hex 24)
+          KEYCLOAK_DB_PASSWORD=$(openssl rand -hex 24)
+          KEYCLOAK_ADMIN_USERNAME=admin
+          KEYCLOAK_ADMIN_PASSWORD=$(openssl rand -hex 24)
+          KAORDO_SITE_ORIGIN=http://localhost:8765
+          NODO_MEDIA_SIGNING_KEY=$(openssl rand -hex 32)
+          EOF
+          chmod 600 deploy/local/.env
+          docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml up -d --wait app-db
+          pnpm test:fluo:db
       - name: Reject moderate or worse npm advisories
         run: pnpm audit --audit-level=moderate

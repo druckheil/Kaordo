@@ -10,6 +10,7 @@ services:
     volumes:
       - app-db-data:/var/lib/postgresql
       - ../postgres/001_users.sql:/docker-entrypoint-initdb.d/001_users.sql:ro
+      - ../postgres/002_fluo.sql:/migrations/002_fluo.sql:ro
     healthcheck:
       test: [CMD-SHELL, pg_isready -U kaordo -d kaordo]
       interval: 5s

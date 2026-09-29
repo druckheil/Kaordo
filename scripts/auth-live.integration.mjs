@@ -114,13 +114,15 @@ async function removeTemporaryUser(username) {
   }
 }
 
-test('registration, TOTP and recovery login, Kerno account, and app SSO', { timeout: 90_000 }, async () => {
+test('registration, TOTP and recovery login, Kerno account, Fluo posting, and app SSO', { timeout: 150_000 }, async () => {
   const username = `test_${randomBytes(6).toString('hex')}`;
   const password = `Qa!${randomBytes(18).toString('hex')}`;
   const browser = await chromium.launch({ headless: true, executablePath: chrome });
   try {
     const context = await browser.newContext();
     const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
     await page.goto(`${site}/register/`);
     await page.getByRole('button', { name: /Continue to registration/ }).waitFor();
     await checkAccessibility(page, 'Portal registration entry');
@@ -252,10 +254,75 @@ test('registration, TOTP and recovery login, Kerno account, and app SSO', { time
         await page.goto(`${site}/${app}/`);
         assert.equal((await appResponse).status(), 200);
       }
-      await page.getByText(`Welcome, ${username}.`, { exact: false }).waitFor();
+      if (app === 'fluo') {
+        await page.getByRole('navigation', { name: 'Fluo feeds' }).waitFor();
+      } else {
+        await page.getByText(`Welcome, ${username}.`, { exact: false }).waitFor();
+      }
       await checkAccessibility(page, `${app} account gate`);
       assert.equal(await page.getByRole('link', { name: 'Sign in' }).count(), 0);
     }
+    await page.goto(`${site}/fluo/`);
+    await page.getByRole('navigation', { name: 'Fluo feeds' }).waitFor();
+    const postText = `Fluo image test ${randomBytes(4).toString('hex')}`;
+    await page.locator('[contenteditable=true]').fill(postText);
+    const imageBase64 = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 8;
+      canvas.height = 6;
+      canvas.getContext('2d').fillRect(0, 0, 8, 6);
+      return canvas.toDataURL('image/png').split(',')[1];
+    });
+    await page.getByLabel('Choose photos or videos').setInputFiles({
+      name: 'fluo-test.png', mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64')
+    });
+    const createdPost = page.waitForResponse((response) => response.url().endsWith('/v1/fluo/posts') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Publish' }).click();
+    const postResponse = await createdPost;
+    assert.equal(postResponse.status(), 201, 'Fluo must publish the post with an image');
+    const post = await postResponse.json();
+    assert.equal(post.media.length, 1);
+    assert.equal(post.media[0].width, 8);
+    assert.equal(post.media[0].height, 6);
+    const card = page.locator(`article[data-post-id="${post.id}"]`);
+    await card.waitFor();
+    await page.waitForFunction((text) => {
+      const article = [...document.querySelectorAll('article')].find((item) => item.textContent.includes(text));
+      const image = article?.querySelector('img');
+      return image?.complete && image.naturalWidth === 8;
+    }, postText);
+    await card.getByRole('button', { name: 'Good, 0' }).click();
+    await card.getByRole('button', { name: 'Good, 1' }).waitFor();
+    const replyText = `Reply ${randomBytes(3).toString('hex')}`;
+    await card.getByRole('button', { name: 'Reply' }).click();
+    await page.locator('[contenteditable=true]').fill(replyText);
+    await page.getByRole('region', { name: 'Create a post' }).getByRole('button', { name: 'Reply' }).click();
+    await card.locator('button[aria-expanded]').click();
+    await card.getByText(replyText).waitFor();
+    const quoteText = `Quote ${randomBytes(3).toString('hex')}`;
+    await card.getByRole('button', { name: 'Quote' }).click();
+    await page.locator('[contenteditable=true]').fill(quoteText);
+    await page.getByRole('button', { name: 'Publish' }).click();
+    await page.getByText(quoteText).first().waitFor();
+    await checkAccessibility(page, 'Fluo feed with media, reply and quote');
+    assert.equal((await fetch(post.media[0].url)).status, 200, 'published media must be available with its signed URL');
+    await page.getByRole('button', { name: 'My posts' }).click();
+    await card.waitFor();
+    page.once('dialog', (dialog) => { void dialog.accept(); });
+    const [deletedPost] = await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith(`/v1/fluo/posts/${post.id}`) && response.request().method() === 'DELETE'),
+      card.getByRole('button', { name: 'Delete post' }).click()
+    ]);
+    assert.equal(deletedPost.status(), 204);
+    const postBearer = (await postResponse.request().allHeaders()).authorization;
+    assert.equal((await fetch(`http://localhost:8081/v1/fluo/posts/${post.id}`, {
+      headers: { Authorization: postBearer }
+    })).status, 404, 'the deleted post must be absent from Kerno');
+    await card.waitFor({ state: 'detached' });
+    assert.deepEqual(pageErrors, [], 'The Fluo feed must render without browser exceptions after deletion');
+    assert.equal((await fetch(post.media[0].url)).status, 404,
+      'deleting a post must purge its media, even while the former signed URL is valid');
     assert.ok(mainNavigations.every((url) => url.startsWith(site)), 'Silent SSO must not redirect the main frame to Keycloak between apps');
     const failAccount = async (route) => route.fulfill({
       status: 503, contentType: 'application/json', body: '{"error":"Account service unavailable"}'

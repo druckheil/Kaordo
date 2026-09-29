@@ -1,5 +1,7 @@
 # Kaordo product quality audit — ISO/IEC 25010:2023
 
+**Historical snapshot:** This audit predates the working Fluo and Nodo implementation. Its scores and findings describe the earlier account-only tree and must not be read as an assessment of the current Fluo code.
+
 **Audit date:** 2026-09-29. **Scope:** current `scope-0.0.1` working tree, including the account slice and reserved-but-unimplemented Ligo, Fluo, Rondo, Nodo and Regado areas. **Result:** Quality Score **61.3/100**, lowest characteristic **48.0/100**, **0 demonstrated Critical vulnerabilities and 3 High release blockers**. The requested gates (≥99 overall, every characteristic ≥95, no Critical/High) are **not met**. This is a code-and-test engineering assessment, not ISO certification.
 
 [ISO/IEC 25010:2023](https://www.iso.org/standard/78176.html) defines the nine-characteristic product-quality model; ISO does not prescribe this audit's score or passing threshold. Ratings below use an explicit 0–100 engineering rubric: 0–20 absent/planned; 21–45 partial/static; 46–70 working narrow flow with focused tests; 71–94 representative integrated verification; 95–100 production-like acceptance targets met with functional, failure, accessibility, security and load evidence. Subcharacteristics within each characteristic are equally weighted; nine characteristics are equally weighted in the overall score. Ratings are rounded to one decimal only in summaries. They reflect evidence and substantial feature gaps; they are not statistical measurements.

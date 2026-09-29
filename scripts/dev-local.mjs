@@ -4,6 +4,7 @@ import { copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import { assertAvailablePorts } from './local-ports.mjs';
+import { startLocalSession } from './local-session.mjs';
 import { syncKeycloak } from './sync-keycloak.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -12,6 +13,9 @@ const siteOrigin = 'http://localhost:8765';
 const children = new Set();
 const startErrors = new WeakMap();
 let stopping = false;
+let notifyStop;
+const stopRequested = new Promise((resolveStop) => { notifyStop = resolveStop; });
+let closeSession;
 
 async function exists(path) {
   try {
@@ -29,6 +33,10 @@ async function ensureConfiguration() {
     await copyFile(resolve(root, '.env.example'), publicEnv);
     console.log('Created local public configuration: .env');
   }
+  const publicConfig = parseEnv(await readFile(publicEnv, 'utf8'));
+  if (!publicConfig.VITE_KAORDO_NODO_URL) {
+    await writeFile(publicEnv, '\nVITE_KAORDO_NODO_URL=http://127.0.0.1:8082\n', { flag: 'a' });
+  }
 
   const privateEnv = resolve(root, 'deploy/local/.env');
   if (!(await exists(privateEnv))) {
@@ -39,6 +47,7 @@ async function ensureConfiguration() {
       'KEYCLOAK_ADMIN_USERNAME=admin',
       `KEYCLOAK_ADMIN_PASSWORD=${password()}`,
       `KAORDO_SITE_ORIGIN=${siteOrigin}`,
+      `NODO_MEDIA_SIGNING_KEY=${randomBytes(32).toString('hex')}`,
       ''
     ].join('\n');
     await writeFile(privateEnv, values, { mode: 0o600, flag: 'wx' });
@@ -46,6 +55,10 @@ async function ensureConfiguration() {
   }
 
   const privateConfig = parseEnv(await readFile(privateEnv, 'utf8'));
+  if (!privateConfig.NODO_MEDIA_SIGNING_KEY) {
+    privateConfig.NODO_MEDIA_SIGNING_KEY = randomBytes(32).toString('hex');
+    await writeFile(privateEnv, `\nNODO_MEDIA_SIGNING_KEY=${privateConfig.NODO_MEDIA_SIGNING_KEY}\n`, { flag: 'a' });
+  }
   for (const name of ['KAORDO_DB_PASSWORD', 'KEYCLOAK_DB_PASSWORD', 'KEYCLOAK_ADMIN_PASSWORD']) {
     if (!privateConfig[name] || privateConfig[name].startsWith('REPLACE_')) {
       throw new Error(`${name} must be a real value in deploy/local/.env.`);
@@ -53,6 +66,9 @@ async function ensureConfiguration() {
   }
   if (!privateConfig.KEYCLOAK_ADMIN_USERNAME) {
     throw new Error('KEYCLOAK_ADMIN_USERNAME is missing from deploy/local/.env.');
+  }
+  if (!/^[0-9a-f]{64}$/i.test(privateConfig.NODO_MEDIA_SIGNING_KEY)) {
+    throw new Error('NODO_MEDIA_SIGNING_KEY must be 64 hexadecimal characters.');
   }
   return privateConfig;
 }
@@ -109,6 +125,21 @@ function stop() {
   if (stopping) return;
   stopping = true;
   for (const child of children) child.kill('SIGTERM');
+  notifyStop();
+}
+
+async function waitForChildren() {
+  const pending = [...children].map((child) => new Promise((resolveClose) => {
+    if (child.exitCode !== null || child.signalCode !== null) resolveClose();
+    else child.once('close', resolveClose);
+  }));
+  let timeout;
+  await Promise.race([
+    Promise.all(pending),
+    new Promise((resolveTimeout) => { timeout = setTimeout(resolveTimeout, 5000); })
+  ]);
+  clearTimeout(timeout);
+  for (const child of children) child.kill('SIGKILL');
 }
 
 process.once('SIGINT', stop);
@@ -117,8 +148,10 @@ process.once('SIGTERM', stop);
 try {
   await assertAvailablePorts([
     { name: 'Kerno', port: 8081 },
+    { name: 'Nodo', port: 8082 },
     { name: 'Kaordo site', port: 8765 }
   ]);
+  closeSession = await startLocalSession(stop);
   const privateConfig = await ensureConfiguration();
   try {
     await run('docker', ['compose', 'version']);
@@ -129,6 +162,7 @@ try {
   const localEnv = { ...process.env, ...privateConfig, KAORDO_SITE_ORIGIN: siteOrigin };
   console.log('Starting PostgreSQL and Keycloak…');
   await run('docker', [...compose, 'up', '-d', '--wait'], localEnv);
+  await run('docker', [...compose, 'exec', '-T', 'app-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', 'kaordo', '-f', '/migrations/002_fluo.sql'], localEnv);
   await waitFor('http://127.0.0.1:8080/realms/kaordo/.well-known/openid-configuration', 180_000);
   await syncKeycloak(privateConfig);
 
@@ -140,20 +174,34 @@ try {
     DATABASE_URL: `postgres://kaordo:${encodeURIComponent(privateConfig.KAORDO_DB_PASSWORD)}@127.0.0.1:5432/kaordo?sslmode=disable`,
     OIDC_ISSUER: 'http://localhost:8080/realms/kaordo',
     OIDC_AUDIENCE: 'kerno-api',
-    KAORDO_ALLOWED_ORIGINS: `${siteOrigin},http://localhost:5173`
+    KAORDO_ALLOWED_ORIGINS: `${siteOrigin},http://localhost:5173`,
+    NODO_INTERNAL_URL: 'http://127.0.0.1:8082',
+    NODO_PUBLIC_URL: 'http://127.0.0.1:8082',
+    NODO_MEDIA_SIGNING_KEY: privateConfig.NODO_MEDIA_SIGNING_KEY
   };
   const kerno = start(resolve(root, 'dist/local/kerno'), [], kernoEnv);
   await waitFor('http://127.0.0.1:8081/healthz', 30_000, kerno);
+
+  console.log('Building Nodo…');
+  await mkdir(resolve(root, 'deploy/local/media'), { recursive: true });
+  await run('go', ['build', '-o', 'dist/local/nodo', './services/nodo/cmd/nodo']);
+  const nodo = start(resolve(root, 'dist/local/nodo'), [], {
+    ...process.env,
+    KERNO_INTERNAL_URL: 'http://127.0.0.1:8081',
+    NODO_DATA_DIR: resolve(root, 'deploy/local/media'),
+    NODO_ALLOWED_ORIGINS: `${siteOrigin},http://localhost:5173,http://localhost:5175`,
+    NODO_MEDIA_SIGNING_KEY: privateConfig.NODO_MEDIA_SIGNING_KEY
+  });
+  await waitFor('http://127.0.0.1:8082/healthz', 30_000, nodo);
 
   console.log('Building the five application routes…');
   await run('pnpm', ['build:pages']);
   const web = start(process.execPath, ['scripts/serve-pages.mjs']);
   await waitFor('http://127.0.0.1:8765/login/', 10_000, web);
   console.log('Ready: http://localhost:8765/login/');
-  console.log('Press Ctrl+C to stop Kerno and the site. Run pnpm dev:stop to stop Docker services.');
+  console.log('Press Ctrl+C to stop local processes, or run pnpm dev:stop to stop them and Docker services.');
 
   await new Promise((resolveDone, rejectDone) => {
-    const onStop = () => resolveDone();
     const onExit = (name) => (code, signal) => {
       if (stopping) resolveDone();
       else rejectDone(new Error(`${name} exited unexpectedly (${code ?? signal}).`));
@@ -166,14 +214,21 @@ try {
       rejectDone(new Error(`Kaordo site exited unexpectedly (${web.exitCode ?? web.signalCode}).`));
       return;
     }
-    process.once('SIGINT', onStop);
-    process.once('SIGTERM', onStop);
+    void stopRequested.then(resolveDone);
     kerno.once('exit', onExit('Kerno'));
+    nodo.once('exit', onExit('Nodo'));
     web.once('exit', onExit('Kaordo site'));
   });
   stop();
 } catch (error) {
+  const wasStopping = stopping;
   stop();
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+  if (!wasStopping) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+} finally {
+  stop();
+  await waitForChildren();
+  await closeSession?.();
 }

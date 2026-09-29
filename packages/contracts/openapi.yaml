@@ -11,6 +11,11 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Keycloak access token with aud=kerno-api
+    internalToken:
+      type: apiKey
+      in: header
+      name: X-Kaordo-Internal-Token
+      description: Derived token shared only by the local Kerno and Nodo processes.
   schemas:
     UserIdentity:
       type: object
@@ -36,7 +41,149 @@ components:
         code:
           type: string
           description: A stable, non-sensitive reason when an authentication request is rejected.
+    FluoDocument:
+      type: object
+      description: Tiptap JSON document. Only paragraphs, text, line breaks and bold/italic/strike marks are accepted.
+      required: [type, content]
+      properties:
+        type: { type: string, const: doc }
+        content:
+          type: array
+          items: { type: object, additionalProperties: true }
+    FluoAuthor:
+      type: object
+      required: [id, username, displayName, following]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        following: { type: boolean }
+    FluoMedia:
+      type: object
+      required: [id, kind, mimeType, width, height, size, url]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [image, video] }
+        mimeType: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        size: { type: integer, format: int64 }
+        url: { type: string, format: uri, description: Short lived signed Nodo URL. }
+    FluoQuote:
+      type: object
+      required: [id, author, text]
+      properties:
+        id: { type: string, format: uuid }
+        author: { $ref: '#/components/schemas/FluoAuthor' }
+        text: { type: string }
+    FluoCounts:
+      type: object
+      required: [good, bad, comments]
+      properties:
+        good: { type: integer, format: int64 }
+        bad: { type: integer, format: int64 }
+        comments: { type: integer, format: int64 }
+    FluoPost:
+      type: object
+      required: [id, author, content, text, visibility, parentId, quoteId, quote, media, counts, myReaction, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        author: { $ref: '#/components/schemas/FluoAuthor' }
+        content: { $ref: '#/components/schemas/FluoDocument' }
+        text: { type: string }
+        visibility: { type: string, enum: [public, private] }
+        parentId: { type: [string, 'null'], format: uuid }
+        quoteId: { type: [string, 'null'], format: uuid }
+        quote: { anyOf: [{ $ref: '#/components/schemas/FluoQuote' }, { type: 'null' }] }
+        media:
+          type: array
+          items: { $ref: '#/components/schemas/FluoMedia' }
+        counts: { $ref: '#/components/schemas/FluoCounts' }
+        myReaction: { type: [string, 'null'], enum: [good, bad, null] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    FluoPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/FluoPost' }
+        nextCursor: { type: [string, 'null'] }
+    FluoNewPost:
+      type: object
+      required: [content, visibility]
+      properties:
+        content: { $ref: '#/components/schemas/FluoDocument' }
+        visibility: { type: string, enum: [public, private] }
+        parentId: { type: string, format: uuid }
+        quoteId: { type: string, format: uuid }
+        attachmentIds:
+          type: array
+          maxItems: 4
+          items: { type: string, format: uuid }
+    FluoReaction:
+      type: object
+      required: [value]
+      properties:
+        value: { type: string, enum: [good, bad] }
+    NodoUpload:
+      type: object
+      required: [id, kind, mimeType, width, height, size, complete]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [image, video] }
+        mimeType: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        size: { type: integer, format: int64 }
+        complete: { type: boolean }
+    MediaReference:
+      type: object
+      required: [referenced]
+      properties:
+        referenced: { type: boolean }
 paths:
+  /v1/uploads/{id}/meta:
+    servers:
+      - url: http://localhost:8082
+    get:
+      operationId: getNodoUploadMetadata
+      description: The owning account can read processing state for a resumable upload.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Processed upload metadata, ready for a Fluo post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NodoUpload' }
+        '202':
+          description: Upload or media processing is not complete.
+        default:
+          description: Invalid, expired, failed or inaccessible upload.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/internal/media/{id}/referenced:
+    get:
+      operationId: isFluoMediaReferenced
+      description: Internal Nodo cleanup gate. A missing or invalid response must preserve the file.
+      security: [{ internalToken: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Current database reference state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaReference' }
+        default:
+          description: The reference state could not be checked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
   /healthz:
     get:
       operationId: health
@@ -84,6 +231,150 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts:
+    get:
+      operationId: listFluoPosts
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: feed, in: query, schema: { type: string, enum: [latest, following, mine] } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
+      responses:
+        '200':
+          description: Accessible root posts in reverse chronological order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPage' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    post:
+      operationId: createFluoPost
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FluoNewPost' }
+      responses:
+        '201':
+          description: Created post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPost' }
+        default:
+          description: Validation, access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getFluoPost
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Accessible post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPost' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      operationId: deleteFluoPost
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted own post and its comments. }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts/{id}/comments:
+    get:
+      operationId: listFluoComments
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Accessible direct comments.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPage' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts/{id}/reaction:
+    put:
+      operationId: setFluoReaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FluoReaction' }
+      responses:
+        '200':
+          description: Updated post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPost' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      operationId: clearFluoReaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Updated post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPost' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/users/{id}/follow:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: followFluoUser
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Followed user. }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      operationId: unfollowFluoUser
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Unfollowed user. }
         default:
           description: Access or server error.
           content:

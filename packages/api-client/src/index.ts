@@ -1,6 +1,7 @@
 import { authorizedFetch, refreshAccessToken } from '@kaordo/auth';
 import type { UserIdentity, paths } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
+export { createFluoApi, feedOptions, commentsOptions, type Feed, type FluoApi } from './fluo.ts';
 
 export async function bootstrapIdentity(
   apiBaseUrl: string,

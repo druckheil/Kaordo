@@ -1,0 +1,431 @@
+package upload
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/druckheil/Kaordo/services/mediaauth"
+)
+
+func TestResumableImageUploadAndAccess(t *testing.T) {
+	key := []byte(strings.Repeat("k", 32))
+	var referenced atomic.Bool
+	kerno := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !mediaauth.VerifyInternalToken(r.Header.Get("X-Kaordo-Internal-Token"), key) {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]bool{"referenced": referenced.Load()})
+	}))
+	defer kerno.Close()
+	directory := t.TempDir()
+	handler, err := NewHandler(Config{
+		Directory: directory, KernoURL: kerno.URL, AllowedOrigins: []string{"http://localhost:8765"}, MediaKey: key, MaxOwnerUploads: 1,
+		VerifyOwner: func(_ context.Context, bearer string) (string, error) {
+			if bearer == "Bearer alice" {
+				return "alice", nil
+			}
+			if bearer == "Bearer bob" {
+				return "bob", nil
+			}
+			return "", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client := server.Client()
+
+	request := func(method, path, bearer string, body io.Reader) *http.Request {
+		t.Helper()
+		req, err := http.NewRequest(method, server.URL+path, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		return req
+	}
+	response := func(req *http.Request, expected int) *http.Response {
+		t.Helper()
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != expected {
+			body, _ := io.ReadAll(res.Body)
+			res.Body.Close()
+			t.Fatalf("%s %s = %d, want %d: %s", req.Method, req.URL.Path, res.StatusCode, expected, body)
+		}
+		return res
+	}
+
+	var source bytes.Buffer
+	picture := image.NewRGBA(image.Rect(0, 0, 8, 6))
+	picture.Set(0, 0, color.RGBA{R: 255, A: 255})
+	if err := png.Encode(&source, picture); err != nil {
+		t.Fatal(err)
+	}
+	payload := source.Bytes()
+	post := request(http.MethodPost, "/v1/uploads/", "alice", nil)
+	post.Header.Set("Tus-Resumable", "1.0.0")
+	post.Header.Set("Upload-Length", strconv.FormatInt(int64(len(payload)), 10))
+	post.Header.Set("Upload-Metadata", "filetype "+base64.StdEncoding.EncodeToString([]byte("image/png")))
+	created := response(post, http.StatusCreated)
+	location := created.Header.Get("Location")
+	created.Body.Close()
+	parsed, err := url.Parse(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := parsed.Path
+	id := strings.TrimPrefix(path, "/v1/uploads/")
+	if !validUploadID(id) {
+		t.Fatalf("invalid upload ID: %q", id)
+	}
+	full := request(http.MethodPost, "/v1/uploads/", "alice", nil)
+	full.Header = post.Header.Clone()
+	quota := response(full, http.StatusInsufficientStorage)
+	quota.Body.Close()
+	denied := response(request(http.MethodHead, path, "bob", nil), http.StatusNotFound)
+	denied.Body.Close()
+	patch := request(http.MethodPatch, path, "alice", bytes.NewReader(payload))
+	patch.Header.Set("Tus-Resumable", "1.0.0")
+	patch.Header.Set("Upload-Offset", "0")
+	patch.Header.Set("Content-Type", "application/offset+octet-stream")
+	patched := response(patch, http.StatusNoContent)
+	patched.Body.Close()
+
+	var metadata struct {
+		Complete       bool
+		Width, Height  int
+		Kind, MimeType string
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		result, err := client.Do(request(http.MethodGet, path+"/meta", "alice", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.StatusCode != http.StatusOK && result.StatusCode != http.StatusAccepted {
+			t.Fatalf("metadata status = %d", result.StatusCode)
+		}
+		if err := json.NewDecoder(result.Body).Decode(&metadata); err != nil {
+			t.Fatal(err)
+		}
+		result.Body.Close()
+		if metadata.Complete {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("image processing did not finish")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if metadata.Width != 8 || metadata.Height != 6 || metadata.Kind != "image" || metadata.MimeType != "image/png" {
+		t.Fatalf("processed metadata = %+v", metadata)
+	}
+	unsigned := response(request(http.MethodGet, "/v1/media/"+id, "", nil), http.StatusNotFound)
+	unsigned.Body.Close()
+	link, err := mediaauth.SignedURL(server.URL, id, time.Now().Add(5*time.Minute), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown, err := client.Get(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shown.Body.Close()
+	if shown.StatusCode != http.StatusOK || shown.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("signed media response = %d %q", shown.StatusCode, shown.Header.Get("Content-Type"))
+	}
+	if _, err := png.Decode(shown.Body); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []int{http.StatusForbidden, http.StatusConflict, http.StatusNoContent} {
+		if status == http.StatusConflict {
+			referenced.Store(true)
+		}
+		if status == http.StatusNoContent {
+			referenced.Store(false)
+		}
+		deletion := request(http.MethodDelete, "/v1/media/"+id, "", nil)
+		if status != http.StatusForbidden {
+			deletion.Header.Set("X-Kaordo-Internal-Token", mediaauth.InternalToken(key))
+		}
+		res := response(deletion, status)
+		res.Body.Close()
+	}
+	if _, err := os.Stat(filepath.Join(directory, id+".info")); !os.IsNotExist(err) {
+		t.Fatalf("purged upload still exists: %v", err)
+	}
+	again := request(http.MethodPost, "/v1/uploads/", "alice", nil)
+	again.Header = post.Header.Clone()
+	newUpload := response(again, http.StatusCreated)
+	newUpload.Body.Close()
+}
+
+func TestVideoProcessing(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg is not installed")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe is not installed")
+	}
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source.mp4")
+	command := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+		"-f", "lavfi", "-i", "testsrc=size=320x240:rate=12", "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p", source)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("create video: %v: %s", err, output)
+	}
+	server := &Server{config: Config{Directory: directory}}
+	item, output, err := server.processVideo(source, "01999111-2222-7333-8444-555555555555")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(output)
+	if item.Kind != "video" || item.MimeType != "video/mp4" || item.Width != 320 || item.Height != 240 || item.Size < 1 {
+		t.Fatalf("processed video metadata = %+v", item)
+	}
+}
+
+func TestResumableVideoUploadAndPlayback(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg is not installed")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe is not installed")
+	}
+	source := filepath.Join(t.TempDir(), "source.mp4")
+	command := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+		"-f", "lavfi", "-i", "testsrc=size=160x120:rate=12", "-t", "1",
+		"-c:v", "libx264", "-pix_fmt", "yuv420p", source)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("create video: %v: %s", err, output)
+	}
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := []byte(strings.Repeat("k", 32))
+	handler, err := NewHandler(Config{
+		Directory: t.TempDir(), MediaKey: key,
+		VerifyOwner: func(_ context.Context, bearer string) (string, error) {
+			if bearer == "Bearer alice" {
+				return "alice", nil
+			}
+			return "", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	create, err := http.NewRequest(http.MethodPost, server.URL+"/v1/uploads/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	create.Header.Set("Authorization", "Bearer alice")
+	create.Header.Set("Tus-Resumable", "1.0.0")
+	create.Header.Set("Upload-Length", strconv.Itoa(len(data)))
+	create.Header.Set("Upload-Metadata", "filetype "+base64.StdEncoding.EncodeToString([]byte("video/mp4")))
+	created, err := server.Client().Do(create)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created.Body.Close()
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create upload = %d", created.StatusCode)
+	}
+	location, err := url.Parse(created.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := location.Path
+	id := strings.TrimPrefix(path, "/v1/uploads/")
+	if !validUploadID(id) {
+		t.Fatalf("invalid video upload ID: %q", id)
+	}
+	patch, err := http.NewRequest(http.MethodPatch, server.URL+path, bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch.Header.Set("Authorization", "Bearer alice")
+	patch.Header.Set("Tus-Resumable", "1.0.0")
+	patch.Header.Set("Upload-Offset", "0")
+	patch.Header.Set("Content-Type", "application/offset+octet-stream")
+	patched, err := server.Client().Do(patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patched.Body.Close()
+	if patched.StatusCode != http.StatusNoContent {
+		t.Fatalf("patch video = %d", patched.StatusCode)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		metadata, err := http.NewRequest(http.MethodGet, server.URL+path+"/meta", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata.Header.Set("Authorization", "Bearer alice")
+		result, err := server.Client().Do(metadata)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.StatusCode == http.StatusOK {
+			var item struct {
+				Complete       bool
+				Width, Height  int
+				Kind, MimeType string
+			}
+			err = json.NewDecoder(result.Body).Decode(&item)
+			result.Body.Close()
+			if err != nil || !item.Complete || item.Kind != "video" || item.MimeType != "video/mp4" || item.Width != 160 || item.Height != 120 {
+				t.Fatalf("processed video metadata = %+v, %v", item, err)
+			}
+			break
+		}
+		result.Body.Close()
+		if result.StatusCode != http.StatusAccepted || time.Now().After(deadline) {
+			t.Fatalf("video processing status = %d", result.StatusCode)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	link, err := mediaauth.SignedURL(server.URL, id, time.Now().Add(5*time.Minute), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown, err := server.Client().Get(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shown.Body.Close()
+	if shown.StatusCode != http.StatusOK || shown.Header.Get("Content-Type") != "video/mp4" {
+		t.Fatalf("signed video response = %d %q", shown.StatusCode, shown.Header.Get("Content-Type"))
+	}
+	if body, err := io.ReadAll(shown.Body); err != nil || len(body) == 0 {
+		t.Fatalf("processed video is empty: %v", err)
+	}
+}
+
+func TestOldUnreferencedUploadIsCollected(t *testing.T) {
+	key := []byte(strings.Repeat("k", 32))
+	directory := t.TempDir()
+	id := "01999111-2222-7333-8444-555555555553"
+	for _, suffix := range []string{"", ".info", ".display", ".ready.json"} {
+		if err := os.WriteFile(filepath.Join(directory, id+suffix), []byte("test"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(filepath.Join(directory, id+".info"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	var referenced atomic.Bool
+	kerno := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]bool{"referenced": referenced.Load()})
+	}))
+	defer kerno.Close()
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: key}, pending: make(map[string]usage)}
+	referenced.Store(true)
+	server.garbageCollect(context.Background())
+	if _, err := os.Stat(filepath.Join(directory, id+".info")); err != nil {
+		t.Fatalf("referenced upload was removed: %v", err)
+	}
+	referenced.Store(false)
+	server.garbageCollect(context.Background())
+	for _, suffix := range []string{"", ".info", ".display", ".ready.json"} {
+		if _, err := os.Stat(filepath.Join(directory, id+suffix)); !os.IsNotExist(err) {
+			t.Fatalf("stale upload file %q still exists: %v", suffix, err)
+		}
+	}
+}
+
+func TestCleanupFailsClosedOnMissingReferenceState(t *testing.T) {
+	directory := t.TempDir()
+	id := "01999111-2222-7333-8444-555555555554"
+	path := filepath.Join(directory, id)
+	if err := os.WriteFile(path, []byte("orphan source"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	kerno := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer kerno.Close()
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}}
+	server.garbageCollect(context.Background())
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("source was removed without an explicit reference decision: %v", err)
+	}
+}
+
+func TestOrphanSourceWithoutMetadataIsCollected(t *testing.T) {
+	directory := t.TempDir()
+	id := "01999111-2222-7333-8444-555555555555"
+	path := filepath.Join(directory, id)
+	if err := os.WriteFile(path, []byte("orphan source"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	kerno := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]bool{"referenced": false})
+	}))
+	defer kerno.Close()
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}}
+	server.garbageCollect(context.Background())
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("orphan source still exists: %v", err)
+	}
+}
+
+func TestOrphanDisplayWithoutMetadataIsCollected(t *testing.T) {
+	directory := t.TempDir()
+	id := "01999111-2222-7333-8444-555555555556"
+	path := filepath.Join(directory, id+".display")
+	if err := os.WriteFile(path, []byte("orphan display"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	kerno := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]bool{"referenced": false})
+	}))
+	defer kerno.Close()
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}}
+	server.garbageCollect(context.Background())
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("orphan display still exists: %v", err)
+	}
+}
