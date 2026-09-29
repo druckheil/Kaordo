@@ -25,9 +25,12 @@ Every frontend is a separate SvelteKit static build. `build:pages` assembles the
 pnpm install
 pnpm --filter @kaordo/portal dev
 pnpm build:pages
+pnpm test:pages
 go build ./services/kerno/... ./services/nodo/...
 ```
 
 The Go binaries and frontend pages are scaffolds. Server processes, authentication, data schemas, chat, uploads, and media delivery are scheduled for later scopes.
 
 The complete previous codebase and Git history are preserved outside this repository at `/Users/druckheil/Projects/Archive/Kaordo-before-0.0.1`.
+
+The [ISO/IEC 25010:2023 gap audit](docs/audits/iso-iec-25010-2023-scope-0.0.1.md) records current evidence and release blockers for this scaffold.

@@ -6,6 +6,7 @@
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "build:pages": "node scripts/build-pages.mjs",
-    "check:front": "pnpm -r --filter \"@kaordo/*\" check"
+    "check:front": "pnpm -r --filter \"@kaordo/*\" check",
+    "test:pages": "pnpm build:pages && node --test scripts/pages.test.mjs"
   }
 }
