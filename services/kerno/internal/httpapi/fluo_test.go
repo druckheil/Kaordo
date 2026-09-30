@@ -118,6 +118,14 @@ func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 	if err != nil || !mediaauth.Verify(id, mediaURL.Query().Get("exp"), mediaURL.Query().Get("sig"), key, time.Now()) {
 		t.Fatal("media URL is not correctly signed")
 	}
+	quoted := fluo.Post{Quote: &fluo.Quote{Media: []fluo.Media{{ID: id}}}}
+	if err := (fluoHandler{deps: deps}).decorate(&quoted); err != nil {
+		t.Fatal(err)
+	}
+	quotedURL, err := url.Parse(quoted.Quote.Media[0].URL)
+	if err != nil || !mediaauth.Verify(id, quotedURL.Query().Get("exp"), quotedURL.Query().Get("sig"), key, time.Now()) {
+		t.Fatal("quoted media URL is not correctly signed")
+	}
 	reused := invoke(requestBody, "valid")
 	if reused.Code != http.StatusCreated || store.created != 2 || len(store.lastMedia) != 1 || store.lastMedia[0].ID != id {
 		t.Fatalf("reused owned media = %d, writes %d: %s", reused.Code, store.created, reused.Body.String())

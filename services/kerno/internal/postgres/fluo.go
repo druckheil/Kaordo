@@ -21,6 +21,10 @@ const postColumns = `
 	EXISTS (SELECT 1 FROM fluo_follows f WHERE f.follower_id = $1::uuid AND f.followed_id = a.id),
 	p.content, p.plain_text, p.visibility, p.parent_id::text, p.quote_id::text,
 	q.id::text, qa.id::text, qa.username, qa.display_name, q.plain_text,
+	COALESCE((SELECT jsonb_agg(jsonb_build_object(
+		'id', qm.upload_id::text, 'kind', qm.kind, 'mimeType', qm.mime_type,
+		'width', qm.width, 'height', qm.height, 'size', qm.size_bytes
+	) ORDER BY qm.position) FROM fluo_post_media qm WHERE qm.post_id = q.id), '[]'::jsonb),
 	COALESCE((SELECT count(*) FROM fluo_reactions r WHERE r.post_id = p.id AND r.value = 'good'), 0),
 	COALESCE((SELECT count(*) FROM fluo_reactions r WHERE r.post_id = p.id AND r.value = 'bad'), 0),
 	COALESCE((SELECT count(*) FROM fluo_posts c WHERE c.parent_id = p.id), 0),
@@ -45,11 +49,11 @@ type scanner interface{ Scan(...any) error }
 func scanPost(row scanner) (fluo.Post, error) {
 	var post fluo.Post
 	var parent, quote, quotePreviewID, quoteAuthorID, quoteUsername, quoteName, quoteText, reaction sql.NullString
-	var mediaJSON []byte
+	var mediaJSON, quoteMediaJSON []byte
 	err := row.Scan(
 		&post.ID, &post.Author.ID, &post.Author.Username, &post.Author.DisplayName, &post.Author.Following,
 		&post.Content, &post.Text, &post.Visibility, &parent, &quote,
-		&quotePreviewID, &quoteAuthorID, &quoteUsername, &quoteName, &quoteText,
+		&quotePreviewID, &quoteAuthorID, &quoteUsername, &quoteName, &quoteText, &quoteMediaJSON,
 		&post.Counts.Good, &post.Counts.Bad, &post.Counts.Comments, &reaction, &post.Saved,
 		&mediaJSON, &post.CreatedAt, &post.UpdatedAt,
 	)
@@ -69,6 +73,9 @@ func scanPost(row scanner) (fluo.Post, error) {
 				ID: quoteAuthorID.String, Username: quoteUsername.String, DisplayName: quoteName.String,
 			},
 			Text: quoteText.String,
+		}
+		if err := json.Unmarshal(quoteMediaJSON, &post.Quote.Media); err != nil {
+			return post, fmt.Errorf("decode quoted post media: %w", err)
 		}
 	}
 	if reaction.Valid {

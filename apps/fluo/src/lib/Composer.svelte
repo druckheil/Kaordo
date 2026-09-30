@@ -3,15 +3,15 @@
   import type { Editor } from '@tiptap/core';
   import type { FluoDocument, FluoPost } from '@kaordo/contracts';
   import type { FluoApi } from '@kaordo/api-client';
-  import { BoldIcon, Button, ImagePlusIcon, ItalicIcon, StrikethroughIcon, XIcon } from '@kaordo/ui';
+  import { BoldIcon, Button, EllipsisIcon, ImagePlusIcon, ItalicIcon, StrikethroughIcon, XIcon } from '@kaordo/ui';
+  import QuotePreview from './QuotePreview.svelte';
 
-  let { api, replyTo, quoteTo, onPublished, onCancel, compact = false }: {
+  let { api, replyTo, quoteTo, onPublished, onCancel }: {
     api: FluoApi;
     replyTo: FluoPost | null;
     quoteTo: FluoPost | null;
     onPublished: () => void;
     onCancel: () => void;
-    compact?: boolean;
   } = $props();
 
   let element: HTMLDivElement;
@@ -23,11 +23,9 @@
   let pending = $state(false);
   let progress = $state(0);
   let error = $state('');
-  let expanded = $state(false);
+  let optionsOpen = $state(false);
 
-  $effect(() => {
-    if (compact || quoteTo) expanded = true;
-  });
+  $effect(() => { if (replyTo) visibility = replyTo.visibility; });
 
   onMount(() => {
     let active = true;
@@ -43,18 +41,17 @@
               heading: false, horizontalRule: false, link: false, orderedList: false,
               listItem: false, listKeymap: false, underline: false
             }),
-            Placeholder.configure({ placeholder: compact ? 'Write a reply…' : 'What would you like to share?' })
+            Placeholder.configure({ placeholder: replyTo ? 'Write a reply…' : 'What would you like to share?' })
           ],
           content: { type: 'doc', content: [{ type: 'paragraph' }] },
-          editorProps: { attributes: { 'aria-label': compact ? 'Reply text' : 'Post text', class: 'outline-none' } },
-          onFocus: () => { expanded = true; },
+          editorProps: { attributes: { 'aria-label': replyTo ? 'Reply text' : 'Post text', class: 'outline-none' } },
           onUpdate: ({ editor: current }) => { textLength = current.getText().trim().length; }
         });
         editor = instance;
+        instance.commands.focus('end');
       })
       .catch(() => {
         if (active) {
-          expanded = true;
           error = 'The text editor could not load. Reload the page to try again.';
         }
       });
@@ -66,7 +63,6 @@
   });
 
   function chooseFiles() {
-    expanded = true;
     const selected = [...(fileInput?.files ?? [])];
     if (selected.length + files.length > 4) {
       error = 'Add at most four files.';
@@ -115,7 +111,7 @@
       for (const item of files) URL.revokeObjectURL(item.preview);
       files = [];
       visibility = 'public';
-      if (!compact) expanded = false;
+      optionsOpen = false;
       onPublished();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Could not publish your post.';
@@ -125,23 +121,14 @@
   }
 </script>
 
-<div class={compact ? 'rounded-xl border border-border bg-card p-3 sm:p-4' : 'rounded-[1.5rem] border border-border bg-card p-4 shadow-[0_10px_32px_-25px_rgba(20,65,39,.5)] sm:p-6'}>
-  {#if !compact && (replyTo || quoteTo)}
-    <div class="mb-4 flex items-start justify-between gap-3 rounded-xl bg-muted p-3 text-sm">
-      <p class="min-w-0 truncate"><span class="font-medium">{replyTo ? 'Replying to' : 'Quoting'} @{(replyTo ?? quoteTo)?.author.username}</span><span class="ml-2 text-muted-foreground">{(replyTo ?? quoteTo)?.text}</span></p>
-      <Button variant="ghost" size="xs" disabled={pending} onclick={onCancel}>Cancel</Button>
-    </div>
+<div class="min-w-0">
+  {#if replyTo}
+    <section class="mb-5" aria-label="Post being replied to">
+      <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Replying to</p>
+      <QuotePreview quote={replyTo} context="reply" />
+    </section>
   {/if}
-  <div class:expanded class:compact class="editor-surface text-[15px] leading-7" bind:this={element}></div>
-  {#if !compact && expanded}
-    <div class="mt-3 flex gap-1 border-t border-border/80 pt-3" aria-label="Text formatting">
-      <Button variant="ghost" size="icon-sm" aria-label="Bold" aria-pressed={editor?.isActive('bold') ?? false} disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleBold().run()}><BoldIcon class="size-4" /></Button>
-      <Button variant="ghost" size="icon-sm" aria-label="Italic" aria-pressed={editor?.isActive('italic') ?? false} disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleItalic().run()}><ItalicIcon class="size-4" /></Button>
-      <Button variant="ghost" size="icon-sm" aria-label="Strike through" aria-pressed={editor?.isActive('strike') ?? false} disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleStrike().run()}><StrikethroughIcon class="size-4" /></Button>
-      <Button class="ml-auto" variant="ghost" size="icon-sm" aria-label="Collapse editor" disabled={pending}
-        onclick={() => { editor?.commands.blur(); expanded = false; }}><XIcon class="size-4" /></Button>
-    </div>
-  {/if}
+  <div class="editor-surface text-[15px] leading-7" bind:this={element}></div>
   {#if files.length > 0}
     <ul class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Attachments">
       {#each files as item, index (item.preview)}
@@ -160,36 +147,56 @@
       {/each}
     </ul>
   {/if}
+  {#if quoteTo}
+    <section class="mt-5" aria-label="Quoted post">
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Quoting</p>
+        <Button variant="ghost" size="xs" disabled={pending} onclick={onCancel}>Remove quote</Button>
+      </div>
+      <QuotePreview quote={quoteTo} />
+    </section>
+  {/if}
+  <div id="fluo-post-options" hidden={!optionsOpen} class="mt-4 rounded-xl border border-border bg-muted/35 p-3">
+    <div class="flex items-center justify-between gap-2">
+      <p class="text-xs font-semibold text-muted-foreground">Post options</p>
+      <Button variant="ghost" size="icon-xs" aria-label="Close post options" disabled={pending} onclick={() => optionsOpen = false}><XIcon class="size-4" /></Button>
+    </div>
+    <div class="mt-2 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex gap-1" aria-label="Text formatting">
+        <Button variant="ghost" size="icon-sm" aria-label="Bold" aria-pressed={editor?.isActive('bold') ?? false} disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleBold().run()}><BoldIcon class="size-4" /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Italic" aria-pressed={editor?.isActive('italic') ?? false} disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleItalic().run()}><ItalicIcon class="size-4" /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Strike through" aria-pressed={editor?.isActive('strike') ?? false} disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleStrike().run()}><StrikethroughIcon class="size-4" /></Button>
+      </div>
+      <select aria-label="Post visibility" bind:value={visibility} disabled={pending || !!replyTo}
+        class="h-9 rounded-xl border border-input bg-card px-3 text-xs font-medium focus-visible:outline-3 focus-visible:outline-ring">
+        <option value="public">Public</option>
+        <option value="private">Only me</option>
+      </select>
+    </div>
+    {#if replyTo}<p class="mt-2 text-xs text-muted-foreground">Replies use the original post's visibility.</p>{/if}
+  </div>
   {#if pending && files.length > 0}
     <p class="mt-3 text-xs text-muted-foreground" role="status">{progress < 100 ? `Uploading media: ${progress}%` : 'Processing media…'}</p>
   {/if}
   {#if error}<p class="mt-3 text-sm text-destructive" role="alert">{error}</p>{/if}
-  <div class={(expanded ? 'mt-4 pt-3' : 'mt-2 pt-2') + ' flex flex-wrap items-center justify-between gap-3 border-t border-border/80'}>
-    <div class="flex items-center gap-3">
+  <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/80 pt-3">
+    <div class="flex items-center gap-2">
       <input bind:this={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime,.mov" multiple class="sr-only" aria-label="Choose photos or videos" onchange={chooseFiles} />
-      <Button size="sm" variant={compact ? 'ghost' : 'outline'} disabled={pending} aria-label={compact ? 'Add media to reply' : undefined}
-        onclick={() => fileInput?.click()}><ImagePlusIcon class="size-4" />{#if !compact} Media{/if}</Button>
-      {#if !compact && expanded}
-        <select aria-label="Post visibility" bind:value={visibility} disabled={pending || !!replyTo}
-          class="h-9 rounded-xl border border-input bg-card px-3 text-xs font-medium focus-visible:outline-3 focus-visible:outline-ring">
-          <option value="public">Public</option>
-          <option value="private">Only me</option>
-        </select>
-      {/if}
+      <Button size="sm" variant="outline" disabled={pending}
+        onclick={() => fileInput?.click()}><ImagePlusIcon class="size-4" /> Media</Button>
+      <Button size="sm" variant={optionsOpen ? 'secondary' : 'ghost'} aria-label="Post options"
+        aria-expanded={optionsOpen} aria-controls="fluo-post-options" disabled={pending}
+        onclick={() => optionsOpen = !optionsOpen}><EllipsisIcon class="size-4" /> Options</Button>
     </div>
-    {#if expanded}
-      <div class="flex items-center gap-3">
-        <span class="text-xs tabular-nums text-muted-foreground" aria-label="Character count">{textLength}/{replyTo ? 2000 : 5000}</span>
-        <Button disabled={!editor || pending} onclick={publish}>{pending ? 'Publishing…' : replyTo ? 'Reply' : 'Publish'}</Button>
-      </div>
-    {/if}
+    <div class="flex items-center gap-3">
+      <span class="text-xs tabular-nums text-muted-foreground" aria-label="Character count">{textLength}/{replyTo ? 2000 : 5000}</span>
+      <Button disabled={!editor || pending} onclick={publish}>{pending ? 'Publishing…' : replyTo ? 'Reply' : 'Publish'}</Button>
+    </div>
   </div>
 </div>
 
 <style>
-  .editor-surface :global(.tiptap) { min-height: 2.5rem; }
-  .editor-surface.expanded :global(.tiptap) { min-height: 6rem; }
-  .editor-surface.compact :global(.tiptap) { min-height: 4rem; }
+  .editor-surface :global(.tiptap) { min-height: 6rem; }
   :global(.tiptap p + p) { margin-top: 0.6rem; }
   :global(.tiptap:focus) { outline: none; }
   :global(.tiptap p.is-editor-empty:first-child::before) {

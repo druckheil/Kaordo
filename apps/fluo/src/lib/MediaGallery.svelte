@@ -6,10 +6,8 @@
   import { Button, ChevronLeftIcon, ChevronRightIcon } from '@kaordo/ui';
   import 'photoswipe/style.css';
   import VideoPlayer from './VideoPlayer.svelte';
+  import { maxMediaHeightRem, maxMediaRatio, mediaFrameRatio, minMediaRatio } from './media-layout';
 
-  const minRatio = 0.5;
-  const maxRatio = 2;
-  const maxHeightRem = 34;
   const gapPx = 8;
 
   let { media }: { media: FluoMedia[] } = $props();
@@ -20,9 +18,9 @@
   let canNext = $state(false);
 
   const first = $derived(media[0]);
-  const ratios = $derived(media.map(frameRatio));
+  const ratios = $derived(media.map(mediaFrameRatio));
   const widestRatio = $derived(Math.max(1, ...ratios));
-  const maxStripWidth = $derived(`calc(${maxHeightRem * ratios.reduce((sum, ratio) => sum + ratio, 0)}rem + ${Math.max(0, media.length - 1) * gapPx}px)`);
+  const maxStripWidth = $derived(`calc(${maxMediaHeightRem * ratios.reduce((sum, ratio) => sum + ratio, 0)}rem + ${Math.max(0, media.length - 1) * gapPx}px)`);
   const positionLabel = $derived(visible.length > 1
     ? `${visible[0] + 1}–${visible[visible.length - 1] + 1} / ${media.length}`
     : `${(visible[0] ?? 0) + 1} / ${media.length}`);
@@ -37,14 +35,9 @@
     duration: typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 22
   };
 
-  function frameRatio(item: FluoMedia): number {
-    const natural = item.width / item.height;
-    return Number.isFinite(natural) && natural > 0 ? Math.min(maxRatio, Math.max(minRatio, natural)) : 1;
-  }
-
   function isExtreme(item: FluoMedia): boolean {
     const natural = item.width / item.height;
-    return natural < minRatio || natural > maxRatio;
+    return natural < minMediaRatio || natural > maxMediaRatio;
   }
 
   function initialized(event: CustomEvent<EmblaCarouselType>) {
@@ -92,15 +85,15 @@
 {#if first}
   <div bind:this={gallery} class="mt-4 w-full min-w-0" aria-label="Post attachments">
     {#if media.length === 1}
-      <div class="max-w-full overflow-hidden rounded-2xl ring-1 ring-border"
-        style:width={`min(100%, ${maxHeightRem * ratios[0]}rem)`} style:aspect-ratio={ratios[0]}>
+      <div class="mx-auto max-w-full overflow-hidden rounded-2xl ring-1 ring-border"
+        style:width={`min(100%, ${maxMediaHeightRem * ratios[0]}rem)`} style:aspect-ratio={ratios[0]}>
         {@render attachment(first, 0)}
       </div>
     {:else}
-      <div role="region" aria-roledescription="carousel" aria-label="Post media" class="relative w-full"
+      <div role="region" aria-roledescription="carousel" aria-label="Post media" class="relative min-w-0 max-w-full"
         style:max-width={maxStripWidth}>
         <div class="w-full overflow-hidden rounded-2xl"
-          style:aspect-ratio={widestRatio} style:max-height={`${maxHeightRem}rem`}
+          style:aspect-ratio={widestRatio} style:max-height={`${maxMediaHeightRem}rem`}
           use:useEmblaCarousel={{ options, plugins: [] }} onemblaInit={initialized}>
           <div class="flex h-full touch-pan-y" style:gap={`${gapPx}px`}>
             {#each media as item, index (item.id)}

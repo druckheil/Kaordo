@@ -28,9 +28,10 @@ type Author struct {
 }
 
 type Quote struct {
-	ID     string `json:"id"`
-	Author Author `json:"author"`
-	Text   string `json:"text"`
+	ID     string  `json:"id"`
+	Author Author  `json:"author"`
+	Text   string  `json:"text"`
+	Media  []Media `json:"media"`
 }
 
 type Media struct {

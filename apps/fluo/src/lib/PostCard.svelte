@@ -5,16 +5,18 @@
   import {
     BookmarkIcon, Button, MessageCircleIcon, Repeat2Icon, ThumbsDownIcon, ThumbsUpIcon, Trash2Icon, XIcon
   } from '@kaordo/ui';
-  import Composer from './Composer.svelte';
   import MediaGallery from './MediaGallery.svelte';
+  import QuotePreview from './QuotePreview.svelte';
   import RichText from './RichText.svelte';
 
-  let { post, viewerId, api, queryClient, onQuote, onReact, onFollow, onSave, onDelete }: {
+  let { post, viewerId, api, queryClient, onReply, onQuote, onOpenPost, onReact, onFollow, onSave, onDelete }: {
     post: FluoPost;
     viewerId: string;
     api: FluoApi;
     queryClient: QueryClient;
+    onReply: () => void;
     onQuote: () => void;
+    onOpenPost: (id: string) => void;
     onReact: (value: 'good' | 'bad' | null) => Promise<void>;
     onFollow: () => Promise<void>;
     onSave: () => Promise<void>;
@@ -27,11 +29,6 @@
   const comments = createInfiniteQuery(() => commentsOptions(api, post.id, expanded), () => queryClient);
   const date = $derived(new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(post.createdAt)));
   const initials = $derived(post.author.displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || post.author.username[0]?.toUpperCase() || 'K');
-
-  function commentPublished() {
-    void queryClient.invalidateQueries({ queryKey: ['fluo', 'comments', post.id] });
-    void queryClient.invalidateQueries({ queryKey: ['fluo', 'feed'] });
-  }
 
   async function toggleSaved() {
     if (saving) return;
@@ -52,7 +49,7 @@
   }
 </script>
 
-<article data-post-id={post.id} class="fluo-post rounded-[1.5rem] border border-border bg-card p-4 shadow-[0_10px_32px_-25px_rgba(20,65,39,.5)] sm:p-6"
+<article data-post-id={post.id} class="fluo-post min-w-0 rounded-[1.5rem] border border-border bg-card p-4 shadow-[0_10px_32px_-25px_rgba(20,65,39,.5)] sm:p-6"
   aria-label={'Post by ' + post.author.username}>
   <header class="flex items-start gap-3">
     <div class="grid size-11 shrink-0 place-items-center rounded-2xl bg-accent text-sm font-bold text-accent-foreground" aria-hidden="true">{initials}</div>
@@ -77,10 +74,7 @@
   {#if post.text.trim()}<div class="mt-4"><RichText content={post.content} /></div>{/if}
   <MediaGallery media={post.media} />
   {#if post.quote}
-    <div class="mt-4 rounded-2xl border border-border bg-muted/35 p-4 text-sm">
-      <p class="font-semibold">@{post.quote.author.username}</p>
-      <p class="mt-1 line-clamp-4 whitespace-pre-wrap leading-6 text-muted-foreground">{post.quote.text}</p>
-    </div>
+    <QuotePreview quote={post.quote} onOpen={onOpenPost} />
   {:else if post.quoteId}
     <p class="mt-4 rounded-2xl border p-4 text-sm text-muted-foreground">Quoted post unavailable.</p>
   {/if}
@@ -97,9 +91,8 @@
         aria-label={'Bad, ' + post.counts.bad} aria-pressed={post.myReaction === 'bad'}
         disabled={reacting} onclick={() => chooseReaction('bad')}><ThumbsDownIcon class="size-4" /></Button>
     </div>
-    <Button class="min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={expanded ? 'secondary' : 'ghost'}
-      size="sm" aria-label={'Comments, ' + post.counts.comments} aria-expanded={expanded}
-      aria-controls={'comments-' + post.id} onclick={() => expanded = !expanded}>
+    <Button class="min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost"
+      size="sm" aria-label="Reply to post" onclick={onReply}>
       <MessageCircleIcon class="size-4" /><span class="hidden text-xs sm:inline">Reply</span><span class="text-xs tabular-nums">{post.counts.comments}</span>
     </Button>
     {#if post.visibility === 'public'}
@@ -115,6 +108,13 @@
       <span class="hidden text-xs sm:inline">{post.saved ? 'Saved' : 'Save'}</span>
     </Button>
   </div>
+
+  {#if post.counts.comments > 0}
+    <Button class="mt-2" variant="ghost" size="sm" aria-expanded={expanded}
+      aria-controls={'comments-' + post.id} onclick={() => expanded = !expanded}>
+      {expanded ? 'Hide replies' : `View ${post.counts.comments} ${post.counts.comments === 1 ? 'reply' : 'replies'}`}
+    </Button>
+  {/if}
 
   {#if expanded}
     <section id={'comments-' + post.id} class="comment-panel mt-4 rounded-2xl border border-border bg-muted/35 p-4 sm:p-5"
@@ -158,7 +158,7 @@
         {/if}
       {/if}
       <div class="mt-5 border-t border-border/80 pt-4">
-        <Composer compact {api} replyTo={post} quoteTo={null} onPublished={commentPublished} onCancel={() => expanded = false} />
+        <Button variant="outline" size="sm" onclick={onReply}><MessageCircleIcon class="size-4" /> Write a reply</Button>
       </div>
     </section>
   {/if}

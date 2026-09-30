@@ -18,6 +18,7 @@ export { default as ThumbsDownIcon } from '@lucide/svelte/icons/thumbs-down';
 export { default as Repeat2Icon } from '@lucide/svelte/icons/repeat-2';
 export { default as ImagePlusIcon } from '@lucide/svelte/icons/image-plus';
 export { default as PlusIcon } from '@lucide/svelte/icons/plus';
+export { default as PlayIcon } from '@lucide/svelte/icons/play';
 export { default as Trash2Icon } from '@lucide/svelte/icons/trash-2';
 export { default as BoldIcon } from '@lucide/svelte/icons/bold';
 export { default as ItalicIcon } from '@lucide/svelte/icons/italic';

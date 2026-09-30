@@ -77,10 +77,24 @@ test('Fluo keeps its initial JavaScript under budget and lazy-loads the editor a
   }, 0);
   assert.ok(gzipBytes < 100 * 1024, `Fluo initial JavaScript is ${gzipBytes} gzip bytes`);
 
-  for (const library of ['@tiptap+core@', '@tiptap+starter-kit@', 'packages/media-client/src/index.ts', 'vidstack@', 'photoswipe@']) {
-    assert.ok(page[1].dynamicImports?.some((dependency) => dependency.includes(library)),
+  const lazyModules = new Set();
+  const visitLazy = (key) => {
+    if (initialModules.has(key) || lazyModules.has(key)) return;
+    const item = manifest[key];
+    assert.ok(item, `missing lazy manifest entry for ${key}`);
+    lazyModules.add(key);
+    for (const dependency of [...(item.imports ?? []), ...(item.dynamicImports ?? [])]) visitLazy(dependency);
+  };
+  for (const key of initialModules) {
+    for (const dependency of manifest[key].dynamicImports ?? []) visitLazy(dependency);
+  }
+  assert.ok(lazyModules.has('src/lib/FluoDialogs.svelte'), 'Fluo dialogs must load after the initial page');
+  for (const library of ['@tiptap+starter-kit@', 'packages/media-client/src/index.ts', 'vidstack@', 'photoswipe@']) {
+    assert.ok([...lazyModules].some((dependency) => dependency.includes(library)),
       `${library} must remain outside the initial Fluo JavaScript graph`);
   }
+  assert.match(readFileSync(resolve(import.meta.dirname, '../apps/fluo/src/lib/Composer.svelte'), 'utf8'), /import\('@tiptap\/core'\)/,
+    'The Tiptap editor core must load on demand');
 
   const playerStyles = Object.entries(manifest).filter(([key]) => key.includes('vidstack/player/styles/default/'));
   assert.equal(playerStyles.length, 2, 'Vidstack theme and video layout styles must be present');

@@ -90,12 +90,21 @@ func fluoError(w http.ResponseWriter, err error) {
 }
 
 func (h fluoHandler) decorate(post *fluo.Post) error {
-	for index := range post.Media {
-		url, err := mediaauth.SignedURL(h.deps.MediaBaseURL, post.Media[index].ID, time.Now().Add(9*time.Minute), h.deps.MediaSignKey)
-		if err != nil {
-			return err
+	sign := func(items []fluo.Media) error {
+		for index := range items {
+			url, err := mediaauth.SignedURL(h.deps.MediaBaseURL, items[index].ID, time.Now().Add(9*time.Minute), h.deps.MediaSignKey)
+			if err != nil {
+				return err
+			}
+			items[index].URL = url
 		}
-		post.Media[index].URL = url
+		return nil
+	}
+	if err := sign(post.Media); err != nil {
+		return err
+	}
+	if post.Quote != nil {
+		return sign(post.Quote.Media)
 	}
 	return nil
 }

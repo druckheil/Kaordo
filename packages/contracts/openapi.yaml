@@ -71,11 +71,14 @@ components:
         url: { type: string, format: uri, description: Short lived signed Nodo URL. }
     FluoQuote:
       type: object
-      required: [id, author, text]
+      required: [id, author, text, media]
       properties:
         id: { type: string, format: uuid }
         author: { $ref: '#/components/schemas/FluoAuthor' }
         text: { type: string }
+        media:
+          type: array
+          items: { $ref: '#/components/schemas/FluoMedia' }
     FluoCounts:
       type: object
       required: [good, bad, comments]

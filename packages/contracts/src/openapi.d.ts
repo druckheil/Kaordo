@@ -245,6 +245,7 @@ export interface components {
             id: string;
             author: components["schemas"]["FluoAuthor"];
             text: string;
+            media: components["schemas"]["FluoMedia"][];
         };
         FluoCounts: {
             /** Format: int64 */

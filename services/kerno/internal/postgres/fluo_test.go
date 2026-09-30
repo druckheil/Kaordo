@@ -100,6 +100,10 @@ func TestFluoPostFlow(t *testing.T) {
 	}
 	attachment := fluo.Media{ID: "01999111-2222-7333-8444-555555555551", Kind: "image", MimeType: "image/png", Width: 8, Height: 6, Size: 80}
 	withMedia := makePost(a.ID, "public", nil, nil, []fluo.Media{attachment})
+	mediaQuote := makePost(b.ID, "public", nil, &withMedia.ID, nil)
+	if mediaQuote.Quote == nil || len(mediaQuote.Quote.Media) != 1 || mediaQuote.Quote.Media[0].ID != attachment.ID {
+		t.Fatalf("quote omitted original media: %+v", mediaQuote.Quote)
+	}
 	reusedMedia := makePost(a.ID, "public", nil, nil, []fluo.Media{attachment})
 	if len(reusedMedia.Media) != 1 || reusedMedia.Media[0].ID != attachment.ID {
 		t.Fatalf("reused post media = %+v", reusedMedia.Media)
@@ -114,6 +118,10 @@ func TestFluoPostFlow(t *testing.T) {
 	removedMedia, err := store.Delete(ctx, a.ID, withMedia.ID)
 	if err != nil || len(removedMedia) != 1 || removedMedia[0] != attachment.ID {
 		t.Fatalf("deleted media IDs = %v, %v", removedMedia, err)
+	}
+	withoutOriginal, err := store.Get(ctx, b.ID, mediaQuote.ID)
+	if err != nil || withoutOriginal.QuoteID != nil || withoutOriginal.Quote != nil {
+		t.Fatalf("deleted quoted post retained its preview: %+v, %v", withoutOriginal, err)
 	}
 	referenced, err = store.MediaReferenced(ctx, attachment.ID)
 	if err != nil || !referenced {

@@ -1,15 +1,17 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from 'svelte';
-  import { createInfiniteQuery, QueryClient, type InfiniteData } from '@tanstack/svelte-query';
+  import { createInfiniteQuery, createQuery, QueryClient, type InfiniteData } from '@tanstack/svelte-query';
   import { createWindowVirtualizer } from '@tanstack/svelte-virtual';
   import { appPaths } from '@kaordo/links';
   import { createFluoApi, feedOptions, type Feed } from '@kaordo/api-client';
   import type { FluoPage, FluoPost, UserIdentity } from '@kaordo/contracts';
   import {
-    BellIcon, BookmarkIcon, Button, HouseIcon, Input, SearchIcon, SettingsIcon, UserRoundIcon, XIcon
+    BellIcon, BookmarkIcon, Button, HouseIcon, Input, PlusIcon,
+    SearchIcon, SettingsIcon, UserRoundIcon, XIcon
   } from '@kaordo/ui';
-  import Composer from './Composer.svelte';
   import PostCard from './PostCard.svelte';
+
+  type FluoDialogsComponent = typeof import('./FluoDialogs.svelte').default;
 
   type View = 'feed' | 'search' | 'notifications' | 'saved' | 'profile' | 'settings';
 
@@ -28,10 +30,18 @@
   const queryClient = new QueryClient();
   let view = $state<View>('feed');
   let feed = $state<Feed>('latest');
+  let replyTo = $state<FluoPost | null>(null);
   let quoteTo = $state<FluoPost | null>(null);
+  let composerOpen = $state(false);
+  let postId = $state<string | null>(null);
+  let postDialogOpen = $state(false);
+  let DialogsComponent = $state.raw<FluoDialogsComponent | null>(null);
+  let dialogsLoading = $state(false);
+  let dialogsPromise: Promise<void> | null = null;
+  let historySession = '';
+  let pendingCloseHash: string | null = null;
   let removedIds = $state<string[]>([]);
   let listElement = $state<HTMLDivElement>();
-  let composerElement = $state<HTMLElement>();
   let actionError = $state('');
   let searchInput = $state('');
   let searchTerm = $state('');
@@ -46,6 +56,12 @@
     ...feedOptions(api, currentFeed, activeSearch),
     enabled: typeof window !== 'undefined' && canQueryPosts && (view !== 'search' || searchTerm.length >= 2)
   }), () => queryClient);
+  const selectedPost = createQuery(() => ({
+    queryKey: ['fluo', 'post', postId],
+    queryFn: () => api.get(postId!),
+    enabled: !!postId,
+    staleTime: 15_000
+  }), () => queryClient);
   const posts = $derived(query.data?.pages.flatMap((page) => page.items).filter((item) => !removedIds.includes(item.id)) ?? []);
   const pageTitle = $derived({
     feed: 'Feed', search: 'Search', notifications: 'Notifications', saved: 'Saved posts', profile: 'Profile', settings: 'Settings'
@@ -59,7 +75,8 @@
       const firstMedia = post.media[0];
       const width = typeof window === 'undefined' ? 600 : Math.min(700, window.innerWidth - 40);
       const mediaHeight = firstMedia ? Math.min(544, Math.max(192, width * firstMedia.height / firstMedia.width)) : 0;
-      return 220 + mediaHeight + Math.ceil(post.text.length / 90) * 22 + (post.quote ? 96 : 0);
+      return 220 + mediaHeight + Math.ceil(post.text.length / 90) * 22 +
+        (post.quote ? (post.quote.media.length ? 300 : 96) : 0);
     },
     overscan: 4
   });
@@ -80,13 +97,36 @@
   });
 
   onMount(() => {
-    const syncView = () => {
-      const next = window.location.hash.slice(1) as View;
-      if (navigation.some((item) => item.id === next)) view = next;
+    historySession = window.crypto.randomUUID();
+    const syncLocation = () => {
+      if (pendingCloseHash) {
+        const target = pendingCloseHash;
+        pendingCloseHash = null;
+        if (window.location.hash !== target) {
+          window.history.replaceState(window.history.state, '', target);
+        }
+      }
+      const hash = window.location.hash.slice(1);
+      const match = /^post\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(hash);
+      if (match) {
+        const returnView = window.history.state?.kaordoFluoReturnView;
+        if (navigation.some((item) => item.id === returnView)) view = returnView as View;
+        postId = match[1];
+        postDialogOpen = true;
+        void loadDialogs();
+        return;
+      }
+      postId = null;
+      postDialogOpen = false;
+      if (navigation.some((item) => item.id === hash)) view = hash as View;
     };
-    syncView();
-    window.addEventListener('hashchange', syncView);
-    return () => window.removeEventListener('hashchange', syncView);
+    syncLocation();
+    window.addEventListener('hashchange', syncLocation);
+    window.addEventListener('popstate', syncLocation);
+    return () => {
+      window.removeEventListener('hashchange', syncLocation);
+      window.removeEventListener('popstate', syncLocation);
+    };
   });
   onDestroy(() => {
     if (searchTimer) clearTimeout(searchTimer);
@@ -127,6 +167,77 @@
     window.scrollTo({ top: 0 });
   }
 
+  function openPost(id: string) {
+    const hash = `#post/${id}`;
+    const returnHash = postDialogOpen && postId ? `#post/${postId}` : `#${view}`;
+    if (window.location.hash !== hash) {
+      window.history.pushState({
+        ...window.history.state,
+        kaordoFluoPost: historySession,
+        kaordoFluoReturnView: view,
+        kaordoFluoReturnHash: returnHash
+      }, '', hash);
+    } else if (!postDialogOpen) {
+      const { kaordoFluoPost: _postEntry, ...rest } = window.history.state ?? {};
+      window.history.replaceState({
+        ...rest,
+        kaordoFluoReturnView: view,
+        kaordoFluoReturnHash: returnHash
+      }, '', hash);
+    }
+    postId = id;
+    postDialogOpen = true;
+    void loadDialogs();
+  }
+
+  function loadDialogs(): Promise<void> {
+    if (DialogsComponent) return Promise.resolve();
+    if (dialogsPromise) return dialogsPromise;
+    dialogsLoading = true;
+    dialogsPromise = import('./FluoDialogs.svelte').then(({ default: component }) => {
+      DialogsComponent = component;
+    }).catch(() => {
+      composerOpen = false;
+      postDialogOpen = false;
+      actionError = 'Could not open the post window. Try again.';
+    }).finally(() => {
+      dialogsLoading = false;
+      dialogsPromise = null;
+    });
+    return dialogsPromise;
+  }
+
+  function closePost() {
+    if (!postId && !window.location.hash.startsWith('#post/')) return;
+    const state = window.history.state ?? {};
+    const returnView = navigation.some((item) => item.id === state.kaordoFluoReturnView)
+      ? state.kaordoFluoReturnView as View : view;
+    const storedHash = state.kaordoFluoReturnHash;
+    const returnHash = typeof storedHash === 'string' && (
+      navigation.some((item) => storedHash === `#${item.id}`) ||
+      /^#post\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(storedHash)
+    ) ? storedHash : `#${returnView}`;
+    const returnThroughHistory = !!historySession && state.kaordoFluoPost === historySession;
+    const { kaordoFluoPost: _postEntry, kaordoFluoReturnView: _returnView,
+      kaordoFluoReturnHash: _returnHash, ...rest } = state;
+    postId = null;
+    postDialogOpen = false;
+    window.history.replaceState(rest, '', returnHash);
+    if (returnThroughHistory) {
+      pendingCloseHash = returnHash;
+      window.history.back();
+      return;
+    }
+    view = returnView;
+  }
+
+  function openComposer() {
+    replyTo = null;
+    quoteTo = null;
+    composerOpen = true;
+    void loadDialogs();
+  }
+
   function changeSearch(event: Event) {
     searchInput = (event.currentTarget as HTMLInputElement).value;
     if (searchTimer) clearTimeout(searchTimer);
@@ -136,15 +247,36 @@
     }, 250);
   }
 
+  function reply(post: FluoPost) {
+    if (postId) closePost();
+    quoteTo = null;
+    replyTo = post;
+    composerOpen = true;
+    void loadDialogs();
+  }
+
   function quote(post: FluoPost) {
+    if (postId) closePost();
+    replyTo = null;
     quoteTo = post;
-    navigate('feed');
-    composerElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    composerOpen = true;
+    void loadDialogs();
   }
 
   function updated() {
+    const repliedTo = replyTo;
+    composerOpen = false;
+    replyTo = null;
     quoteTo = null;
     actionError = '';
+    if (repliedTo) {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['fluo', 'comments', repliedTo.id] }),
+        queryClient.invalidateQueries({ queryKey: ['fluo', 'feed'] }),
+        queryClient.invalidateQueries({ queryKey: ['fluo', 'post', repliedTo.id] })
+      ]);
+      return;
+    }
     void queryClient.invalidateQueries({ queryKey: ['fluo'] });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -174,6 +306,7 @@
       actionError = '';
       await api.setSaved(post.id, !post.saved);
       await queryClient.invalidateQueries({ queryKey: ['fluo', 'feed'] });
+      await queryClient.invalidateQueries({ queryKey: ['fluo', 'post', post.id] });
     } catch (error) {
       actionError = error instanceof Error ? error.message : 'Could not update your saved posts.';
     }
@@ -185,6 +318,7 @@
       actionError = '';
       await api.remove(post.id);
       removedIds = [...removedIds, post.id];
+      if (postId === post.id) closePost();
       queryClient.setQueriesData<InfiniteData<FluoPage>>({ queryKey: ['fluo', 'feed'] }, (cached) => cached && ({
         ...cached,
         pages: cached.pages.map((page) => ({ ...page, items: page.items.filter((item) => item.id !== post.id) }))
@@ -196,8 +330,8 @@
   }
 </script>
 
-<div class="grid gap-7 pb-20 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:pb-10">
-  <aside class="hidden lg:sticky lg:top-24 lg:block lg:self-start">
+<div class="grid gap-7 pb-36 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:pb-10">
+  <aside class="hidden lg:sticky lg:top-24 lg:flex lg:h-[calc(100dvh-7rem)] lg:flex-col lg:self-start">
     <p class="mb-5 px-4 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Explore Fluo</p>
     <nav class="grid gap-1" aria-label="Fluo navigation">
       {#each navigation as item (item.id)}
@@ -208,7 +342,10 @@
         </Button>
       {/each}
     </nav>
-    <div class="mt-7 flex items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm">
+    <Button class="mt-auto h-11 w-full justify-center gap-2 rounded-xl" disabled={dialogsLoading} onclick={openComposer}>
+      <PlusIcon class="size-5" /> {dialogsLoading ? 'Opening…' : 'Post'}
+    </Button>
+    <div class="mt-4 flex items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm">
       <div class="grid size-10 shrink-0 place-items-center rounded-xl bg-accent font-bold text-accent-foreground" aria-hidden="true">
         {user.displayName[0]?.toUpperCase() ?? 'K'}
       </div>
@@ -261,11 +398,7 @@
         <Button class="mt-4" href={appPaths.portal} rel="external" variant="outline">Open Kaordo account</Button>
       </div>
     {:else}
-      {#if view === 'feed'}
-        <section bind:this={composerElement} class="mb-6" aria-label="Create a post">
-          <Composer {api} replyTo={null} {quoteTo} onPublished={updated} onCancel={() => { quoteTo = null; }} />
-        </section>
-      {:else if view === 'search'}
+      {#if view === 'search'}
         <div class="mb-6 rounded-[1.5rem] border border-border bg-card p-4 shadow-sm">
           <label class="sr-only" for="fluo-search">Search posts and people</label>
           <div class="relative">
@@ -320,7 +453,7 @@
               view === 'search' ? 'Try another phrase or username.' :
               view === 'profile' ? 'Posts you publish will appear on your profile.' :
               view === 'feed' && feed === 'following' ? 'Follow an author in Latest to see their posts here.' :
-              view === 'feed' ? 'Share a thought, photo or video above.' : 'There is nothing to show here yet.'}
+              view === 'feed' ? 'Use Post to share a thought, photo or video.' : 'There is nothing to show here yet.'}
           </p>
         </div>
       {:else}
@@ -330,7 +463,9 @@
               <div data-index={row.index} class="absolute left-0 top-0 w-full pb-4"
                 style:transform={'translateY(' + (row.start - $virtualizer.options.scrollMargin) + 'px)'} use:measure>
                 <PostCard post={posts[row.index]} viewerId={user.id} {api} {queryClient}
+                  onReply={() => reply(posts[row.index])}
                   onQuote={() => quote(posts[row.index])}
+                  onOpenPost={openPost}
                   onReact={(value) => react(posts[row.index], value)}
                   onFollow={() => follow(posts[row.index])}
                   onSave={() => save(posts[row.index])}
@@ -346,6 +481,25 @@
     {/if}
   </section>
 </div>
+
+<Button class="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] left-4 z-30 h-11 gap-2 rounded-full px-5 shadow-lg lg:hidden"
+  disabled={dialogsLoading} onclick={openComposer}><PlusIcon class="size-5" /> {dialogsLoading ? 'Opening…' : 'Post'}</Button>
+
+{#if DialogsComponent}
+  <DialogsComponent {api} {user} {queryClient} {replyTo} {quoteTo} {composerOpen} {postDialogOpen}
+    post={selectedPost.data} postPending={selectedPost.isPending} postError={selectedPost.error?.message ?? null}
+    onComposerOpenChange={(open) => {
+      composerOpen = open;
+      if (!open) { replyTo = null; quoteTo = null; }
+    }}
+    onRemoveQuote={() => { quoteTo = null; }} onPublished={updated}
+    onPostOpenChange={(open) => {
+      if (!open) closePost();
+      else if (postId && window.location.hash === `#post/${postId}`) postDialogOpen = true;
+    }}
+    onClosePost={closePost} onReply={reply} onQuote={quote} onOpenPost={openPost}
+    onReact={react} onFollow={follow} onSave={save} onDelete={remove} />
+{/if}
 
 <nav class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_35px_-28px_rgba(0,0,0,.45)] backdrop-blur-lg lg:hidden"
   aria-label="Fluo navigation">
