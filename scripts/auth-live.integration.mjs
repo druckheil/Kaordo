@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHmac, randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseEnv, promisify } from 'node:util';
@@ -321,13 +321,105 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     });
     assert.ok(Math.abs(reservedSize.height - reservedSize.width * 6 / 8) < 4,
       'Stored media dimensions must reserve carousel height before decoding');
-    await carousel.getByRole('button', { name: 'Next attachment' }).click();
+    assert.equal(await carousel.getByRole('button', { name: 'Previous attachment' }).count(), 0,
+      'The carousel must not render a previous arrow at its first item');
+    assert.equal(await carousel.getByRole('button', { name: 'Next attachment' }).count(), 1);
+    const nextArrow = carousel.getByRole('button', { name: 'Next attachment' });
+    await nextArrow.scrollIntoViewIfNeeded();
+    const viewportBox = await carousel.locator(':scope > div').first().boundingBox();
+    const nextArrowBox = await nextArrow.boundingBox();
+    assert.ok(viewportBox && nextArrowBox && nextArrowBox.x + nextArrowBox.width / 2 > viewportBox.x + viewportBox.width / 2,
+      'The sole next arrow must stay on the right side at the first slide');
+    const nextArrowReceivesPointer = await nextArrow.evaluate((button) => {
+      const box = button.getBoundingClientRect();
+      const target = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return button.contains(target);
+    });
+    assert.equal(nextArrowReceivesPointer, true, 'The next arrow must receive pointer input over the media');
+    await nextArrow.click();
     await card.getByText('2 / 4').waitFor();
+    assert.equal(await carousel.getByRole('button', { name: 'Previous attachment' }).count(), 1);
     await carousel.getByRole('button', { name: 'Previous attachment' }).click();
     await card.getByText('1 / 4').waitFor();
     await carousel.getByRole('button', { name: 'Next attachment' }).focus();
     await page.keyboard.press('Enter');
     await card.getByText('2 / 4').waitFor();
+    await card.getByRole('button', { name: 'Go to attachment 4' }).click();
+    await card.getByText('4 / 4').waitFor();
+    assert.equal(await carousel.getByRole('button', { name: 'Next attachment' }).count(), 0,
+      'The carousel must not render a next arrow at its last item');
+    assert.equal(await carousel.getByRole('button', { name: 'Previous attachment' }).count(), 1);
+    const previousArrow = carousel.getByRole('button', { name: 'Previous attachment' });
+    await previousArrow.scrollIntoViewIfNeeded();
+    const previousArrowBox = await previousArrow.boundingBox();
+    assert.ok(viewportBox && previousArrowBox && previousArrowBox.x + previousArrowBox.width / 2 < viewportBox.x + viewportBox.width / 2,
+      'The sole previous arrow must stay on the left side at the last slide');
+    assert.equal(await previousArrow.evaluate((button) => {
+      const box = button.getBoundingClientRect();
+      return button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+    }), true, 'The previous arrow must receive pointer input over the media');
+    await previousArrow.click();
+    await card.getByText('3 / 4').waitFor();
+    assert.equal(await carousel.getByRole('button', { name: 'Next attachment' }).count(), 1,
+      'The next arrow must return when leaving the last item');
+    await page.locator('[contenteditable=true]').fill(`Two-photo carousel ${randomBytes(4).toString('hex')}`);
+    await page.getByLabel('Choose photos or videos').setInputFiles(
+      [1, 2].map((index) => ({
+        name: `two-photo-${index}.png`, mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64')
+      }))
+    );
+    const twoPhotoResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith('/v1/fluo/posts') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Publish' }).click();
+    const twoPhotoResponse = await twoPhotoResponsePromise;
+    assert.equal(twoPhotoResponse.status(), 201);
+    const twoPhotoPost = await twoPhotoResponse.json();
+
+    let videoPostId;
+    const videoDirectory = await mkdtemp(join(tmpdir(), 'kaordo-fluo-video-'));
+    try {
+      const videoPath = join(videoDirectory, 'preview.mp4');
+      await run('ffmpeg', [
+        '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+        '-f', 'lavfi', '-i', 'color=c=red:s=320x180:r=12', '-t', '1', '-an',
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', videoPath
+      ]);
+      const videoText = `Fluo video preview test ${randomBytes(4).toString('hex')}`;
+      await page.locator('[contenteditable=true]').fill(videoText);
+      await page.getByLabel('Choose photos or videos').setInputFiles({
+        name: 'fluo-test.mp4', mimeType: 'video/mp4', buffer: await readFile(videoPath)
+      });
+      const videoPostResponsePromise = page.waitForResponse((response) =>
+        response.url().endsWith('/v1/fluo/posts') && response.request().method() === 'POST');
+      await page.getByRole('button', { name: 'Publish' }).click();
+      const videoPostResponse = await videoPostResponsePromise;
+      assert.equal(videoPostResponse.status(), 201, 'Fluo must publish a video attachment');
+      const videoPost = await videoPostResponse.json();
+      videoPostId = videoPost.id;
+      assert.equal(videoPost.media[0].kind, 'video');
+      assert.equal(videoPost.media[0].width, 320);
+      assert.equal(videoPost.media[0].height, 180);
+      const videoCard = page.locator(`article[data-post-id="${videoPost.id}"]`);
+      const videoPlayer = videoCard.locator('media-player[data-testid="fluo-video-player"]');
+      await videoPlayer.waitFor();
+      const video = videoPlayer.locator('video');
+      await page.waitForFunction((postId) => {
+        const element = document.querySelector(`article[data-post-id="${postId}"] media-player video`);
+        return element instanceof HTMLVideoElement && element.videoWidth === 320 && element.videoHeight === 180 &&
+          element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && element.paused;
+      }, videoPost.id, { timeout: 20_000 });
+      const previewState = await video.evaluate((element) => ({
+        paused: element.paused,
+        readyState: element.readyState,
+        poster: element.poster
+      }));
+      assert.equal(previewState.paused, true, 'The first-frame video preview must not start playback');
+      assert.ok(previewState.readyState >= 2, 'The browser must decode a preview frame before playback');
+      assert.equal(previewState.poster, '', 'The preview must use the video frame instead of a generated poster');
+    } finally {
+      await rm(videoDirectory, { recursive: true, force: true });
+    }
+
     await card.getByRole('button', { name: 'Save post' }).click();
     await card.getByRole('button', { name: 'Remove from saved posts' }).waitFor();
     await fluoNav.getByRole('button', { name: 'Saved', exact: true }).click();
@@ -410,6 +502,47 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     for (const item of post.media) {
       assert.equal((await fetch(item.url)).status, 404,
         'deleting a post must purge its media, even while the former signed URL is valid');
+    }
+    await fluoNav.getByRole('button', { name: 'Feed', exact: true }).click();
+    const twoPhotoCard = page.locator(`article[data-post-id="${twoPhotoPost.id}"]`);
+    const twoPhotoCarousel = twoPhotoCard.getByRole('region', { name: 'Post media' });
+    const twoPhotoNext = twoPhotoCarousel.getByRole('button', { name: 'Next attachment' });
+    await twoPhotoNext.scrollIntoViewIfNeeded();
+    const twoPhotoViewport = await twoPhotoCarousel.locator(':scope > div').first().boundingBox();
+    const twoPhotoNextBox = await twoPhotoNext.boundingBox();
+    assert.ok(twoPhotoViewport && twoPhotoNextBox &&
+      twoPhotoNextBox.x + twoPhotoNextBox.width / 2 > twoPhotoViewport.x + twoPhotoViewport.width / 2,
+      'With two photos, the next arrow must appear on the right');
+    assert.equal(await twoPhotoCarousel.getByRole('button', { name: 'Previous attachment' }).count(), 0);
+    await twoPhotoNext.click();
+    await twoPhotoCard.getByText('2 / 2').waitFor();
+    const twoPhotoPrevious = twoPhotoCarousel.getByRole('button', { name: 'Previous attachment' });
+    const twoPhotoPreviousBox = await twoPhotoPrevious.boundingBox();
+    assert.ok(twoPhotoViewport && twoPhotoPreviousBox &&
+      twoPhotoPreviousBox.x + twoPhotoPreviousBox.width / 2 < twoPhotoViewport.x + twoPhotoViewport.width / 2,
+      'With two photos, the previous arrow must appear on the left');
+    assert.equal(await twoPhotoCarousel.getByRole('button', { name: 'Next attachment' }).count(), 0);
+    await twoPhotoPrevious.click();
+    await twoPhotoCard.getByText('1 / 2').waitFor();
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const overlappingRows = await page.locator('[data-index]').evaluateAll((elements) => {
+      const rows = elements.filter((element) => element.querySelector('article[data-post-id]'))
+        .map((element) => ({ index: Number(element.getAttribute('data-index')), box: element.getBoundingClientRect() }))
+        .sort((left, right) => left.index - right.index);
+      const overlaps = [];
+      for (let index = 1; index < rows.length; index++) {
+        if (rows[index].box.top < rows[index - 1].box.bottom - 1) {
+          overlaps.push([rows[index - 1].index, rows[index].index]);
+        }
+      }
+      return overlaps;
+    });
+    assert.deepEqual(overlappingRows, [], 'Virtualized post cards must not overlap after new media posts appear');
+    for (const id of [twoPhotoPost.id, videoPostId]) {
+      const response = await fetch(`http://localhost:8081/v1/fluo/posts/${id}`, {
+        method: 'DELETE', headers: { Authorization: postBearer }
+      });
+      assert.equal(response.status, 204, 'temporary carousel and video posts must be removed after the test');
     }
     assert.ok(mainNavigations.every((url) => url.startsWith(site)), 'Silent SSO must not redirect the main frame to Keycloak between apps');
     const failAccount = async (route) => route.fulfill({

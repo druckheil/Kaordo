@@ -75,13 +75,20 @@
             {/each}
           </div>
         </div>
-        <div class="pointer-events-none absolute inset-x-3 top-1/2 flex -translate-y-1/2 justify-between">
-          <Button class="pointer-events-auto rounded-full bg-card/95 shadow-lg backdrop-blur-sm" size="icon"
-            variant="secondary" aria-label="Previous attachment" disabled={selected === 0}
-            onclick={() => carousel?.scrollPrev()}><ChevronLeftIcon class="size-5" /></Button>
-          <Button class="pointer-events-auto rounded-full bg-card/95 shadow-lg backdrop-blur-sm" size="icon"
-            variant="secondary" aria-label="Next attachment" disabled={selected === media.length - 1}
-            onclick={() => carousel?.scrollNext()}><ChevronRightIcon class="size-5" /></Button>
+        <div class="pointer-events-none absolute inset-x-3 top-1/2 flex -translate-y-1/2"
+          class:justify-end={selected === 0}
+          class:justify-start={selected === media.length - 1}
+          class:justify-between={selected > 0 && selected < media.length - 1}>
+          {#if selected > 0}
+            <Button class="pointer-events-auto rounded-full bg-card/95 shadow-lg backdrop-blur-sm" size="icon"
+              variant="secondary" aria-label="Previous attachment"
+              onclick={() => carousel?.scrollPrev()}><ChevronLeftIcon class="size-5" /></Button>
+          {/if}
+          {#if selected < media.length - 1}
+            <Button class="pointer-events-auto rounded-full bg-card/95 shadow-lg backdrop-blur-sm" size="icon"
+              variant="secondary" aria-label="Next attachment"
+              onclick={() => carousel?.scrollNext()}><ChevronRightIcon class="size-5" /></Button>
+          {/if}
         </div>
       </div>
       <div class="mt-3 flex items-center justify-between gap-3">

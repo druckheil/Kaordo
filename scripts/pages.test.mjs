@@ -77,8 +77,15 @@ test('Fluo keeps its initial JavaScript under budget and lazy-loads the editor a
   }, 0);
   assert.ok(gzipBytes < 100 * 1024, `Fluo initial JavaScript is ${gzipBytes} gzip bytes`);
 
-  for (const library of ['@tiptap+core@', '@tiptap+starter-kit@', 'packages/media-client/src/index.ts', 'video.js@', 'photoswipe@']) {
+  for (const library of ['@tiptap+core@', '@tiptap+starter-kit@', 'packages/media-client/src/index.ts', 'vidstack@', 'photoswipe@']) {
     assert.ok(page[1].dynamicImports?.some((dependency) => dependency.includes(library)),
       `${library} must remain outside the initial Fluo JavaScript graph`);
+  }
+
+  const playerStyles = Object.entries(manifest).filter(([key]) => key.includes('vidstack/player/styles/default/'));
+  assert.equal(playerStyles.length, 2, 'Vidstack theme and video layout styles must be present');
+  for (const [, style] of playerStyles) {
+    assert.ok(existsSync(join(site, 'fluo', style.file)), `missing lazy Vidstack stylesheet: ${style.file}`);
+    assert.ok(!page[1].css?.includes(style.file), `Vidstack stylesheet ${style.file} must load with the video player`);
   }
 });

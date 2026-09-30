@@ -52,6 +52,7 @@
   }[view]);
   const virtualizer = createWindowVirtualizer<HTMLDivElement>({
     count: 0,
+    getItemKey: (index) => posts[index]?.id ?? index,
     estimateSize: (index) => {
       const post = posts[index];
       if (!post) return 320;
@@ -64,8 +65,11 @@
   });
 
   $effect(() => {
-    const count = canQueryPosts ? posts.length : 0;
-    untrack(() => $virtualizer.setOptions({ count }));
+    const ids = canQueryPosts ? posts.map((post) => post.id) : [];
+    untrack(() => $virtualizer.setOptions({
+      count: ids.length,
+      getItemKey: (index) => ids[index] ?? index
+    }));
   });
   $effect(() => {
     const rows = $virtualizer.getVirtualItems();
