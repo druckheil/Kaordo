@@ -30,6 +30,7 @@ function codeFor(secret) {
 }
 
 async function checkAccessibility(page, stage) {
+  await page.waitForLoadState('load');
   const { violations } = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
     .analyze();
@@ -344,7 +345,9 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     await carousel.getByRole('button', { name: 'Next attachment' }).focus();
     await page.keyboard.press('Enter');
     await card.getByText('2 / 4').waitFor();
-    await card.getByRole('button', { name: 'Go to attachment 4' }).click();
+    await carousel.getByRole('button', { name: 'Next attachment' }).click();
+    await card.getByText('3 / 4').waitFor();
+    await carousel.getByRole('button', { name: 'Next attachment' }).click();
     await card.getByText('4 / 4').waitFor();
     assert.equal(await carousel.getByRole('button', { name: 'Next attachment' }).count(), 0,
       'The carousel must not render a next arrow at its last item');
@@ -362,10 +365,17 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     await card.getByText('3 / 4').waitFor();
     assert.equal(await carousel.getByRole('button', { name: 'Next attachment' }).count(), 1,
       'The next arrow must return when leaving the last item');
+    const portraitBase64 = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 6;
+      canvas.height = 12;
+      canvas.getContext('2d').fillRect(0, 0, 6, 12);
+      return canvas.toDataURL('image/png').split(',')[1];
+    });
     await page.locator('[contenteditable=true]').fill(`Two-photo carousel ${randomBytes(4).toString('hex')}`);
     await page.getByLabel('Choose photos or videos').setInputFiles(
       [1, 2].map((index) => ({
-        name: `two-photo-${index}.png`, mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64')
+        name: `two-photo-${index}.png`, mimeType: 'image/png', buffer: Buffer.from(portraitBase64, 'base64')
       }))
     );
     const twoPhotoResponsePromise = page.waitForResponse((response) =>
@@ -506,24 +516,55 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     await fluoNav.getByRole('button', { name: 'Feed', exact: true }).click();
     const twoPhotoCard = page.locator(`article[data-post-id="${twoPhotoPost.id}"]`);
     const twoPhotoCarousel = twoPhotoCard.getByRole('region', { name: 'Post media' });
-    const twoPhotoNext = twoPhotoCarousel.getByRole('button', { name: 'Next attachment' });
-    await twoPhotoNext.scrollIntoViewIfNeeded();
+    await twoPhotoCarousel.scrollIntoViewIfNeeded();
     const twoPhotoViewport = await twoPhotoCarousel.locator(':scope > div').first().boundingBox();
-    const twoPhotoNextBox = await twoPhotoNext.boundingBox();
-    assert.ok(twoPhotoViewport && twoPhotoNextBox &&
-      twoPhotoNextBox.x + twoPhotoNextBox.width / 2 > twoPhotoViewport.x + twoPhotoViewport.width / 2,
-      'With two photos, the next arrow must appear on the right');
+    const twoPhotoFrames = await twoPhotoCarousel.getByRole('group').all();
+    assert.equal(twoPhotoFrames.length, 2);
+    const firstPortrait = await twoPhotoFrames[0].boundingBox();
+    const secondPortrait = await twoPhotoFrames[1].boundingBox();
+    assert.ok(twoPhotoViewport && firstPortrait && secondPortrait &&
+      firstPortrait.width < twoPhotoViewport.width * 0.55 &&
+      secondPortrait.x + secondPortrait.width <= twoPhotoViewport.x + twoPhotoViewport.width + 1,
+      'Two portrait photos must both fit the gallery without full-width placeholders');
     assert.equal(await twoPhotoCarousel.getByRole('button', { name: 'Previous attachment' }).count(), 0);
-    await twoPhotoNext.click();
-    await twoPhotoCard.getByText('2 / 2').waitFor();
-    const twoPhotoPrevious = twoPhotoCarousel.getByRole('button', { name: 'Previous attachment' });
-    const twoPhotoPreviousBox = await twoPhotoPrevious.boundingBox();
-    assert.ok(twoPhotoViewport && twoPhotoPreviousBox &&
-      twoPhotoPreviousBox.x + twoPhotoPreviousBox.width / 2 < twoPhotoViewport.x + twoPhotoViewport.width / 2,
-      'With two photos, the previous arrow must appear on the left');
     assert.equal(await twoPhotoCarousel.getByRole('button', { name: 'Next attachment' }).count(), 0);
-    await twoPhotoPrevious.click();
-    await twoPhotoCard.getByText('1 / 2').waitFor();
+    await twoPhotoCard.getByText('1–2 / 2').waitFor();
+    assert.equal(await twoPhotoCarousel.getByRole('link', { name: 'Open image 2 of 2' }).count(), 1,
+      'The second visible portrait photo must remain accessible');
+    await page.getByRole('region', { name: 'Create a post' }).locator('[contenteditable=true]')
+      .fill(`Single-photo frame ${randomBytes(4).toString('hex')}`);
+    await page.getByLabel('Choose photos or videos').setInputFiles({
+      name: 'single-photo.png', mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64')
+    });
+    const singlePhotoResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith('/v1/fluo/posts') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Publish' }).click();
+    const singlePhotoResponse = await singlePhotoResponsePromise;
+    assert.equal(singlePhotoResponse.status(), 201);
+    const singlePhotoPost = await singlePhotoResponse.json();
+    const singlePhotoCard = page.locator(`article[data-post-id="${singlePhotoPost.id}"]`);
+    const singlePhotoGallery = singlePhotoCard.getByLabel('Post attachments');
+    await singlePhotoGallery.scrollIntoViewIfNeeded();
+    const singlePhotoAlignment = await singlePhotoGallery.evaluate((element) => {
+      const frame = element.firstElementChild;
+      const image = frame?.querySelector('img');
+      if (!frame || !image) return null;
+      const frameBox = frame.getBoundingClientRect();
+      const imageBox = image.getBoundingClientRect();
+      return {
+        border: getComputedStyle(frame).borderTopWidth,
+        fit: getComputedStyle(image).objectFit,
+        top: imageBox.top - frameBox.top,
+        left: imageBox.left - frameBox.left,
+        right: frameBox.right - imageBox.right,
+        bottom: frameBox.bottom - imageBox.bottom
+      };
+    });
+    assert.ok(singlePhotoAlignment && singlePhotoAlignment.border === '0px' &&
+      singlePhotoAlignment.fit === 'cover' &&
+      [singlePhotoAlignment.top, singlePhotoAlignment.left, singlePhotoAlignment.right, singlePhotoAlignment.bottom]
+        .every((gap) => Math.abs(gap) < 1),
+    `A single photo must meet its rounded frame without a visible inner gap: ${JSON.stringify(singlePhotoAlignment)}`);
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const overlappingRows = await page.locator('[data-index]').evaluateAll((elements) => {
       const rows = elements.filter((element) => element.querySelector('article[data-post-id]'))
@@ -538,7 +579,94 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
       return overlaps;
     });
     assert.deepEqual(overlappingRows, [], 'Virtualized post cards must not overlap after new media posts appear');
-    for (const id of [twoPhotoPost.id, videoPostId]) {
+    const aspectImages = await page.evaluate(() => [[6, 12], [6, 12], [8, 80], [80, 8]].map(([width, height], index) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').fillRect(0, 0, width, height);
+      return { name: `aspect-${index + 1}.png`, data: canvas.toDataURL('image/png').split(',')[1] };
+    }));
+    await page.getByRole('region', { name: 'Create a post' }).locator('[contenteditable=true]')
+      .fill(`Aspect-ratio gallery ${randomBytes(4).toString('hex')}`);
+    await page.getByLabel('Choose photos or videos').setInputFiles(aspectImages.map((item) => ({
+      name: item.name, mimeType: 'image/png', buffer: Buffer.from(item.data, 'base64')
+    })));
+    const aspectResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith('/v1/fluo/posts') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Publish' }).click();
+    const aspectResponse = await aspectResponsePromise;
+    assert.equal(aspectResponse.status(), 201);
+    const aspectPost = await aspectResponse.json();
+    const aspectCard = page.locator(`article[data-post-id="${aspectPost.id}"]`);
+    const aspectCarousel = aspectCard.getByRole('region', { name: 'Post media' });
+    await aspectCarousel.scrollIntoViewIfNeeded();
+    const aspectViewport = await aspectCarousel.locator(':scope > div').first().boundingBox();
+    const aspectFrames = await aspectCarousel.getByRole('group').all();
+    assert.equal(aspectFrames.length, 4);
+    const firstAspect = await aspectFrames[0].boundingBox();
+    const secondAspect = await aspectFrames[1].boundingBox();
+    assert.ok(aspectViewport && firstAspect && secondAspect &&
+      firstAspect.width < aspectViewport.width * 0.4 &&
+      secondAspect.x + secondAspect.width <= aspectViewport.x + aspectViewport.width + 1,
+      'Multiple portrait photos must be visible together in the scrolling gallery');
+    const topGap = await aspectCarousel.evaluate((element) => {
+      const viewport = element.firstElementChild;
+      const firstSlide = viewport?.querySelector('[role="group"]');
+      return firstSlide && viewport ? firstSlide.getBoundingClientRect().top - viewport.getBoundingClientRect().top : null;
+    });
+    assert.ok(topGap !== null && Math.abs(topGap) < 2,
+      `A regular photo must begin at the top of its gallery without an empty strip (gap ${topGap}px)`);
+    const imageStyles = await Promise.all(aspectFrames.map((frame) => frame.locator('img').evaluate((element) => {
+      const styles = getComputedStyle(element);
+      return { fit: styles.objectFit, position: styles.objectPosition };
+    })));
+    assert.deepEqual(imageStyles.map((item) => item.fit), ['cover', 'cover', 'cover', 'cover'],
+      'Photos must fill their frames without letterboxing');
+    assert.ok(imageStyles.every((item) => item.position === '50% 50%'),
+      'Cropped photos must show their center');
+    assert.equal(await aspectFrames[2].getByRole('link').getAttribute('data-pswp-height'), '80',
+      'The lightbox must retain the complete original tall photo');
+    assert.equal(await aspectFrames[3].getByRole('link').getAttribute('data-pswp-width'), '80',
+      'The lightbox must retain the complete original wide photo');
+    assert.equal(await aspectFrames[2].getByRole('link').getAttribute('data-cropped'), 'true',
+      'PhotoSwipe must animate from the cropped tall thumbnail correctly');
+    assert.equal(await aspectFrames[3].getByRole('link').getAttribute('data-cropped'), 'true',
+      'PhotoSwipe must animate from the cropped wide thumbnail correctly');
+    const dragX = firstAspect.x + firstAspect.width / 2;
+    const dragY = firstAspect.y + firstAspect.height / 2;
+    await page.mouse.move(dragX, dragY);
+    await page.mouse.down();
+    await page.mouse.move(dragX - Math.min(180, aspectViewport.width / 3), dragY, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForFunction(({ id, previousX }) => {
+      const slide = document.querySelector(`article[data-post-id="${id}"] [aria-label="Post media"] [role="group"]`);
+      return slide && slide.getBoundingClientRect().x < previousX - 40;
+    }, { id: aspectPost.id, previousX: firstAspect.x }, { timeout: 5_000 });
+    assert.equal(await page.locator('.pswp--open').count(), 0,
+      'Dragging the photo strip must not open the image lightbox');
+    await aspectFrames[3].getByRole('link').click();
+    await page.locator('.pswp--open').waitFor();
+    await page.waitForFunction(() => [...document.querySelectorAll('.pswp--open img.pswp__img')]
+      .some((image) => image.naturalWidth === 80 && image.naturalHeight === 8));
+    await page.waitForFunction(() => window.pswp?.opener?.isOpen && !window.pswp.opener.isOpening);
+    await page.locator('.pswp--open').getByRole('button', { name: 'Close' }).click();
+    try {
+      await page.locator('.pswp--open').waitFor({ state: 'detached', timeout: 2_000 });
+    } catch {
+      const viewerState = await page.evaluate((postId) => ({
+        cardPresent: !!document.querySelector(`article[data-post-id="${postId}"]`),
+        rootCount: document.querySelectorAll('.pswp--open').length,
+        isOpen: window.pswp?.isOpen,
+        isDestroying: window.pswp?.isDestroying
+      }), aspectPost.id);
+      assert.fail(`PhotoSwipe did not close: ${JSON.stringify(viewerState)}`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'The responsive photo strip must not overflow the mobile viewport');
+    await page.setViewportSize({ width: 1280, height: 720 });
+    for (const id of [twoPhotoPost.id, singlePhotoPost.id, videoPostId, aspectPost.id]) {
       const response = await fetch(`http://localhost:8081/v1/fluo/posts/${id}`, {
         method: 'DELETE', headers: { Authorization: postBearer }
       });

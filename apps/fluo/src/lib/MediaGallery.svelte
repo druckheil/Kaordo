@@ -7,23 +7,58 @@
   import 'photoswipe/style.css';
   import VideoPlayer from './VideoPlayer.svelte';
 
+  const minRatio = 0.5;
+  const maxRatio = 2;
+  const maxHeightRem = 34;
+  const gapPx = 8;
+
   let { media }: { media: FluoMedia[] } = $props();
   let gallery = $state<HTMLDivElement>();
   let carousel = $state.raw<EmblaCarouselType | null>(null);
-  let selected = $state(0);
+  let visible = $state<number[]>([0]);
+  let canPrev = $state(false);
+  let canNext = $state(false);
+
   const first = $derived(media[0]);
+  const ratios = $derived(media.map(frameRatio));
+  const widestRatio = $derived(Math.max(1, ...ratios));
+  const maxStripWidth = $derived(`calc(${maxHeightRem * ratios.reduce((sum, ratio) => sum + ratio, 0)}rem + ${Math.max(0, media.length - 1) * gapPx}px)`);
+  const positionLabel = $derived(visible.length > 1
+    ? `${visible[0] + 1}–${visible[visible.length - 1] + 1} / ${media.length}`
+    : `${(visible[0] ?? 0) + 1} / ${media.length}`);
+
   const options = {
     align: 'start' as const,
     containScroll: 'trimSnaps' as const,
+    slidesToScroll: 'auto' as const,
+    dragFree: true,
+    inViewThreshold: 0.5,
     loop: false,
     duration: typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 22
   };
 
+  function frameRatio(item: FluoMedia): number {
+    const natural = item.width / item.height;
+    return Number.isFinite(natural) && natural > 0 ? Math.min(maxRatio, Math.max(minRatio, natural)) : 1;
+  }
+
+  function isExtreme(item: FluoMedia): boolean {
+    const natural = item.width / item.height;
+    return natural < minRatio || natural > maxRatio;
+  }
+
   function initialized(event: CustomEvent<EmblaCarouselType>) {
-    carousel = event.detail;
-    const sync = () => { selected = carousel?.selectedScrollSnap() ?? 0; };
-    carousel.on('select', sync);
-    carousel.on('reInit', sync);
+    const api = event.detail;
+    carousel = api;
+    const sync = () => {
+      const inView = api.slidesInView();
+      if (inView.length) visible = inView;
+      canPrev = api.canScrollPrev();
+      canNext = api.canScrollNext();
+    };
+    api.on('select', sync);
+    api.on('slidesInView', sync);
+    api.on('reInit', sync);
     sync();
   }
 
@@ -43,11 +78,11 @@
 {#snippet attachment(item: FluoMedia, index: number)}
   {#if item.kind === 'image'}
     <a data-pswp-item href={item.url} data-pswp-width={item.width} data-pswp-height={item.height}
-      class="flex h-full w-full items-center justify-center outline-offset-[-4px] focus-visible:rounded-xl focus-visible:outline-3 focus-visible:outline-ring"
-      tabindex={selected === index ? 0 : -1}
+      data-cropped={isExtreme(item) ? 'true' : undefined}
+      class="block h-full w-full overflow-hidden outline-offset-[-4px] focus-visible:rounded-xl focus-visible:outline-3 focus-visible:outline-ring"
       aria-label={'Open image ' + (index + 1) + ' of ' + media.length}>
       <img src={item.url} alt={'Image ' + (index + 1) + ' attached to this post'} width={item.width} height={item.height}
-        loading="lazy" decoding="async" class="h-full w-full object-contain" />
+        loading="lazy" decoding="async" draggable="false" class="block h-full w-full object-cover object-center" />
     </a>
   {:else}
     <VideoPlayer media={item} />
@@ -57,52 +92,44 @@
 {#if first}
   <div bind:this={gallery} class="mt-4 w-full min-w-0" aria-label="Post attachments">
     {#if media.length === 1}
-      <div class="w-full min-w-0 max-w-full max-h-[34rem] min-h-48 overflow-hidden rounded-2xl border border-border bg-[#17251e]"
-        style:aspect-ratio={first.width + '/' + first.height}>
+      <div class="max-w-full overflow-hidden rounded-2xl ring-1 ring-border"
+        style:width={`min(100%, ${maxHeightRem * ratios[0]}rem)`} style:aspect-ratio={ratios[0]}>
         {@render attachment(first, 0)}
       </div>
     {:else}
-      <div role="region" aria-roledescription="carousel" aria-label="Post media" class="relative">
-        <div class="w-full min-w-0 max-w-full max-h-[34rem] min-h-48 overflow-hidden rounded-2xl border border-border bg-[#17251e]"
-          style:aspect-ratio={first.width + '/' + first.height}
+      <div role="region" aria-roledescription="carousel" aria-label="Post media" class="relative w-full"
+        style:max-width={maxStripWidth}>
+        <div class="w-full overflow-hidden rounded-2xl"
+          style:aspect-ratio={widestRatio} style:max-height={`${maxHeightRem}rem`}
           use:useEmblaCarousel={{ options, plugins: [] }} onemblaInit={initialized}>
-          <div class="flex h-full touch-pan-y">
+          <div class="flex h-full touch-pan-y" style:gap={`${gapPx}px`}>
             {#each media as item, index (item.id)}
-              <div class="min-w-0 flex-[0_0_100%]" role="group" aria-roledescription="slide"
-                aria-label={(index + 1) + ' of ' + media.length} inert={index !== selected}>
+              <div class="h-full shrink-0 overflow-hidden rounded-xl" style:aspect-ratio={ratios[index]}
+                role="group" aria-roledescription="slide" aria-label={(index + 1) + ' of ' + media.length}>
                 {@render attachment(item, index)}
               </div>
             {/each}
           </div>
         </div>
-        <div class="pointer-events-none absolute inset-x-3 top-1/2 flex -translate-y-1/2"
-          class:justify-end={selected === 0}
-          class:justify-start={selected === media.length - 1}
-          class:justify-between={selected > 0 && selected < media.length - 1}>
-          {#if selected > 0}
-            <Button class="pointer-events-auto rounded-full bg-card/95 shadow-lg backdrop-blur-sm" size="icon"
-              variant="secondary" aria-label="Previous attachment"
-              onclick={() => carousel?.scrollPrev()}><ChevronLeftIcon class="size-5" /></Button>
-          {/if}
-          {#if selected < media.length - 1}
-            <Button class="pointer-events-auto rounded-full bg-card/95 shadow-lg backdrop-blur-sm" size="icon"
-              variant="secondary" aria-label="Next attachment"
-              onclick={() => carousel?.scrollNext()}><ChevronRightIcon class="size-5" /></Button>
-          {/if}
-        </div>
+        {#if canPrev || canNext}
+          <div class="pointer-events-none absolute inset-x-3 top-1/2 flex -translate-y-1/2"
+            class:justify-end={!canPrev && canNext}
+            class:justify-start={canPrev && !canNext}
+            class:justify-between={canPrev && canNext}>
+            {#if canPrev}
+              <Button class="pointer-events-auto rounded-full bg-card/95 shadow-lg backdrop-blur-sm" size="icon"
+                variant="secondary" aria-label="Previous attachment"
+                onclick={() => carousel?.scrollPrev()}><ChevronLeftIcon class="size-5" /></Button>
+            {/if}
+            {#if canNext}
+              <Button class="pointer-events-auto rounded-full bg-card/95 shadow-lg backdrop-blur-sm" size="icon"
+                variant="secondary" aria-label="Next attachment"
+                onclick={() => carousel?.scrollNext()}><ChevronRightIcon class="size-5" /></Button>
+            {/if}
+          </div>
+        {/if}
       </div>
-      <div class="mt-3 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2" aria-label="Choose attachment">
-          {#each media as _, index}
-            <button type="button" class="grid size-7 place-items-center rounded-full focus-visible:outline-3 focus-visible:outline-ring"
-              aria-label={'Go to attachment ' + (index + 1)} aria-current={selected === index ? 'true' : undefined}
-              onclick={() => carousel?.scrollTo(index)}>
-              <span class={selected === index ? 'h-2 w-5 rounded-full bg-primary transition-all' : 'size-2 rounded-full bg-muted-foreground/50 transition-all'}></span>
-            </button>
-          {/each}
-        </div>
-        <span class="text-xs font-medium text-muted-foreground" aria-live="polite">{selected + 1} / {media.length}</span>
-      </div>
+      <div class="mt-2 text-right text-xs font-medium text-muted-foreground" aria-live="polite">{positionLabel}</div>
     {/if}
   </div>
 {/if}
