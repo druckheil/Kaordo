@@ -1,138 +1,94 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { signIn, signUp } from '@kaordo/auth';
-  import { clearAccountPreview, readAccountPreview, type AccountPreview } from '@kaordo/account-ui';
+  import { authConfigFromEnv, initializeAuth, signIn, signUp } from '@kaordo/auth';
+  import { clearAccountPreview } from '@kaordo/account-ui';
   import { appPaths } from '@kaordo/links';
-  import { ArrowRightIcon, Button, KeyRoundIcon, ShieldCheckIcon } from '@kaordo/ui';
-  import { loadSession } from './session';
+  import { ArrowRightIcon, Button, ShieldCheckIcon } from '@kaordo/ui';
 
   let { mode }: { mode: 'login' | 'register' } = $props();
-  let ready = $state(false);
-  let busy = $state(false);
+  let busy = $state(true);
   let error = $state<string | null>(null);
-  let signedIn = $state<boolean | null>(null);
   let returnPath = $state<string>(appPaths.portal);
-  let accountPreview = $state<AccountPreview | null>(null);
 
   onMount(() => {
-    accountPreview = readAccountPreview();
     const next = new URL(window.location.href).searchParams.get('next');
     if (next && Object.values(appPaths).some((path) => path === next)) returnPath = next;
-    void (async () => {
-      const result = await loadSession();
-      error = result.error;
-      signedIn = result.authenticated;
-      if (!result.authenticated && !result.error) clearAccountPreview();
-      accountPreview = readAccountPreview();
-      ready = true;
-    })();
+
+    // A Back navigation from Keycloak returns to this history entry. Let the
+    // person decide whether to try again instead of sending them into a loop.
+    const state = window.history.state as Record<string, unknown> | null;
+    if (state?.kaordoIdentityStarted) {
+      busy = false;
+      return;
+    }
+    window.history.replaceState({ ...state, kaordoIdentityStarted: true }, '');
+    void openIdentity();
   });
 
-  async function continueToIdentity() {
+  async function openIdentity() {
     busy = true;
     error = null;
     try {
       clearAccountPreview();
-      accountPreview = null;
+      await initializeAuth(authConfigFromEnv(import.meta.env));
       const redirectUri = window.location.origin + returnPath;
       if (mode === 'login') await signIn(redirectUri);
       else await signUp(redirectUri);
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Unable to open the identity service.';
+      error = cause instanceof Error ? cause.message : 'Unable to open Kaordo Identity.';
       busy = false;
     }
-  }
-
-  async function retrySession() {
-    busy = true;
-    const result = await loadSession();
-    signedIn = result.authenticated;
-    error = result.error;
-    busy = false;
   }
 </script>
 
 <svelte:head>
   <title>{mode === 'login' ? 'Sign in' : 'Create account'} | Kaordo</title>
-  <meta name="description" content="Secure access to your Kaordo account." />
+  <meta name="description" content="Access your Kaordo account." />
 </svelte:head>
 
-<main class="min-h-screen bg-background px-5 py-8 text-foreground">
-  <div class="mx-auto flex max-w-6xl items-center justify-between">
-    <a class="text-lg font-semibold tracking-tight" href={appPaths.portal}>Kaordo<span class="text-primary">.</span></a>
-    <a class="text-sm text-muted-foreground transition-colors hover:text-foreground" href={appPaths.portal}>Back to home</a>
-  </div>
-
-  <div class="mx-auto grid max-w-6xl gap-14 py-16 lg:grid-cols-[1fr_440px] lg:items-center lg:py-28">
-    <section class="max-w-xl">
-      <div class="mb-7 inline-flex items-center gap-2 rounded-full border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground">
-        <ShieldCheckIcon class="size-3.5 text-primary" /> One account for every Kaordo app
-      </div>
-      <h1 class="text-4xl font-semibold leading-tight tracking-tight sm:text-6xl">
-        {mode === 'login' ? 'Your space, ready when you are.' : 'Make room for what matters.'}
-      </h1>
-      <p class="mt-6 max-w-lg text-base leading-7 text-muted-foreground">
-        {mode === 'login'
-          ? 'Sign in once to move between your conversations, communities and social feed.'
-          : 'Create your account, then set up an authenticator app to protect it.'}
-      </p>
-      <div class="mt-10 grid gap-4 sm:grid-cols-2">
-        <div class="rounded-2xl border bg-card p-5">
-          <KeyRoundIcon class="size-5 text-primary" />
-          <h2 class="mt-4 text-sm font-semibold">Password and authenticator</h2>
-          <p class="mt-2 text-sm leading-6 text-muted-foreground">Your sign-in is verified by the identity service before any app receives access.</p>
-        </div>
-        <div class="rounded-2xl border bg-card p-5">
-          <ShieldCheckIcon class="size-5 text-primary" />
-          <h2 class="mt-4 text-sm font-semibold">One secure session</h2>
-          <p class="mt-2 text-sm leading-6 text-muted-foreground">Ligo, Fluo and Rondo use the same account without sharing your password.</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="rounded-3xl border bg-card p-7 shadow-xl shadow-primary/5 sm:p-10" aria-label={mode === 'login' ? 'Sign in' : 'Create account'}>
-      <p class="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Kaordo account</p>
-      <h2 class="mt-3 text-2xl font-semibold tracking-tight">{mode === 'login' ? 'Sign in' : 'Create your account'}</h2>
+<main class="relative grid min-h-screen place-items-center overflow-hidden bg-background px-5 py-16 text-foreground">
+  <div class="pointer-events-none absolute -left-24 -top-40 size-[30rem] rounded-full bg-accent/80 blur-3xl" aria-hidden="true"></div>
+  <div class="pointer-events-none absolute -bottom-48 -right-28 size-[32rem] rounded-full bg-secondary/80 blur-3xl" aria-hidden="true"></div>
+  <div class="relative w-full max-w-md">
+    <a class="mb-8 inline-flex items-center gap-2 text-lg font-bold tracking-[-0.04em] text-primary" href={appPaths.portal}>
+      <span class="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">K</span> Kaordo
+    </a>
+    <section class="rounded-[1.75rem] border border-border bg-card p-7 shadow-[0_24px_80px_-40px_rgba(21,75,43,.45)] sm:p-9"
+      aria-label={mode === 'login' ? 'Sign in' : 'Create account'}>
+      <div class="grid size-12 place-items-center rounded-2xl bg-accent"><ShieldCheckIcon class="size-6 text-primary" /></div>
+      <h1 class="mt-6 text-3xl font-bold tracking-[-0.05em]">{mode === 'login' ? 'Welcome back' : 'Join Kaordo'}</h1>
       <p class="mt-2 text-sm leading-6 text-muted-foreground">
-        {mode === 'login'
-          ? 'Continue to the secure sign-in form to enter your password and authenticator code.'
-          : 'Continue to registration. You will set up a one-time code before your first session.'}
+        {busy
+          ? mode === 'login' ? 'Opening your sign-in form…' : 'Opening your registration form…'
+          : 'Continue to Kaordo Identity to enter your username and password.'}
       </p>
 
       {#if error}
-        <p class="mt-6 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p>
+        <p class="mt-6 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive" role="alert">{error}</p>
       {/if}
 
-      {#if !ready}
-        {#if accountPreview}
-          <p class="mt-8 text-sm text-muted-foreground" data-kaordo-preview aria-busy="true">Welcome back, {accountPreview.displayName}.</p>
-        {:else}
-          <div class="mt-8 h-9 w-full rounded-2xl bg-muted/70" aria-hidden="true"></div>
-          <p class="sr-only" role="status">Checking your session…</p>
-        {/if}
-      {:else if signedIn}
-        <p class="mt-6 text-sm text-muted-foreground">You are already signed in.</p>
-        {#if error}
-          <Button class="mt-5 w-full" size="lg" disabled={busy} onclick={retrySession}>Retry account setup</Button>
-        {:else}
-          <Button href={returnPath} class="mt-5 w-full" size="lg">Open Kaordo <ArrowRightIcon class="size-4" /></Button>
-        {/if}
+      {#if busy}
+        <div class="mt-8 flex items-center gap-3 rounded-xl bg-muted px-4 py-4" role="status">
+          <span class="size-5 animate-spin rounded-full border-2 border-primary/25 border-t-primary" aria-hidden="true"></span>
+          <span class="text-sm font-medium">Connecting to Kaordo Identity…</span>
+        </div>
       {:else}
-        <Button class="mt-8 w-full" size="lg" disabled={!ready || busy || Boolean(error)} onclick={continueToIdentity}>
-          {busy ? 'Opening secure sign-in…' : mode === 'login' ? 'Continue to sign in' : 'Continue to registration'}
-          <ArrowRightIcon class="size-4" />
+        <Button class="mt-8 w-full" size="lg" onclick={openIdentity}>
+          {mode === 'login' ? 'Sign in' : 'Create account'} <ArrowRightIcon class="size-4" />
         </Button>
-        <p class="mt-4 text-center text-xs leading-5 text-muted-foreground">The password and one-time code are entered on Kaordo Identity.</p>
-        {#if error}<Button class="mt-4 w-full" variant="outline" disabled={busy} onclick={retrySession}>Retry connection</Button>{/if}
+        <p class="mt-3 text-center text-xs leading-5 text-muted-foreground">
+          {error ? 'Check your connection and try again.' : 'You can continue whenever you are ready.'}
+        </p>
       {/if}
 
-      <div class="mt-8 border-t pt-6 text-center text-sm text-muted-foreground">
+      <div class="mt-8 border-t border-border pt-6 text-center text-sm text-muted-foreground">
         {#if mode === 'login'}
-          New to Kaordo? <a class="font-medium text-primary hover:underline" href={`/register/?next=${encodeURIComponent(returnPath)}`}>Create an account</a>
+          New to Kaordo? <a class="font-semibold text-primary underline-offset-4 hover:underline" href={'/register/?next=' + encodeURIComponent(returnPath)}>Create an account</a>
         {:else}
-          Already have an account? <a class="font-medium text-primary hover:underline" href={`/login/?next=${encodeURIComponent(returnPath)}`}>Sign in</a>
+          Already have an account? <a class="font-semibold text-primary underline-offset-4 hover:underline" href={'/login/?next=' + encodeURIComponent(returnPath)}>Sign in</a>
         {/if}
       </div>
     </section>
+    <p class="mt-6 text-center text-xs text-muted-foreground">One account for every Kaordo app.</p>
   </div>
 </main>

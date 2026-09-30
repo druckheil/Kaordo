@@ -2,93 +2,195 @@
   import { createInfiniteQuery, type QueryClient } from '@tanstack/svelte-query';
   import { commentsOptions, type FluoApi } from '@kaordo/api-client';
   import type { FluoPost } from '@kaordo/contracts';
-  import { BookmarkIcon, Button, MessageCircleIcon, Repeat2Icon, ThumbsDownIcon, ThumbsUpIcon, Trash2Icon } from '@kaordo/ui';
+  import {
+    BookmarkIcon, Button, MessageCircleIcon, Repeat2Icon, ThumbsDownIcon, ThumbsUpIcon, Trash2Icon, XIcon
+  } from '@kaordo/ui';
+  import Composer from './Composer.svelte';
   import MediaGallery from './MediaGallery.svelte';
   import RichText from './RichText.svelte';
 
-  let { post, viewerId, api, queryClient, onReply, onQuote, onReact, onFollow, onSave, onDelete }: {
+  let { post, viewerId, api, queryClient, onQuote, onReact, onFollow, onSave, onDelete }: {
     post: FluoPost;
     viewerId: string;
     api: FluoApi;
     queryClient: QueryClient;
-    onReply: () => void;
     onQuote: () => void;
-    onReact: (value: 'good' | 'bad' | null) => void;
-    onFollow: () => void;
+    onReact: (value: 'good' | 'bad' | null) => Promise<void>;
+    onFollow: () => Promise<void>;
     onSave: () => Promise<void>;
     onDelete: () => void;
   } = $props();
   let expanded = $state(false);
   let saving = $state(false);
+  let reacting = $state(false);
+  let following = $state(false);
   const comments = createInfiniteQuery(() => commentsOptions(api, post.id, expanded), () => queryClient);
   const date = $derived(new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(post.createdAt)));
+  const initials = $derived(post.author.displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || post.author.username[0]?.toUpperCase() || 'K');
+
+  function commentPublished() {
+    void queryClient.invalidateQueries({ queryKey: ['fluo', 'comments', post.id] });
+    void queryClient.invalidateQueries({ queryKey: ['fluo', 'feed'] });
+  }
 
   async function toggleSaved() {
     if (saving) return;
     saving = true;
-    try {
-      await onSave();
-    } finally {
-      saving = false;
-    }
+    try { await onSave(); } finally { saving = false; }
+  }
+
+  async function chooseReaction(value: 'good' | 'bad') {
+    if (reacting) return;
+    reacting = true;
+    try { await onReact(post.myReaction === value ? null : value); } finally { reacting = false; }
+  }
+
+  async function toggleFollow() {
+    if (following) return;
+    following = true;
+    try { await onFollow(); } finally { following = false; }
   }
 </script>
 
-<article data-post-id={post.id} class="border-b px-4 py-5 last:border-b-0 sm:px-6" aria-label={`Post by ${post.author.username}`}>
-  <header class="flex items-start justify-between gap-3">
-    <div class="min-w-0">
-      <p class="truncate text-sm font-semibold">{post.author.displayName} <span class="font-normal text-muted-foreground">@{post.author.username}</span></p>
-      <p class="mt-0.5 text-xs text-muted-foreground"><time datetime={post.createdAt}>{date}</time>{post.visibility === 'private' ? ' · Only me' : ''}</p>
+<article data-post-id={post.id} class="fluo-post rounded-[1.5rem] border border-border bg-card p-4 shadow-[0_10px_32px_-25px_rgba(20,65,39,.5)] sm:p-6"
+  aria-label={'Post by ' + post.author.username}>
+  <header class="flex items-start gap-3">
+    <div class="grid size-11 shrink-0 place-items-center rounded-2xl bg-accent text-sm font-bold text-accent-foreground" aria-hidden="true">{initials}</div>
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-baseline gap-x-2">
+        <span class="truncate text-sm font-bold text-foreground">{post.author.displayName}</span>
+        <span class="truncate text-xs text-muted-foreground">@{post.author.username}</span>
+      </div>
+      <p class="mt-0.5 text-xs text-muted-foreground">
+        <time datetime={post.createdAt}>{date}</time>
+        {#if post.visibility === 'private'}<span class="ml-1.5 rounded-full bg-muted px-2 py-0.5 font-medium">Only me</span>{/if}
+      </p>
     </div>
     {#if post.author.id !== viewerId && post.visibility === 'public'}
-      <Button variant="outline" size="xs" onclick={onFollow}>{post.author.following ? 'Following' : 'Follow'}</Button>
+      <Button variant={post.author.following ? 'secondary' : 'outline'} size="sm" disabled={following}
+        aria-pressed={post.author.following} onclick={toggleFollow}>{post.author.following ? 'Following' : 'Follow'}</Button>
     {:else if post.author.id === viewerId}
-      <Button variant="ghost" size="icon-xs" aria-label="Delete post" title="Delete post" onclick={onDelete}><Trash2Icon class="size-3.5" /></Button>
+      <Button variant="ghost" size="icon-sm" aria-label="Delete post" title="Delete post" onclick={onDelete}><Trash2Icon class="size-4" /></Button>
     {/if}
   </header>
 
-  <div class="mt-4"><RichText content={post.content} /></div>
+  {#if post.text.trim()}<div class="mt-4"><RichText content={post.content} /></div>{/if}
   <MediaGallery media={post.media} />
   {#if post.quote}
-    <div class="mt-4 rounded-xl border p-3 text-sm">
-      <p class="font-medium">@{post.quote.author.username}</p>
-      <p class="mt-1 line-clamp-4 whitespace-pre-wrap text-muted-foreground">{post.quote.text}</p>
+    <div class="mt-4 rounded-2xl border border-border bg-muted/35 p-4 text-sm">
+      <p class="font-semibold">@{post.quote.author.username}</p>
+      <p class="mt-1 line-clamp-4 whitespace-pre-wrap leading-6 text-muted-foreground">{post.quote.text}</p>
     </div>
   {:else if post.quoteId}
-    <p class="mt-4 rounded-xl border p-3 text-xs text-muted-foreground">Quoted post unavailable.</p>
+    <p class="mt-4 rounded-2xl border p-4 text-sm text-muted-foreground">Quoted post unavailable.</p>
   {/if}
 
-  <div class="mt-5 flex flex-wrap items-center gap-2" aria-label="Post actions">
-    <Button variant={post.myReaction === 'good' ? 'secondary' : 'ghost'} size="sm" aria-label={`Good, ${post.counts.good}`} aria-pressed={post.myReaction === 'good'} onclick={() => onReact('good')}><ThumbsUpIcon class="size-4" /> {post.counts.good}</Button>
-    <Button variant={post.myReaction === 'bad' ? 'secondary' : 'ghost'} size="sm" aria-label={`Bad, ${post.counts.bad}`} aria-pressed={post.myReaction === 'bad'} onclick={() => onReact('bad')}><ThumbsDownIcon class="size-4" /> {post.counts.bad}</Button>
-    <Button variant="ghost" size="sm" aria-expanded={expanded} onclick={() => expanded = !expanded}><MessageCircleIcon class="size-4" /> {post.counts.comments}</Button>
-    <Button variant="ghost" size="sm" onclick={onReply}>Reply</Button>
-    {#if post.visibility === 'public'}<Button variant="ghost" size="sm" onclick={onQuote}><Repeat2Icon class="size-4" /> Quote</Button>{/if}
-    <Button variant={post.saved ? 'secondary' : 'ghost'} size="sm" aria-label={post.saved ? 'Remove from saved posts' : 'Save post'} aria-pressed={post.saved} disabled={saving} onclick={toggleSaved}><BookmarkIcon class={post.saved ? 'size-4 fill-current' : 'size-4'} /> {post.saved ? 'Saved' : 'Save'}</Button>
+  <div class="mt-5 grid grid-cols-4 gap-1.5 border-t border-border/80 pt-3 sm:gap-3" aria-label="Post actions">
+    <div class:disliked={post.myReaction === 'bad'} class="reaction-control relative">
+      <Button class="w-full min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={post.myReaction === 'good' ? 'secondary' : 'ghost'}
+        size="sm" aria-label={'Good, ' + post.counts.good} aria-pressed={post.myReaction === 'good'}
+        disabled={reacting} onclick={() => chooseReaction('good')}>
+        <ThumbsUpIcon class="size-4" /><span class="hidden text-xs sm:inline">Like</span><span class="text-xs tabular-nums">{post.counts.good}</span>
+      </Button>
+      <Button class="dislike-choice absolute -right-2 -top-8 z-10 rounded-full border border-border bg-card shadow-lg"
+        variant={post.myReaction === 'bad' ? 'secondary' : 'outline'} size="icon-sm"
+        aria-label={'Bad, ' + post.counts.bad} aria-pressed={post.myReaction === 'bad'}
+        disabled={reacting} onclick={() => chooseReaction('bad')}><ThumbsDownIcon class="size-4" /></Button>
+    </div>
+    <Button class="min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={expanded ? 'secondary' : 'ghost'}
+      size="sm" aria-label={'Comments, ' + post.counts.comments} aria-expanded={expanded}
+      aria-controls={'comments-' + post.id} onclick={() => expanded = !expanded}>
+      <MessageCircleIcon class="size-4" /><span class="hidden text-xs sm:inline">Reply</span><span class="text-xs tabular-nums">{post.counts.comments}</span>
+    </Button>
+    {#if post.visibility === 'public'}
+      <Button class="min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost" size="sm"
+        aria-label="Quote post" onclick={onQuote}><Repeat2Icon class="size-4" /><span class="hidden text-xs sm:inline">Quote</span></Button>
+    {:else}
+      <span aria-hidden="true"></span>
+    {/if}
+    <Button class="min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={post.saved ? 'secondary' : 'ghost'}
+      size="sm" aria-label={post.saved ? 'Remove from saved posts' : 'Save post'} aria-pressed={post.saved}
+      disabled={saving} onclick={toggleSaved}>
+      <BookmarkIcon class={post.saved ? 'size-4 fill-current' : 'size-4'} />
+      <span class="hidden text-xs sm:inline">{post.saved ? 'Saved' : 'Save'}</span>
+    </Button>
   </div>
 
   {#if expanded}
-    <section class="mt-4 border-t pt-4" aria-label="Comments">
+    <section id={'comments-' + post.id} class="comment-panel mt-4 rounded-2xl border border-border bg-muted/35 p-4 sm:p-5"
+      aria-label="Comments">
+      <div class="flex items-center justify-between gap-3">
+        <h3 class="text-sm font-bold">Conversation <span class="ml-1 font-medium text-muted-foreground">{post.counts.comments}</span></h3>
+        <Button variant="ghost" size="icon-xs" aria-label="Close comments" onclick={() => expanded = false}><XIcon class="size-4" /></Button>
+      </div>
       {#if comments.isPending}
-        <p class="text-sm text-muted-foreground" role="status">Loading comments…</p>
-      {:else if comments.isError}
-        <p class="text-sm text-destructive" role="alert">{comments.error.message}</p>
+        <p class="mt-5 text-sm text-muted-foreground" role="status">Loading comments…</p>
+      {:else if !comments.data}
+        <p class="mt-5 text-sm text-destructive" role="alert">{comments.error?.message ?? 'Could not load replies.'}</p>
+        <Button class="mt-3" variant="outline" size="sm" onclick={() => comments.refetch()}>Try again</Button>
       {:else if comments.data.pages.every((page) => page.items.length === 0)}
-        <p class="text-sm text-muted-foreground">No comments yet.</p>
+        <p class="mt-5 text-sm text-muted-foreground">No replies yet. Start the conversation.</p>
       {:else}
-        {#each comments.data.pages as page}
-          {#each page.items as comment (comment.id)}
-            <div class="border-b py-4 last:border-b-0">
-              <p class="mb-2 text-xs font-medium">@{comment.author.username} <span class="font-normal text-muted-foreground">· {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(comment.createdAt))}</span></p>
-              <RichText content={comment.content} />
-              <MediaGallery media={comment.media} />
-            </div>
+        <ol class="mt-4 divide-y divide-border/80">
+          {#each comments.data.pages as page}
+            {#each page.items as comment (comment.id)}
+              <li class="flex gap-3 py-4 first:pt-0 last:pb-0">
+                <div class="grid size-8 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-secondary-foreground" aria-hidden="true">
+                  {comment.author.displayName[0]?.toUpperCase() ?? 'K'}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="mb-1.5 text-xs font-semibold">{comment.author.displayName}
+                    <span class="ml-1 font-normal text-muted-foreground">@{comment.author.username} · <time datetime={comment.createdAt}>{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(comment.createdAt))}</time></span>
+                  </p>
+                  <RichText content={comment.content} />
+                  <MediaGallery media={comment.media} />
+                </div>
+              </li>
+            {/each}
           {/each}
-        {/each}
-        {#if comments.hasNextPage}
-          <Button class="mt-3" variant="outline" size="sm" disabled={comments.isFetchingNextPage} onclick={() => comments.fetchNextPage()}>More comments</Button>
+        </ol>
+        {#if comments.isFetchNextPageError}
+          <p class="mt-4 text-sm text-destructive" role="alert">{comments.error.message}</p>
+          <Button class="mt-3 w-full" variant="outline" size="sm" onclick={() => comments.fetchNextPage()}>Try loading more replies</Button>
+        {:else if comments.hasNextPage}
+          <Button class="mt-4 w-full" variant="outline" size="sm" disabled={comments.isFetchingNextPage}
+            onclick={() => comments.fetchNextPage()}>More replies</Button>
         {/if}
       {/if}
+      <div class="mt-5 border-t border-border/80 pt-4">
+        <Composer compact {api} replyTo={post} quoteTo={null} onPublished={commentPublished} onCancel={() => expanded = false} />
+      </div>
     </section>
   {/if}
 </article>
+
+<style>
+  .fluo-post { transition: border-color .2s ease, box-shadow .2s ease; }
+  .fluo-post:hover { border-color: var(--input); box-shadow: 0 16px 40px -30px rgba(20, 65, 39, .55); }
+  :global(.dislike-choice) {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(4px) scale(.92);
+    transition: opacity .18s ease, transform .18s ease;
+  }
+  .reaction-control:hover :global(.dislike-choice),
+  .reaction-control:focus-within :global(.dislike-choice),
+  .reaction-control.disliked :global(.dislike-choice) {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+  @media (hover: none) {
+    :global(.dislike-choice) { opacity: 1; pointer-events: auto; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :global(.dislike-choice) { transition: none; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .comment-panel { animation: comment-in .22s ease-out both; }
+  }
+  @keyframes comment-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>

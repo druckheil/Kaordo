@@ -30,7 +30,7 @@ try {
   await migrate('../deploy/postgres/003_reusable_fluo_media.sql');
   await migrate('../deploy/postgres/004_fluo_saved_posts.sql');
   const dsn = `postgres://kaordo:${encodeURIComponent(config.KAORDO_DB_PASSWORD)}@127.0.0.1:5432/${database}?sslmode=disable`;
-  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-run', 'TestFluoPostFlow', '-count=1', '-v'], {
+  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-cover', '-run', 'TestFluoPostFlow', '-count=1', '-v'], {
     env: { ...process.env, KAORDO_TEST_DATABASE_URL: dsn }
   });
   process.stdout.write(stdout);

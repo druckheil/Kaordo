@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { createInfiniteQuery, QueryClient, type InfiniteData } from '@tanstack/svelte-query';
-  import { createVirtualizer } from '@tanstack/svelte-virtual';
+  import { createWindowVirtualizer } from '@tanstack/svelte-virtual';
   import { appPaths } from '@kaordo/links';
   import { createFluoApi, feedOptions, type Feed } from '@kaordo/api-client';
   import type { FluoPage, FluoPost, UserIdentity } from '@kaordo/contracts';
   import {
-    BellIcon, BookmarkIcon, Button, HouseIcon, Input, SearchIcon, SettingsIcon, UserRoundIcon
+    BellIcon, BookmarkIcon, Button, HouseIcon, Input, SearchIcon, SettingsIcon, UserRoundIcon, XIcon
   } from '@kaordo/ui';
   import Composer from './Composer.svelte';
   import PostCard from './PostCard.svelte';
@@ -28,7 +28,6 @@
   const queryClient = new QueryClient();
   let view = $state<View>('feed');
   let feed = $state<Feed>('latest');
-  let replyTo = $state<FluoPost | null>(null);
   let quoteTo = $state<FluoPost | null>(null);
   let removedIds = $state<string[]>([]);
   let listElement = $state<HTMLDivElement>();
@@ -51,14 +50,22 @@
   const pageTitle = $derived({
     feed: 'Feed', search: 'Search', notifications: 'Notifications', saved: 'Saved posts', profile: 'Profile', settings: 'Settings'
   }[view]);
-  const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: 0, getScrollElement: () => listElement ?? null, estimateSize: () => 320, overscan: 4
+  const virtualizer = createWindowVirtualizer<HTMLDivElement>({
+    count: 0,
+    estimateSize: (index) => {
+      const post = posts[index];
+      if (!post) return 320;
+      const firstMedia = post.media[0];
+      const width = typeof window === 'undefined' ? 600 : Math.min(700, window.innerWidth - 40);
+      const mediaHeight = firstMedia ? Math.min(544, Math.max(192, width * firstMedia.height / firstMedia.width)) : 0;
+      return 220 + mediaHeight + Math.ceil(post.text.length / 90) * 22 + (post.quote ? 96 : 0);
+    },
+    overscan: 4
   });
 
   $effect(() => {
     const count = canQueryPosts ? posts.length : 0;
-    const element = listElement;
-    untrack(() => $virtualizer.setOptions({ count, getScrollElement: () => element ?? null }));
+    untrack(() => $virtualizer.setOptions({ count }));
   });
   $effect(() => {
     const rows = $virtualizer.getVirtualItems();
@@ -68,9 +75,42 @@
     }
   });
 
+  onMount(() => {
+    const syncView = () => {
+      const next = window.location.hash.slice(1) as View;
+      if (navigation.some((item) => item.id === next)) view = next;
+    };
+    syncView();
+    window.addEventListener('hashchange', syncView);
+    return () => window.removeEventListener('hashchange', syncView);
+  });
   onDestroy(() => {
     if (searchTimer) clearTimeout(searchTimer);
   });
+
+  function trackList(node: HTMLDivElement) {
+    listElement = node;
+    let margin = -1;
+    const update = () => {
+      const next = Math.round(node.getBoundingClientRect().top + window.scrollY);
+      if (next !== margin) {
+        margin = next;
+        $virtualizer.setOptions({ scrollMargin: next });
+      }
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(node.parentElement ?? node);
+    window.addEventListener('resize', update);
+    const frame = requestAnimationFrame(update);
+    return {
+      destroy() {
+        cancelAnimationFrame(frame);
+        observer.disconnect();
+        window.removeEventListener('resize', update);
+        if (listElement === node) listElement = undefined;
+      }
+    };
+  }
 
   function measure(node: HTMLDivElement) {
     $virtualizer.measureElement(node);
@@ -78,8 +118,9 @@
 
   function navigate(next: View) {
     view = next;
+    window.location.hash = next;
     actionError = '';
-    listElement?.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
   }
 
   function changeSearch(event: Event) {
@@ -87,29 +128,27 @@
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
       searchTerm = searchInput.trim();
-      listElement?.scrollTo({ top: 0 });
+      window.scrollTo({ top: 0 });
     }, 250);
   }
 
-  function compose(post: FluoPost, mode: 'reply' | 'quote') {
-    replyTo = mode === 'reply' ? post : null;
-    quoteTo = mode === 'quote' ? post : null;
+  function quote(post: FluoPost) {
+    quoteTo = post;
     navigate('feed');
     composerElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function updated() {
-    replyTo = null;
     quoteTo = null;
     actionError = '';
     void queryClient.invalidateQueries({ queryKey: ['fluo'] });
-    listElement?.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   async function react(post: FluoPost, value: 'good' | 'bad' | null) {
     try {
       actionError = '';
-      await api.react(post.id, post.myReaction === value ? null : value);
+      await api.react(post.id, value);
       await queryClient.invalidateQueries({ queryKey: ['fluo'] });
     } catch (error) {
       actionError = error instanceof Error ? error.message : 'Could not save your reaction.';
@@ -153,34 +192,46 @@
   }
 </script>
 
-<div class="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-8">
-  <aside class="lg:sticky lg:top-6 lg:self-start">
-    <p class="mb-1 hidden px-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary lg:block">Kaordo</p>
-    <p class="mb-4 hidden px-3 text-xl font-semibold tracking-tight lg:block">Fluo</p>
-    <nav class="grid grid-cols-3 gap-1 sm:grid-cols-6 lg:grid-cols-1" aria-label="Fluo navigation">
+<div class="grid gap-7 pb-20 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:pb-10">
+  <aside class="hidden lg:sticky lg:top-24 lg:block lg:self-start">
+    <p class="mb-5 px-4 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Explore Fluo</p>
+    <nav class="grid gap-1" aria-label="Fluo navigation">
       {#each navigation as item (item.id)}
         {@const Icon = item.icon}
-        <Button class="w-full justify-start gap-2 px-2 sm:px-3" variant={view === item.id ? 'secondary' : 'ghost'} size="sm"
+        <Button class="h-11 w-full justify-start gap-3 rounded-xl px-4 text-[14px]" variant={view === item.id ? 'secondary' : 'ghost'}
           aria-current={view === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
-          <Icon class="size-4 shrink-0" /> <span class="truncate">{item.label}</span>
+          <Icon class="size-5 shrink-0" /> <span class="truncate">{item.label}</span>
         </Button>
       {/each}
     </nav>
-    <div class="mt-6 hidden rounded-2xl border bg-card p-4 lg:block">
-      <p class="truncate text-sm font-medium">{user.displayName}</p>
-      <p class="mt-1 truncate text-sm text-muted-foreground">@{user.username}</p>
+    <div class="mt-7 flex items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm">
+      <div class="grid size-10 shrink-0 place-items-center rounded-xl bg-accent font-bold text-accent-foreground" aria-hidden="true">
+        {user.displayName[0]?.toUpperCase() ?? 'K'}
+      </div>
+      <div class="min-w-0">
+        <p class="truncate text-sm font-semibold">{user.displayName}</p>
+        <p class="truncate text-xs text-muted-foreground">@{user.username}</p>
+      </div>
     </div>
   </aside>
 
-  <section class="min-w-0" aria-label={pageTitle}>
-    <div class="mb-6 flex items-center justify-between border-b pb-4">
-      <h2 class="text-2xl font-semibold tracking-tight">{pageTitle}</h2>
+  <section class="mx-auto min-w-0 w-full max-w-[46rem]" aria-label={pageTitle}>
+    <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Fluo / {pageTitle}</p>
+        <h2 class="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">{pageTitle}</h2>
+        <p class="mt-2 text-sm text-muted-foreground">
+          {view === 'feed' ? 'Ideas, moments and conversations.' : view === 'profile' ? 'Everything you have shared.' :
+            view === 'saved' ? 'Keep good things close.' : view === 'search' ? 'Find posts and people.' :
+            view === 'settings' ? 'Your account at a glance.' : 'Updates from your community.'}
+        </p>
+      </div>
       {#if view === 'feed'}
-        <div class="flex gap-1" aria-label="Feed order">
+        <div class="flex rounded-xl border border-border bg-card p-1" aria-label="Feed order">
           {#each ['latest', 'following'] as tab}
-            <Button variant={feed === tab ? 'default' : 'ghost'} size="sm"
+            <Button variant={feed === tab ? 'secondary' : 'ghost'} size="sm"
               aria-current={feed === tab ? 'page' : undefined}
-              onclick={() => { feed = tab as Feed; listElement?.scrollTo({ top: 0 }); }}>
+              onclick={() => { feed = tab as Feed; window.scrollTo({ top: 0 }); }}>
               {tab === 'latest' ? 'Latest' : 'Following'}
             </Button>
           {/each}
@@ -189,57 +240,72 @@
     </div>
 
     {#if view === 'notifications'}
-      <div class="rounded-2xl border bg-card px-6 py-14 text-center">
-        <BellIcon class="mx-auto size-8 text-muted-foreground" />
-        <p class="mt-4 text-lg font-medium">No notifications yet</p>
-        <p class="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">Replies, reactions and new followers will appear here.</p>
+      <div class="rounded-[1.5rem] border border-border bg-card px-6 py-16 text-center shadow-sm">
+        <div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent"><BellIcon class="size-6 text-primary" /></div>
+        <p class="mt-5 text-xl font-bold tracking-tight">Notifications are on their way</p>
+        <p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">For now, keep up with conversations in your feed.</p>
+        <Button class="mt-6" variant="secondary" onclick={() => navigate('feed')}>Explore the feed</Button>
       </div>
     {:else if view === 'settings'}
-      <div class="rounded-2xl border bg-card p-6">
-        <h3 class="text-lg font-semibold">Your account</h3>
-        <dl class="mt-4 grid gap-4 text-sm sm:grid-cols-2">
-          <div><dt class="text-muted-foreground">Display name</dt><dd class="mt-1 font-medium">{user.displayName}</dd></div>
-          <div><dt class="text-muted-foreground">Username</dt><dd class="mt-1 font-medium">@{user.username}</dd></div>
+      <div class="rounded-[1.5rem] border border-border bg-card p-6 shadow-sm">
+        <h3 class="text-xl font-bold tracking-tight">Account</h3>
+        <dl class="mt-6 grid gap-5 text-sm sm:grid-cols-2">
+          <div><dt class="text-muted-foreground">Display name</dt><dd class="mt-1 font-semibold">{user.displayName}</dd></div>
+          <div><dt class="text-muted-foreground">Username</dt><dd class="mt-1 font-semibold">@{user.username}</dd></div>
         </dl>
-        <p class="mt-5 text-sm text-muted-foreground">Password and sign-in security are managed with your Kaordo account.</p>
-        <Button class="mt-4" href={appPaths.portal} rel="external" variant="outline">Account settings</Button>
+        <p class="mt-6 border-t border-border pt-5 text-sm leading-6 text-muted-foreground">Sign-in security is managed by Kaordo Identity.</p>
+        <Button class="mt-4" href={appPaths.portal} rel="external" variant="outline">Open Kaordo account</Button>
       </div>
     {:else}
       {#if view === 'feed'}
         <section bind:this={composerElement} class="mb-6" aria-label="Create a post">
-          <Composer {api} {replyTo} {quoteTo} onPublished={updated} onCancel={() => { replyTo = null; quoteTo = null; }} />
+          <Composer {api} replyTo={null} {quoteTo} onPublished={updated} onCancel={() => { quoteTo = null; }} />
         </section>
       {:else if view === 'search'}
-        <div class="mb-5">
+        <div class="mb-6 rounded-[1.5rem] border border-border bg-card p-4 shadow-sm">
           <label class="sr-only" for="fluo-search">Search posts and people</label>
           <div class="relative">
-            <SearchIcon class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input id="fluo-search" class="pl-9" type="search" placeholder="Search posts and people" value={searchInput} oninput={changeSearch} />
+            <SearchIcon class="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+            <Input id="fluo-search" class="pl-11" type="search" placeholder="Search posts and people" value={searchInput} oninput={changeSearch} />
           </div>
-          <p class="mt-2 text-xs text-muted-foreground">Search public posts and your own posts by text or author.</p>
+          <p class="mt-3 text-xs text-muted-foreground">Search public posts and your own posts by text or author.</p>
         </div>
       {:else if view === 'saved'}
-        <p class="mb-5 text-sm text-muted-foreground">Only you can see the posts you save.</p>
+        <p class="mb-5 rounded-xl border border-border bg-accent/60 px-4 py-3 text-sm text-accent-foreground">Only you can see the posts you save.</p>
       {:else if view === 'profile'}
-        <div class="mb-5 rounded-2xl border bg-card p-5">
-          <h3 class="text-lg font-semibold">{user.displayName}</h3>
-          <p class="mt-1 text-sm text-muted-foreground">@{user.username}</p>
+        <div class="mb-6 overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-sm">
+          <div class="h-20 bg-gradient-to-r from-[#dceee1] via-[#e9f4e8] to-[#f1e9d7]"></div>
+          <div class="-mt-6 flex items-end gap-4 px-5 pb-5">
+            <div class="grid size-14 shrink-0 place-items-center rounded-2xl border-4 border-card bg-primary text-xl font-bold text-primary-foreground" aria-hidden="true">
+              {user.displayName[0]?.toUpperCase() ?? 'K'}
+            </div>
+            <div class="min-w-0 pb-0.5"><h3 class="truncate text-lg font-bold">{user.displayName}</h3><p class="text-sm text-muted-foreground">@{user.username}</p></div>
+          </div>
         </div>
       {/if}
 
-      {#if actionError}<p class="mb-4 text-sm text-destructive" role="alert">{actionError}</p>{/if}
       {#if view === 'search' && searchTerm.length < 2}
-        <p class="py-12 text-center text-sm text-muted-foreground" role="status">Enter at least two characters to search.</p>
+        <p class="rounded-[1.5rem] border border-dashed border-border bg-card/60 py-14 text-center text-sm text-muted-foreground" role="status">Enter at least two characters to search.</p>
       {:else if query.isPending}
-        <p class="py-12 text-center text-muted-foreground" role="status">Loading posts…</p>
-      {:else if query.isError}
-        <div class="py-12 text-center">
+        <div role="status" aria-label="Loading posts" class="space-y-4">
+          {#each [1, 2] as item}
+            <div class="h-64 animate-pulse rounded-[1.5rem] border border-border bg-card p-6" aria-hidden="true">
+              <div class="size-10 rounded-xl bg-muted"></div>
+              <div class="mt-6 h-4 w-3/4 rounded bg-muted"></div>
+              <div class="mt-3 h-4 w-1/2 rounded bg-muted"></div>
+            </div>
+          {/each}
+          <span class="sr-only">Loading posts…</span>
+        </div>
+      {:else if query.isError && !query.data}
+        <div class="rounded-[1.5rem] border border-border bg-card px-6 py-14 text-center">
           <p class="text-destructive" role="alert">{query.error.message}</p>
           <Button class="mt-4" variant="outline" onclick={() => query.refetch()}>Try again</Button>
         </div>
       {:else if posts.length === 0}
-        <div class="rounded-2xl border bg-card px-6 py-14 text-center">
-          <p class="text-lg font-medium">
+        <div class="rounded-[1.5rem] border border-border bg-card px-6 py-16 text-center shadow-sm">
+          <div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent"><BookmarkIcon class="size-6 text-primary" /></div>
+          <p class="mt-5 text-xl font-bold tracking-tight">
             {view === 'saved' ? 'No saved posts yet.' :
               view === 'search' ? 'No matching posts.' :
               view === 'profile' ? 'You have not posted yet.' :
@@ -254,27 +320,45 @@
           </p>
         </div>
       {:else}
-        <div bind:this={listElement} class="h-[min(72vh,900px)] overflow-y-auto overscroll-contain rounded-2xl border bg-card" aria-label={view === 'saved' ? 'Saved posts' : view === 'profile' ? 'Profile posts' : view === 'search' ? 'Search results' : 'Posts'}>
-          <div class="relative w-full" style:height={`${$virtualizer.getTotalSize()}px`}>
+        <div use:trackList class="relative w-full" style:height={$virtualizer.getTotalSize() + 'px'}
+          aria-label={view === 'saved' ? 'Saved posts' : view === 'profile' ? 'Profile posts' : view === 'search' ? 'Search results' : 'Posts'}>
             {#each $virtualizer.getVirtualItems().filter((row) => row.index < posts.length) as row (posts[row.index].id)}
-              <div data-index={row.index} class="absolute left-0 top-0 w-full"
-                style:transform={`translateY(${row.start}px)`} use:measure>
+              <div data-index={row.index} class="absolute left-0 top-0 w-full pb-4"
+                style:transform={'translateY(' + (row.start - $virtualizer.options.scrollMargin) + 'px)'} use:measure>
                 <PostCard post={posts[row.index]} viewerId={user.id} {api} {queryClient}
-                  onReply={() => compose(posts[row.index], 'reply')}
-                  onQuote={() => compose(posts[row.index], 'quote')}
+                  onQuote={() => quote(posts[row.index])}
                   onReact={(value) => react(posts[row.index], value)}
                   onFollow={() => follow(posts[row.index])}
                   onSave={() => save(posts[row.index])}
                   onDelete={() => remove(posts[row.index])} />
               </div>
             {/each}
-          </div>
         </div>
         {#if query.isFetchingNextPage}<p class="mt-3 text-center text-sm text-muted-foreground" role="status">Loading more…</p>{/if}
-        {#if query.hasNextPage}
-          <Button class="mt-3 w-full" variant="outline" disabled={query.isFetchingNextPage} onclick={() => query.fetchNextPage()}>Load more</Button>
+        {#if query.isFetchNextPageError}
+          <Button class="mt-3 w-full" variant="outline" onclick={() => query.fetchNextPage()}>Try loading more</Button>
         {/if}
       {/if}
     {/if}
   </section>
 </div>
+
+<nav class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_35px_-28px_rgba(0,0,0,.45)] backdrop-blur-lg lg:hidden"
+  aria-label="Fluo navigation">
+  {#each navigation as item (item.id)}
+    {@const Icon = item.icon}
+    <Button class="h-14 min-w-0 flex-col gap-0.5 rounded-none px-0 text-[10px] font-semibold" variant="ghost"
+      aria-label={item.label} title={item.label} aria-current={view === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
+      <Icon class={view === item.id ? 'size-5 text-primary' : 'size-5'} />
+      <span class={(view === item.id ? 'text-primary' : 'text-muted-foreground') + ' hidden min-[375px]:inline'}>{item.label}</span>
+    </Button>
+  {/each}
+</nav>
+
+{#if actionError}
+  <div class="fixed inset-x-4 bottom-20 z-40 mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-destructive/35 bg-card p-4 shadow-xl lg:inset-x-auto lg:bottom-6 lg:right-6"
+    role="alert">
+    <p class="min-w-0 flex-1 text-sm text-destructive">{actionError}</p>
+    <Button variant="ghost" size="icon-xs" aria-label="Dismiss message" onclick={() => actionError = ''}><XIcon class="size-4" /></Button>
+  </div>
+{/if}

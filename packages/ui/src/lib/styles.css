@@ -6,72 +6,69 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-	--background: oklch(1 0 0);
-	--foreground: oklch(0.145 0 0);
-	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.145 0 0);
-	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.145 0 0);
-	--primary: oklch(0.39 0.105 165.612);
-	--primary-foreground: oklch(0.979 0.021 166.113);
-	--secondary: oklch(0.967 0.001 286.375);
-	--secondary-foreground: oklch(0.21 0.006 285.885);
-	--muted: oklch(0.97 0 0);
-	--muted-foreground: oklch(0.556 0 0);
-	--accent: oklch(0.97 0 0);
-	--accent-foreground: oklch(0.205 0 0);
-	--destructive: oklch(0.577 0.245 27.325);
-	--border: oklch(0.922 0 0);
-	--input: oklch(0.922 0 0);
-	--ring: oklch(0.708 0 0);
-	--chart-1: oklch(0.87 0 0);
-	--chart-2: oklch(0.556 0 0);
-	--chart-3: oklch(0.439 0 0);
-	--chart-4: oklch(0.371 0 0);
-	--chart-5: oklch(0.269 0 0);
-	--radius: 0rem;
-	--sidebar: oklch(0.985 0 0);
-	--sidebar-foreground: oklch(0.145 0 0);
-	--sidebar-primary: oklch(0.596 0.145 163.225);
-	--sidebar-primary-foreground: oklch(0.979 0.021 166.113);
-	--sidebar-accent: oklch(0.97 0 0);
-	--sidebar-accent-foreground: oklch(0.205 0 0);
-	--sidebar-border: oklch(0.922 0 0);
-	--sidebar-ring: oklch(0.708 0 0);
+	color-scheme: light;
+	--background: #f5f7f3;
+	--foreground: #16251e;
+	--card: #ffffff;
+	--card-foreground: #16251e;
+	--popover: #ffffff;
+	--popover-foreground: #16251e;
+	--primary: #176247;
+	--primary-foreground: #ffffff;
+	--secondary: #e7efe9;
+	--secondary-foreground: #183d2b;
+	--muted: #eef3ee;
+	--muted-foreground: #526459;
+	--accent: #e6f2eb;
+	--accent-foreground: #164b33;
+	--destructive: #a32636;
+	--border: #dbe5dc;
+	--input: #d8e4d9;
+	--ring: #176247;
+	--chart-1: #76ad87;
+	--chart-2: #337a61;
+	--chart-3: #c6d96a;
+	--chart-4: #d2986c;
+	--chart-5: #546e63;
+	--radius: 1rem;
+	--sidebar: #eef3ee;
+	--sidebar-foreground: #16251e;
+	--sidebar-primary: #176247;
+	--sidebar-primary-foreground: #ffffff;
+	--sidebar-accent: #ddece1;
+	--sidebar-accent-foreground: #164b33;
+	--sidebar-border: #dbe5dc;
+	--sidebar-ring: #176247;
 }
 
 .dark {
-	--background: oklch(0.145 0 0);
-	--foreground: oklch(0.985 0 0);
-	--card: oklch(0.205 0 0);
-	--card-foreground: oklch(0.985 0 0);
-	--popover: oklch(0.205 0 0);
-	--popover-foreground: oklch(0.985 0 0);
-	--primary: oklch(0.39 0.095 166.913);
-	--primary-foreground: oklch(0.979 0.021 166.113);
-	--secondary: oklch(0.274 0.006 286.033);
-	--secondary-foreground: oklch(0.985 0 0);
-	--muted: oklch(0.269 0 0);
-	--muted-foreground: oklch(0.708 0 0);
-	--accent: oklch(0.269 0 0);
-	--accent-foreground: oklch(0.985 0 0);
-	--destructive: oklch(0.704 0.191 22.216);
-	--border: oklch(1 0 0 / 10%);
-	--input: oklch(1 0 0 / 15%);
-	--ring: oklch(0.556 0 0);
-	--chart-1: oklch(0.87 0 0);
-	--chart-2: oklch(0.556 0 0);
-	--chart-3: oklch(0.439 0 0);
-	--chart-4: oklch(0.371 0 0);
-	--chart-5: oklch(0.269 0 0);
-	--sidebar: oklch(0.205 0 0);
-	--sidebar-foreground: oklch(0.985 0 0);
-	--sidebar-primary: oklch(0.696 0.17 162.48);
-	--sidebar-primary-foreground: oklch(0.262 0.051 172.552);
-	--sidebar-accent: oklch(0.269 0 0);
-	--sidebar-accent-foreground: oklch(0.985 0 0);
-	--sidebar-border: oklch(1 0 0 / 10%);
-	--sidebar-ring: oklch(0.556 0 0);
+	color-scheme: dark;
+	--background: #111e18;
+	--foreground: #ecf4ed;
+	--card: #1b2a21;
+	--card-foreground: #ecf4ed;
+	--popover: #1b2a21;
+	--popover-foreground: #ecf4ed;
+	--primary: #83d6a4;
+	--primary-foreground: #10251a;
+	--secondary: #284333;
+	--secondary-foreground: #e8f4eb;
+	--muted: #26382c;
+	--muted-foreground: #b3c7b8;
+	--accent: #284b35;
+	--accent-foreground: #e8f4eb;
+	--destructive: #ff9aa4;
+	--border: #3c5243;
+	--input: #3c5243;
+	--ring: #83d6a4;
+	--sidebar: #17251c;
+	--sidebar-foreground: #ecf4ed;
+	--sidebar-primary: #83d6a4;
+	--sidebar-primary-foreground: #10251a;
+	--sidebar-accent: #284333;
+	--sidebar-accent-foreground: #e8f4eb;
+	--sidebar-border: #3c5243;
+	--sidebar-ring: #83d6a4;
 }
 
 @theme inline {
@@ -122,9 +119,21 @@
 		@apply border-border outline-ring/50;
 	}
 	body {
-		@apply bg-background text-foreground;
+		@apply bg-background text-foreground antialiased;
 	}
 	html {
 		@apply font-sans;
+	}
+	::selection {
+		background: var(--accent);
+		color: var(--accent-foreground);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		scroll-behavior: auto !important;
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
 	}
 }

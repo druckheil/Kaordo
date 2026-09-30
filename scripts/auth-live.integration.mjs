@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHmac, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parseEnv, promisify } from 'node:util';
 import test from 'node:test';
 import AxeBuilder from '@axe-core/playwright';
@@ -11,6 +13,13 @@ const run = promisify(execFile);
 const site = 'http://localhost:8765';
 const identity = 'http://localhost:8080';
 const chrome = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+async function capture(page, name) {
+  if (process.env.KAORDO_UI_SNAPSHOTS !== '1') return;
+  const path = join(tmpdir(), `kaordo-ui-${name}.png`);
+  await page.screenshot({ path });
+  console.log(`UI snapshot: ${path}`);
+}
 
 function codeFor(secret) {
   const counter = Buffer.alloc(8);
@@ -22,7 +31,7 @@ function codeFor(secret) {
 
 async function checkAccessibility(page, stage) {
   const { violations } = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
     .analyze();
   const summary = violations.map((violation) => ({
     id: violation.id,
@@ -124,12 +133,9 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
     await page.goto(`${site}/register/`);
-    await page.getByRole('button', { name: /Continue to registration/ }).waitFor();
-    await checkAccessibility(page, 'Portal registration entry');
-    await focusByTab(page, 'button', 'Registration action');
-    assert.match(await page.evaluate(() => document.activeElement?.textContent), /Continue to registration/);
-    await page.keyboard.press('Enter');
     await page.locator('#kc-register-form').waitFor();
+    assert.ok(page.url().startsWith(identity), 'Registration must open the identity form without an extra click');
+    await capture(page, 'register');
     await checkAccessibility(page, 'Keycloak registration');
     const fields = await page.locator('#kc-register-form input:not([type=submit])').evaluateAll((inputs) =>
       inputs.filter((input) => input.type !== 'hidden').map((input) => input.name));
@@ -182,6 +188,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     assert.ok(p95 < 2_000, `Local authenticated account lookup p95 exceeded 2 seconds (${Math.round(p95)} ms)`);
     console.log(`Kerno account lookup, 32 concurrent requests: p95 ${Math.round(p95)} ms`);
     await page.getByText(`Welcome, ${username}.`).waitFor();
+    await capture(page, 'portal');
     const cachedAccount = await page.evaluate(() => sessionStorage.getItem('kaordo:account-preview:v1'));
     assert.ok(cachedAccount, 'A verified account should be available for a display-only preview');
     assert.doesNotMatch(cachedAccount, /accessToken|refreshToken|Bearer /);
@@ -202,8 +209,8 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     await page.getByRole('link', { name: 'Sign in', exact: true }).first().waitFor();
     assert.equal(await page.evaluate(() => sessionStorage.getItem('kaordo:account-preview:v1')), null);
     await page.goto(`${site}/login/`);
-    await page.getByRole('button', { name: /Continue to sign in/ }).click();
     await page.locator('#kc-form-login').waitFor();
+    assert.ok(page.url().startsWith(identity), 'Sign-in must open the identity form without an extra click');
     await checkAccessibility(page, 'Keycloak password login');
     await page.locator('input[name=username]').fill(username);
     await page.locator('input[name=password]').fill(password);
@@ -227,7 +234,6 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     await page.getByRole('button', { name: 'Sign out' }).click();
     await page.getByRole('link', { name: 'Sign in', exact: true }).first().waitFor();
     await page.goto(`${site}/login/`);
-    await page.getByRole('button', { name: /Continue to sign in/ }).click();
     await page.locator('#kc-form-login').waitFor();
     await page.locator('input[name=username]').fill(username);
     await page.locator('input[name=password]').fill(password);
@@ -255,7 +261,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
         assert.equal((await appResponse).status(), 200);
       }
       if (app === 'fluo') {
-        await page.getByRole('navigation', { name: 'Fluo feeds' }).waitFor();
+        await page.getByRole('navigation', { name: 'Fluo navigation' }).waitFor();
       } else {
         await page.getByText(`Welcome, ${username}.`, { exact: false }).waitFor();
       }
@@ -263,7 +269,15 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
       assert.equal(await page.getByRole('link', { name: 'Sign in' }).count(), 0);
     }
     await page.goto(`${site}/fluo/`);
-    await page.getByRole('navigation', { name: 'Fluo feeds' }).waitFor();
+    const fluoNav = page.getByRole('navigation', { name: 'Fluo navigation' });
+    await fluoNav.waitFor();
+    for (const item of ['Feed', 'Search', 'Notifications', 'Saved', 'Profile', 'Settings']) {
+      await fluoNav.getByRole('button', { name: item, exact: true }).waitFor();
+    }
+    assert.equal(await page.getByRole('button', { name: 'My posts', exact: true }).count(), 0,
+      'Own posts must be available from the profile, not as a feed tab');
+    assert.equal(await page.getByRole('region', { name: 'Create a post' }).getByRole('button', { name: 'Publish' }).count(), 0,
+      'The initial composer must leave room for the feed until the editor is focused');
     const postText = `Fluo image test ${randomBytes(4).toString('hex')}`;
     await page.locator('[contenteditable=true]').fill(postText);
     const imageBase64 = await page.evaluate(() => {
@@ -273,18 +287,58 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
       canvas.getContext('2d').fillRect(0, 0, 8, 6);
       return canvas.toDataURL('image/png').split(',')[1];
     });
+    await page.getByLabel('Choose photos or videos').setInputFiles(
+      Array.from({ length: 4 }, (_, index) => ({
+        name: `fluo-test-${index + 1}.png`, mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64')
+      }))
+    );
+    const attachments = page.getByRole('list', { name: 'Attachments' });
+    assert.equal(await attachments.locator('li').count(), 4);
+    await attachments.getByRole('button', { name: 'Remove fluo-test-4.png' }).click();
+    assert.equal(await attachments.locator('li').count(), 3);
     await page.getByLabel('Choose photos or videos').setInputFiles({
-      name: 'fluo-test.png', mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64')
+      name: 'fluo-test-4.png', mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64')
     });
+    assert.equal(await attachments.locator('li').count(), 4);
+    await capture(page, 'fluo-composer');
     const createdPost = page.waitForResponse((response) => response.url().endsWith('/v1/fluo/posts') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Publish' }).click();
     const postResponse = await createdPost;
     assert.equal(postResponse.status(), 201, 'Fluo must publish the post with an image');
     const post = await postResponse.json();
-    assert.equal(post.media.length, 1);
-    assert.equal(post.media[0].width, 8);
-    assert.equal(post.media[0].height, 6);
+    assert.equal(post.media.length, 4);
+    for (const item of post.media) {
+      assert.equal(item.width, 8);
+      assert.equal(item.height, 6);
+    }
     const card = page.locator(`article[data-post-id="${post.id}"]`);
+    await card.waitFor();
+    await capture(page, 'fluo-before-carousel');
+    const carousel = card.getByRole('region', { name: 'Post media' });
+    const reservedSize = await carousel.locator(':scope > div').first().evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return { width: box.width, height: box.height };
+    });
+    assert.ok(Math.abs(reservedSize.height - reservedSize.width * 6 / 8) < 4,
+      'Stored media dimensions must reserve carousel height before decoding');
+    await carousel.getByRole('button', { name: 'Next attachment' }).click();
+    await card.getByText('2 / 4').waitFor();
+    await carousel.getByRole('button', { name: 'Previous attachment' }).click();
+    await card.getByText('1 / 4').waitFor();
+    await carousel.getByRole('button', { name: 'Next attachment' }).focus();
+    await page.keyboard.press('Enter');
+    await card.getByText('2 / 4').waitFor();
+    await card.getByRole('button', { name: 'Save post' }).click();
+    await card.getByRole('button', { name: 'Remove from saved posts' }).waitFor();
+    await fluoNav.getByRole('button', { name: 'Saved', exact: true }).click();
+    await card.waitFor();
+    await fluoNav.getByRole('button', { name: 'Profile', exact: true }).click();
+    await card.waitFor();
+    await fluoNav.getByRole('button', { name: 'Search', exact: true }).click();
+    const search = page.getByRole('searchbox', { name: 'Search posts and people' });
+    await search.fill(postText);
+    await card.waitFor();
+    await fluoNav.getByRole('button', { name: 'Feed', exact: true }).click();
     await card.waitFor();
     await page.waitForFunction((text) => {
       const article = [...document.querySelectorAll('article')].find((item) => item.textContent.includes(text));
@@ -293,20 +347,52 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     }, postText);
     await card.getByRole('button', { name: 'Good, 0' }).click();
     await card.getByRole('button', { name: 'Good, 1' }).waitFor();
+    await card.getByRole('button', { name: 'Good, 1' }).hover();
+    await page.waitForFunction((postId) => {
+      const dislike = document.querySelector(`article[data-post-id="${postId}"] [aria-label="Bad, 0"]`);
+      return dislike && Number(getComputedStyle(dislike).opacity) > 0.5;
+    }, post.id, { timeout: 2_000 });
+    await page.mouse.move(0, 0);
+    await card.getByRole('button', { name: 'Good, 1' }).focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Bad, 0',
+      'Keyboard focus must reach the dislike action after Like');
     const replyText = `Reply ${randomBytes(3).toString('hex')}`;
-    await card.getByRole('button', { name: 'Reply' }).click();
-    await page.locator('[contenteditable=true]').fill(replyText);
-    await page.getByRole('region', { name: 'Create a post' }).getByRole('button', { name: 'Reply' }).click();
-    await card.locator('button[aria-expanded]').click();
-    await card.getByText(replyText).waitFor();
+    await card.getByRole('button', { name: 'Comments, 0' }).click();
+    const comments = card.getByRole('region', { name: 'Comments' });
+    await comments.locator('[contenteditable=true]').fill(replyText);
+    await comments.getByRole('button', { name: 'Reply', exact: true }).click();
+    await comments.getByText(replyText).waitFor();
+    if (process.env.KAORDO_UI_SNAPSHOTS === '1') {
+      await card.screenshot({ path: join(tmpdir(), 'kaordo-ui-fluo-comments.png') });
+    }
     const quoteText = `Quote ${randomBytes(3).toString('hex')}`;
-    await card.getByRole('button', { name: 'Quote' }).click();
-    await page.locator('[contenteditable=true]').fill(quoteText);
-    await page.getByRole('button', { name: 'Publish' }).click();
+    await card.getByRole('button', { name: 'Quote post' }).click();
+    await page.getByRole('region', { name: 'Create a post' }).locator('[contenteditable=true]').fill(quoteText);
+    await page.getByRole('region', { name: 'Create a post' }).getByRole('button', { name: 'Publish' }).click();
     await page.getByText(quoteText).first().waitFor();
+    await capture(page, 'fluo');
     await checkAccessibility(page, 'Fluo feed with media, reply and quote');
-    assert.equal((await fetch(post.media[0].url)).status, 200, 'published media must be available with its signed URL');
-    await page.getByRole('button', { name: 'My posts' }).click();
+    for (const item of post.media) {
+      assert.equal((await fetch(item.url)).status, 200, 'published media must be available with its signed URL');
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await fluoNav.getByRole('button', { name: 'Feed', exact: true }).waitFor();
+    await capture(page, 'fluo-mobile');
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'Mobile layout must not overflow horizontally');
+    await checkAccessibility(page, 'Fluo mobile feed');
+    await page.setViewportSize({ width: 320, height: 768 });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await capture(page, 'fluo-320');
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'Fluo must reflow without horizontal overflow at 320 CSS pixels');
+    const mobileNav = await page.getByRole('navigation', { name: 'Fluo navigation' }).boundingBox();
+    assert.ok(mobileNav && Math.abs(mobileNav.y + mobileNav.height - 768) < 2,
+      'Mobile navigation must remain fixed to the viewport bottom');
+    await checkAccessibility(page, 'Fluo 320px reflow');
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await fluoNav.getByRole('button', { name: 'Profile', exact: true }).click();
     await card.waitFor();
     page.once('dialog', (dialog) => { void dialog.accept(); });
     const [deletedPost] = await Promise.all([
@@ -321,8 +407,10 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     })).status, 404, 'the deleted post must be absent from Kerno');
     await card.waitFor({ state: 'detached' });
     assert.deepEqual(pageErrors, [], 'The Fluo feed must render without browser exceptions after deletion');
-    assert.equal((await fetch(post.media[0].url)).status, 404,
-      'deleting a post must purge its media, even while the former signed URL is valid');
+    for (const item of post.media) {
+      assert.equal((await fetch(item.url)).status, 404,
+        'deleting a post must purge its media, even while the former signed URL is valid');
+    }
     assert.ok(mainNavigations.every((url) => url.startsWith(site)), 'Silent SSO must not redirect the main frame to Keycloak between apps');
     const failAccount = async (route) => route.fulfill({
       status: 503, contentType: 'application/json', body: '{"error":"Account service unavailable"}'
@@ -340,7 +428,6 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     await page.getByRole('button', { name: 'Sign out' }).click();
     await page.getByRole('link', { name: 'Sign in', exact: true }).first().waitFor();
     await page.goto(`${site}/login/`);
-    await page.getByRole('button', { name: /Continue to sign in/ }).click();
     await page.locator('#kc-form-login').waitFor();
     await page.locator('input[name=username]').fill(username);
     await page.locator('input[name=password]').fill(password);

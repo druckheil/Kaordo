@@ -48,14 +48,16 @@
 {:else if snapshot.user}
   {@render children(snapshot.user)}
 {:else}
-  <section class="mt-8 max-w-lg rounded-2xl border bg-card p-6" aria-label={`${appName} account access`}>
-    <ShieldCheckIcon class="size-6 text-primary" />
-    <h2 class="mt-4 text-xl font-semibold">{snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h2>
-    {#if snapshot.error}<p class="mt-3 text-sm text-destructive" role="alert">{snapshot.error}</p>{/if}
+  <section class="mx-auto mt-12 max-w-lg rounded-[1.75rem] border border-border bg-card p-7 shadow-[0_24px_80px_-48px_rgba(21,75,43,.45)] sm:p-9"
+    aria-label={`${appName} account access`}>
+    <div class="grid size-12 place-items-center rounded-2xl bg-accent"><ShieldCheckIcon class="size-6 text-primary" /></div>
+    <h2 class="mt-6 text-2xl font-bold tracking-[-0.04em]">{snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h2>
+    {#if snapshot.error}<p class="mt-4 rounded-xl bg-destructive/10 p-3 text-sm text-destructive" role="alert">{snapshot.error}</p>{/if}
     {#if snapshot.authenticated}
+      <p class="mt-3 text-sm leading-6 text-muted-foreground">We could not connect your Kaordo account. Try again when the service is available.</p>
       <Button class="mt-6" variant="outline" onclick={refresh}>Retry account setup</Button>
     {:else}
-      <p class="mt-3 text-sm text-muted-foreground">Your Kaordo account works across every app.</p>
+      <p class="mt-3 text-sm leading-6 text-muted-foreground">One Kaordo account gives you access across the apps.</p>
       <Button class="mt-6" href={`/login/?next=${encodeURIComponent(returnPath)}`}>Sign in</Button>
     {/if}
   </section>

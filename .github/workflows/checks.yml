@@ -38,9 +38,21 @@ jobs:
           pnpm test:pages
       - name: Check Go services
         run: |
-          go test ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
+          go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
           go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
           go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
+      - name: Check Go dependency vulnerabilities
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        working-directory: services/kerno
+      - name: Check Nodo dependency vulnerabilities
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        working-directory: services/nodo
+      - name: Check media authorization dependency vulnerabilities
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        working-directory: services/mediaauth
       - name: Test Fluo PostgreSQL integration
         run: |
           cat > deploy/local/.env <<EOF
@@ -54,5 +66,5 @@ jobs:
           chmod 600 deploy/local/.env
           docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml up -d --wait app-db
           pnpm test:fluo:db
-      - name: Reject moderate or worse npm advisories
-        run: pnpm audit --audit-level=moderate
+      - name: Reject npm advisories
+        run: pnpm audit --audit-level=low

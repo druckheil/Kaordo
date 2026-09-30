@@ -14,12 +14,12 @@
         line.push({ type: value.type, text: value.text, marks: value.marks?.map((mark) => mark.type ?? '') ?? [] });
       }
       return line;
-    });
+    }).filter((line) => line.length > 0);
   }
   const lines = $derived(paragraphs(content));
 </script>
 
-<div class="break-words text-sm leading-6">
+<div class="break-words text-[15px] leading-7 sm:text-base">
   {#each lines as line}
     <p class="whitespace-pre-wrap empty:min-h-5">
       {#each line as item}
