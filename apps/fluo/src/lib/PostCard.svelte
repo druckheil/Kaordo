@@ -67,7 +67,7 @@
       <Button variant={post.author.following ? 'secondary' : 'outline'} size="sm" disabled={following}
         aria-pressed={post.author.following} onclick={toggleFollow}>{post.author.following ? 'Following' : 'Follow'}</Button>
     {:else if post.author.id === viewerId}
-      <Button variant="ghost" size="icon-sm" aria-label="Delete post" title="Delete post" onclick={onDelete}><Trash2Icon class="size-4" /></Button>
+      <Button variant="ghost" size="icon-sm" class="size-10" aria-label="Delete post" title="Delete post" onclick={onDelete}><Trash2Icon class="size-4" /></Button>
     {/if}
   </header>
 
@@ -81,27 +81,27 @@
 
   <div class="mt-5 grid grid-cols-4 gap-1.5 border-t border-border/80 pt-3 sm:gap-3" aria-label="Post actions">
     <div class:disliked={post.myReaction === 'bad'} class="reaction-control relative">
-      <Button class="w-full min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={post.myReaction === 'good' ? 'secondary' : 'ghost'}
+      <Button class="h-11 w-full min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={post.myReaction === 'good' ? 'secondary' : 'ghost'}
         size="sm" aria-label={'Good, ' + post.counts.good} aria-pressed={post.myReaction === 'good'}
         disabled={reacting} onclick={() => chooseReaction('good')}>
         <ThumbsUpIcon class="size-4" /><span class="hidden text-xs sm:inline">Like</span><span class="text-xs tabular-nums">{post.counts.good}</span>
       </Button>
-      <Button class="dislike-choice absolute -right-2 -top-8 z-10 rounded-full border border-border bg-card shadow-lg"
+      <Button class="dislike-choice absolute -right-2 -top-10 z-10 rounded-full border border-border bg-card shadow-lg"
         variant={post.myReaction === 'bad' ? 'secondary' : 'outline'} size="icon-sm"
         aria-label={'Bad, ' + post.counts.bad} aria-pressed={post.myReaction === 'bad'}
-        disabled={reacting} onclick={() => chooseReaction('bad')}><ThumbsDownIcon class="size-4" /></Button>
+        disabled={reacting} onclick={() => chooseReaction('bad')}><ThumbsDownIcon class={post.myReaction === 'bad' ? 'size-4 fill-current' : 'size-4'} /></Button>
     </div>
-    <Button class="min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost"
+    <Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost"
       size="sm" aria-label="Reply to post" onclick={onReply}>
       <MessageCircleIcon class="size-4" /><span class="hidden text-xs sm:inline">Reply</span><span class="text-xs tabular-nums">{post.counts.comments}</span>
     </Button>
     {#if post.visibility === 'public'}
-      <Button class="min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost" size="sm"
+      <Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost" size="sm"
         aria-label="Quote post" onclick={onQuote}><Repeat2Icon class="size-4" /><span class="hidden text-xs sm:inline">Quote</span></Button>
     {:else}
       <span aria-hidden="true"></span>
     {/if}
-    <Button class="min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={post.saved ? 'secondary' : 'ghost'}
+    <Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={post.saved ? 'secondary' : 'ghost'}
       size="sm" aria-label={post.saved ? 'Remove from saved posts' : 'Save post'} aria-pressed={post.saved}
       disabled={saving} onclick={toggleSaved}>
       <BookmarkIcon class={post.saved ? 'size-4 fill-current' : 'size-4'} />
@@ -118,13 +118,13 @@
 
   {#if expanded}
     <section id={'comments-' + post.id} class="comment-panel mt-4 rounded-2xl border border-border bg-muted/35 p-4 sm:p-5"
-      aria-label="Comments">
+      aria-label="Replies">
       <div class="flex items-center justify-between gap-3">
-        <h3 class="text-sm font-bold">Conversation <span class="ml-1 font-medium text-muted-foreground">{post.counts.comments}</span></h3>
+        <h3 class="text-sm font-bold">Replies <span class="ml-1 font-medium text-muted-foreground">{post.counts.comments}</span></h3>
         <Button variant="ghost" size="icon-xs" aria-label="Close comments" onclick={() => expanded = false}><XIcon class="size-4" /></Button>
       </div>
       {#if comments.isPending}
-        <p class="mt-5 text-sm text-muted-foreground" role="status">Loading comments…</p>
+        <p class="mt-5 text-sm text-muted-foreground" role="status">Loading replies…</p>
       {:else if !comments.data}
         <p class="mt-5 text-sm text-destructive" role="alert">{comments.error?.message ?? 'Could not load replies.'}</p>
         <Button class="mt-3" variant="outline" size="sm" onclick={() => comments.refetch()}>Try again</Button>
@@ -181,7 +181,20 @@
     transform: none;
   }
   @media (hover: none) {
-    :global(.dislike-choice) { opacity: 1; pointer-events: auto; transform: none; }
+    .fluo-post [aria-label="Post actions"] { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .25rem; }
+    .reaction-control { display: contents; }
+    :global(.dislike-choice) {
+      position: static;
+      width: 100%;
+      height: 2.75rem;
+      border-color: transparent;
+      background: transparent;
+      box-shadow: none;
+      opacity: 1;
+      pointer-events: auto;
+      transform: none;
+    }
+    .reaction-control.disliked :global(.dislike-choice) { background: var(--secondary); }
   }
   @media (prefers-reduced-motion: reduce) {
     :global(.dislike-choice) { transition: none; }

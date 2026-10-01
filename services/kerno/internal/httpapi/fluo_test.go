@@ -77,7 +77,7 @@ func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 	key := []byte(strings.Repeat("k", 32))
 	deps := FluoDependencies{Store: store, Media: mediaStub{valid: false}, MediaBaseURL: "http://localhost:8082", MediaSignKey: key}
 	id := "01999111-2222-7333-8444-555555555551"
-	requestBody := `{"content":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"hello"}]}]},"visibility":"public","attachmentIds":["` + id + `"]}`
+	requestBody := `{"content":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"hello"}]}]},"visibility":"public","attachmentIds":["` + id + `"],"altTexts":{"` + id + `":"A dark square"}}`
 	invoke := func(body, bearer string) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(http.MethodPost, "/v1/fluo/posts", strings.NewReader(body))
@@ -114,6 +114,9 @@ func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 	if len(post.Media) != 1 || post.Media[0].URL == "" {
 		t.Fatalf("media URL missing: %+v", post.Media)
 	}
+	if post.Media[0].AltText != "A dark square" {
+		t.Fatalf("media description missing: %+v", post.Media)
+	}
 	mediaURL, err := url.Parse(post.Media[0].URL)
 	if err != nil || !mediaauth.Verify(id, mediaURL.Query().Get("exp"), mediaURL.Query().Get("sig"), key, time.Now()) {
 		t.Fatal("media URL is not correctly signed")
@@ -126,9 +129,14 @@ func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 	if err != nil || !mediaauth.Verify(id, quotedURL.Query().Get("exp"), quotedURL.Query().Get("sig"), key, time.Now()) {
 		t.Fatal("quoted media URL is not correctly signed")
 	}
-	reused := invoke(requestBody, "valid")
-	if reused.Code != http.StatusCreated || store.created != 2 || len(store.lastMedia) != 1 || store.lastMedia[0].ID != id {
+	reused := invoke(strings.Replace(requestBody, "A dark square", "The same image in another context", 1), "valid")
+	if reused.Code != http.StatusCreated || store.created != 2 || len(store.lastMedia) != 1 || store.lastMedia[0].ID != id ||
+		store.lastMedia[0].AltText != "The same image in another context" {
 		t.Fatalf("reused owned media = %d, writes %d: %s", reused.Code, store.created, reused.Body.String())
+	}
+	tooLong := strings.Replace(requestBody, "A dark square", strings.Repeat("a", 501), 1)
+	if response := invoke(tooLong, "valid"); response.Code != http.StatusBadRequest || store.created != 2 {
+		t.Fatalf("overlong alt text = %d, writes %d", response.Code, store.created)
 	}
 }
 

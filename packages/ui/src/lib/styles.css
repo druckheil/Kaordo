@@ -130,6 +130,20 @@
 	}
 }
 
+@layer utilities {
+	.kaordo-scrollbar {
+		scrollbar-width: thin;
+		scrollbar-color: var(--border) transparent;
+		scrollbar-gutter: stable;
+		overscroll-behavior: contain;
+	}
+	.kaordo-scrollbar::-webkit-scrollbar { width: 6px; }
+	.kaordo-scrollbar::-webkit-scrollbar-thumb {
+		border-radius: 999px;
+		background: var(--border);
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*, *::before, *::after {
 		scroll-behavior: auto !important;

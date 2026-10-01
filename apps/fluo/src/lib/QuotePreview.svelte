@@ -24,7 +24,7 @@
         <span class={`relative block overflow-hidden bg-muted ${quote.media.length === 1 ? 'h-44 sm:h-48' : 'h-28 sm:h-36'}`}>
           {#if item.kind === 'image'}
             <img src={item.url} width={item.width} height={item.height} loading="lazy" decoding="async"
-              alt={(context === 'reply' ? 'Original post image ' : 'Quoted image ') + (index + 1)} class="h-full w-full object-cover" />
+              alt={item.altText || (context === 'reply' ? 'Original post image ' : 'Quoted image ') + (index + 1)} class="h-full w-full object-cover" />
           {:else}
             <video src={item.url} muted playsinline preload="metadata" aria-hidden="true"
               class="h-full w-full object-cover"></video>

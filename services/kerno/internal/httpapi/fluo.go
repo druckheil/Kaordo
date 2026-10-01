@@ -269,6 +269,11 @@ func (h fluoHandler) create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seen[id] = true
+		altText := strings.TrimSpace(input.AltTexts[id])
+		if utf8.RuneCountInString(altText) > 500 || strings.ContainsRune(altText, 0) {
+			writeError(w, http.StatusBadRequest, "Alt text must be 500 characters or fewer.")
+			return
+		}
 		if h.deps.Media == nil {
 			writeError(w, http.StatusServiceUnavailable, "Media storage is unavailable.")
 			return
@@ -278,7 +283,14 @@ func (h fluoHandler) create(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "An attachment is unavailable or not yours.")
 			return
 		}
+		item.AltText = altText
 		media = append(media, item)
+	}
+	for id := range input.AltTexts {
+		if !seen[id] {
+			writeError(w, http.StatusBadRequest, "Alt text must belong to an attached file.")
+			return
+		}
 	}
 	post, err := h.deps.Store.Create(r.Context(), actor.ID, input, text, media)
 	if err != nil {

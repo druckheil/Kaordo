@@ -23,7 +23,7 @@ const postColumns = `
 	q.id::text, qa.id::text, qa.username, qa.display_name, q.plain_text,
 	COALESCE((SELECT jsonb_agg(jsonb_build_object(
 		'id', qm.upload_id::text, 'kind', qm.kind, 'mimeType', qm.mime_type,
-		'width', qm.width, 'height', qm.height, 'size', qm.size_bytes
+		'width', qm.width, 'height', qm.height, 'size', qm.size_bytes, 'altText', qm.alt_text
 	) ORDER BY qm.position) FROM fluo_post_media qm WHERE qm.post_id = q.id), '[]'::jsonb),
 	COALESCE((SELECT count(*) FROM fluo_reactions r WHERE r.post_id = p.id AND r.value = 'good'), 0),
 	COALESCE((SELECT count(*) FROM fluo_reactions r WHERE r.post_id = p.id AND r.value = 'bad'), 0),
@@ -32,7 +32,7 @@ const postColumns = `
 	EXISTS (SELECT 1 FROM fluo_saved_posts s WHERE s.user_id = $1::uuid AND s.post_id = p.id),
 	COALESCE((SELECT jsonb_agg(jsonb_build_object(
 		'id', m.upload_id::text, 'kind', m.kind, 'mimeType', m.mime_type,
-		'width', m.width, 'height', m.height, 'size', m.size_bytes
+		'width', m.width, 'height', m.height, 'size', m.size_bytes, 'altText', m.alt_text
 	) ORDER BY m.position) FROM fluo_post_media m WHERE m.post_id = p.id), '[]'::jsonb),
 	p.created_at, p.updated_at
 `
@@ -218,9 +218,9 @@ func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPos
 			return fluo.Post{}, fluo.ErrMediaOwner
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO fluo_post_media
-			(post_id, upload_id, position, kind, mime_type, width, height, size_bytes)
-			VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)`,
-			id, item.ID, position, item.Kind, item.MimeType, item.Width, item.Height, item.Size)
+			(post_id, upload_id, position, kind, mime_type, width, height, size_bytes, alt_text)
+			VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)`,
+			id, item.ID, position, item.Kind, item.MimeType, item.Width, item.Height, item.Size, item.AltText)
 		if err != nil {
 			return fluo.Post{}, err
 		}

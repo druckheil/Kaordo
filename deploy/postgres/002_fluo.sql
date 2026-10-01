@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS fluo_post_media (
     UNIQUE (post_id, position)
 );
 CREATE INDEX IF NOT EXISTS fluo_post_media_upload_idx ON fluo_post_media (upload_id);
+ALTER TABLE fluo_post_media ADD COLUMN IF NOT EXISTS alt_text text NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS fluo_upload_claims (
     upload_id uuid PRIMARY KEY,

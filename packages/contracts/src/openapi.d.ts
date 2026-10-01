@@ -234,6 +234,8 @@ export interface components {
             height: number;
             /** Format: int64 */
             size: number;
+            /** @description Description for assistive technology */
+            altText: string;
             /**
              * Format: uri
              * @description Short lived signed Nodo URL.
@@ -292,6 +294,10 @@ export interface components {
             /** Format: uuid */
             quoteId?: string;
             attachmentIds?: string[];
+            /** @description Optional descriptions keyed by attached upload ID; stored per post. */
+            altTexts?: {
+                [key: string]: string;
+            };
         };
         FluoReaction: {
             /** @enum {string} */

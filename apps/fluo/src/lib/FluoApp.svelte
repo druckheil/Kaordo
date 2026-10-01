@@ -10,6 +10,7 @@
     SearchIcon, SettingsIcon, UserRoundIcon, XIcon
   } from '@kaordo/ui';
   import PostCard from './PostCard.svelte';
+  import { mediaFrameHeightPx } from './media-layout';
 
   type FluoDialogsComponent = typeof import('./FluoDialogs.svelte').default;
 
@@ -40,9 +41,13 @@
   let dialogsPromise: Promise<void> | null = null;
   let historySession = '';
   let pendingCloseHash: string | null = null;
+  let retainedFeedScroll: number | null = null;
   let removedIds = $state<string[]>([]);
   let listElement = $state<HTMLDivElement>();
   let actionError = $state('');
+  let deleteTarget = $state<FluoPost | null>(null);
+  let deleteError = $state('');
+  let deleting = $state(false);
   let searchInput = $state('');
   let searchTerm = $state('');
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -72,11 +77,15 @@
     estimateSize: (index) => {
       const post = posts[index];
       if (!post) return 320;
-      const firstMedia = post.media[0];
-      const width = typeof window === 'undefined' ? 600 : Math.min(700, window.innerWidth - 40);
-      const mediaHeight = firstMedia ? Math.min(544, Math.max(192, width * firstMedia.height / firstMedia.width)) : 0;
-      return 220 + mediaHeight + Math.ceil(post.text.length / 90) * 22 +
-        (post.quote ? (post.quote.media.length ? 300 : 96) : 0);
+      const viewport = typeof window === 'undefined' ? 1024 : window.innerWidth;
+      const columnWidth = listElement?.clientWidth ?? Math.min(736, viewport - (viewport >= 640 ? 48 : 32));
+      const contentWidth = Math.max(1, columnWidth - (viewport >= 640 ? 50 : 34));
+      const rem = typeof window === 'undefined' ? 16 : parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const mediaHeight = mediaFrameHeightPx(post.media, contentWidth, rem);
+      const quoteMediaHeight = post.quote?.media.length
+        ? Math.ceil(post.quote.media.length / 2) * (viewport >= 640 ? 144 : 112) : 0;
+      return 220 + mediaHeight + Math.ceil(post.text.length / Math.max(30, contentWidth / 7)) * 22 +
+        (post.quote ? 72 + quoteMediaHeight : 0);
     },
     overscan: 4
   });
@@ -116,9 +125,12 @@
         void loadDialogs();
         return;
       }
+      const wasViewingPost = !!postId;
+      if (postId && deleteTarget?.id === postId) deleteTarget = null;
       postId = null;
       postDialogOpen = false;
       if (navigation.some((item) => item.id === hash)) view = hash as View;
+      if (wasViewingPost) restoreFeedScroll();
     };
     syncLocation();
     window.addEventListener('hashchange', syncLocation);
@@ -168,6 +180,7 @@
   }
 
   function openPost(id: string) {
+    if (!postId) retainedFeedScroll = window.scrollY;
     const hash = `#post/${id}`;
     const returnHash = postDialogOpen && postId ? `#post/${postId}` : `#${view}`;
     if (window.location.hash !== hash) {
@@ -188,6 +201,16 @@
     postId = id;
     postDialogOpen = true;
     void loadDialogs();
+  }
+
+  function restoreFeedScroll() {
+    const target = retainedFeedScroll;
+    if (target === null) return;
+    const restore = () => {
+      if (!postDialogOpen) window.scrollTo({ top: target, behavior: 'instant' });
+    };
+    queueMicrotask(restore);
+    requestAnimationFrame(restore);
   }
 
   function loadDialogs(): Promise<void> {
@@ -226,9 +249,11 @@
     if (returnThroughHistory) {
       pendingCloseHash = returnHash;
       window.history.back();
+      if (!returnHash.startsWith('#post/')) restoreFeedScroll();
       return;
     }
     view = returnView;
+    if (!returnHash.startsWith('#post/')) restoreFeedScroll();
   }
 
   function openComposer() {
@@ -312,11 +337,21 @@
     }
   }
 
-  async function remove(post: FluoPost) {
-    if (!confirm('Delete this post and its comments?')) return;
+  function remove(post: FluoPost) {
+    if (postId === post.id) postDialogOpen = false;
+    deleteTarget = post;
+    deleteError = '';
+    void loadDialogs();
+  }
+
+  async function confirmRemove() {
+    const post = deleteTarget;
+    if (!post || deleting) return;
+    deleting = true;
     try {
       actionError = '';
       await api.remove(post.id);
+      deleteTarget = null;
       removedIds = [...removedIds, post.id];
       if (postId === post.id) closePost();
       queryClient.setQueriesData<InfiniteData<FluoPage>>({ queryKey: ['fluo', 'feed'] }, (cached) => cached && ({
@@ -325,12 +360,14 @@
       }));
       await queryClient.invalidateQueries({ queryKey: ['fluo'] });
     } catch (error) {
-      actionError = error instanceof Error ? error.message : 'Could not delete the post.';
+      deleteError = error instanceof Error ? error.message : 'Could not delete the post.';
+    } finally {
+      deleting = false;
     }
   }
 </script>
 
-<div class="grid gap-7 pb-36 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:pb-10">
+<div class="grid gap-7 pb-24 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:pb-10">
   <aside class="hidden lg:sticky lg:top-24 lg:flex lg:h-[calc(100dvh-7rem)] lg:flex-col lg:self-start">
     <p class="mb-5 px-4 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Explore Fluo</p>
     <nav class="grid gap-1" aria-label="Fluo navigation">
@@ -368,10 +405,10 @@
         </p>
       </div>
       {#if view === 'feed'}
-        <div class="flex rounded-xl border border-border bg-card p-1" aria-label="Feed order">
+        <div class="flex rounded-xl border border-border bg-card p-1" role="group" aria-label="Feed order">
           {#each ['latest', 'following'] as tab}
             <Button variant={feed === tab ? 'secondary' : 'ghost'} size="sm"
-              aria-current={feed === tab ? 'page' : undefined}
+              aria-pressed={feed === tab}
               onclick={() => { feed = tab as Feed; window.scrollTo({ top: 0 }); }}>
               {tab === 'latest' ? 'Latest' : 'Following'}
             </Button>
@@ -411,7 +448,7 @@
         <p class="mb-5 rounded-xl border border-border bg-accent/60 px-4 py-3 text-sm text-accent-foreground">Only you can see the posts you save.</p>
       {:else if view === 'profile'}
         <div class="mb-6 overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-sm">
-          <div class="h-20 bg-gradient-to-r from-[#dceee1] via-[#e9f4e8] to-[#f1e9d7]"></div>
+          <div class="h-20 bg-gradient-to-r from-secondary via-accent to-muted"></div>
           <div class="-mt-6 flex items-end gap-4 px-5 pb-5">
             <div class="grid size-14 shrink-0 place-items-center rounded-2xl border-4 border-card bg-primary text-xl font-bold text-primary-foreground" aria-hidden="true">
               {user.displayName[0]?.toUpperCase() ?? 'K'}
@@ -482,11 +519,9 @@
   </section>
 </div>
 
-<Button class="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] left-4 z-30 h-11 gap-2 rounded-full px-5 shadow-lg lg:hidden"
-  disabled={dialogsLoading} onclick={openComposer}><PlusIcon class="size-5" /> {dialogsLoading ? 'Opening…' : 'Post'}</Button>
-
 {#if DialogsComponent}
   <DialogsComponent {api} {user} {queryClient} {replyTo} {quoteTo} {composerOpen} {postDialogOpen}
+    {deleteTarget} {deleteError} {deleting}
     post={selectedPost.data} postPending={selectedPost.isPending} postError={selectedPost.error?.message ?? null}
     onComposerOpenChange={(open) => {
       composerOpen = open;
@@ -498,17 +533,29 @@
       else if (postId && window.location.hash === `#post/${postId}`) postDialogOpen = true;
     }}
     onClosePost={closePost} onReply={reply} onQuote={quote} onOpenPost={openPost}
+    onDeleteOpenChange={(open) => {
+      if (!open && !deleting) {
+        const returnToPost = postId === deleteTarget?.id && window.location.hash === `#post/${postId}`;
+        deleteTarget = null;
+        if (returnToPost) postDialogOpen = true;
+      }
+    }} onConfirmDelete={confirmRemove}
     onReact={react} onFollow={follow} onSave={save} onDelete={remove} />
 {/if}
 
-<nav class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_35px_-28px_rgba(0,0,0,.45)] backdrop-blur-lg lg:hidden"
+<nav class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-7 border-t border-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_35px_-28px_rgba(0,0,0,.45)] backdrop-blur-lg lg:hidden"
   aria-label="Fluo navigation">
+  <Button class="h-14 min-w-0 flex-col gap-0.5 rounded-none px-0 text-[10px] font-semibold text-primary"
+    variant="ghost" disabled={dialogsLoading} aria-label="Post" onclick={openComposer}>
+    <span class="grid size-7 place-items-center rounded-full bg-primary text-primary-foreground"><PlusIcon class="size-4" /></span>
+    <span>Post</span>
+  </Button>
   {#each navigation as item (item.id)}
     {@const Icon = item.icon}
-    <Button class="h-14 min-w-0 flex-col gap-0.5 rounded-none px-0 text-[10px] font-semibold" variant="ghost"
+    <Button class="h-14 min-w-0 flex-col gap-0.5 rounded-none px-0 text-[10px] font-semibold tracking-[-0.02em]" variant="ghost"
       aria-label={item.label} title={item.label} aria-current={view === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
       <Icon class={view === item.id ? 'size-5 text-primary' : 'size-5'} />
-      <span class={(view === item.id ? 'text-primary' : 'text-muted-foreground') + ' hidden min-[375px]:inline'}>{item.label}</span>
+      <span class={(view === item.id ? 'text-primary' : 'text-muted-foreground') + ' max-w-full truncate'}>{item.id === 'notifications' ? 'Alerts' : item.label}</span>
     </Button>
   {/each}
 </nav>

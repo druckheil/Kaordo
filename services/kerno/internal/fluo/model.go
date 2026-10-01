@@ -41,6 +41,7 @@ type Media struct {
 	Width    int    `json:"width"`
 	Height   int    `json:"height"`
 	Size     int64  `json:"size"`
+	AltText  string `json:"altText"`
 	URL      string `json:"url,omitempty"`
 }
 
@@ -68,11 +69,12 @@ type Post struct {
 }
 
 type NewPost struct {
-	Content       json.RawMessage `json:"content"`
-	Visibility    string          `json:"visibility"`
-	ParentID      *string         `json:"parentId"`
-	QuoteID       *string         `json:"quoteId"`
-	AttachmentIDs []string        `json:"attachmentIds"`
+	Content       json.RawMessage   `json:"content"`
+	Visibility    string            `json:"visibility"`
+	ParentID      *string           `json:"parentId"`
+	QuoteID       *string           `json:"quoteId"`
+	AttachmentIDs []string          `json:"attachmentIds"`
+	AltTexts      map[string]string `json:"altTexts"`
 }
 
 type Page struct {

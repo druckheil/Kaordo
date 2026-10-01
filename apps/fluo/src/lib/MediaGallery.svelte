@@ -6,9 +6,7 @@
   import { Button, ChevronLeftIcon, ChevronRightIcon } from '@kaordo/ui';
   import 'photoswipe/style.css';
   import VideoPlayer from './VideoPlayer.svelte';
-  import { maxMediaHeightRem, maxMediaRatio, mediaFrameRatio, minMediaRatio } from './media-layout';
-
-  const gapPx = 8;
+  import { maxMediaHeightRem, maxMediaRatio, mediaFrameRatio, mediaGapPx, minMediaRatio } from './media-layout';
 
   let { media }: { media: FluoMedia[] } = $props();
   let gallery = $state<HTMLDivElement>();
@@ -20,7 +18,7 @@
   const first = $derived(media[0]);
   const ratios = $derived(media.map(mediaFrameRatio));
   const widestRatio = $derived(Math.max(1, ...ratios));
-  const maxStripWidth = $derived(`calc(${maxMediaHeightRem * ratios.reduce((sum, ratio) => sum + ratio, 0)}rem + ${Math.max(0, media.length - 1) * gapPx}px)`);
+  const maxStripWidth = $derived(`calc(${maxMediaHeightRem * ratios.reduce((sum, ratio) => sum + ratio, 0)}rem + ${Math.max(0, media.length - 1) * mediaGapPx}px)`);
   const positionLabel = $derived(visible.length > 1
     ? `${visible[0] + 1}–${visible[visible.length - 1] + 1} / ${media.length}`
     : `${(visible[0] ?? 0) + 1} / ${media.length}`);
@@ -74,7 +72,7 @@
       data-cropped={isExtreme(item) ? 'true' : undefined}
       class="block h-full w-full overflow-hidden outline-offset-[-4px] focus-visible:rounded-xl focus-visible:outline-3 focus-visible:outline-ring"
       aria-label={'Open image ' + (index + 1) + ' of ' + media.length}>
-      <img src={item.url} alt={'Image ' + (index + 1) + ' attached to this post'} width={item.width} height={item.height}
+      <img src={item.url} alt={item.altText || 'Image ' + (index + 1) + ' attached to this post'} width={item.width} height={item.height}
         loading="lazy" decoding="async" draggable="false" class="block h-full w-full object-cover object-center" />
     </a>
   {:else}
@@ -95,7 +93,7 @@
         <div class="w-full overflow-hidden rounded-2xl"
           style:aspect-ratio={widestRatio} style:max-height={`${maxMediaHeightRem}rem`}
           use:useEmblaCarousel={{ options, plugins: [] }} onemblaInit={initialized}>
-          <div class="flex h-full touch-pan-y" style:gap={`${gapPx}px`}>
+          <div class="flex h-full touch-pan-y" style:gap={`${mediaGapPx}px`}>
             {#each media as item, index (item.id)}
               <div class="h-full shrink-0 overflow-hidden rounded-xl" style:aspect-ratio={ratios[index]}
                 role="group" aria-roledescription="slide" aria-label={(index + 1) + ' of ' + media.length}>

@@ -138,6 +138,11 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     assert.ok(page.url().startsWith(identity), 'Registration must open the identity form without an extra click');
     await capture(page, 'register');
     await checkAccessibility(page, 'Keycloak registration');
+    await page.setViewportSize({ width: 320, height: 768 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'Registration must reflow at 320 CSS pixels');
+    await checkAccessibility(page, 'Keycloak registration at 320px');
+    await page.setViewportSize({ width: 1280, height: 720 });
     const fields = await page.locator('#kc-register-form input:not([type=submit])').evaluateAll((inputs) =>
       inputs.filter((input) => input.type !== 'hidden').map((input) => input.name));
     assert.deepEqual(fields, ['username', 'password']);
@@ -194,6 +199,11 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     assert.ok(cachedAccount, 'A verified account should be available for a display-only preview');
     assert.doesNotMatch(cachedAccount, /accessToken|refreshToken|Bearer /);
     await checkAccessibility(page, 'Connected portal');
+    await page.setViewportSize({ width: 320, height: 768 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'Connected portal must reflow at 320 CSS pixels');
+    await checkAccessibility(page, 'Connected portal at 320px');
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.addInitScript(() => {
       window.__guestActionSeen = false;
       const check = () => {
@@ -267,6 +277,11 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
         await page.getByText(`Welcome, ${username}.`, { exact: false }).waitFor();
       }
       await checkAccessibility(page, `${app} account gate`);
+      await page.setViewportSize({ width: 320, height: 768 });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        `${app} must reflow at 320 CSS pixels`);
+      await checkAccessibility(page, `${app} at 320px`);
+      await page.setViewportSize({ width: 1280, height: 720 });
       assert.equal(await page.getByRole('link', { name: 'Sign in' }).count(), 0);
     }
     await page.goto(`${site}/fluo/`);
@@ -316,7 +331,31 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
       name: 'fluo-test-4.png', mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64')
     });
     assert.equal(await attachments.locator('li').count(), 4);
+    await attachments.locator('li').first().getByText('Add description').click();
+    await attachments.getByLabel('Description for fluo-test-1.png').fill('A solid black test image');
     await capture(page, 'fluo-composer');
+    await page.setViewportSize({ width: 320, height: 768 });
+    assert.ok(await composer.evaluate((dialog) => {
+      const scroller = dialog.querySelector('.kaordo-scrollbar');
+      return scroller && scroller.scrollWidth <= scroller.clientWidth;
+    }),
+      'The composer with four attachments must not overflow at 320 CSS pixels');
+    const compactActions = await composer.evaluate((dialog) => {
+      const media = dialog.querySelector('button[aria-label="Add media"]');
+      const options = dialog.querySelector('button[aria-label="Post options"]');
+      const publish = Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Publish');
+      return media && options && publish && {
+        mediaTop: media.getBoundingClientRect().top,
+        optionsTop: options.getBoundingClientRect().top,
+        publishTop: publish.getBoundingClientRect().top
+      };
+    });
+    assert.ok(compactActions && Math.abs(compactActions.mediaTop - compactActions.publishTop) < 2 &&
+      Math.abs(compactActions.optionsTop - compactActions.publishTop) < 2,
+      'Media, options and publish must remain in one reachable footer row at 320px');
+    await checkAccessibility(page, 'Fluo composer at 320px');
+    await capture(page, 'fluo-composer-mobile');
+    await page.setViewportSize({ width: 1280, height: 720 });
     const createdPost = page.waitForResponse((response) => response.url().endsWith('/v1/fluo/posts') && response.request().method() === 'POST');
     await composer.getByRole('button', { name: 'Publish' }).click();
     const postResponse = await createdPost;
@@ -328,6 +367,8 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
       assert.equal(item.width, 8);
       assert.equal(item.height, 6);
     }
+    assert.equal(post.media[0].altText, 'A solid black test image',
+      'Image descriptions must be stored with the post attachment');
     const card = page.locator(`article[data-post-id="${post.id}"]`);
     await card.waitFor();
     await capture(page, 'fluo-before-carousel');
@@ -509,10 +550,10 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
       'The modal must publish a reply linked to its parent post');
     await replyComposer.waitFor({ state: 'detached' });
     await card.getByRole('button', { name: 'View 1 reply' }).click();
-    const comments = card.getByRole('region', { name: 'Comments' });
+    const comments = card.getByRole('region', { name: 'Replies' });
     await comments.getByText(replyText).waitFor();
     if (process.env.KAORDO_UI_SNAPSHOTS === '1') {
-      await card.screenshot({ path: join(tmpdir(), 'kaordo-ui-fluo-comments.png') });
+      await page.screenshot({ path: join(tmpdir(), 'kaordo-ui-fluo-comments.png') });
     }
     const quoteText = `Quote ${randomBytes(3).toString('hex')}`;
     await card.getByRole('button', { name: 'Quote post' }).click();
@@ -534,6 +575,8 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     assert.equal(quotedPost.quote?.id, post.id,
       `The new post must reference the quoted post: ${JSON.stringify({ quoteId: quotedPost.quoteId, quote: quotedPost.quote, source: post.id })}`);
     assert.equal(quotedPost.quote.media.length, 4, 'A quoted post must include its original media');
+    assert.equal(quotedPost.quote.media[0].altText, 'A solid black test image',
+      'Quoted media must retain the original accessible description');
     assert.ok(quotedPost.quote.media.every((item) => item.url.startsWith('http')),
       'Quoted media must have signed URLs');
     const quoteCard = page.locator(`article[data-post-id="${quotedPost.id}"]`);
@@ -541,9 +584,9 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     const quotePreview = quoteCard.getByRole('button', { name: `Open quoted post by ${username}` });
     assert.equal(await quotePreview.locator('img').count(), 4);
     await quotePreview.scrollIntoViewIfNeeded();
-    const feedScroll = await page.evaluate(() => window.scrollY);
     const feedCardWidth = (await quoteCard.boundingBox()).width;
     await quotePreview.click();
+    const feedScroll = await page.evaluate(() => window.scrollY);
     const postDialog = page.getByRole('dialog', { name: 'Post', exact: true });
     await postDialog.locator(`article[data-post-id="${post.id}"]`).waitFor();
     await postDialog.evaluate((dialog) => Promise.all(dialog.getAnimations().map((animation) => animation.finished)));
@@ -576,16 +619,27 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     assert.equal(detailLayout.scrollbarWidth, 'thin', 'The post dialog must use a compact vertical scrollbar');
     assert.ok(detailLayout.clipped && detailLayout.scrollbarInset >= 7,
       'The scrollbar must sit inside the rounded, clipped dialog edge');
+    await postDialog.getByRole('button', { name: 'Delete post' }).click();
+    const nestedDeleteDialog = page.getByRole('dialog', { name: 'Delete post?' });
+    await nestedDeleteDialog.waitFor();
+    await nestedDeleteDialog.getByRole('button', { name: 'Cancel' }).click();
+    await nestedDeleteDialog.waitFor({ state: 'hidden' });
+    assert.equal(await postDialog.isVisible(), true,
+      'Canceling deletion from post detail must return to the same post');
     assert.equal(new URL(page.url()).hash, `#post/${post.id}`);
+    const scrollBeforeBack = await page.evaluate(() => window.scrollY);
     await page.goBack();
     await postDialog.waitFor({ state: 'hidden' });
     await quotePreview.waitFor();
-    assert.ok(Math.abs((await page.evaluate(() => window.scrollY)) - feedScroll) < 3,
-      'Returning from a quoted post must preserve the feed position');
+    await page.waitForFunction((target) => Math.abs(window.scrollY - target) < 3, feedScroll);
+    const scrollAfterBack = await page.evaluate(() => window.scrollY);
+    assert.ok(Math.abs(scrollAfterBack - feedScroll) < 3,
+      `Returning from a quoted post must preserve the feed position: before ${feedScroll}, in dialog ${scrollBeforeBack}, after ${scrollAfterBack}`);
     await quotePreview.click();
     await postDialog.locator(`article[data-post-id="${post.id}"]`).waitFor();
     await postDialog.getByRole('button', { name: 'Back', exact: true }).click();
     await postDialog.waitFor({ state: 'hidden' });
+    await page.waitForFunction((target) => Math.abs(window.scrollY - target) < 3, feedScroll);
     assert.ok(Math.abs((await page.evaluate(() => window.scrollY)) - feedScroll) < 3,
       'The in-app Back action must also preserve the feed position');
     await quotePreview.click();
@@ -650,13 +704,17 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     assert.ok(mobileDetail.overflow <= 1 && mobileDetail.postRight <= mobileDetail.dialogRight + 1 &&
       mobileDetail.galleryRight <= mobileDetail.postRight + 1,
       'A multi-media post must also fit the mobile detail dialog');
+    await postDialog.evaluate((dialog) => Promise.all(dialog.getAnimations().map((animation) => animation.finished)));
+    assert.equal(await postDialog.count(), 1, 'Reopening a post must leave one detail dialog');
+    await capture(page, 'fluo-detail-mobile');
     await postDialog.getByRole('button', { name: 'Back', exact: true }).click();
     await postDialog.waitFor({ state: 'hidden' });
     const mobilePostButton = await page.getByRole('button', { name: 'Post', exact: true }).boundingBox();
     const mobileNavigation = await fluoNav.boundingBox();
     assert.ok(mobilePostButton && mobileNavigation && mobilePostButton.x < 390 / 2 &&
-      mobilePostButton.y + mobilePostButton.height < mobileNavigation.y,
-      'The Post action must sit at the lower left above mobile navigation');
+      mobilePostButton.y >= mobileNavigation.y &&
+      mobilePostButton.y + mobilePostButton.height <= mobileNavigation.y + mobileNavigation.height,
+      'The Post action must occupy the lower-left mobile navigation cell without covering feed actions');
     await capture(page, 'fluo-mobile');
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       'Mobile layout must not overflow horizontally');
@@ -670,14 +728,39 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     assert.ok(mobileNav && Math.abs(mobileNav.y + mobileNav.height - 768) < 2,
       'Mobile navigation must remain fixed to the viewport bottom');
     await checkAccessibility(page, 'Fluo 320px reflow');
+    for (const [item, title] of [
+      ['Search', 'Search'], ['Notifications', 'Notifications'], ['Saved', 'Saved posts'],
+      ['Profile', 'Profile'], ['Settings', 'Settings']
+    ]) {
+      await fluoNav.getByRole('button', { name: item, exact: true }).click();
+      await page.getByRole('region', { name: title, exact: true }).waitFor();
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        `${item} must reflow without horizontal overflow at 320 CSS pixels`);
+      await checkAccessibility(page, `Fluo ${item} at 320px`);
+    }
+    await fluoNav.getByRole('button', { name: 'Feed', exact: true }).click();
+    await page.evaluate(() => document.documentElement.classList.add('dark'));
+    await page.waitForTimeout(300);
+    await checkAccessibility(page, 'Fluo dark theme at 320px');
+    await capture(page, 'fluo-dark-320');
+    await page.evaluate(() => document.documentElement.classList.remove('dark'));
     await page.setViewportSize({ width: 1280, height: 720 });
     await fluoNav.getByRole('button', { name: 'Profile', exact: true }).click();
     await card.waitFor();
-    page.once('dialog', (dialog) => { void dialog.accept(); });
+    await card.getByRole('button', { name: 'Delete post' }).click();
+    const deleteDialog = page.getByRole('dialog', { name: 'Delete post?' });
+    await deleteDialog.waitFor();
+    await deleteDialog.evaluate((dialog) => Promise.all(dialog.getAnimations().map((animation) => animation.finished)));
+    await checkAccessibility(page, 'Delete confirmation');
+    assert.match(await deleteDialog.textContent(), /removes its replies and attachments/);
+    await deleteDialog.getByRole('button', { name: 'Cancel' }).click();
+    await deleteDialog.waitFor({ state: 'hidden' });
+    await card.waitFor();
+    await card.getByRole('button', { name: 'Delete post' }).click();
     const [deletedPost] = await Promise.all([
       page.waitForResponse((response) =>
         response.url().endsWith(`/v1/fluo/posts/${post.id}`) && response.request().method() === 'DELETE'),
-      card.getByRole('button', { name: 'Delete post' }).click()
+      deleteDialog.getByRole('button', { name: 'Delete post' }).click()
     ]);
     assert.equal(deletedPost.status(), 204);
     const postBearer = (await postResponse.request().allHeaders()).authorization;
@@ -744,8 +827,22 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
       [singlePhotoAlignment.top, singlePhotoAlignment.left, singlePhotoAlignment.right, singlePhotoAlignment.bottom]
         .every((gap) => Math.abs(gap) < 1),
     `A single photo must meet its rounded frame without a visible inner gap: ${JSON.stringify(singlePhotoAlignment)}`);
+    let releaseSinglePost = () => {};
+    let reportSinglePostRequest;
+    const singlePostRequested = new Promise((resolve) => { reportSinglePostRequest = resolve; });
+    await page.route(`**/v1/fluo/posts/${singlePhotoPost.id}`, async (route) => {
+      reportSinglePostRequest();
+      await new Promise((resolve) => { releaseSinglePost = resolve; });
+      await route.continue();
+    });
     await page.evaluate((id) => { window.location.hash = `post/${id}`; }, singlePhotoPost.id);
+    await singlePostRequested;
+    await page.getByText('Opening post…').waitFor();
+    assert.equal(await postDialog.isVisible(), false,
+      'Post detail must not open at a temporary width while media metadata is loading');
+    releaseSinglePost();
     await postDialog.locator(`article[data-post-id="${singlePhotoPost.id}"]`).waitFor();
+    await page.unroute(`**/v1/fluo/posts/${singlePhotoPost.id}`);
     await postDialog.evaluate((dialog) => Promise.all(dialog.getAnimations().map((animation) => animation.finished)));
     const singlePhotoDetail = await postDialog.evaluate((dialog) => {
       const post = dialog.querySelector('article');

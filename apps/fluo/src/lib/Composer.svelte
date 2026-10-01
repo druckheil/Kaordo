@@ -19,7 +19,7 @@
   let editor = $state.raw<Editor | null>(null);
   let textLength = $state(0);
   let visibility = $state<'public' | 'private'>('public');
-  let files = $state.raw<{ file: File; preview: string }[]>([]);
+  let files = $state.raw<{ file: File; preview: string; altText: string }[]>([]);
   let pending = $state(false);
   let progress = $state(0);
   let error = $state('');
@@ -69,7 +69,7 @@
       if (fileInput) fileInput.value = '';
       return;
     }
-    files = [...files, ...selected.map((file) => ({ file, preview: URL.createObjectURL(file) }))];
+    files = [...files, ...selected.map((file) => ({ file, preview: URL.createObjectURL(file), altText: '' }))];
     error = '';
     if (fileInput) fileInput.value = '';
   }
@@ -77,6 +77,10 @@
   function removeFile(index: number) {
     URL.revokeObjectURL(files[index].preview);
     files = files.filter((_, position) => position !== index);
+  }
+
+  function changeAltText(index: number, value: string) {
+    files = files.map((item, position) => position === index ? { ...item, altText: value } : item);
   }
 
   async function publish() {
@@ -103,7 +107,11 @@
         visibility: replyTo?.visibility ?? visibility,
         ...(replyTo ? { parentId: replyTo.id } : {}),
         ...(quoteTo ? { quoteId: quoteTo.id } : {}),
-        attachmentIds
+        attachmentIds,
+        altTexts: Object.fromEntries(attachmentIds.flatMap((id, index) => {
+          const description = files[index].altText.trim();
+          return description ? [[id, description]] : [];
+        }))
       });
       editor.commands.clearContent();
       editor.commands.blur();
@@ -121,19 +129,22 @@
   }
 </script>
 
-<div class="min-w-0">
+<div class="min-w-0 pb-2">
   {#if replyTo}
     <section class="mb-5" aria-label="Post being replied to">
       <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Replying to</p>
       <QuotePreview quote={replyTo} context="reply" />
     </section>
   {/if}
-  <div class="editor-surface text-[15px] leading-7" bind:this={element}></div>
+  <div class="min-h-40 rounded-2xl border border-input bg-background p-4 text-[15px] leading-7 transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+    {#if !editor && !error}<p class="text-sm text-muted-foreground" role="status">Loading editor…</p>{/if}
+    <div class="editor-surface min-h-24" bind:this={element}></div>
+  </div>
   {#if files.length > 0}
     <ul class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Attachments">
       {#each files as item, index (item.preview)}
         <li class="group relative min-w-0 overflow-hidden rounded-xl border border-border bg-muted/50">
-          <div class="flex aspect-square items-center justify-center overflow-hidden bg-[#17251e]">
+          <div class="flex h-28 items-center justify-center overflow-hidden bg-foreground">
             {#if item.file.type.startsWith('image/')}
               <img src={item.preview} alt="" class="h-full w-full object-cover" />
             {:else}
@@ -141,6 +152,14 @@
             {/if}
           </div>
           <span class="block truncate px-2 py-1.5 text-xs text-muted-foreground">{item.file.name}</span>
+          <details class="border-t border-border/70 px-2 py-2 text-xs">
+            <summary class="cursor-pointer font-medium text-primary underline-offset-4 hover:underline">{item.altText ? 'Edit description' : 'Add description'}</summary>
+            <label class="mt-2 block font-medium" for={'fluo-alt-' + index}>Description for {item.file.name}</label>
+            <textarea id={'fluo-alt-' + index} rows="2" maxlength="500" value={item.altText}
+              disabled={pending} oninput={(event) => changeAltText(index, event.currentTarget.value)}
+              class="mt-1 w-full resize-y rounded-lg border border-input bg-card px-2.5 py-2 text-sm leading-5 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25"
+              placeholder="Describe the media for people using a screen reader"></textarea>
+          </details>
           <Button class="absolute right-1.5 top-1.5 rounded-full bg-card/95 shadow-sm" size="icon-xs" variant="outline"
             aria-label={'Remove ' + item.file.name} disabled={pending} onclick={() => removeFile(index)}><XIcon class="size-3.5" /></Button>
         </li>
@@ -179,18 +198,18 @@
     <p class="mt-3 text-xs text-muted-foreground" role="status">{progress < 100 ? `Uploading media: ${progress}%` : 'Processing media…'}</p>
   {/if}
   {#if error}<p class="mt-3 text-sm text-destructive" role="alert">{error}</p>{/if}
-  <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/80 pt-3">
-    <div class="flex items-center gap-2">
+  <div class="sticky bottom-0 z-10 -mx-2 mt-4 flex items-center justify-between gap-1.5 rounded-xl border-t border-border/80 bg-card/95 px-2 py-3 shadow-[0_-10px_24px_-22px_rgba(20,65,39,.65)] backdrop-blur-sm sm:gap-3">
+    <div class="flex shrink-0 items-center gap-1 sm:gap-2">
       <input bind:this={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime,.mov" multiple class="sr-only" aria-label="Choose photos or videos" onchange={chooseFiles} />
-      <Button size="sm" variant="outline" disabled={pending}
-        onclick={() => fileInput?.click()}><ImagePlusIcon class="size-4" /> Media</Button>
-      <Button size="sm" variant={optionsOpen ? 'secondary' : 'ghost'} aria-label="Post options"
+      <Button class="size-11 p-0 min-[420px]:w-auto min-[420px]:px-3" size="sm" variant="outline" disabled={pending}
+        aria-label="Add media" title="Add media" onclick={() => fileInput?.click()}><ImagePlusIcon class="size-4" /><span class="hidden min-[420px]:inline">Media</span></Button>
+      <Button class="size-11 p-0 min-[420px]:w-auto min-[420px]:px-3" size="sm" variant={optionsOpen ? 'secondary' : 'ghost'} aria-label="Post options" title="Post options"
         aria-expanded={optionsOpen} aria-controls="fluo-post-options" disabled={pending}
-        onclick={() => optionsOpen = !optionsOpen}><EllipsisIcon class="size-4" /> Options</Button>
+        onclick={() => optionsOpen = !optionsOpen}><EllipsisIcon class="size-4" /><span class="hidden min-[420px]:inline">Options</span></Button>
     </div>
-    <div class="flex items-center gap-3">
+    <div class="flex shrink-0 items-center gap-1.5 sm:gap-3">
       <span class="text-xs tabular-nums text-muted-foreground" aria-label="Character count">{textLength}/{replyTo ? 2000 : 5000}</span>
-      <Button disabled={!editor || pending} onclick={publish}>{pending ? 'Publishing…' : replyTo ? 'Reply' : 'Publish'}</Button>
+      <Button class="h-11" disabled={!editor || pending} onclick={publish}>{pending ? 'Publishing…' : replyTo ? 'Reply' : 'Publish'}</Button>
     </div>
   </div>
 </div>

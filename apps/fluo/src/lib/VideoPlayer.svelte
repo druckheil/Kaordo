@@ -53,8 +53,8 @@
     <media-player
       bind:this={player}
       class="fluo-video-player"
-      title="Video attachment"
-      aria-label="Video attachment"
+      title={media.altText || 'Video attachment'}
+      aria-label={media.altText || 'Video attachment'}
       src={source}
       viewType="video"
       playsinline
