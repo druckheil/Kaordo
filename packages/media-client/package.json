@@ -10,8 +10,8 @@
     }
   },
   "dependencies": {
-    "@kaordo/api-client": "workspace:*",
     "@kaordo/auth": "workspace:*",
+    "@kaordo/contracts": "workspace:*",
     "@uppy/core": "^6.1.0",
     "@uppy/tus": "^6.0.0",
     "pica": "^10.0.3"

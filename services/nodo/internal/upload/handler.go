@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/druckheil/Kaordo/services/mediaauth"
 	"github.com/google/uuid"
@@ -346,11 +349,11 @@ func (server *Server) beforeCreate(event tusd.HookEvent) (tusd.HTTPResponse, tus
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_INVALID_MEDIA", "a known file size is required", http.StatusBadRequest)
 	}
 	if ((mediaType == "image/jpeg" || mediaType == "image/png" || mediaType == "image/webp") && info.Size > 20*1024*1024) ||
-		((mediaType == "video/mp4" || mediaType == "video/webm" || mediaType == "video/quicktime") && info.Size > maxUploadSize) {
+		((mediaType == "video/mp4" || mediaType == "video/webm" || mediaType == "video/quicktime" || mediaType == "application/octet-stream") && info.Size > maxUploadSize) {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.ErrMaxSizeExceeded
 	}
-	if mediaType != "image/jpeg" && mediaType != "image/png" && mediaType != "image/webp" && mediaType != "video/mp4" && mediaType != "video/webm" && mediaType != "video/quicktime" {
-		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_UNSUPPORTED_MEDIA", "JPEG, PNG, WebP, MP4, WebM or MOV required", http.StatusUnsupportedMediaType)
+	if mediaType != "image/jpeg" && mediaType != "image/png" && mediaType != "image/webp" && mediaType != "video/mp4" && mediaType != "video/webm" && mediaType != "video/quicktime" && mediaType != "application/octet-stream" {
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_UNSUPPORTED_MEDIA", "JPEG, PNG, WebP, MP4, WebM, MOV or file upload required", http.StatusUnsupportedMediaType)
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -365,8 +368,26 @@ func (server *Server) beforeCreate(event tusd.HookEvent) (tusd.HTTPResponse, tus
 	}
 	entry.id = id.String()
 	return tusd.HTTPResponse{}, tusd.FileInfoChanges{
-		ID: id.String(), MetaData: tusd.MetaData{"owner": ownerID, "filetype": mediaType},
+		ID: id.String(), MetaData: tusd.MetaData{"owner": ownerID, "filetype": mediaType, "filename": safeFilename(info.MetaData["filename"])},
 	}, nil
+}
+
+func safeFilename(value string) string {
+	value = strings.ReplaceAll(value, "\\", "/")
+	value = filepath.Base(value)
+	value = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, value))
+	if value == "." || value == "" {
+		return "download"
+	}
+	if utf8.RuneCountInString(value) > 120 {
+		value = string([]rune(value)[:120])
+	}
+	return value
 }
 
 func (server *Server) metadata(w http.ResponseWriter, r *http.Request) {
@@ -405,7 +426,7 @@ func (server *Server) metadata(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"id": id, "kind": item.Kind, "mimeType": item.MimeType,
-		"width": item.Width, "height": item.Height, "size": item.Size, "complete": true,
+		"filename": item.Filename, "width": item.Width, "height": item.Height, "size": item.Size, "complete": true,
 	})
 }
 
@@ -432,7 +453,12 @@ func (server *Server) serveMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", item.MimeType)
-	w.Header().Set("Content-Disposition", "inline")
+	if item.Kind == "file" {
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": item.Filename}))
+	} else {
+		w.Header().Set("Content-Disposition", "inline")
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=60")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.ServeContent(w, r, id, stat.ModTime(), file)

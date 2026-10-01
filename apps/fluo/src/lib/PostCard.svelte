@@ -5,7 +5,7 @@
   import {
     BookmarkIcon, Button, MessageCircleIcon, Repeat2Icon, ThumbsDownIcon, ThumbsUpIcon, Trash2Icon, XIcon
   } from '@kaordo/ui';
-  import MediaGallery from './MediaGallery.svelte';
+  import { MediaGallery } from '@kaordo/media-ui';
   import QuotePreview from './QuotePreview.svelte';
   import RichText from './RichText.svelte';
 

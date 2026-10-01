@@ -2,13 +2,13 @@
   import { onMount } from 'svelte';
   import type { EmblaCarouselType } from 'embla-carousel';
   import useEmblaCarousel from 'embla-carousel-svelte';
-  import type { FluoMedia } from '@kaordo/contracts';
+  import type { MediaAttachment } from './media-layout';
   import { Button, ChevronLeftIcon, ChevronRightIcon } from '@kaordo/ui';
   import 'photoswipe/style.css';
   import VideoPlayer from './VideoPlayer.svelte';
   import { maxMediaHeightRem, maxMediaRatio, mediaFrameRatio, mediaGapPx, minMediaRatio } from './media-layout';
 
-  let { media }: { media: FluoMedia[] } = $props();
+  let { media, label = 'Post media' }: { media: MediaAttachment[]; label?: string } = $props();
   let gallery = $state<HTMLDivElement>();
   let carousel = $state.raw<EmblaCarouselType | null>(null);
   let visible = $state<number[]>([0]);
@@ -33,7 +33,7 @@
     duration: typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 22
   };
 
-  function isExtreme(item: FluoMedia): boolean {
+  function isExtreme(item: MediaAttachment): boolean {
     const natural = item.width / item.height;
     return natural < minMediaRatio || natural > maxMediaRatio;
   }
@@ -66,13 +66,13 @@
   });
 </script>
 
-{#snippet attachment(item: FluoMedia, index: number)}
+{#snippet attachment(item: MediaAttachment, index: number)}
   {#if item.kind === 'image'}
     <a data-pswp-item href={item.url} data-pswp-width={item.width} data-pswp-height={item.height}
       data-cropped={isExtreme(item) ? 'true' : undefined}
       class="block h-full w-full overflow-hidden outline-offset-[-4px] focus-visible:rounded-xl focus-visible:outline-3 focus-visible:outline-ring"
       aria-label={'Open image ' + (index + 1) + ' of ' + media.length}>
-      <img src={item.url} alt={item.altText || 'Image ' + (index + 1) + ' attached to this post'} width={item.width} height={item.height}
+      <img src={item.url} alt={item.altText || 'Image ' + (index + 1) + ' attached to this ' + (label === 'Post media' ? 'post' : 'message')} width={item.width} height={item.height}
         loading="lazy" decoding="async" draggable="false" class="block h-full w-full object-cover object-center" />
     </a>
   {:else}
@@ -81,14 +81,14 @@
 {/snippet}
 
 {#if first}
-  <div bind:this={gallery} class="mt-4 w-full min-w-0" aria-label="Post attachments">
+  <div bind:this={gallery} class="mt-4 w-full min-w-0" aria-label={label + ' attachments'}>
     {#if media.length === 1}
       <div class="mx-auto max-w-full overflow-hidden rounded-2xl ring-1 ring-border"
         style:width={`min(100%, ${maxMediaHeightRem * ratios[0]}rem)`} style:aspect-ratio={ratios[0]}>
         {@render attachment(first, 0)}
       </div>
     {:else}
-      <div role="region" aria-roledescription="carousel" aria-label="Post media" class="relative min-w-0 max-w-full"
+      <div role="region" aria-roledescription="carousel" aria-label={label} class="relative min-w-0 max-w-full"
         style:max-width={maxStripWidth}>
         <div class="w-full overflow-hidden rounded-2xl"
           style:aspect-ratio={widestRatio} style:max-height={`${maxMediaHeightRem}rem`}

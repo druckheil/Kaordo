@@ -2,7 +2,7 @@ import { spawn, execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { promisify, parseEnv } from 'node:util';
-import { fluoMigrations } from './fluo-migrations.mjs';
+import { productMigrations } from './product-migrations.mjs';
 
 const run = promisify(execFile);
 const database = `fluo_test_${randomBytes(4).toString('hex')}`;
@@ -27,14 +27,27 @@ if (!config.KAORDO_DB_PASSWORD) throw new Error('Local database credentials are 
 await run('docker', ['exec', container, 'createdb', '-U', 'kaordo', database]);
 try {
   await migrate('../deploy/postgres/001_users.sql');
-  for (const migration of fluoMigrations) {
+  for (const migration of productMigrations) {
     await migrate(`../deploy/postgres/${migration}`);
   }
   const dsn = `postgres://kaordo:${encodeURIComponent(config.KAORDO_DB_PASSWORD)}@127.0.0.1:5432/${database}?sslmode=disable`;
-  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-cover', '-run', 'TestFluo', '-count=1', '-v'], {
+  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-cover', '-run', 'Test(Fluo|Ligo)', '-count=1', '-v'], {
     env: { ...process.env, KAORDO_TEST_DATABASE_URL: dsn }
   });
   process.stdout.write(stdout);
+  await run('docker', ['exec', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', database,
+    '-c', `CREATE TABLE fluo_upload_claims (LIKE nodo_upload_claims INCLUDING ALL);
+      INSERT INTO fluo_upload_claims SELECT * FROM nodo_upload_claims
+      WHERE upload_id = '01999111-2222-7333-8444-555555555592'::uuid;
+      DELETE FROM nodo_upload_claims
+      WHERE upload_id = '01999111-2222-7333-8444-555555555592'::uuid;`]);
+  for (const migration of productMigrations) {
+    await migrate(`../deploy/postgres/${migration}`);
+  }
+  const claim = await run('docker', ['exec', container, 'psql', '-X', '-At', '-U', 'kaordo', '-d', database,
+    '-c', "SELECT retired_at IS NULL FROM nodo_upload_claims WHERE upload_id = '01999111-2222-7333-8444-555555555592'::uuid"]);
+  if (claim.stdout.trim() !== 't') throw new Error('Ligo file claim was retired by the second migration pass.');
+  process.stdout.write('Migration replay preserved the legacy claim and Ligo file reference.\n');
 } finally {
   await run('docker', ['exec', container, 'dropdb', '-U', 'kaordo', database]);
 }

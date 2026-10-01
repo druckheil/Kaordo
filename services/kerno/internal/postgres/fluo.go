@@ -226,11 +226,11 @@ func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPos
 	claims := append([]fluo.Media(nil), media...)
 	sort.Slice(claims, func(i, j int) bool { return claims[i].ID < claims[j].ID })
 	for _, item := range claims {
-		claimed, err := tx.Exec(ctx, `INSERT INTO fluo_upload_claims (upload_id, owner_id)
+		claimed, err := tx.Exec(ctx, `INSERT INTO nodo_upload_claims (upload_id, owner_id)
 			VALUES ($1::uuid, $2::uuid)
 			ON CONFLICT (upload_id) DO UPDATE SET owner_id = EXCLUDED.owner_id
-			WHERE fluo_upload_claims.owner_id = EXCLUDED.owner_id
-			AND fluo_upload_claims.retired_at IS NULL`, item.ID, actorID)
+			WHERE nodo_upload_claims.owner_id = EXCLUDED.owner_id
+			AND nodo_upload_claims.retired_at IS NULL`, item.ID, actorID)
 		if err != nil {
 			return fluo.Post{}, err
 		}
@@ -291,7 +291,7 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 	// observes the retired claim and fails before the bytes can be purged.
 	for _, mediaID := range ids {
 		var lockedID string
-		if err := tx.QueryRow(ctx, `SELECT upload_id::text FROM fluo_upload_claims
+		if err := tx.QueryRow(ctx, `SELECT upload_id::text FROM nodo_upload_claims
 			WHERE upload_id = $1::uuid FOR UPDATE`, mediaID).Scan(&lockedID); err != nil {
 			return nil, fmt.Errorf("lock media claim %s: %w", mediaID, err)
 		}
@@ -299,24 +299,31 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 	if _, err := tx.Exec(ctx, `DELETE FROM fluo_posts WHERE id = $1::uuid`, id); err != nil {
 		return nil, err
 	}
+	retiredIDs := make([]string, 0, len(ids))
 	for _, mediaID := range ids {
-		if _, err := tx.Exec(ctx, `UPDATE fluo_upload_claims AS claim SET retired_at = now()
+		result, err := tx.Exec(ctx, `UPDATE nodo_upload_claims AS claim SET retired_at = now()
 			WHERE claim.upload_id = $1::uuid AND claim.retired_at IS NULL
-			AND NOT EXISTS (SELECT 1 FROM fluo_post_media AS media WHERE media.upload_id = claim.upload_id)`, mediaID); err != nil {
+			AND NOT EXISTS (SELECT 1 FROM fluo_post_media AS media WHERE media.upload_id = claim.upload_id)
+			AND NOT EXISTS (SELECT 1 FROM ligo_message_media AS media WHERE media.upload_id = claim.upload_id)`, mediaID)
+		if err != nil {
 			return nil, err
+		}
+		if result.RowsAffected() > 0 {
+			retiredIDs = append(retiredIDs, mediaID)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return ids, nil
+	return retiredIDs, nil
 }
 
 func (store *Fluo) MediaReferenced(ctx context.Context, id string) (bool, error) {
 	var referenced bool
 	err := store.pool.QueryRow(ctx, `SELECT
 		EXISTS(SELECT 1 FROM fluo_post_media WHERE upload_id = $1::uuid)
-		OR EXISTS(SELECT 1 FROM fluo_upload_claims WHERE upload_id = $1::uuid AND retired_at IS NULL)`, id).Scan(&referenced)
+		OR EXISTS(SELECT 1 FROM ligo_message_media WHERE upload_id = $1::uuid)
+		OR EXISTS(SELECT 1 FROM nodo_upload_claims WHERE upload_id = $1::uuid AND retired_at IS NULL)`, id).Scan(&referenced)
 	return referenced, err
 }
 

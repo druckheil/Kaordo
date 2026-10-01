@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 type mediaInfo struct {
 	Kind     string `json:"kind"`
 	MimeType string `json:"mimeType"`
+	Filename string `json:"filename,omitempty"`
 	Width    int    `json:"width"`
 	Height   int    `json:"height"`
 	Size     int64  `json:"size"`
@@ -44,8 +46,10 @@ func (server *Server) readReady(id string) (mediaInfo, error) {
 	if err := json.Unmarshal(data, &item); err != nil {
 		return mediaInfo{}, err
 	}
-	if item.Size < 1 || item.Size > maxUploadSize || item.Width < 1 || item.Width > 8192 ||
-		item.Height < 1 || item.Height > 8192 {
+	if item.Size < 1 || item.Size > maxUploadSize ||
+		(item.Kind != "file" && item.Kind != "image" && item.Kind != "video") ||
+		(item.Kind == "file" && (item.MimeType != "application/octet-stream" || item.Filename == "" || item.Width != 0 || item.Height != 0)) ||
+		(item.Kind != "file" && (item.Width < 1 || item.Width > 8192 || item.Height < 1 || item.Height > 8192)) {
 		return mediaInfo{}, errors.New("invalid processed media metadata")
 	}
 	return item, nil
@@ -73,6 +77,8 @@ func (server *Server) process(id string) error {
 		item, output, err = server.processImage(source, id, info.MetaData["filetype"])
 	case "video/mp4", "video/webm", "video/quicktime":
 		item, output, err = server.processVideo(source, id)
+	case "application/octet-stream":
+		item, output, err = server.processFile(source, id, info.MetaData["filename"])
 	default:
 		err = errors.New("unsupported media type")
 	}
@@ -104,6 +110,46 @@ func (server *Server) process(id string) error {
 	}
 	_ = os.Remove(server.errorPath(id))
 	return nil
+}
+
+func (server *Server) processFile(source, id, filename string) (mediaInfo, string, error) {
+	input, err := os.Open(source)
+	if err != nil {
+		return mediaInfo{}, "", err
+	}
+	defer input.Close()
+	stat, err := input.Stat()
+	if err != nil || stat.Size() < 1 || stat.Size() > maxUploadSize {
+		return mediaInfo{}, "", errors.New("file exceeds its size limit")
+	}
+	temp, err := os.CreateTemp(server.config.Directory, id+".file-*")
+	if err != nil {
+		return mediaInfo{}, "", err
+	}
+	path := temp.Name()
+	if err := temp.Close(); err != nil {
+		os.Remove(path)
+		return mediaInfo{}, "", err
+	}
+	if err := os.Remove(path); err != nil {
+		return mediaInfo{}, "", err
+	}
+	if err := os.Link(source, path); err != nil {
+		output, createErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if createErr != nil {
+			return mediaInfo{}, "", createErr
+		}
+		_, copyErr := io.Copy(output, input)
+		closeErr := output.Close()
+		if copyErr != nil || closeErr != nil {
+			os.Remove(path)
+			if copyErr != nil {
+				return mediaInfo{}, "", copyErr
+			}
+			return mediaInfo{}, "", closeErr
+		}
+	}
+	return mediaInfo{Kind: "file", MimeType: "application/octet-stream", Filename: filename, Size: stat.Size()}, path, nil
 }
 
 func (server *Server) processImage(source, id, declaredType string) (mediaInfo, string, error) {

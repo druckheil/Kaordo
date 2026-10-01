@@ -10,7 +10,7 @@
     SearchIcon, SettingsIcon, UserRoundIcon, XIcon
   } from '@kaordo/ui';
   import PostCard from './PostCard.svelte';
-  import { mediaFrameHeightPx } from './media-layout';
+  import { mediaFrameHeightPx } from '@kaordo/media-ui';
 
   type FluoDialogsComponent = typeof import('./FluoDialogs.svelte').default;
 

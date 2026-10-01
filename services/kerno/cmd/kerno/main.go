@@ -14,6 +14,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/druckheil/Kaordo/services/kerno/internal/httpapi"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
+	"github.com/druckheil/Kaordo/services/kerno/internal/ligoevents"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
 	"github.com/druckheil/Kaordo/services/mediaauth"
 )
@@ -59,6 +60,13 @@ func run() error {
 	if !postsTableExists {
 		return errors.New("Fluo tables are missing; apply deploy/postgres/002_fluo.sql")
 	}
+	var conversationsTableExists bool
+	if err := pool.QueryRow(ctx, "SELECT to_regclass('public.ligo_conversations') IS NOT NULL").Scan(&conversationsTableExists); err != nil {
+		return err
+	}
+	if !conversationsTableExists {
+		return errors.New("Ligo tables are missing; apply deploy/postgres/007_ligo.sql")
+	}
 
 	provider, err := identity.NewProvider(ctx, issuer)
 	if err != nil {
@@ -73,10 +81,18 @@ func run() error {
 	if address == "" {
 		address = "127.0.0.1:8081"
 	}
+	ligoStore := postgres.NewLigo(pool)
+	ligoEvents := ligoevents.New(ctx, dsn, ligoStore)
 	server := &http.Server{
 		Addr: address,
-		Handler: httpapi.NewRouterWithFluo(verify, postgres.NewUsers(pool), httpapi.FluoDependencies{
+		Handler: httpapi.NewRouterWithModules(verify, postgres.NewUsers(pool), httpapi.FluoDependencies{
 			Store:        postgres.NewFluo(pool),
+			Media:        httpapi.NodoClient{BaseURL: nodoInternalURL, InternalKey: mediaKey},
+			MediaBaseURL: nodoPublicURL,
+			MediaSignKey: mediaKey,
+		}, httpapi.LigoDependencies{
+			Store:        ligoStore,
+			Events:       ligoEvents,
 			Media:        httpapi.NodoClient{BaseURL: nodoInternalURL, InternalKey: mediaKey},
 			MediaBaseURL: nodoPublicURL,
 			MediaSignKey: mediaKey,

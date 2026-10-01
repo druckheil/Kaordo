@@ -116,7 +116,7 @@ func TestFluoPostFlow(t *testing.T) {
 		t.Fatalf("media reference = %t, %v", referenced, err)
 	}
 	removedMedia, err := store.Delete(ctx, a.ID, withMedia.ID)
-	if err != nil || len(removedMedia) != 1 || removedMedia[0] != attachment.ID {
+	if err != nil || len(removedMedia) != 0 {
 		t.Fatalf("deleted media IDs = %v, %v", removedMedia, err)
 	}
 	withoutOriginal, err := store.Get(ctx, b.ID, mediaQuote.ID)
@@ -139,7 +139,7 @@ func TestFluoPostFlow(t *testing.T) {
 		t.Fatalf("retired media was reused after its last reference was deleted: %v", err)
 	}
 	var retired bool
-	if err := pool.QueryRow(ctx, `SELECT retired_at IS NOT NULL FROM fluo_upload_claims WHERE upload_id = $1::uuid`, attachment.ID).Scan(&retired); err != nil || !retired {
+	if err := pool.QueryRow(ctx, `SELECT retired_at IS NOT NULL FROM nodo_upload_claims WHERE upload_id = $1::uuid`, attachment.ID).Scan(&retired); err != nil || !retired {
 		t.Fatalf("unreferenced media claim was not retired: %t, %v", retired, err)
 	}
 	page, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Limit: 1})

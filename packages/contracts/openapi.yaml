@@ -41,6 +41,145 @@ components:
         code:
           type: string
           description: A stable, non-sensitive reason when an authentication request is rejected.
+    LigoUser:
+      type: object
+      required: [id, username, displayName]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+    LigoMedia:
+      type: object
+      required: [id, kind, mimeType, filename, width, height, size, altText, url]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [image, video, file] }
+        mimeType: { type: string }
+        filename: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        size: { type: integer, format: int64 }
+        altText: { type: string }
+        url: { type: string, format: uri }
+    LigoReaction:
+      type: object
+      required: [emoji, count, mine]
+      properties:
+        emoji: { type: string, enum: [❤️, 👍, 👎] }
+        count: { type: integer, minimum: 1 }
+        mine: { type: boolean }
+    LigoMessage:
+      type: object
+      required: [id, conversationId, clientId, sender, text, media, reactions, status, editedAt, deleted, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        conversationId: { type: string, format: uuid }
+        clientId: { type: string, format: uuid }
+        sender: { $ref: '#/components/schemas/LigoUser' }
+        text: { type: string }
+        media:
+          type: array
+          items: { $ref: '#/components/schemas/LigoMedia' }
+        reactions:
+          type: array
+          items: { $ref: '#/components/schemas/LigoReaction' }
+        status: { type: string, enum: [sent, delivered, read] }
+        editedAt: { type: [string, 'null'], format: date-time }
+        deleted: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    LigoMessagePreview:
+      type: object
+      required: [id, text, senderId, deleted, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        text: { type: string }
+        senderId: { type: string, format: uuid }
+        deleted: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    LigoConversation:
+      type: object
+      required: [id, kind, title, createdBy, members, lastMessage, unreadCount, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [duo, group, self] }
+        title: { type: string }
+        createdBy: { type: string, format: uuid }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/LigoUser' }
+        lastMessage:
+          anyOf: [{ $ref: '#/components/schemas/LigoMessagePreview' }, { type: 'null' }]
+        unreadCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LigoConversationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LigoConversation' }
+        nextCursor: { type: [string, 'null'] }
+    LigoUserPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LigoUser' }
+    LigoMessagePage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LigoMessage' }
+        nextCursor: { type: [string, 'null'], format: uuid }
+    LigoNewConversation:
+      type: object
+      required: [kind, participantIds]
+      properties:
+        kind: { type: string, enum: [duo, group, self] }
+        title: { type: string, maxLength: 100 }
+        participantIds:
+          type: array
+          items: { type: string, format: uuid }
+    LigoNewMessage:
+      type: object
+      required: [clientId, text]
+      properties:
+        clientId: { type: string, format: uuid }
+        text: { type: string, maxLength: 4000 }
+        attachmentIds:
+          type: array
+          maxItems: 8
+          items: { type: string, format: uuid }
+        altTexts:
+          type: object
+          additionalProperties: { type: string, maxLength: 500 }
+    LigoReadRequest:
+      type: object
+      required: [messageId]
+      properties:
+        messageId: { type: string, format: uuid }
+    LigoEditMessageRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 4000 }
+    LigoReactionRequest:
+      type: object
+      required: [emoji, active]
+      properties:
+        emoji: { type: string, enum: [❤️, 👍, 👎] }
+        active: { type: boolean }
+    LigoMembersRequest:
+      type: object
+      required: [participantIds]
+      properties:
+        participantIds:
+          type: array
+          items: { type: string, format: uuid }
     FluoDocument:
       type: object
       description: Tiptap JSON document. Only paragraphs, text, line breaks and bold/italic/strike marks are accepted.
@@ -138,11 +277,12 @@ components:
         value: { type: string, enum: [good, bad] }
     NodoUpload:
       type: object
-      required: [id, kind, mimeType, width, height, size, complete]
+      required: [id, kind, mimeType, filename, width, height, size, complete]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [image, video] }
+        kind: { type: string, enum: [image, video, file] }
         mimeType: { type: string }
+        filename: { type: string }
         width: { type: integer }
         height: { type: integer }
         size: { type: integer, format: int64 }
@@ -164,7 +304,7 @@ paths:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         '200':
-          description: Processed upload metadata, ready for a Fluo post.
+          description: Processed upload metadata, ready for an authorized application reference.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/NodoUpload' }
@@ -177,7 +317,7 @@ paths:
               schema: { $ref: '#/components/schemas/ApiError' }
   /v1/internal/media/{id}/referenced:
     get:
-      operationId: isFluoMediaReferenced
+      operationId: isNodoMediaReferenced
       description: Internal Nodo cleanup gate. A missing or invalid response must preserve the file.
       security: [{ internalToken: [] }]
       parameters:
@@ -410,6 +550,251 @@ paths:
         '204': { description: Unfollowed user. }
         default:
           description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /v1/ligo/users:
+    get:
+      operationId: searchLigoUsers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 50 } }
+      responses:
+        '200':
+          description: Matching Kaordo accounts other than the viewer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoUserPage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations:
+    get:
+      operationId: listLigoConversations
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
+      responses:
+        '200':
+          description: Conversations containing the current user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoConversationPage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    post:
+      operationId: createLigoConversation
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoNewConversation' }
+      responses:
+        '201':
+          description: New or existing direct conversation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoConversation' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}:
+    get:
+      operationId: getLigoConversation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Accessible conversation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoConversation' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/members:
+    post:
+      operationId: addLigoMembers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoMembersRequest' }
+      responses:
+        '200':
+          description: Group with newly added members.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoConversation' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/messages:
+    get:
+      operationId: listLigoMessages
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: before, in: query, schema: { type: string, format: uuid } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
+      responses:
+        '200':
+          description: Newest first, older pages use nextCursor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoMessagePage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    post:
+      operationId: sendLigoMessage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoNewMessage' }
+      responses:
+        '201':
+          description: Sent or idempotently replayed message.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoMessage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/messages/{messageId}:
+    patch:
+      operationId: editLigoMessage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoEditMessageRequest' }
+      responses:
+        '200':
+          description: Edited message.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoMessage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      operationId: deleteLigoMessage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Message content removed, history position retained. }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/messages/{messageId}/reaction:
+    put:
+      operationId: setLigoReaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoReactionRequest' }
+      responses:
+        '200':
+          description: Message with updated reactions.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoMessage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/delivered:
+    put:
+      operationId: markLigoDelivered
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoReadRequest' }
+      responses:
+        '204': { description: Delivery position updated after receipt by an active client. }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/read:
+    put:
+      operationId: markLigoRead
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoReadRequest' }
+      responses:
+        '204': { description: Read position updated. }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/events:
+    get:
+      operationId: streamLigoEvents
+      security: [{ bearerAuth: [] }]
+      description: Short-lived SSE change hints scoped to the authenticated account. Reconnect after the stream closes.
+      responses:
+        '200':
+          description: text/event-stream with ready, update and resync events.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        default:
+          description: Error.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }

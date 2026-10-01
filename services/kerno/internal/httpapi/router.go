@@ -23,6 +23,10 @@ func NewRouter(verify VerifyFunc, users UserStore, allowedOrigins []string) http
 }
 
 func NewRouterWithFluo(verify VerifyFunc, users UserStore, social FluoDependencies, allowedOrigins []string) http.Handler {
+	return NewRouterWithModules(verify, users, social, LigoDependencies{}, allowedOrigins)
+}
+
+func NewRouterWithModules(verify VerifyFunc, users UserStore, social FluoDependencies, messaging LigoDependencies, allowedOrigins []string) http.Handler {
 	router := chi.NewRouter()
 	origins := make(map[string]bool, len(allowedOrigins))
 	for _, origin := range allowedOrigins {
@@ -40,7 +44,7 @@ func NewRouterWithFluo(verify VerifyFunc, users UserStore, social FluoDependenci
 					return
 				}
 				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			}
 			if r.Method == http.MethodOptions {
@@ -84,6 +88,9 @@ func NewRouterWithFluo(verify VerifyFunc, users UserStore, social FluoDependenci
 	})
 	if social.Store != nil {
 		mountFluo(router, verify, users, social)
+	}
+	if messaging.Store != nil {
+		mountLigo(router, verify, users, messaging)
 	}
 	return router
 }

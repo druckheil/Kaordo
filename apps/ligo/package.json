@@ -24,7 +24,13 @@
   },
   "dependencies": {
     "@kaordo/account-ui": "workspace:*",
+    "@kaordo/api-client": "workspace:*",
+    "@kaordo/contracts": "workspace:*",
     "@kaordo/links": "workspace:*",
-    "@kaordo/ui": "workspace:*"
+    "@kaordo/media-client": "workspace:*",
+    "@kaordo/media-ui": "workspace:*",
+    "@kaordo/ui": "workspace:*",
+    "@tanstack/svelte-query": "^6.3.0",
+    "@tanstack/svelte-virtual": "^3.13.39"
   }
 }

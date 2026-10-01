@@ -38,6 +38,9 @@ importers:
       '@kaordo/media-client':
         specifier: workspace:*
         version: link:../../packages/media-client
+      '@kaordo/media-ui':
+        specifier: workspace:*
+        version: link:../../packages/media-ui
       '@kaordo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -56,18 +59,6 @@ importers:
       '@tiptap/starter-kit':
         specifier: ^3.31.3
         version: 3.31.3
-      embla-carousel:
-        specifier: ^8.6.0
-        version: 8.6.0
-      embla-carousel-svelte:
-        specifier: ^8.6.0
-        version: 8.6.0(svelte@5.57.1)
-      photoswipe:
-        specifier: ^5.4.4
-        version: 5.4.4
-      vidstack:
-        specifier: ^1.15.6
-        version: 1.15.6
     devDependencies:
       '@sveltejs/adapter-static':
         specifier: ^3.0.10
@@ -102,12 +93,30 @@ importers:
       '@kaordo/account-ui':
         specifier: workspace:*
         version: link:../../packages/account-ui
+      '@kaordo/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@kaordo/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@kaordo/links':
         specifier: workspace:*
         version: link:../../packages/links
+      '@kaordo/media-client':
+        specifier: workspace:*
+        version: link:../../packages/media-client
+      '@kaordo/media-ui':
+        specifier: workspace:*
+        version: link:../../packages/media-ui
       '@kaordo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@tanstack/svelte-query':
+        specifier: ^6.3.0
+        version: 6.3.0(svelte@5.57.1)
+      '@tanstack/svelte-virtual':
+        specifier: ^3.13.39
+        version: 3.13.39(svelte@5.57.1)
     devDependencies:
       '@sveltejs/adapter-static':
         specifier: ^3.0.10
@@ -289,6 +298,9 @@ importers:
       '@kaordo/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@microsoft/fetch-event-source':
+        specifier: ^2.0.1
+        version: 2.0.1
       openapi-fetch:
         specifier: ^0.17.0
         version: 0.17.0
@@ -314,12 +326,12 @@ importers:
 
   packages/media-client:
     dependencies:
-      '@kaordo/api-client':
-        specifier: workspace:*
-        version: link:../api-client
       '@kaordo/auth':
         specifier: workspace:*
         version: link:../auth
+      '@kaordo/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@uppy/core':
         specifier: ^6.1.0
         version: 6.1.0
@@ -337,14 +349,35 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/media-ui:
+    dependencies:
+      '@kaordo/ui':
+        specifier: workspace:*
+        version: link:../ui
+      embla-carousel:
+        specifier: ^8.6.0
+        version: 8.6.0
+      embla-carousel-svelte:
+        specifier: ^8.6.0
+        version: 8.6.0(svelte@5.57.1)
+      photoswipe:
+        specifier: ^5.4.4
+        version: 5.4.4
+      svelte:
+        specifier: ^5.0.0
+        version: 5.57.1
+      vidstack:
+        specifier: ^1.15.6
+        version: 1.15.6
+
   packages/ui:
     dependencies:
       '@fontsource-variable/inter':
         specifier: ^5.3.0
         version: 5.3.0
       '@lucide/svelte':
-        specifier: ^1.48.0
-        version: 1.48.0(svelte@5.57.1)
+        specifier: ^1.49.0
+        version: 1.49.0(svelte@5.57.1)
       bits-ui:
         specifier: ^2.18.0
         version: 2.19.3(@internationalized/date@3.12.4)(@sveltejs/kit@2.70.3(@sveltejs/vite-plugin-svelte@7.3.1(svelte@5.57.1)(vite@8.3.1(jiti@2.7.0)))(svelte@5.57.1)(typescript@6.0.3)(vite@8.3.1(jiti@2.7.0)))(svelte@5.57.1)
@@ -441,10 +474,13 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@lucide/svelte@1.48.0':
-    resolution: {integrity: sha512-bLimVDjehxu3fpu9XEUpqEkBk2sJAHAT2sVcLHhlM70EdNsXuj9ZnYENWv5xgw3+05h4i5TirAxTiTgnZZf8gw==}
+  '@lucide/svelte@1.49.0':
+    resolution: {integrity: sha512-RFH6Vx7dj6hshcBa1qJ0nKAWwkh385jJbDwF1WVg7yflC89310BsA55SEmJnaSRfr03dAyZMMLUC1EMGBu0Z0Q==}
     peerDependencies:
       svelte: ^5
+
+  '@microsoft/fetch-event-source@2.0.1':
+    resolution: {integrity: sha512-W6CLUJ2eBMw3Rec70qrsEW0jOm/3twwJv21mrmj2yORiaVmVYGS4sSS5yUwvQc1ZlDLYGPnClVWmUUMagKNsfA==}
 
   '@oxc-project/types@0.151.0':
     resolution: {integrity: sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA==}
@@ -1766,9 +1802,11 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@lucide/svelte@1.48.0(svelte@5.57.1)':
+  '@lucide/svelte@1.49.0(svelte@5.57.1)':
     dependencies:
       svelte: 5.57.1
+
+  '@microsoft/fetch-event-source@2.0.1': {}
 
   '@oxc-project/types@0.151.0': {}
 

@@ -29,7 +29,7 @@ export interface paths {
             cookie?: never;
         };
         /** @description Internal Nodo cleanup gate. A missing or invalid response must preserve the file. */
-        get: operations["isFluoMediaReferenced"];
+        get: operations["isNodoMediaReferenced"];
         put?: never;
         post?: never;
         delete?: never;
@@ -189,6 +189,167 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ligo/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["searchLigoUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ligo/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listLigoConversations"];
+        put?: never;
+        post: operations["createLigoConversation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ligo/conversations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getLigoConversation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ligo/conversations/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addLigoMembers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ligo/conversations/{id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listLigoMessages"];
+        put?: never;
+        post: operations["sendLigoMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ligo/conversations/{id}/messages/{messageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteLigoMessage"];
+        options?: never;
+        head?: never;
+        patch: operations["editLigoMessage"];
+        trace?: never;
+    };
+    "/v1/ligo/conversations/{id}/messages/{messageId}/reaction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["setLigoReaction"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ligo/conversations/{id}/delivered": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["markLigoDelivered"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ligo/conversations/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["markLigoRead"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ligo/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Short-lived SSE change hints scoped to the authenticated account. Reconnect after the stream closes. */
+        get: operations["streamLigoEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -208,6 +369,120 @@ export interface components {
             error: string;
             /** @description A stable, non-sensitive reason when an authentication request is rejected. */
             code?: string;
+        };
+        LigoUser: {
+            /** Format: uuid */
+            id: string;
+            username: string;
+            displayName: string;
+        };
+        LigoMedia: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "image" | "video" | "file";
+            mimeType: string;
+            filename: string;
+            width: number;
+            height: number;
+            /** Format: int64 */
+            size: number;
+            altText: string;
+            /** Format: uri */
+            url: string;
+        };
+        LigoReaction: {
+            /** @enum {string} */
+            emoji: "❤️" | "👍" | "👎";
+            count: number;
+            mine: boolean;
+        };
+        LigoMessage: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            conversationId: string;
+            /** Format: uuid */
+            clientId: string;
+            sender: components["schemas"]["LigoUser"];
+            text: string;
+            media: components["schemas"]["LigoMedia"][];
+            reactions: components["schemas"]["LigoReaction"][];
+            /** @enum {string} */
+            status: "sent" | "delivered" | "read";
+            /** Format: date-time */
+            editedAt: string | null;
+            deleted: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        LigoMessagePreview: {
+            /** Format: uuid */
+            id: string;
+            text: string;
+            /** Format: uuid */
+            senderId: string;
+            deleted: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        LigoConversation: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "duo" | "group" | "self";
+            title: string;
+            /** Format: uuid */
+            createdBy: string;
+            members: components["schemas"]["LigoUser"][];
+            lastMessage: components["schemas"]["LigoMessagePreview"] | null;
+            unreadCount: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        LigoConversationPage: {
+            items: components["schemas"]["LigoConversation"][];
+            nextCursor: string | null;
+        };
+        LigoUserPage: {
+            items: components["schemas"]["LigoUser"][];
+        };
+        LigoMessagePage: {
+            items: components["schemas"]["LigoMessage"][];
+            /** Format: uuid */
+            nextCursor: string | null;
+        };
+        LigoNewConversation: {
+            /** @enum {string} */
+            kind: "duo" | "group" | "self";
+            title?: string;
+            participantIds: string[];
+        };
+        LigoNewMessage: {
+            /** Format: uuid */
+            clientId: string;
+            text: string;
+            attachmentIds?: string[];
+            altTexts?: {
+                [key: string]: string;
+            };
+        };
+        LigoReadRequest: {
+            /** Format: uuid */
+            messageId: string;
+        };
+        LigoEditMessageRequest: {
+            text: string;
+        };
+        LigoReactionRequest: {
+            /** @enum {string} */
+            emoji: "❤️" | "👍" | "👎";
+            active: boolean;
+        };
+        LigoMembersRequest: {
+            participantIds: string[];
         };
         /** @description Tiptap JSON document. Only paragraphs, text, line breaks and bold/italic/strike marks are accepted. */
         FluoDocument: {
@@ -307,8 +582,9 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            kind: "image" | "video";
+            kind: "image" | "video" | "file";
             mimeType: string;
+            filename: string;
             width: number;
             height: number;
             /** Format: int64 */
@@ -338,7 +614,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Processed upload metadata, ready for a Fluo post. */
+            /** @description Processed upload metadata, ready for an authorized application reference. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -365,7 +641,7 @@ export interface operations {
             };
         };
     };
-    isFluoMediaReferenced: {
+    isNodoMediaReferenced: {
         parameters: {
             query?: never;
             header?: never;
@@ -832,6 +1108,434 @@ export interface operations {
                 content?: never;
             };
             /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    searchLigoUsers: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching Kaordo accounts other than the viewer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigoUserPage"];
+                };
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listLigoConversations: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Conversations containing the current user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigoConversationPage"];
+                };
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createLigoConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LigoNewConversation"];
+            };
+        };
+        responses: {
+            /** @description New or existing direct conversation. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigoConversation"];
+                };
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getLigoConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accessible conversation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigoConversation"];
+                };
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    addLigoMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LigoMembersRequest"];
+            };
+        };
+        responses: {
+            /** @description Group with newly added members. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigoConversation"];
+                };
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listLigoMessages: {
+        parameters: {
+            query?: {
+                before?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest first, older pages use nextCursor. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigoMessagePage"];
+                };
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    sendLigoMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LigoNewMessage"];
+            };
+        };
+        responses: {
+            /** @description Sent or idempotently replayed message. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigoMessage"];
+                };
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteLigoMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Message content removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    editLigoMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LigoEditMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Edited message. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigoMessage"];
+                };
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setLigoReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LigoReactionRequest"];
+            };
+        };
+        responses: {
+            /** @description Message with updated reactions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LigoMessage"];
+                };
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    markLigoDelivered: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LigoReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Delivery position updated after receipt by an active client. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    markLigoRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LigoReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Read position updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    streamLigoEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description text/event-stream with ready, update and resync events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Error. */
             default: {
                 headers: {
                     [name: string]: unknown;

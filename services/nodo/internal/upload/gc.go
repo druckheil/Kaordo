@@ -64,7 +64,7 @@ func (server *Server) removeFiles(id string) error {
 			return err
 		}
 	}
-	for _, pattern := range []string{".image-*", ".video-*.mp4", ".ready-*"} {
+	for _, pattern := range []string{".image-*", ".video-*.mp4", ".file-*", ".ready-*"} {
 		matches, err := filepath.Glob(filepath.Join(server.config.Directory, id+pattern))
 		if err != nil {
 			return err
@@ -104,7 +104,7 @@ func uploadIDFromFilename(name string) string {
 	case "", ".info", ".display", ".ready.json", ".error":
 		return id
 	default:
-		if strings.HasPrefix(suffix, ".image-") || strings.HasPrefix(suffix, ".video-") || strings.HasPrefix(suffix, ".ready-") {
+		if strings.HasPrefix(suffix, ".image-") || strings.HasPrefix(suffix, ".video-") || strings.HasPrefix(suffix, ".file-") || strings.HasPrefix(suffix, ".ready-") {
 			return id
 		}
 		return ""

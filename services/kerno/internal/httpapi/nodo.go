@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
+	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/druckheil/Kaordo/services/mediaauth"
 )
 
@@ -45,14 +46,14 @@ func (client NodoClient) Purge(ctx context.Context, id string) error {
 	return nil
 }
 
-func (client NodoClient) Validate(ctx context.Context, bearer, id string) (fluo.Media, error) {
+func (client NodoClient) ValidateLigo(ctx context.Context, bearer, id string) (ligo.Media, error) {
 	if !fluo.ValidID(id) || bearer == "" {
-		return fluo.Media{}, errors.New("invalid upload reference")
+		return ligo.Media{}, errors.New("invalid upload reference")
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		strings.TrimRight(client.BaseURL, "/")+"/v1/uploads/"+id+"/meta", nil)
 	if err != nil {
-		return fluo.Media{}, err
+		return ligo.Media{}, err
 	}
 	request.Header.Set("Authorization", bearer)
 	httpClient := client.Client
@@ -61,24 +62,37 @@ func (client NodoClient) Validate(ctx context.Context, bearer, id string) (fluo.
 	}
 	response, err := httpClient.Do(request)
 	if err != nil {
-		return fluo.Media{}, err
+		return ligo.Media{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fluo.Media{}, fmt.Errorf("Nodo rejected upload metadata with status %d", response.StatusCode)
+		return ligo.Media{}, fmt.Errorf("Nodo rejected upload metadata with status %d", response.StatusCode)
 	}
 	var result struct {
-		fluo.Media
+		ligo.Media
 		Complete bool `json:"complete"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&result); err != nil {
-		return fluo.Media{}, err
+		return ligo.Media{}, err
 	}
 	item := result.Media
 	if !result.Complete || item.ID != id || item.Size <= 0 || item.Size > 104857600 ||
-		item.Width < 1 || item.Width > 8192 || item.Height < 1 || item.Height > 8192 ||
-		(item.Kind != "image" && item.Kind != "video") {
-		return fluo.Media{}, errors.New("upload is incomplete or invalid")
+		(item.Kind != "file" && item.Kind != "image" && item.Kind != "video") ||
+		(item.Kind == "file" && (item.Width != 0 || item.Height != 0 || item.Filename == "" || item.MimeType != "application/octet-stream")) ||
+		(item.Kind != "file" && (item.Width < 1 || item.Width > 8192 || item.Height < 1 || item.Height > 8192)) {
+		return ligo.Media{}, errors.New("upload is incomplete or invalid")
 	}
 	return item, nil
+}
+
+func (client NodoClient) Validate(ctx context.Context, bearer, id string) (fluo.Media, error) {
+	item, err := client.ValidateLigo(ctx, bearer, id)
+	if err != nil {
+		return fluo.Media{}, err
+	}
+	if item.Kind != "image" && item.Kind != "video" {
+		return fluo.Media{}, errors.New("Fluo requires photo or video")
+	}
+	return fluo.Media{ID: item.ID, Kind: item.Kind, MimeType: item.MimeType,
+		Width: item.Width, Height: item.Height, Size: item.Size}, nil
 }

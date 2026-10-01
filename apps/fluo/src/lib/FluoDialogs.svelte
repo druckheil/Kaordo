@@ -5,7 +5,7 @@
   import { Button, ChevronLeftIcon, Dialog } from '@kaordo/ui';
   import Composer from './Composer.svelte';
   import PostCard from './PostCard.svelte';
-  import { maxMediaHeightRem, mediaFrameRatio } from './media-layout';
+  import { maxMediaHeightRem, mediaFrameRatio } from '@kaordo/media-ui';
 
   let {
     api, user, queryClient, replyTo, quoteTo, composerOpen, postDialogOpen, post, postPending, postError,

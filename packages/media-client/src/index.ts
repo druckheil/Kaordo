@@ -1,5 +1,5 @@
 import { accessToken } from '@kaordo/auth';
-import type { FluoApi } from '@kaordo/api-client';
+import type { NodoUpload } from '@kaordo/contracts';
 import Uppy from '@uppy/core';
 import Tus from '@uppy/tus';
 import pica from 'pica';
@@ -36,17 +36,19 @@ async function prepared(file: File): Promise<File> {
 }
 
 export async function uploadMedia(
-  files: File[], nodoBaseUrl: string, api: FluoApi, onProgress: (percent: number) => void
+  files: File[], nodoBaseUrl: string, api: { uploadMetadata(id: string): Promise<NodoUpload | null> },
+  onProgress: (percent: number) => void, options: { allowFiles?: boolean; maxFiles?: number } = {}
 ): Promise<string[]> {
   if (files.length === 0) return [];
-  if (files.length > 4) throw new Error('Add at most four files.');
+  const maxFiles = options.maxFiles ?? 4;
+  if (files.length > maxFiles) throw new Error(`Add at most ${maxFiles} files.`);
   if (files.some((file) => file.size > maxVideoSize)) throw new Error('A file exceeds the 100 MiB upload limit.');
   // Decoding and resizing several large images at once can retain multiple
   // bitmaps and canvases in memory. Keep preprocessing bounded to one image.
   const chosen: File[] = [];
   for (const file of files) chosen.push(await prepared(file));
   for (const file of chosen) {
-    if (!imageTypes.has(file.type) && !videoTypes.has(file.type)) {
+    if (!imageTypes.has(file.type) && !videoTypes.has(file.type) && !options.allowFiles) {
       throw new Error('Choose JPEG, PNG, WebP, MP4, WebM or MOV files.');
     }
     if (file.size < 1 || file.size > (imageTypes.has(file.type) ? maxImageSize : maxVideoSize)) {
@@ -54,7 +56,7 @@ export async function uploadMedia(
     }
   }
 
-  const uppy = new Uppy({ autoProceed: false, restrictions: { maxNumberOfFiles: 4, maxFileSize: maxVideoSize } });
+  const uppy = new Uppy({ autoProceed: false, restrictions: { maxNumberOfFiles: maxFiles, maxFileSize: maxVideoSize } });
   uppy.use(Tus, {
     endpoint: `${nodoBaseUrl.replace(/\/$/, '')}/v1/uploads/`,
     retryDelays: [0, 1000, 3000, 5000],
@@ -63,7 +65,8 @@ export async function uploadMedia(
   uppy.on('progress', onProgress);
   try {
     for (const file of chosen) {
-      uppy.addFile({ name: file.name, type: file.type, data: file, meta: { filetype: file.type } });
+      const filetype = imageTypes.has(file.type) || videoTypes.has(file.type) ? file.type : 'application/octet-stream';
+      uppy.addFile({ name: file.name, type: filetype, data: file, meta: { filetype, filename: file.name } });
     }
     const result = await uppy.upload();
     if (!result || result.failed?.length || result.successful?.length !== chosen.length) {

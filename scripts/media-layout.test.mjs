@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mediaFrameHeightPx, mediaFrameRatio } from '../apps/fluo/src/lib/media-layout.ts';
+import { mediaFrameHeightPx, mediaFrameRatio } from '../packages/media-ui/src/media-layout.ts';
 
 test('a single image reserves its final height from stored dimensions', () => {
   assert.equal(mediaFrameHeightPx([{ width: 1200, height: 900 }], 600), 450);

@@ -53,13 +53,13 @@ CREATE TABLE IF NOT EXISTS fluo_post_media (
 CREATE INDEX IF NOT EXISTS fluo_post_media_upload_idx ON fluo_post_media (upload_id);
 ALTER TABLE fluo_post_media ADD COLUMN IF NOT EXISTS alt_text text NOT NULL DEFAULT '';
 
-CREATE TABLE IF NOT EXISTS fluo_upload_claims (
+CREATE TABLE IF NOT EXISTS nodo_upload_claims (
     upload_id uuid PRIMARY KEY,
     owner_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     claimed_at timestamptz NOT NULL DEFAULT now()
 );
 -- Preserve claims for uploads linked before this table was added.
-INSERT INTO fluo_upload_claims (upload_id, owner_id)
+INSERT INTO nodo_upload_claims (upload_id, owner_id)
 SELECT m.upload_id, p.author_id FROM fluo_post_media m
 JOIN fluo_posts p ON p.id = m.post_id
 ON CONFLICT (upload_id) DO NOTHING;

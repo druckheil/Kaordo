@@ -1,3 +1,4 @@
 @import '@kaordo/ui/styles.css';
 @source '../../../../packages/ui/src/lib';
 @source '../../../../packages/account-ui/src';
+@source '../../../../packages/media-ui/src';

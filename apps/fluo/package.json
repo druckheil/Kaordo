@@ -28,15 +28,12 @@
     "@kaordo/contracts": "workspace:*",
     "@kaordo/links": "workspace:*",
     "@kaordo/media-client": "workspace:*",
+    "@kaordo/media-ui": "workspace:*",
     "@kaordo/ui": "workspace:*",
     "@tanstack/svelte-query": "^6.3.0",
     "@tanstack/svelte-virtual": "^3.13.39",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-placeholder": "^3.31.3",
-    "@tiptap/starter-kit": "^3.31.3",
-    "embla-carousel": "^8.6.0",
-    "embla-carousel-svelte": "^8.6.0",
-    "photoswipe": "^5.4.4",
-    "vidstack": "^1.15.6"
+    "@tiptap/starter-kit": "^3.31.3"
   }
 }

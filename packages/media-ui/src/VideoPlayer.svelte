@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { FluoMedia } from '@kaordo/contracts';
+  import type { MediaAttachment } from './media-layout';
   import type { MediaPlayerElement } from 'vidstack/elements';
   import type { VideoMimeType, VideoSrc } from 'vidstack';
 
-  let { media }: { media: FluoMedia } = $props();
+  let { media, compact = false }: { media: MediaAttachment; compact?: boolean } = $props();
   let player = $state<MediaPlayerElement>();
   let registered = $state(false);
 
@@ -48,7 +48,7 @@
   }
 </script>
 
-<div class="h-full w-full overflow-hidden rounded-xl bg-black" style:aspect-ratio={`${media.width}/${media.height}`}>
+<div class="h-full w-full overflow-hidden bg-black" class:rounded-xl={!compact} style:aspect-ratio={`${media.width}/${media.height}`}>
   {#if registered}
     <media-player
       bind:this={player}

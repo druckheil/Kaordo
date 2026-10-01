@@ -12,6 +12,7 @@
   "dependencies": {
     "@kaordo/auth": "workspace:*",
     "@kaordo/contracts": "workspace:*",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "openapi-fetch": "^0.17.0"
   }
 }
