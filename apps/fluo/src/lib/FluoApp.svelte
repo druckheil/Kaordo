@@ -6,7 +6,7 @@
   import { createFluoApi, feedOptions, type Feed } from '@kaordo/api-client';
   import type { FluoPage, FluoPost, UserIdentity } from '@kaordo/contracts';
   import {
-    BellIcon, BookmarkIcon, Button, HouseIcon, Input, PlusIcon,
+    BellIcon, BookmarkIcon, Button, DropdownMenu, EllipsisIcon, HouseIcon, Input, PlusIcon,
     SearchIcon, SettingsIcon, UserRoundIcon, XIcon
   } from '@kaordo/ui';
   import PostCard from './PostCard.svelte';
@@ -26,6 +26,8 @@
     { id: 'profile', label: 'Profile', icon: UserRoundIcon },
     { id: 'settings', label: 'Settings', icon: SettingsIcon }
   ] as const;
+  const mobileNavigation = navigation.filter((item) =>
+    item.id === 'feed' || item.id === 'search' || item.id === 'saved' || item.id === 'profile');
 
   const api = createFluoApi(import.meta.env.VITE_KAORDO_API_URL, import.meta.env.VITE_KAORDO_NODO_URL);
   const queryClient = new QueryClient();
@@ -397,10 +399,10 @@
     <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
         <p class="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Fluo / {pageTitle}</p>
-        <h2 class="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">{pageTitle}</h2>
+        <h1 class="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">{pageTitle}</h1>
         <p class="mt-2 text-sm text-muted-foreground">
           {view === 'feed' ? 'Ideas, moments and conversations.' : view === 'profile' ? 'Everything you have shared.' :
-            view === 'saved' ? 'Keep good things close.' : view === 'search' ? 'Find posts and people.' :
+            view === 'saved' ? 'Keep good things close.' : view === 'search' ? 'Find posts by text or author.' :
             view === 'settings' ? 'Your account at a glance.' : 'Updates from your community.'}
         </p>
       </div>
@@ -437,10 +439,10 @@
     {:else}
       {#if view === 'search'}
         <div class="mb-6 rounded-[1.5rem] border border-border bg-card p-4 shadow-sm">
-          <label class="sr-only" for="fluo-search">Search posts and people</label>
+          <label class="sr-only" for="fluo-search">Search posts</label>
           <div class="relative">
             <SearchIcon class="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
-            <Input id="fluo-search" class="pl-11" type="search" placeholder="Search posts and people" value={searchInput} oninput={changeSearch} />
+            <Input id="fluo-search" class="pl-11" type="search" placeholder="Search posts" value={searchInput} oninput={changeSearch} />
           </div>
           <p class="mt-3 text-xs text-muted-foreground">Search public posts and your own posts by text or author.</p>
         </div>
@@ -543,21 +545,32 @@
     onReact={react} onFollow={follow} onSave={save} onDelete={remove} />
 {/if}
 
-<nav class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-7 border-t border-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_35px_-28px_rgba(0,0,0,.45)] backdrop-blur-lg lg:hidden"
+<nav class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_35px_-28px_rgba(0,0,0,.45)] backdrop-blur-lg lg:hidden"
   aria-label="Fluo navigation">
-  <Button class="h-14 min-w-0 flex-col gap-0.5 rounded-none px-0 text-[10px] font-semibold text-primary"
+  <Button class="h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold text-primary"
     variant="ghost" disabled={dialogsLoading} aria-label="Post" onclick={openComposer}>
     <span class="grid size-7 place-items-center rounded-full bg-primary text-primary-foreground"><PlusIcon class="size-4" /></span>
     <span>Post</span>
   </Button>
-  {#each navigation as item (item.id)}
+  {#each mobileNavigation as item (item.id)}
     {@const Icon = item.icon}
-    <Button class="h-14 min-w-0 flex-col gap-0.5 rounded-none px-0 text-[10px] font-semibold tracking-[-0.02em]" variant="ghost"
+    <Button class={`h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold tracking-[-0.02em] ${view === item.id ? 'bg-accent text-primary' : ''}`} variant="ghost"
       aria-label={item.label} title={item.label} aria-current={view === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
       <Icon class={view === item.id ? 'size-5 text-primary' : 'size-5'} />
-      <span class={(view === item.id ? 'text-primary' : 'text-muted-foreground') + ' max-w-full truncate'}>{item.id === 'notifications' ? 'Alerts' : item.label}</span>
+      <span class={(view === item.id ? 'text-primary' : 'text-muted-foreground') + ' max-w-full truncate'}>{item.label}</span>
     </Button>
   {/each}
+  <DropdownMenu.Root>
+    <DropdownMenu.Trigger aria-label="More Fluo sections"
+      class={`flex h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-xs font-semibold transition-colors hover:bg-muted focus-visible:outline-3 focus-visible:outline-ring ${view === 'notifications' || view === 'settings' ? 'bg-accent text-primary' : 'text-muted-foreground'}`}>
+      <EllipsisIcon class="size-5" /><span>More</span>
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Content side="top" align="end" class="mb-2 min-w-44">
+      <DropdownMenu.Label>More in Fluo</DropdownMenu.Label>
+      <DropdownMenu.Item onSelect={() => navigate('notifications')}><BellIcon class="size-4" />Notifications</DropdownMenu.Item>
+      <DropdownMenu.Item onSelect={() => navigate('settings')}><SettingsIcon class="size-4" />Settings</DropdownMenu.Item>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 </nav>
 
 {#if actionError}

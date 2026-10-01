@@ -3,11 +3,16 @@
   import { appPaths } from '@kaordo/links';
   import { signOut } from '@kaordo/auth';
   import { clearAccountPreview, createAccountSessionController, readAccountPreview, type AccountPreview } from '@kaordo/account-ui';
-  import { ArrowRightIcon, ArrowUpRightIcon, Button, LogOutIcon } from '@kaordo/ui';
+  import { ArrowRightIcon, ArrowUpRightIcon, Button, HouseIcon, LogOutIcon, MessageCircleIcon } from '@kaordo/ui';
   import type { UserIdentity } from '@kaordo/contracts';
 
+  const available = [
+    { name: 'Fluo', description: 'Share a thought, discover new voices and keep the posts you love.',
+      label: 'Social', href: appPaths.fluo, icon: HouseIcon },
+    { name: 'Ligo', description: 'Keep conversations, photos and files together in one place.',
+      label: 'Messages', href: appPaths.ligo, icon: MessageCircleIcon }
+  ];
   const upcoming = [
-    { name: 'Ligo', description: 'Messages' },
     { name: 'Rondo', description: 'Communities' },
     { name: 'Regado', description: 'Administration' }
   ];
@@ -59,7 +64,7 @@
 
 <main class="mx-auto max-w-6xl px-5 pb-16 pt-7 sm:px-8 sm:pt-10">
   <header class="flex flex-wrap items-center justify-between gap-4">
-    <a class="inline-flex items-center gap-2 text-lg font-bold tracking-[-0.04em] text-primary" href={appPaths.portal}>
+    <a class="inline-flex items-center gap-2 rounded-xl text-lg font-bold tracking-[-0.04em] text-primary focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring" href={appPaths.portal}>
       <span class="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">K</span> Kaordo
     </a>
     {#if authenticated === null}
@@ -112,24 +117,32 @@
   <section class="mt-12" aria-label="Applications">
     <div class="mb-5">
       <p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Apps</p>
-      <h2 class="mt-1 text-2xl font-bold tracking-[-0.04em]">Start with Fluo</h2>
+      <h2 class="mt-1 text-2xl font-bold tracking-[-0.04em]">Choose an app</h2>
     </div>
-    <a href={appPaths.fluo} rel="external" class="group flex flex-col justify-between gap-7 rounded-[1.5rem] border border-border bg-card p-6 shadow-sm transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-lg sm:flex-row sm:items-end">
-      <div>
-        <div class="mb-5 grid size-12 place-items-center rounded-2xl bg-accent text-xl font-bold text-primary" aria-hidden="true">F</div>
-        <h3 class="text-2xl font-bold tracking-[-0.04em]">Fluo</h3>
-        <p class="mt-2 max-w-md text-sm leading-6 text-muted-foreground">Share a thought, discover new voices and keep the posts you love.</p>
-      </div>
-      <span class="inline-flex h-10 items-center gap-2 self-start rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground group-hover:brightness-110 sm:self-auto">
-        Open Fluo <ArrowUpRightIcon class="size-4" />
-      </span>
-    </a>
-    <div class="mt-5 grid gap-3 sm:grid-cols-3">
+    <div class="grid gap-4 md:grid-cols-2">
+      {#each available as module (module.name)}
+        {@const Icon = module.icon}
+        <a href={module.href} rel="external"
+          class="group flex min-h-56 flex-col rounded-[1.5rem] border border-border bg-card p-6 shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring sm:p-7">
+          <div class="flex items-start justify-between gap-3">
+            <span class="grid size-12 place-items-center rounded-2xl bg-accent text-primary" aria-hidden="true"><Icon class="size-6" /></span>
+            <span class="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-secondary-foreground">{module.label}</span>
+          </div>
+          <h3 class="mt-5 text-2xl font-bold tracking-tight">{module.name}</h3>
+          <p class="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">{module.description}</p>
+          <span class="mt-auto inline-flex items-center gap-1.5 pt-5 text-sm font-semibold text-primary">
+            Open {module.name} <ArrowUpRightIcon class="size-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </span>
+        </a>
+      {/each}
+    </div>
+    <h3 class="mt-8 text-sm font-semibold text-muted-foreground">Coming next</h3>
+    <div class="mt-3 grid gap-3 sm:grid-cols-2">
       {#each upcoming as module}
         <div class="rounded-2xl border border-border bg-card/75 p-5">
           <div class="flex items-center justify-between gap-2">
-            <h3 class="text-base font-bold">{module.name}</h3>
-            <span class="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">In development</span>
+            <h4 class="text-base font-bold">{module.name}</h4>
+            <span class="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">In development</span>
           </div>
           <p class="mt-2 text-sm text-muted-foreground">{module.description}</p>
         </div>

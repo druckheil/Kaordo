@@ -79,17 +79,18 @@
     <p class="mt-4 rounded-2xl border p-4 text-sm text-muted-foreground">Quoted post unavailable.</p>
   {/if}
 
-  <div class="mt-5 grid grid-cols-4 gap-1.5 border-t border-border/80 pt-3 sm:gap-3" aria-label="Post actions">
+  <div class={`post-actions mt-5 grid gap-1.5 border-t border-border/80 pt-3 sm:gap-3 ${post.visibility === 'public' ? 'grid-cols-4' : 'grid-cols-3'}`}
+    data-visibility={post.visibility} aria-label="Post actions">
     <div class:disliked={post.myReaction === 'bad'} class="reaction-control relative">
       <Button class="h-11 w-full min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={post.myReaction === 'good' ? 'secondary' : 'ghost'}
-        size="sm" aria-label={'Good, ' + post.counts.good} aria-pressed={post.myReaction === 'good'}
-        disabled={reacting} onclick={() => chooseReaction('good')}>
+        size="sm" aria-label={'Like, ' + post.counts.good} aria-pressed={post.myReaction === 'good'}
+        aria-busy={reacting} disabled={reacting} onclick={() => chooseReaction('good')}>
         <ThumbsUpIcon class="size-4" /><span class="hidden text-xs sm:inline">Like</span><span class="text-xs tabular-nums">{post.counts.good}</span>
       </Button>
       <Button class="dislike-choice absolute -right-2 -top-10 z-10 rounded-full border border-border bg-card shadow-lg"
         variant={post.myReaction === 'bad' ? 'secondary' : 'outline'} size="icon-sm"
-        aria-label={'Bad, ' + post.counts.bad} aria-pressed={post.myReaction === 'bad'}
-        disabled={reacting} onclick={() => chooseReaction('bad')}><ThumbsDownIcon class={post.myReaction === 'bad' ? 'size-4 fill-current' : 'size-4'} /></Button>
+        aria-label={'Dislike, ' + post.counts.bad} aria-pressed={post.myReaction === 'bad'}
+        aria-busy={reacting} disabled={reacting} onclick={() => chooseReaction('bad')}><ThumbsDownIcon class={post.myReaction === 'bad' ? 'size-4 fill-current' : 'size-4'} /></Button>
     </div>
     <Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost"
       size="sm" aria-label="Reply to post" onclick={onReply}>
@@ -98,26 +99,24 @@
     {#if post.visibility === 'public'}
       <Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost" size="sm"
         aria-label="Quote post" onclick={onQuote}><Repeat2Icon class="size-4" /><span class="hidden text-xs sm:inline">Quote</span></Button>
-    {:else}
-      <span aria-hidden="true"></span>
     {/if}
     <Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={post.saved ? 'secondary' : 'ghost'}
       size="sm" aria-label={post.saved ? 'Remove from saved posts' : 'Save post'} aria-pressed={post.saved}
-      disabled={saving} onclick={toggleSaved}>
+      aria-busy={saving} disabled={saving} onclick={toggleSaved}>
       <BookmarkIcon class={post.saved ? 'size-4 fill-current' : 'size-4'} />
-      <span class="hidden text-xs sm:inline">{post.saved ? 'Saved' : 'Save'}</span>
+      <span class="hidden text-xs sm:inline">{saving ? 'Saving…' : post.saved ? 'Saved' : 'Save'}</span>
     </Button>
   </div>
 
   {#if post.counts.comments > 0}
     <Button class="mt-2" variant="ghost" size="sm" aria-expanded={expanded}
-      aria-controls={'comments-' + post.id} onclick={() => expanded = !expanded}>
+      aria-controls={expanded ? 'comments-' + post.id : undefined} onclick={() => expanded = !expanded}>
       {expanded ? 'Hide replies' : `View ${post.counts.comments} ${post.counts.comments === 1 ? 'reply' : 'replies'}`}
     </Button>
   {/if}
 
   {#if expanded}
-    <section id={'comments-' + post.id} class="comment-panel mt-4 rounded-2xl border border-border bg-muted/35 p-4 sm:p-5"
+    <section id={'comments-' + post.id} class="comment-panel mt-4 border-t border-border/80 pt-4"
       aria-label="Replies">
       <div class="flex items-center justify-between gap-3">
         <h3 class="text-sm font-bold">Replies <span class="ml-1 font-medium text-muted-foreground">{post.counts.comments}</span></h3>
@@ -131,19 +130,23 @@
       {:else if comments.data.pages.every((page) => page.items.length === 0)}
         <p class="mt-5 text-sm text-muted-foreground">No replies yet. Start the conversation.</p>
       {:else}
-        <ol class="mt-4 divide-y divide-border/80">
+        <ol class="mt-4 grid gap-4">
           {#each comments.data.pages as page}
             {#each page.items as comment (comment.id)}
-              <li class="flex gap-3 py-4 first:pt-0 last:pb-0">
-                <div class="grid size-8 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-secondary-foreground" aria-hidden="true">
+              <li class="flex min-w-0 gap-3 rounded-xl border-l-2 border-border bg-background/65 px-3 py-3">
+                <div class="grid size-9 shrink-0 place-items-center rounded-xl bg-secondary text-xs font-bold text-secondary-foreground" aria-hidden="true">
                   {comment.author.displayName[0]?.toUpperCase() ?? 'K'}
                 </div>
                 <div class="min-w-0 flex-1">
-                  <p class="mb-1.5 text-xs font-semibold">{comment.author.displayName}
-                    <span class="ml-1 font-normal text-muted-foreground">@{comment.author.username} · <time datetime={comment.createdAt}>{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(comment.createdAt))}</time></span>
-                  </p>
+                  <div class="mb-1.5 flex flex-wrap items-baseline gap-x-1.5 text-xs">
+                    <span class="font-semibold text-foreground">{comment.author.displayName}</span>
+                    <span class="text-muted-foreground">@{comment.author.username}</span>
+                    <time class="text-muted-foreground" datetime={comment.createdAt}>
+                      {new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(comment.createdAt))}
+                    </time>
+                  </div>
                   <RichText content={comment.content} />
-                  <MediaGallery media={comment.media} />
+                  <MediaGallery media={comment.media} label="Reply media" />
                 </div>
               </li>
             {/each}
@@ -157,7 +160,7 @@
             onclick={() => comments.fetchNextPage()}>More replies</Button>
         {/if}
       {/if}
-      <div class="mt-5 border-t border-border/80 pt-4">
+      <div class="mt-4">
         <Button variant="outline" size="sm" onclick={onReply}><MessageCircleIcon class="size-4" /> Write a reply</Button>
       </div>
     </section>
@@ -181,7 +184,8 @@
     transform: none;
   }
   @media (hover: none) {
-    .fluo-post [aria-label="Post actions"] { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .25rem; }
+    .post-actions[data-visibility="public"] { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .25rem; }
+    .post-actions[data-visibility="private"] { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .25rem; }
     .reaction-control { display: contents; }
     :global(.dislike-choice) {
       position: static;

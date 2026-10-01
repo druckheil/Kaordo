@@ -141,18 +141,18 @@
     <div class="editor-surface min-h-24" bind:this={element}></div>
   </div>
   {#if files.length > 0}
-    <ul class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Attachments">
+    <ul class="mt-4 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-4" aria-label="Attachments">
       {#each files as item, index (item.preview)}
-        <li class="group relative min-w-0 overflow-hidden rounded-xl border border-border bg-muted/50">
-          <div class="flex h-28 items-center justify-center overflow-hidden bg-foreground">
+        <li class="group relative grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] overflow-hidden rounded-xl border border-border bg-muted/50 min-[420px]:block">
+          <div class="flex h-24 items-center justify-center overflow-hidden bg-foreground min-[420px]:h-28">
             {#if item.file.type.startsWith('image/')}
               <img src={item.preview} alt="" class="h-full w-full object-cover" />
             {:else}
               <video src={item.preview} muted playsinline preload="metadata" class="h-full w-full object-contain" aria-hidden="true"></video>
             {/if}
           </div>
-          <span class="block truncate px-2 py-1.5 text-xs text-muted-foreground">{item.file.name}</span>
-          <details class="border-t border-border/70 px-2 py-2 text-xs">
+          <span class="block truncate px-2 py-1.5 pr-9 text-xs text-muted-foreground min-[420px]:pr-2">{item.file.name}</span>
+          <details class="col-span-2 border-t border-border/70 px-2 py-2 text-xs">
             <summary class="cursor-pointer font-medium text-primary underline-offset-4 hover:underline">{item.altText ? 'Edit description' : 'Add description'}</summary>
             <label class="mt-2 block font-medium" for={'fluo-alt-' + index}>Description for {item.file.name}</label>
             <textarea id={'fluo-alt-' + index} rows="2" maxlength="500" value={item.altText}

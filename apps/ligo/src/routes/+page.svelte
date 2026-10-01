@@ -8,7 +8,7 @@
 
 <AccountGate appName="Ligo" returnPath={appPaths.ligo} environment={import.meta.env}>
   {#snippet preview(account)}
-    <div class="p-6 text-sm text-muted-foreground" role="status">Welcome back, {account.displayName}. Loading your conversations…</div>
+    <p>Welcome back, {account.displayName}. Loading your conversations…</p>
   {/snippet}
   {#snippet children(user)}
     <LigoApp {user} />

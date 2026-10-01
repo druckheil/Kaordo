@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -118,8 +118,8 @@ async function removeTemporaryUser(username) {
     const deletion = await fetch(`${identity}/admin/realms/kaordo/users/${subject}`, { method: 'DELETE', headers });
     assert.equal(deletion.status, 204, 'Temporary identity deletion must succeed');
     await run('docker', [
-      'exec', 'local-app-db-1', 'psql', '-U', 'kaordo', '-d', 'kaordo', '-tAc',
-      `DELETE FROM users WHERE keycloak_sub = '${subject}' RETURNING id;`
+      'exec', 'local-app-db-1', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', 'kaordo', '-tAc',
+      `BEGIN; DELETE FROM ligo_conversations WHERE created_by IN (SELECT id FROM users WHERE keycloak_sub = '${subject}'); DELETE FROM users WHERE keycloak_sub = '${subject}' RETURNING id; COMMIT;`
     ]);
   }
 }
@@ -264,7 +264,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     });
     for (const app of ['ligo', 'fluo', 'rondo', 'regado']) {
       if (app === 'ligo') {
-        await checkCachedPreview(page, () => page.goto(`${site}/${app}/`), `Welcome, ${username}.`);
+        await checkCachedPreview(page, () => page.goto(`${site}/${app}/`), `Welcome back, ${username}.`);
       } else {
         const appResponse = page.waitForResponse((response) =>
           response.url().endsWith('/v1/session') && response.request().method() === 'POST');
@@ -273,6 +273,8 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
       }
       if (app === 'fluo') {
         await page.getByRole('navigation', { name: 'Fluo navigation' }).waitFor();
+      } else if (app === 'ligo') {
+        await page.getByRole('heading', { name: 'Chats' }).waitFor();
       } else {
         await page.getByText(`Welcome, ${username}.`, { exact: false }).waitFor();
       }
@@ -282,6 +284,157 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
         `${app} must reflow at 320 CSS pixels`);
       await checkAccessibility(page, `${app} at 320px`);
       await page.setViewportSize({ width: 1280, height: 720 });
+      if (app === 'ligo') {
+        await page.getByRole('button', { name: 'Saved messages', exact: true }).first().click();
+        await page.getByRole('heading', { name: 'Saved messages' }).waitFor();
+        const messageText = `Ligo UI check ${randomBytes(3).toString('hex')}`;
+        await page.getByRole('textbox', { name: 'Write a message' }).fill(messageText);
+        await page.getByRole('button', { name: 'Send message' }).click();
+        const bubble = page.getByLabel(`Message from ${username}`).filter({ hasText: messageText });
+        await bubble.waitFor();
+        await capture(page, 'ligo-chat');
+        await checkAccessibility(page, 'Ligo saved conversation');
+        await bubble.click({ button: 'right' });
+        await page.getByRole('menuitem', { name: 'Heart' }).click();
+        await page.getByRole('button', { name: /❤️ reaction, 1/ }).waitFor();
+        await page.setViewportSize({ width: 320, height: 768 });
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+          'Ligo message view must reflow at 320 CSS pixels');
+        await checkAccessibility(page, 'Ligo saved conversation at 320px');
+        await page.setViewportSize({ width: 1280, height: 720 });
+        const conversationId = /^#c\/([0-9a-f-]{36})$/i.exec(new URL(page.url()).hash)?.[1];
+        assert.ok(conversationId, 'Saved conversation must have a stable link');
+        for (let index = 0; index < 36; index++) {
+          const body = index % 3 === 0
+            ? Array.from({ length: 16 }, (_, line) => `Scroll row ${index + 1}, line ${line + 1}`).join('\n')
+            : index % 3 === 1 ? `Scroll row ${index + 1}: ${'different message heights '.repeat(8)}`
+              : `Scroll row ${index + 1}`;
+          const response = await fetch(`http://localhost:8081/v1/ligo/conversations/${conversationId}/messages`, {
+            method: 'POST',
+            headers: { Authorization: bearer, Origin: site, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId: randomUUID(), text: body, attachmentIds: [] })
+          });
+          assert.equal(response.status, 201, `Scrollable message ${index + 1} must be created`);
+        }
+        await page.reload();
+        await page.getByRole('log', { name: 'Messages' }).waitFor({ state: 'visible' });
+        const historyText = Array.from({ length: 72 }, (_, index) => `History line ${index + 1}`).join('\n');
+        await page.getByRole('textbox', { name: 'Write a message' }).fill(historyText);
+        await page.getByRole('button', { name: 'Send message' }).click();
+        await page.getByLabel(`Message from ${username}`).filter({ hasText: 'History line 72' }).waitFor();
+        const lastMessageText = `Ligo media scroll check ${randomBytes(3).toString('hex')}`;
+        const ligoImage = await page.evaluate(() => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 128;
+          canvas.height = 96;
+          canvas.getContext('2d').fillRect(0, 0, 128, 96);
+          return canvas.toDataURL('image/png').split(',')[1];
+        });
+        await page.getByLabel('Choose files').setInputFiles({
+          name: 'ligo-scroll.png', mimeType: 'image/png', buffer: Buffer.from(ligoImage, 'base64')
+        });
+        await page.getByRole('textbox', { name: 'Write a message' }).fill(lastMessageText);
+        await page.getByRole('button', { name: 'Send message' }).click();
+        const lastBubble = page.getByLabel(`Message from ${username}`).filter({ hasText: lastMessageText });
+        await lastBubble.locator('img').waitFor();
+        await page.reload();
+        const messageLog = page.getByRole('log', { name: 'Messages' });
+        await messageLog.waitFor({ state: 'visible' });
+        assert.equal(await messageLog.evaluate((element) => getComputedStyle(element).overscrollBehaviorY),
+          'contain', 'Native boundary bounce must remain enabled inside the chat');
+        const chatPosition = async () => messageLog.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          const last = element.querySelector('[data-index]:last-child');
+          return {
+            distance: element.scrollHeight - element.clientHeight - element.scrollTop,
+            scrollTop: element.scrollTop,
+            scrollHeight: element.scrollHeight,
+            clientHeight: element.clientHeight,
+            rows: element.querySelectorAll('[data-index]').length,
+            lastBottom: last?.getBoundingClientRect().bottom ?? 0,
+            viewportBottom: rect.bottom
+          };
+        });
+        const initialPosition = await chatPosition();
+        assert.ok(initialPosition.distance >= -1 && initialPosition.distance <= 2,
+          `Ligo must open at the exact bottom, got ${JSON.stringify(initialPosition)}`);
+        assert.ok(initialPosition.lastBottom <= initialPosition.viewportBottom + 1,
+          'The latest media message must be fully inside the message viewport');
+        await lastBubble.locator('img').evaluate((image) => image.decode());
+        await page.waitForTimeout(250);
+        const settledPosition = await chatPosition();
+        assert.ok(settledPosition.distance >= -1 && settledPosition.distance <= 2,
+          `Media loading must not move the chat away from the bottom: ${JSON.stringify(settledPosition)}`);
+        await lastBubble.evaluate((element) => {
+          const probe = document.createElement('div');
+          probe.dataset.scrollResizeProbe = '';
+          probe.style.height = '96px';
+          element.append(probe);
+        });
+        await page.waitForTimeout(100);
+        const grownPosition = await chatPosition();
+        assert.ok(grownPosition.distance >= -1 && grownPosition.distance <= 2,
+          `A growing media message must keep the bottom anchor: ${JSON.stringify(grownPosition)}`);
+        await lastBubble.locator('[data-scroll-resize-probe]').evaluate((element) => element.remove());
+        await page.waitForTimeout(100);
+        const shrunkPosition = await chatPosition();
+        assert.ok(shrunkPosition.distance >= -1 && shrunkPosition.distance <= 2,
+          `A shrinking media message must keep the bottom anchor: ${JSON.stringify(shrunkPosition)}`);
+        const messageDraft = page.getByRole('textbox', { name: 'Write a message' });
+        await messageDraft.fill('Growing composer\n'.repeat(8));
+        await page.waitForTimeout(100);
+        const composerPosition = await chatPosition();
+        assert.ok(composerPosition.distance >= -1 && composerPosition.distance <= 2,
+          `Growing the composer must keep the newest message visible: ${JSON.stringify(composerPosition)}`);
+        await messageDraft.fill('');
+        await page.waitForTimeout(100);
+        const clearedComposerPosition = await chatPosition();
+        assert.ok(clearedComposerPosition.distance >= -1 && clearedComposerPosition.distance <= 2,
+          `Shrinking the composer must keep the bottom anchor: ${JSON.stringify(clearedComposerPosition)}`);
+        await messageLog.evaluate((element) => { element.scrollTop = 160; });
+        await page.waitForTimeout(50);
+        const readingOffset = await messageLog.evaluate((element) => element.scrollTop);
+        await messageDraft.fill('Growing composer\n'.repeat(8));
+        await page.waitForTimeout(100);
+        const resizedReadingOffset = await messageLog.evaluate((element) => element.scrollTop);
+        assert.ok(Math.abs(resizedReadingOffset - readingOffset) <= 2,
+          `Composer resizing must preserve the reading position (${readingOffset} → ${resizedReadingOffset})`);
+        await messageDraft.fill('');
+        await messageLog.evaluate((element) => { element.scrollTop = 0; });
+        const firstLoadedRow = await messageLog.locator('[data-index="0"]').elementHandle();
+        assert.ok(firstLoadedRow, 'A message must be available for the history anchor check');
+        const anchorBefore = await firstLoadedRow.evaluate((element) => element.getBoundingClientRect().top);
+        await page.getByRole('button', { name: 'Load older messages' }).waitFor({ state: 'detached' });
+        const anchorAfter = await firstLoadedRow.evaluate((element) => element.getBoundingClientRect().top);
+        assert.ok(Math.abs(anchorAfter - anchorBefore) <= 2,
+          `Loading older messages must retain the visible row (${anchorBefore} → ${anchorAfter})`);
+        await messageLog.evaluate((element) => { element.scrollTop = 0; });
+        await page.mouse.move(900, 300);
+        const topPosition = await messageLog.evaluate((element) => element.scrollTop);
+        assert.ok(topPosition <= 2, `Ligo must reach the first message before the fast-scroll test (${topPosition})`);
+        await page.mouse.wheel(0, 12_000);
+        await page.waitForTimeout(1000);
+        const fastScrollPosition = await chatPosition();
+        assert.ok(fastScrollPosition.distance >= -1 && fastScrollPosition.distance <= 2,
+          `Fast scrolling must reach and stay at the bottom: ${JSON.stringify(fastScrollPosition)}`);
+        await page.mouse.wheel(0, 4000);
+        await page.waitForTimeout(1000);
+        const overscrollPosition = await chatPosition();
+        assert.ok(overscrollPosition.distance >= -1 && overscrollPosition.distance <= 2,
+          `Overscrolling must not move the chat upward: ${JSON.stringify(overscrollPosition)}`);
+        await page.mouse.wheel(0, 4000);
+        await page.mouse.wheel(0, -1200);
+        await page.waitForTimeout(1000);
+        const readingPosition = await chatPosition();
+        assert.ok(readingPosition.distance > 50,
+          `Scrolling upward must cancel end pinning: ${JSON.stringify(readingPosition)}`);
+        await messageLog.evaluate((element) => { element.scrollTop = 0; });
+        await page.mouse.wheel(0, 12_000);
+        await page.waitForTimeout(1000);
+        const secondFastScrollPosition = await chatPosition();
+        assert.ok(secondFastScrollPosition.distance >= -1 && secondFastScrollPosition.distance <= 2,
+          `A second fast scroll must also remain at the bottom: ${JSON.stringify(secondFastScrollPosition)}`);
+      }
       assert.equal(await page.getByRole('link', { name: 'Sign in' }).count(), 0);
     }
     await page.goto(`${site}/fluo/`);
@@ -498,7 +651,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     await fluoNav.getByRole('button', { name: 'Profile', exact: true }).click();
     await card.waitFor();
     await fluoNav.getByRole('button', { name: 'Search', exact: true }).click();
-    const search = page.getByRole('searchbox', { name: 'Search posts and people' });
+    const search = page.getByRole('searchbox', { name: 'Search posts' });
     await search.fill(postText);
     await card.waitFor();
     await fluoNav.getByRole('button', { name: 'Feed', exact: true }).click();
@@ -508,17 +661,17 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
       const image = article?.querySelector('img');
       return image?.complete && image.naturalWidth === 8;
     }, postText);
-    await card.getByRole('button', { name: 'Good, 0' }).click();
-    await card.getByRole('button', { name: 'Good, 1' }).waitFor();
-    await card.getByRole('button', { name: 'Good, 1' }).hover();
+    await card.getByRole('button', { name: 'Like, 0', exact: true }).click();
+    await card.getByRole('button', { name: 'Like, 1', exact: true }).waitFor();
+    await card.getByRole('button', { name: 'Like, 1', exact: true }).hover();
     await page.waitForFunction((postId) => {
-      const dislike = document.querySelector(`article[data-post-id="${postId}"] [aria-label="Bad, 0"]`);
+      const dislike = document.querySelector(`article[data-post-id="${postId}"] [aria-label="Dislike, 0"]`);
       return dislike && Number(getComputedStyle(dislike).opacity) > 0.5;
     }, post.id, { timeout: 2_000 });
     await page.mouse.move(0, 0);
-    await card.getByRole('button', { name: 'Good, 1' }).focus();
+    await card.getByRole('button', { name: 'Like, 1', exact: true }).focus();
     await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Bad, 0',
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Dislike, 0',
       'Keyboard focus must reach the dislike action after Like');
     const replyText = `Reply ${randomBytes(3).toString('hex')}`;
     await card.getByRole('button', { name: 'Reply to post' }).click();
@@ -732,7 +885,12 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
       ['Search', 'Search'], ['Notifications', 'Notifications'], ['Saved', 'Saved posts'],
       ['Profile', 'Profile'], ['Settings', 'Settings']
     ]) {
-      await fluoNav.getByRole('button', { name: item, exact: true }).click();
+      if (item === 'Notifications' || item === 'Settings') {
+        await fluoNav.getByRole('button', { name: 'More Fluo sections' }).click();
+        await page.getByRole('menuitem', { name: item, exact: true }).click();
+      } else {
+        await fluoNav.getByRole('button', { name: item, exact: true }).click();
+      }
       await page.getByRole('region', { name: title, exact: true }).waitFor();
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
         `${item} must reflow without horizontal overflow at 320 CSS pixels`);
@@ -805,7 +963,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     const singlePhotoPost = await singlePhotoResponse.json();
     await singlePhotoComposer.waitFor({ state: 'detached' });
     const singlePhotoCard = page.locator(`article[data-post-id="${singlePhotoPost.id}"]`);
-    const singlePhotoGallery = singlePhotoCard.getByLabel('Post attachments');
+    const singlePhotoGallery = singlePhotoCard.getByLabel('Post media attachments');
     await singlePhotoGallery.scrollIntoViewIfNeeded();
     const singlePhotoAlignment = await singlePhotoGallery.evaluate((element) => {
       const frame = element.firstElementChild;
@@ -846,7 +1004,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     await postDialog.evaluate((dialog) => Promise.all(dialog.getAnimations().map((animation) => animation.finished)));
     const singlePhotoDetail = await postDialog.evaluate((dialog) => {
       const post = dialog.querySelector('article');
-      const frame = post?.querySelector('[aria-label="Post attachments"] > div');
+      const frame = post?.querySelector('[aria-label="Post media attachments"] > div');
       const postRect = post?.getBoundingClientRect();
       return {
         dialogWidth: dialog.getBoundingClientRect().width,
@@ -997,6 +1155,9 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     await page.locator('input[name=recoveryCodeInput]').waitFor();
     const errors = await page.locator('[role=alert], .alert-error, [id^=input-error]').allTextContents();
     assert.match(errors.join(' '), /invalid recovery authentication code/i, 'Recovery codes must be single-use');
+  } catch (error) {
+    console.error('Live flow failed before temporary-user cleanup:', error);
+    throw error;
   } finally {
     await browser.close();
     await removeTemporaryUser(username);

@@ -3,6 +3,7 @@ export type { ButtonProps, ButtonSize, ButtonVariant } from './components/ui/but
 export { Input } from './components/ui/input/index.js';
 export { Textarea } from './components/ui/textarea/index.js';
 export { default as ModuleLanding } from './ModuleLanding.svelte';
+export { default as AppHeader } from './AppHeader.svelte';
 export * as Dialog from './components/ui/dialog/index.js';
 export * as AlertDialog from './components/ui/alert-dialog/index.js';
 export * as ContextMenu from './components/ui/context-menu/index.js';

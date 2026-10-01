@@ -8,7 +8,7 @@
   import { uploadMedia } from '@kaordo/media-client';
   import { appPaths } from '@kaordo/links';
   import {
-    ArrowUpRightIcon, BookmarkIcon, Button, CheckIcon, ChevronLeftIcon, Dialog, Input,
+    AppHeader, BookmarkIcon, Button, CheckIcon, ChevronLeftIcon, Dialog, Input,
     MessageCircleIcon, PaperclipIcon, PlusIcon, SearchIcon, SendIcon, Textarea, UserPlusIcon
   } from '@kaordo/ui';
   import DraftAttachment from './DraftAttachment.svelte';
@@ -328,14 +328,7 @@
 </script>
 
 <div class="flex h-[100dvh] flex-col bg-background">
-  <header class="flex h-14 shrink-0 items-center justify-between border-b border-border/70 bg-card/90 px-4 shadow-xs backdrop-blur-xl sm:px-6">
-    <div class="flex items-baseline gap-2">
-      <a href={appPaths.portal} rel="external" class="text-sm font-bold tracking-[-0.03em] text-primary">Kaordo</a>
-      <span class="text-muted-foreground/60" aria-hidden="true">/</span>
-      <h1 class="text-base font-bold tracking-[-0.04em]">Ligo</h1>
-    </div>
-    <Button href={appPaths.portal} rel="external" variant="ghost" size="sm">All apps <ArrowUpRightIcon class="size-4" /></Button>
-  </header>
+  <AppHeader name="Ligo" homeHref={appPaths.portal} wide />
 
   <main class="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 overflow-hidden">
     <aside class={`flex w-full shrink-0 flex-col border-r border-border/75 bg-card/75 md:w-[20rem] lg:w-[21rem] ${selectedId ? 'hidden md:flex' : ''}`}
@@ -343,8 +336,8 @@
       <div class="border-b border-border/70 px-4 pb-4 pt-4">
         <div class="mb-3 flex items-center justify-between">
           <div>
-            <p class="text-[11px] font-semibold uppercase tracking-[0.15em] text-primary">Messages</p>
-            <h2 class="mt-0.5 text-xl font-bold tracking-tight">Chats</h2>
+            <p class="text-xs font-semibold uppercase tracking-[0.15em] text-primary">Messages</p>
+            <h1 class="mt-0.5 text-xl font-bold tracking-tight">Chats</h1>
           </div>
           <Button size="icon-sm" aria-label="New conversation" class="rounded-xl shadow-sm" onclick={() => openDialog('new')}><PlusIcon class="size-4.5" /></Button>
         </div>
@@ -398,7 +391,7 @@
                 <span class="flex items-center justify-between gap-2">
                   <span class="truncate text-sm font-semibold">{title}</span>
                   {#if conversation.lastMessage}
-                    <time class="shrink-0 text-[11px] text-muted-foreground" datetime={conversation.lastMessage.createdAt}>
+                    <time class="shrink-0 text-xs text-muted-foreground" datetime={conversation.lastMessage.createdAt}>
                       {formatLast(conversation.lastMessage.createdAt)}
                     </time>
                   {/if}
@@ -408,7 +401,7 @@
                     {conversation.lastMessage?.deleted ? 'Message deleted' : conversation.lastMessage?.text || (conversation.lastMessage ? 'Attachment' : conversation.kind === 'group' ? 'Group is ready' : 'Say hello')}
                   </span>
                   {#if conversation.unreadCount > 0}
-                    <span class="grid min-w-5 h-5 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground"
+                    <span class="grid min-w-5 h-5 place-items-center rounded-full bg-primary px-1 text-[11px] font-bold text-primary-foreground"
                       aria-label={`${conversation.unreadCount} unread messages`}>{conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}</span>
                   {/if}
                 </span>
@@ -440,7 +433,7 @@
             <h2 class="truncate text-sm font-bold">{selected ? displayTitle(selected) : 'Conversation'}</h2>
             <p class="truncate text-xs text-muted-foreground">
               {selected?.kind === 'self' ? 'Only you' : selected?.kind === 'group' ? `${selected.members.length} members` : selected?.members.find((member) => member.id !== user.id)?.username ?? 'Loading…'}
-              {#if !connected}<span class="ml-2 text-amber-700">· Reconnecting…</span>{/if}
+              {#if !connected}<span class="ml-2 text-amber-700 dark:text-amber-300" role="status">· Reconnecting…</span>{/if}
             </p>
           </div>
           {#if selected?.kind === 'group' && selected.createdBy === user.id}
@@ -465,10 +458,12 @@
             <div class="ml-auto h-20 w-2/3 animate-pulse rounded-2xl bg-muted"></div>
           </div>
         {:else}
-          <LoadedMessageList conversationId={selectedId} {messages} pending={activePending}
-            viewerId={user.id} personal={selected?.kind === 'self'} group={selected?.kind === 'group'}
-            hasMore={!!messagesQuery.hasNextPage} loadingMore={messagesQuery.isFetchingNextPage}
-            loadOlder={async () => { await messagesQuery.fetchNextPage(); }} {retry} {react} {edit} {remove} />
+          {#key selectedId}
+            <LoadedMessageList {messages} pending={activePending}
+              viewerId={user.id} personal={selected?.kind === 'self'} group={selected?.kind === 'group'}
+              hasMore={!!messagesQuery.hasNextPage} loadingMore={messagesQuery.isFetchingNextPage}
+              loadOlder={async () => { await messagesQuery.fetchNextPage(); }} {retry} {react} {edit} {remove} />
+          {/key}
         {/if}
         <div class="shrink-0 border-t border-border/75 bg-card/90 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5 backdrop-blur-xl sm:px-6">
           {#if files.length}
@@ -494,7 +489,7 @@
               <SendIcon class="size-4" />
             </Button>
           </div>
-          <p class="mt-1.5 text-center text-[11px] text-muted-foreground">Enter to send · Shift+Enter for a new line</p>
+          <p class="mt-1.5 hidden text-center text-xs text-muted-foreground sm:block">Enter to send · Shift+Enter for a new line</p>
         </div>
       {:else}
         <div class="flex flex-1 flex-col items-center justify-center px-6 text-center">
@@ -525,7 +520,7 @@
           <span><span class="block text-sm font-semibold">Saved messages</span><span class="block text-xs text-muted-foreground">A private chat with yourself</span></span>
         </button>
         <label class="mb-4 flex items-center gap-2 text-sm font-medium">
-          <input type="checkbox" bind:checked={groupMode} class="size-4 accent-primary" />
+          <input type="checkbox" bind:checked={groupMode} class="size-5 rounded accent-primary" />
           Create a group
         </label>
       {/if}
@@ -542,7 +537,7 @@
       {#if selectedUsers.length}
         <div class="mt-3 flex flex-wrap gap-2">
           {#each selectedUsers as candidate (candidate.id)}
-            <button type="button" class="rounded-full bg-accent px-3 py-1 text-xs font-semibold text-primary hover:brightness-95"
+            <button type="button" class="inline-flex min-h-8 items-center rounded-full bg-accent px-3 py-1 text-xs font-semibold text-primary hover:brightness-95 focus-visible:outline-2 focus-visible:outline-ring"
               onclick={() => toggleUser(candidate)} aria-label={`Remove ${candidate.username}`}>
               @{candidate.username} ×
             </button>

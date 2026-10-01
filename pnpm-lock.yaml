@@ -114,9 +114,6 @@ importers:
       '@tanstack/svelte-query':
         specifier: ^6.3.0
         version: 6.3.0(svelte@5.57.1)
-      '@tanstack/svelte-virtual':
-        specifier: ^3.13.39
-        version: 3.13.39(svelte@5.57.1)
     devDependencies:
       '@sveltejs/adapter-static':
         specifier: ^3.0.10

@@ -72,7 +72,7 @@
       data-cropped={isExtreme(item) ? 'true' : undefined}
       class="block h-full w-full overflow-hidden outline-offset-[-4px] focus-visible:rounded-xl focus-visible:outline-3 focus-visible:outline-ring"
       aria-label={'Open image ' + (index + 1) + ' of ' + media.length}>
-      <img src={item.url} alt={item.altText || 'Image ' + (index + 1) + ' attached to this ' + (label === 'Post media' ? 'post' : 'message')} width={item.width} height={item.height}
+      <img src={item.url} alt={item.altText || 'Image ' + (index + 1) + ' attached to this ' + (label === 'Post media' ? 'post' : label === 'Reply media' ? 'reply' : 'message')} width={item.width} height={item.height}
         loading="lazy" decoding="async" draggable="false" class="block h-full w-full object-cover object-center" />
     </a>
   {:else}

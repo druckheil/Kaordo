@@ -94,7 +94,7 @@
 </script>
 
 {#snippet timestamp()}
-  <span class="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] leading-none text-muted-foreground/85">
+  <span class="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap text-xs leading-none text-muted-foreground">
     <time datetime={message.createdAt}>{new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(new Date(message.createdAt))}</time>
     {#if message.editedAt && !message.deleted}<span aria-label="Edited">· edited</span>{/if}
     {#if own && !personal && !message.deleted}
@@ -121,7 +121,7 @@
     style:max-width={showAvatarSlot ? 'calc(100% - 2.5rem)' : '100%'}>
     <Message.Content class="w-fit max-w-[min(86vw,38rem)] gap-0.5 sm:max-w-[min(76vw,38rem)]">
       {#if showSender}
-        <Message.Header class="px-1 text-[11px] font-semibold text-primary">{message.sender.displayName}</Message.Header>
+        <Message.Header class="px-1 text-xs font-semibold text-primary">{message.sender.displayName}</Message.Header>
       {/if}
       <ContextMenu.Root>
         <ContextMenu.Trigger class="block w-fit max-w-full rounded-[14px]" aria-label={`Message from ${message.sender.displayName}`}>
@@ -203,7 +203,7 @@
     </Message.Content>
     {#if !message.deleted}
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger aria-label="Message actions" class="mb-0.5 grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:opacity-0 sm:group-hover/message-frame:opacity-100 sm:group-focus-within/message-frame:opacity-100">
+        <DropdownMenu.Trigger aria-label="Message actions" class="mb-0.5 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:opacity-0 sm:group-hover/message-frame:opacity-100 sm:group-focus-within/message-frame:opacity-100">
           <EllipsisIcon class="size-4" />
         </DropdownMenu.Trigger>
         <DropdownMenu.Content align={own ? 'start' : 'end'}>

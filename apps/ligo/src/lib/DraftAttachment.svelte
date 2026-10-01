@@ -45,7 +45,7 @@
     {/if}
     {#if remove}
       <Attachment.Action aria-label={`Remove ${file.name}`} onclick={remove}
-        class="absolute right-1.5 top-1.5 z-10 size-7 rounded-full bg-background/90 text-foreground shadow-sm backdrop-blur-sm hover:bg-background">
+        class="absolute right-1.5 top-1.5 z-10 size-8 rounded-full bg-background/90 text-foreground shadow-sm backdrop-blur-sm hover:bg-background">
         <XIcon class="size-3.5" />
       </Attachment.Action>
     {/if}

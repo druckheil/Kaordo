@@ -10,13 +10,15 @@
     returnPath,
     environment,
     children,
-    preview
+    preview,
+    compact = false
   }: {
     appName: string;
     returnPath: string;
     environment: Record<string, string | undefined>;
     children: Snippet<[UserIdentity]>;
     preview?: Snippet<[AccountPreview]>;
+    compact?: boolean;
   } = $props();
 
   let controller: ReturnType<typeof createAccountSessionController> | undefined;
@@ -39,19 +41,36 @@
 </script>
 
 {#if snapshot.loading}
-  {#if accountPreview && preview}
-    <div data-kaordo-preview aria-busy="true">{@render preview(accountPreview)}</div>
-  {:else}
-    <div class="mt-4 h-6 max-w-sm rounded-lg bg-muted/70" aria-hidden="true"></div>
-    <p class="sr-only" role="status">Checking your account…</p>
-  {/if}
+  <section class={`mx-auto flex max-w-md flex-col items-center justify-center px-6 text-center ${compact ? 'min-h-48 py-8' : 'min-h-[min(34rem,80dvh)] py-12'}`}
+    role="status" aria-busy="true">
+    <div class="grid size-14 place-items-center rounded-2xl bg-accent text-primary shadow-sm" aria-hidden="true">
+      <ShieldCheckIcon class="size-7" />
+    </div>
+    {#if compact}
+      <h2 class="mt-5 text-xl font-bold tracking-tight">Opening {appName}</h2>
+    {:else}
+      <h1 class="mt-5 text-xl font-bold tracking-tight">Opening {appName}</h1>
+    {/if}
+    {#if accountPreview && preview}
+      <div data-kaordo-preview class="mt-2 w-full text-sm text-muted-foreground">{@render preview(accountPreview)}</div>
+    {:else}
+      <p class="mt-2 text-sm text-muted-foreground">Checking your account…</p>
+    {/if}
+    <div class="mt-6 h-1.5 w-28 overflow-hidden rounded-full bg-secondary" aria-hidden="true">
+      <div class="h-full w-1/2 animate-pulse rounded-full bg-primary"></div>
+    </div>
+  </section>
 {:else if snapshot.user}
   {@render children(snapshot.user)}
 {:else}
   <section class="mx-auto mt-12 max-w-lg rounded-[1.75rem] border border-border bg-card p-7 shadow-[0_24px_80px_-48px_rgba(21,75,43,.45)] sm:p-9"
     aria-label={`${appName} account access`}>
     <div class="grid size-12 place-items-center rounded-2xl bg-accent"><ShieldCheckIcon class="size-6 text-primary" /></div>
-    <h2 class="mt-6 text-2xl font-bold tracking-[-0.04em]">{snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h2>
+    {#if compact}
+      <h2 class="mt-6 text-2xl font-bold tracking-[-0.04em]">{snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h2>
+    {:else}
+      <h1 class="mt-6 text-2xl font-bold tracking-[-0.04em]">{snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h1>
+    {/if}
     {#if snapshot.error}<p class="mt-4 rounded-xl bg-destructive/10 p-3 text-sm text-destructive" role="alert">{snapshot.error}</p>{/if}
     {#if snapshot.authenticated}
       <p class="mt-3 text-sm leading-6 text-muted-foreground">We could not connect your Kaordo account. Try again when the service is available.</p>

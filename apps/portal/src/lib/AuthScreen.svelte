@@ -50,7 +50,7 @@
   <div class="pointer-events-none absolute -left-24 -top-40 size-[30rem] rounded-full bg-accent/80 blur-3xl" aria-hidden="true"></div>
   <div class="pointer-events-none absolute -bottom-48 -right-28 size-[32rem] rounded-full bg-secondary/80 blur-3xl" aria-hidden="true"></div>
   <div class="relative w-full max-w-md">
-    <a class="mb-8 inline-flex items-center gap-2 text-lg font-bold tracking-[-0.04em] text-primary" href={appPaths.portal}>
+    <a class="mb-8 inline-flex items-center gap-2 rounded-xl text-lg font-bold tracking-[-0.04em] text-primary focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring" href={appPaths.portal}>
       <span class="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">K</span> Kaordo
     </a>
     <section class="rounded-[1.75rem] border border-border bg-card p-7 shadow-[0_24px_80px_-40px_rgba(21,75,43,.45)] sm:p-9"
