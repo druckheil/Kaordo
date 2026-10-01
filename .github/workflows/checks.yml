@@ -37,6 +37,10 @@ jobs:
           pnpm test:dev
           pnpm test:ui-layout
           pnpm test:pages
+      - name: Install headless Chromium for UI checks
+        run: pnpm exec playwright-core install --with-deps chromium --only-shell
+      - name: Check public entry screens in Chromium
+        run: node --test scripts/ui-public.test.mjs
       - name: Check Go services
         run: |
           go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
@@ -54,7 +58,7 @@ jobs:
         run: |
           go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
         working-directory: services/mediaauth
-      - name: Test Fluo PostgreSQL integration
+      - name: Test product PostgreSQL integration
         run: |
           cat > deploy/local/.env <<EOF
           KAORDO_DB_PASSWORD=$(openssl rand -hex 24)
@@ -66,6 +70,30 @@ jobs:
           EOF
           chmod 600 deploy/local/.env
           docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml up -d --wait app-db
-          pnpm test:fluo:db
+          pnpm test:product:db
       - name: Reject npm advisories
         run: pnpm audit --audit-level=low
+      - name: Install local recovery tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y restic ffmpeg
+      - name: Test live account, product and recovery journeys
+        run: |
+          pnpm dev > "$RUNNER_TEMP/kaordo-dev.log" 2>&1 &
+          for attempt in {1..120}; do
+            if curl -fsS http://127.0.0.1:8081/healthz > /dev/null 2>&1 &&
+               curl -fsS http://localhost:8765/login/ > /dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          if ! curl -fsS http://127.0.0.1:8081/healthz > /dev/null ||
+             ! curl -fsS http://localhost:8765/login/ > /dev/null; then
+            tail -n 100 "$RUNNER_TEMP/kaordo-dev.log"
+            exit 1
+          fi
+          pnpm test:auth:live
+          pnpm test:backup:live
+      - name: Stop local services
+        if: always()
+        run: pnpm dev:stop || true

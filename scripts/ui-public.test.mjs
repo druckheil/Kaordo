@@ -7,11 +7,11 @@ import AxeBuilder from '@axe-core/playwright';
 import { chromium } from 'playwright-core';
 import sirv from 'sirv';
 
-const chrome = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const macChrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const chrome = process.env.CHROME_BIN || (existsSync(macChrome) ? macChrome : undefined);
 const pages = resolve(import.meta.dirname, '../dist/pages');
 
-test('public app entry screens reflow and meet automated WCAG 2.2 A/AA checks', async (context) => {
-  if (!existsSync(chrome)) return context.skip(`Chrome is unavailable at ${chrome}`);
+test('public app entry screens reflow and meet automated WCAG 2.2 A/AA checks', async () => {
   assert.ok(existsSync(resolve(pages, 'index.html')), 'run pnpm build:pages first');
 
   const assets = sirv(pages, { dev: true });

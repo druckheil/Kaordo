@@ -1,153 +1,155 @@
 # Kaordo implemented-scope audit — ISO/IEC 25010:2023
 
-**Date:** 2026-10-01. **Quality Score: 87.8/100. Lowest characteristic: Security, 80.5/100.** The requested ≥99 overall, ≥95 in every category and no High issues is **not met**. No Critical code defect was confirmed. An independent recovery copy is still missing and is a **High operational release blocker** for real user data.
+**Date:** 2026-10-01. **Quality Score: 89.0/100. Lowest characteristic: Security, 81.2/100.** The requested ≥99 overall, ≥95 in every characteristic and no Critical/High findings is **not met**. No Critical code defect or known published dependency vulnerability was confirmed. The absence of an independent, recoverable copy of local account and media data remains a **High operational release blocker**.
 
-## Scope and method
+## Scope and scoring method
 
-The assessment covers the implemented local account/SSO/TOTP, Fluo and Nodo slice, shared packages, static Pages artifact and local tooling. Ligo, Rondo, Regado, notifications, full Settings, Matrix, LiveKit and public Cloudflare ingress are placeholders or plans; they are identified as boundaries but do not lower functional completeness for this implemented slice. [ISO/IEC 25010:2023](https://www.iso.org/standard/78176.html) supplies nine product-quality characteristics. ISO does not define this report's numerical scores or certify them.
+This audit assesses the functionality that exists now: local Keycloak registration/sign-in/TOTP/recovery, the account projection in Kerno, Fluo, Ligo, Nodo, shared frontend packages, local launcher and static Pages artifact. Rondo, Regado, notifications, full Settings, Matrix, LiveKit and public Cloudflare ingress are future or placeholder scope. Their absence is disclosed but is not scored as a defect in the implemented slice. The [ISO/IEC 25010:2023 product-quality model](https://www.iso.org/standard/78176.html) defines nine characteristics; the 0–100 values and equal weighting below are this audit's engineering rubric, **not ISO certification or an ISO-prescribed Quality Score**.
 
-Rubric: 0–49 absent/mostly unverified; 50–69 partial controls; 70–84 working local evidence with substantial gaps; 85–94 integrated checks of representative normal and failure paths; 95–100 repeated production-like security, scale, accessibility and recovery evidence. Each subcharacteristic is scored 0–100; characteristic means and the unweighted mean of all nine form the final score. These are evidence-based engineering judgments, not statistically precise measurements.
+Each of the 40 subcharacteristics receives a score from observed checks, source inspection and explicit evidence gaps. Characteristic scores are arithmetic means of their subcharacteristics, rounded to one decimal; the Quality Score is the unweighted mean of the nine unrounded characteristic means, rounded to one decimal. Rubric: 0–49 absent or unverified; 50–69 partial controls; 70–84 working local evidence with material gaps; 85–94 representative integrated normal and failure checks; 95–100 repeated, production-like security, recovery, scale, accessibility and operating evidence. A green test establishes only the paths and conditions it exercises.
 
 | Characteristic | Score |
 | --- | ---: |
-| Functional suitability | 91.7 |
-| Performance efficiency | 88.0 |
-| Compatibility | 91.5 |
-| Interaction capability | 88.3 |
-| Reliability | 83.0 |
-| Security | 80.5 |
-| Maintainability | 91.4 |
-| Flexibility | 87.5 |
-| Safety | 88.0 |
-| **Quality Score** | **87.8** |
+| Functional suitability | 92.7 |
+| Performance efficiency | 90.0 |
+| Compatibility | 92.5 |
+| Interaction capability | 89.8 |
+| Reliability | 83.5 |
+| Security | 81.2 |
+| Maintainability | 92.4 |
+| Flexibility | 89.8 |
+| Safety | 89.0 |
+| **Quality Score** | **89.0** |
 
-## Evidence ledger
+## Reproducible evidence
 
-| ID | Reproducible evidence | Result and limit |
+| ID | Check or source | Observed result and boundary |
 | --- | --- | --- |
-| E1 | `pnpm check:front` | Six Svelte projects: zero errors/warnings. Type checking is not behavioral proof. |
-| E2 | `pnpm test:auth`, `test:dependencies`, `test:ui-layout`, `test:backup`, `test:dev` | 31 auth, 42 dependency, 3 media layout, 4 backup config and 2 launcher tests pass. Two launcher scenarios skip because the user's existing server owns the ports. |
-| E3 | `pnpm test:fluo:db` | Disposable PostgreSQL database with migrations 001–006: post/media/authorization/concurrent-delete/literal-search tests pass; PostgreSQL package coverage 73.0%. A local 20,000-post/100-author/40-read fixture measured Latest p95 **1.067 ms**, selective search p95 **4.451 ms**. These are local reads, not network or sustained-load figures. |
-| E4 | `go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/...`, `go vet ...`, `go build ...` | All pass. Standalone coverage without the DB fixture: Fluo validation 60.9%, HTTP API 46.6%, identity 85.2%, Nodo upload 70.0%, media authorization 79.4%. Command packages have no direct tests. |
-| E5 | `pnpm test:pages` | Five artifact assertions pass after building the static apps. Fluo initial JS graph: **94,563 gzip bytes** under the 100 KiB budget. Tiptap, media client, PhotoSwipe and Vidstack load lazily. This does not measure Core Web Vitals. |
-| E6 | `pnpm test:auth:live` | One headless registration/TOTP/recovery/Fluo/media/SSO journey passes when run alone; 32 concurrent local account lookups measured p95 **10 ms**. A first attempt timed out while `test:pages` rebuilt the served artifact concurrently, so these commands must be serialized. Already-running Kerno/Nodo binaries were not restarted; E3–E4 cover changed service code. Axe covers only visited states. |
-| E7 | `pnpm test:backup:live`; `diskutil list external physical`; presence check for `RESTIC_REPOSITORY` | One encrypted restic backup restores both databases into disposable copies. No external physical disk was listed and no restic repository environment variable was set in this session. No independent destination, separate password copy, schedule or active-site recovery drill is configured. |
-| E8 | `pnpm audit --audit-level=low`; pinned `govulncheck@v1.8.0` in all three Go modules | No **known published** npm or Go vulnerability reported. No scan rules out application defects or unpublished advisories. |
-| E9 | `pnpm --filter @kaordo/contracts generate`; `git diff`; `.github/workflows/checks.yml` | Generated OpenAPI declarations match source. The CI workflow requests type/build/race/vulnerability/database/layout checks; no hosted run was observed. |
-| E10 | `pnpm licenses list --json`; package manifests/imports | All 42 direct-import declarations pass. Npm metadata reports 202 MIT packages and other open-source licenses. `combine-errors@3.0.3` reports Unknown metadata, but its packaged README says MIT. No root `LICENSE` defines Kaordo's distribution terms. |
-| E11 | Migrations 005/006 and Kerno/Nodo sources/tests | Final media deletion serializes against creation; Nodo has a 23-hour acceptance/24-hour collection gap; quota use is indexed at startup and updated on mutation; indexed substring search preserves literal wildcard semantics. |
+| E1 | `pnpm check:front` | Six Svelte workspaces report zero errors and warnings. This proves neither runtime correctness nor browser compatibility. |
+| E2 | `pnpm test:auth`, `test:dependencies`, `test:dev`, `test:ui-layout`, `test:backup` | All **31 + 45 + 4 + 5 + 4** unit and structural checks pass with no skips. They cover auth/session, API client, direct package imports, launcher port ownership, media/chat layout and backup configuration. |
+| E3 | `pnpm test:product:db` | A disposable PostgreSQL 18 database receives migrations 001–009. Fluo/Ligo authorization, post and message flow, media reuse/deletion, group capacity and migration replay pass; PostgreSQL package statement coverage is **72.4%**. A 20,000-post/100-author/40-read fixture produced Fluo Latest p95 **0.933 ms** and selective search p95 **5.077 ms**. A 10,000-message/40-read fixture produced Ligo latest-page p95 **1.220 ms** and conversation-with-unread-count p95 **1.064 ms**. These are local query-path timings, not end-to-end latency or a sustained-load guarantee. |
+| E4 | `go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/...`; `go vet`; `go build` | All pass. Command packages have no direct unit tests. PostgreSQL integration has its own E3 database gate. |
+| E5 | `pnpm test:pages`; `pnpm test:ui-public` | All five app entry routes are built; artifact references and lazy-loading assertions pass, including Fluo's <100 KiB gzip initial-JS budget. Headless Chromium checks public routes at 320/768/1280 CSS pixels and dark 320px: no horizontal overflow or automated WCAG 2.2 A/AA axe findings. Automated axe does not replace assistive-technology or user testing. |
+| E6 | `pnpm test:auth:live` against `pnpm dev` | One headless journey passes registration, TOTP setup/login, recovery code, account/SSO, four-image and video posting, media dimensions, carousel controls, replies/quotes, saved posts, Ligo messaging/reactions/media and chat scroll/resize/history behavior. Thirty-two concurrent local account lookups measured p95 **16 ms**. This was one local Chromium run, not cross-browser or remote-load evidence. |
+| E7 | `pnpm test:backup:live`; `diskutil list external physical`; restic environment check | Encrypted restic backup and disposable restore of both databases plus media pass. No external physical disk or configured independent restic repository was found. The test's temporary repository proves the procedure, not survival of a primary-disk failure. |
+| E8 | `pnpm audit --audit-level=low`; `govulncheck@v1.8.0 ./...` in Kerno, Nodo and mediaauth | No **known published** npm or called Go vulnerability reported at audit time. This cannot prove that code or dependencies are vulnerability-free. |
+| E9 | `pnpm --filter @kaordo/contracts generate` with diff check; `.github/workflows/checks.yml` | Generated OpenAPI types match the contract. CI now requests type, build, race, database, public Chromium, live product and restore checks; no successful hosted CI run was observed for this revision. |
+| E10 | Package manifests, source imports and `pnpm licenses list --json` | Direct-import declarations pass. Package metadata reports 203 MIT packages and other open-source licenses. One transitive `combine-errors@3.0.3` entry has Unknown metadata, while its packaged README states MIT. The repository has no root `LICENSE`, so Kaordo's own redistribution permission is unspecified. |
+| E11 | Kerno/Nodo source and database migrations | Kerno checks OIDC subjects, membership and ownership; PostgreSQL serializes media claim retirement with reuse, and Ligo sends with member additions; Nodo implements tus uploads, processing bounds and a 23-hour acceptance/24-hour garbage-collection gap. Rate limits and request/media size limits exist. These are code and targeted-test observations, not a penetration test. |
+| E12 | This change set | Group membership capacity now counts only **new** members; a 25-member idempotence and overflow regression passes without changing the conversation timestamp on a retry (E3). Browser checks no longer silently skip without macOS Chrome; Linux CI installs Chromium and requests public/live checks. A 10,000-message read fixture and current Ligo documentation replace stale Fluo-only evidence. |
 
-No manual site exploration was performed. The headless journey is an automated test. No public deployment, soak, cross-browser/device matrix, assistive-technology study, external penetration test, production alerting, independent backup or off-host restore was performed.
+No manual website exploration was performed. The browser activity above came from automated Playwright tests. No production deployment, off-host restore, failover, alerting, long soak, independent penetration test, real-user study or multi-browser/device matrix was observed.
 
-## Characteristic and subcharacteristic scores
+## Scores by characteristic and subcharacteristic
 
-### Functional suitability — 91.7
-
-| Subcharacteristic | Score | Evidence and limit |
-| --- | ---: | --- |
-| Functional completeness | 91 | Implemented registration, TOTP/recovery, account session, Fluo create/reply/quote/react/follow/search/save/delete and image/video media (E3, E6). Placeholder apps are outside this slice. |
-| Functional correctness | 93 | DB, headless, contract, race and media tests cover privacy, claims, deletion and recovery (E2–E6, E9–E11). HTTP API unit coverage is 46.6%. |
-| Functional appropriateness | 91 | Latest, Following, Search, Saved and Profile serve the current small network (E6). No user-outcome study or relevance model exists. |
-
-### Performance efficiency — 88.0
+### Functional suitability — 92.7
 
 | Subcharacteristic | Score | Evidence and limit |
 | --- | ---: | --- |
-| Time behaviour | 91 | Measured 20,000-post reads, 10 ms local account p95 and <100 KiB Fluo initial JS (E3, E5–E6). No cold load, INP, remote RTT or upload p95. |
-| Resource utilization | 89 | Sequential image preprocessing, lazy feature imports and indexed Nodo quotas (E5, E11). No sustained CPU/RAM/disk/transcode profile. |
-| Capacity | 84 | 20,000 posts/100 authors and four-media journey (E3, E6). Two-character search, large collections, simultaneous uploads and multi-node load are unbounded. |
+| Functional completeness | 93 | Account/TOTP/recovery, Fluo feed/post/reply/quote/react/follow/search/save/media and Ligo direct/group/self chats, attachments, reactions, edits/deletes and receipts have integrated checks (E3, E6). Only the implemented slice is scored. |
+| Functional correctness | 94 | Authorization, claims, cursor pages, replay, eight Ligo attachments, group capacity, media lifecycle and browser journeys pass (E2–E6, E11–E12); unexercised failures remain possible. |
+| Functional appropriateness | 91 | Latest/Following, Search, Saved, Profile and Ligo saved messages support current small-network use (E6); task-success and relevance studies are absent. |
 
-### Compatibility — 91.5
-
-| Subcharacteristic | Score | Evidence and limit |
-| --- | ---: | --- |
-| Co-existence | 92 | Five separately built apps assemble into one Pages artifact; local identity/Kerno/Nodo/database coexist (E1, E5–E6). Other host OS/browser combinations untested. |
-| Interoperability | 91 | OIDC/Keycloak, tusd, PostgreSQL and OpenAPI clients integrate locally (E3, E6, E9). Tunnel, Matrix and LiveKit are not implemented. |
-
-### Interaction capability — 88.3
+### Performance efficiency — 90.0
 
 | Subcharacteristic | Score | Evidence and limit |
 | --- | ---: | --- |
-| Appropriateness recognizability | 90 | Current auth and Fluo controls are labeled and exercised (E6); planned destinations remain explicitly unavailable. |
-| Learnability | 88 | Registration, TOTP and posting paths are covered (E6); no first-time-user study. |
-| Operability | 91 | Dialogs, carousel, keyboard actions, feed navigation and account state are exercised (E2, E6); no assistive-device matrix. |
-| User error protection | 90 | Validation, ownership, limits, retry and destructive confirmation have tests (E2–E4, E6); no broad adversarial usability exercise. |
-| User engagement | 87 | Posts, media, discussion, saved items and profiles form a coherent local loop (E6); engagement was not measured. |
-| Inclusivity | 87 | Axe reports zero A/AA findings in visited states; reduced-motion CSS and alt-text fields exist (E6, source). Manual screen-reader/contrast assessment remains. |
-| User assistance | 83 | Auth/recovery/error feedback exists (E6); contextual help and operations support are thin. |
-| Self-descriptiveness | 90 | Labeled actions, progress and error states appear in exercised routes (E2, E6); user comprehension was not assessed. |
+| Time behaviour | 92 | Measured Fluo and Ligo local p95 query paths, 16 ms local account p95 and a bounded Fluo initial JS graph (E3, E5–E6). No remote RTT, cold LCP/INP or upload p95. |
+| Resource utilization | 90 | Lazy editor/media imports, indexed cursor reads, sequential client image preparation and bounded upload/transcode work (E5, E11); no sustained CPU/RAM/disk profile. |
+| Capacity | 88 | 20,000 posts and 10,000 messages have measured read paths (E3). Concurrent uploads, many chats/users, long-lived browser sessions and horizontal scale remain unmeasured. |
 
-### Reliability — 83.0
+### Compatibility — 92.5
 
 | Subcharacteristic | Score | Evidence and limit |
 | --- | ---: | --- |
-| Faultlessness | 92 | Type/race/DB/media/live/restore tests and vulnerability scans pass after repair (E1–E9). Local tests cannot exclude untested failures. |
-| Availability | 72 | Loopback health checks and a local launcher exist (E2, E6); no deployed SLO, monitoring, redundancy or failover result. |
-| Fault tolerance | 86 | Session retry, resumable uploads, fail-closed claims, bounded creation, cleanup and backup checks (E2–E4, E7, E11). Disk/network partitions untested. |
-| Recoverability | 82 | Disposable encrypted restore passes (E7), but an actual independent destination and password copy are absent. |
+| Co-existence | 93 | Independently built apps, Keycloak, Kerno, Nodo and two PostgreSQL instances work on one local origin (E5–E7). Other host operating systems are untested. |
+| Interoperability | 92 | OIDC, OpenAPI/openapi-fetch, PostgreSQL, tusd and SSE integrate through explicit boundaries (E3, E6, E9–E11). External ingress and future Matrix/LiveKit integrations are outside scope. |
 
-### Security — 80.5
+### Interaction capability — 89.8
 
 | Subcharacteristic | Score | Evidence and limit |
 | --- | ---: | --- |
-| Confidentiality | 87 | OIDC, account gates, private-post queries, owner checks and signed URLs are tested (E3–E6). Private content is not encrypted at rest/end to end; that is a future requirement. |
-| Integrity | 92 | Parameterized SQL, token verification, FK/claim transactions, dimensions and restore checks (E3–E4, E7, E11); no cross-service reconciliation drill. |
-| Non-repudiation | 55 | Stable subjects/post ownership exist, but no tamper-evident action trail or signed receipt can prove a disputed action. |
-| Accountability | 68 | Identity maps to UUIDv7 accounts; current logs are not a retained admin audit log with access/retention controls. |
-| Authenticity | 93 | PKCE/OIDC issuer/audience/subject, TOTP/recovery and internal signatures pass local tests (E2, E4, E6); no production federation/device lifecycle evidence. |
-| Resistance | 88 | Known-advisory scans are clean; origin, token, payload, rate, quota and upload bounds exist (E2–E4, E8). No external penetration or public abuse/DoS test. |
+| Appropriateness recognizability | 92 | Auth, feed and chat controls are labeled and exercised (E5–E6); no comprehension study. |
+| Learnability | 89 | First-run registration, TOTP, posting and messaging work in the scripted journey (E6); no first-time-user evaluation. |
+| Operability | 92 | Keyboard, dialogs, carousel, navigation, Ligo scroll/history anchoring and responsive widths have tests (E5–E6); trackpad and assistive-device breadth remains limited. |
+| User error protection | 91 | Ownership, validation, quotas, limits, confirmations and retry paths are tested (E2–E4, E6, E11); adversarial UX coverage is incomplete. |
+| User engagement | 89 | Feed and messaging loops are functional (E6); UEQ-style participant measurements are absent. |
+| Inclusivity | 89 | Automated axe A/AA and 320px reflow pass for visited states (E5–E6); manual screen-reader/contrast reviews are missing. |
+| User assistance | 85 | Auth and upload error feedback exists; in-app help and recovery guidance remain limited (E6, source). |
+| Self-descriptiveness | 91 | Labeled actions, progress and error states are present in the exercised paths (E2, E6); comprehension is not measured. |
 
-### Maintainability — 91.4
-
-| Subcharacteristic | Score | Evidence and limit |
-| --- | ---: | --- |
-| Modularity | 93 | Separate SvelteKit apps, shared packages and independent Go modules own distinct functions (E1, E9–E11). |
-| Reusability | 92 | UI/auth/API/contracts/media are shared; no duplicate custom editor/upload/video engine was found (E10–E11). |
-| Analysability | 92 | Docs, generated contracts, one migration list, coverage and repeatable tests aid diagnosis (E1–E11); deployed telemetry absent. |
-| Modifiability | 91 | Direct-import checks, migrations, contracts and lazy boundaries constrain change impact (E2–E3, E9–E11). |
-| Testability | 89 | Disposable DB, headless and restore tests exist (E2–E7); uninstrumented command packages and HTTP API's 46.6% unit coverage limit confidence. |
-
-### Flexibility — 87.5
+### Reliability — 83.5
 
 | Subcharacteristic | Score | Evidence and limit |
 | --- | ---: | --- |
-| Adaptability | 92 | Independent apps and OIDC/OpenAPI/tus boundaries support evolution (E1, E3, E9–E11); other topologies untested. |
-| Scalability | 83 | Indexed search/quota, cursor pages and 20,000-post fixture (E3, E11); no million-post, upload soak or horizontal-scale result. |
-| Installability | 88 | `pnpm dev`, Compose, static build and migrations work locally (E2–E6); no clean production-host rehearsal. |
-| Replaceability | 87 | Standards-based boundaries reduce provider lock-in (E9–E11); no provider migration drill. |
+| Faultlessness | 93 | Type, race, database, browser, backup and dependency checks pass (E1–E8). One local run does not estimate field failure rate. |
+| Availability | 72 | Loopback health probes and a local launcher exist (E2, E6); no deployed SLO, monitoring, redundancy or failover evidence. |
+| Fault tolerance | 87 | OIDC retry, resumable uploads, idempotent message send, bounded media work and guarded cleanup exist (E2–E4, E11–E12). Disk and network partitions are untested. |
+| Recoverability | 82 | Disposable encrypted restore passes (E7), but no independent destination, separately retained key, schedule or real off-host drill exists. |
 
-### Safety — 88.0
-
-This is not a safety-critical product, but account exposure and data loss are relevant.
+### Security — 81.2
 
 | Subcharacteristic | Score | Evidence and limit |
 | --- | ---: | --- |
-| Operational constraint | 88 | Local endpoints bind to loopback; request/upload size, token and per-user quota limits exist (E4, E11). Public ingress policy absent. |
-| Risk identification | 88 | Media race, quota growth, search scans and backup independence were assessed; code risks repaired (E7, E11). No maintained operational risk register. |
-| Fail safe | 91 | Invalid ownership, corrupt quota metadata, unavailable account state and retired claims fail closed in tests (E2–E4, E11). |
-| Hazard warning | 85 | Auth, upload and destructive-action feedback exists (E6); no failed scheduled-backup alert because scheduling is absent. |
-| Safe integration | 88 | Local Keycloak/PostgreSQL/Kerno/Nodo and restore integrate (E3, E6–E7); external ingress and telemetry unverified. |
+| Confidentiality | 88 | OIDC, private-post queries, chat membership, signed media URLs and owner checks are tested (E3–E6, E11). Media and private content lack product-level encryption at rest/end to end. |
+| Integrity | 93 | Parameterized SQL, token verification, constraints, claim transactions, media dimensions and restore checks pass (E3–E4, E7, E11–E12). Cross-service consistency under failure is unproved. |
+| Non-repudiation | 55 | Persistent actor IDs exist, but there is no tamper-evident action trail or signed evidence for disputed actions. |
+| Accountability | 68 | Keycloak subjects map to UUIDv7 accounts; ordinary logs are not a retained, access-controlled administrator audit trail. |
+| Authenticity | 94 | PKCE/OIDC issuer/audience/subject, TOTP/recovery and service signatures pass tests (E2, E4, E6). No deployed federation/device-lifecycle assessment. |
+| Resistance | 89 | Advisory scans are clean; origin, token, payload, rate, quota and upload bounds exist (E2–E4, E8, E11). No external abuse or public DoS test. |
 
-## Third-party implementation check
+### Maintainability — 92.4
 
-| Function | Actual use and duplication finding |
+| Subcharacteristic | Score | Evidence and limit |
+| --- | ---: | --- |
+| Modularity | 93 | Separate SvelteKit apps, shared packages and Go modules have distinct owners (E1, E9–E11). |
+| Reusability | 93 | Shared UI/auth/API/contracts/media packages and imported editor, upload, carousel and player libraries avoid duplicate engines (E10–E11). |
+| Analysability | 93 | Contracts, migrations, coverage, source tests, CI and this evidence ledger support diagnosis (E1–E12); deployed tracing is absent. |
+| Modifiability | 92 | The capacity fix has a focused DB regression; direct-import and contract checks constrain drift (E2–E3, E9–E12). |
+| Testability | 91 | Disposable DB, headless browser, race and restore tests exist, including a CI request for live checks (E3–E9). No hosted run was observed, and command packages lack direct unit coverage. |
+
+### Flexibility — 89.8
+
+| Subcharacteristic | Score | Evidence and limit |
+| --- | ---: | --- |
+| Adaptability | 93 | Independent apps and OIDC/OpenAPI/tus/SSE boundaries support evolution (E1, E9–E11); alternative topologies are untested. |
+| Scalability | 88 | Cursor/indexed reads and 20,000-post/10,000-message fixtures pass (E3); no high-concurrency or horizontal-scale result. |
+| Installability | 90 | `pnpm dev`, Compose, migrations and static assembly work locally (E3, E5–E7); no clean production-host rehearsal. |
+| Replaceability | 88 | Standards-based interfaces reduce provider lock-in (E9–E11), but replacement of Keycloak, PostgreSQL or media storage has not been demonstrated. |
+
+### Safety — 89.0
+
+For this non-safety-critical local product, account exposure and data loss are the relevant harms.
+
+| Subcharacteristic | Score | Evidence and limit |
+| --- | ---: | --- |
+| Operational constraint | 89 | Local service binds, request/upload limits, media bounds and quotas constrain unsafe operation (E4, E11); no public ingress policy is deployed. |
+| Risk identification | 89 | Media races, quotas, search cost, group capacity and backup independence were reviewed and tested (E3, E7, E11–E12); no operational risk telemetry. |
+| Fail safe | 92 | Invalid tokens/ownership, retired claims and unavailable account/media states fail closed in targeted tests (E2–E4, E11). |
+| Hazard warning | 86 | Upload/auth/destructive-action feedback exists (E6); no scheduled-backup or data-loss alerting. |
+| Safe integration | 89 | Local Keycloak/Kerno/Nodo/DB and disposable restore integrate (E3, E6–E7); external ingress and off-host recovery are unverified. |
+
+## Third-party library and duplication review
+
+| Function | Actual implementation and finding |
 | --- | --- |
-| STaSBLR | SvelteKit, Tailwind tokens, shadcn-svelte component sources, Bits UI dialog behavior and Lucide icons live in their owning packages. `packages/ui/components.json` selects `style: rhea`; Rhea is a shadcn-svelte **style preset**, not another runtime package ([official announcement](https://www.shadcn-svelte.com/docs/changelog)). Local component overrides mean pixel parity with upstream is not asserted. |
-| Feed/editor | TanStack Query/Virtual, Embla and Tiptap are imported in Fluo. Editor code is lazy and structured JSON is validated server-side; no custom virtualizer or rich-text parser was added. |
-| Media | Uppy/Tus and tusd implement transfer; Pica resizes images; PhotoSwipe presents photos; Vidstack plays video. Old Video.js documentation was inaccurate and is corrected. Custom code handles Kaordo authorization, quotas, processing, metadata and lifecycle. |
-| Identity/storage/API | Keycloak/OIDC handles password/TOTP/recovery; pgx uses PostgreSQL; chi routes Kerno; `openapi-fetch` consumes generated types. Application code handles identity mapping and domain rules. |
-| Dependency hygiene | Every checked source import is declared directly (E2). No known advisory appears in npm/Go scans. `combine-errors` metadata and Kaordo's missing root license still need distribution review (E8, E10). |
+| STaSBLR | SvelteKit and Tailwind are used across apps; `packages/ui/components.json` selects shadcn-svelte's Rhea preset. The UI source imports Bits UI behavior and Lucide icons. Rhea is a style preset, not a separate runtime dependency. Local style overrides are intentional; upstream pixel parity is not claimed. |
+| Identity | Keycloak handles password, TOTP and recovery; `keycloak-js`/OIDC handles browser auth. Kerno maps verified subjects to accounts. No custom password or OTP implementation was found in the product services. |
+| Data and API | Go `chi` routes APIs, `pgx` handles PostgreSQL, generated OpenAPI declarations feed `openapi-fetch`, and `@microsoft/fetch-event-source` consumes Ligo SSE. Custom code is limited to Kaordo authorization and domain behavior. |
+| Fluo | TanStack Query/Virtual, Tiptap, Embla, PhotoSwipe and Vidstack are actually imported for caching/virtualization, editing, galleries and media playback. Tiptap/media/player code loads lazily. Kerno has a deliberately limited validator for the stored Tiptap JSON; there is no duplicate editor, carousel engine or video decoder. |
+| Ligo | TanStack Query, shadcn-svelte/Bits UI context menus and shared media UI are used. Message delivery uses Kerno SSE plus PostgreSQL notifications; Socket.IO and Matrix Rust SDK are **not** imported or claimed. Native chat scrolling is a deliberate response to prior virtual-scroll jumps; very long loaded histories still need browser-memory evaluation. |
+| Upload/storage | Uppy/Tus and tusd implement resumable transfer, Pica image resizing, and FFmpeg/ffprobe media processing. Nodo owns bytes, limits, metadata and cleanup; no duplicate upload protocol was implemented. |
+| Dependency/legal hygiene | Import ownership tests pass and npm/Go advisory scans find no known issue (E2, E8). The transitive `combine-errors` metadata anomaly and missing Kaordo root license require resolution before claiming unrestricted redistribution (E10). |
 
-## Findings and refactoring
+## Findings and changes
 
-| Severity | Finding | Status |
+| Severity | Finding | Current state |
 | --- | --- | --- |
-| **High operational** | Restic restore works only with temporary/local storage. Loss of the primary disk can lose real accounts/media without an independent destination and separately stored key (E7). | **Open**; requires actual independent storage and recovery drill. |
-| Medium | Final media deletion could race with reattachment and Nodo purge. | **Fixed:** locked/retired claims, 23-hour acceptance/24-hour cleanup gap and bounded Kerno creation; sequential/concurrent DB tests pass (E3, E11). |
-| Medium | Nodo scanned all `.info` files on every upload. | **Fixed:** startup reconciliation and atomic usage updates; race/restart/corrupt-metadata tests pass (E4, E11). |
-| Medium | Substring search scanned posts and literal wildcards were untested. | **Fixed:** PostgreSQL `pg_trgm` candidate search and wildcard tests; selective 20,000-post local p95 4.451 ms (E3). |
-| Low | Four image decodes/resizes ran in parallel, multiplying transient memory. | **Fixed:** sequential preprocessing; four-media headless flow passes (E6). |
-| Low | Dependency test missed undeclared external/script imports; migration lists diverged; docs named unused Video.js. | **Fixed:** 42 import assertions, one migration list, accurate Vidstack docs (E2, E10). |
-| Evidence gap | Headless and encrypted restore journeys pass locally but are not hosted-CI gates; one concurrent-build test attempt timed out (E6–E7, E9). | Open; use a dedicated built artifact and service stack in CI. |
+| **High operational** | The tested restic restore uses a disposable/local repository. The primary-disk failure case has no independent data copy and separately retained key (E7). | **Open.** This prevents the requested no-High and ≥99 result for real user data. |
+| Medium | The public Chromium accessibility/reflow test silently skipped on Linux because it required a macOS Chrome path. | **Fixed:** installed Playwright Chromium is the fallback, and CI now runs this check instead of accepting a skip (E5, E12). Hosted CI has not yet been observed. |
+| Medium | Live account/product/recovery paths were available only as manual local checks. | **Fixed in workflow:** CI now requests the full local stack, headless auth/product journey and encrypted restore (E6–E9). A hosted run remains to be observed. |
+| Low | Re-adding an existing Ligo member at the 25-person limit incorrectly returned a capacity error and changed the chat timestamp. | **Fixed:** count only new requested members, skip the unnecessary update, and cover idempotence and genuine overflow (E3, E12). |
+| Evidence gap | Ligo was described as a scaffold and had no long-history read measurement. | **Fixed:** README and this audit describe the implemented chat; a 10,000-message fixture measures real read paths (E3, E12). Browser memory and concurrent-load evidence are still missing. |
+| Medium | There is no tamper-evident administrative action trail, active-site availability evidence or independent recovery destination. | **Open.** These are the strongest limits on Security and Reliability scores. |
 
-The current implemented slice is measurably improved, with no confirmed Critical code defect or known published dependency advisory. **87.8/100**, Security **80.5**, Reliability **83.0** and the open **High recovery gap** prevent an honest 99/95/no-High claim.
+The implemented code has strong local functional checks and no confirmed Critical code defect. The evidence above supports **89.0/100**, not 99/100; Security **81.2**, Reliability **83.5** and the open **High** recovery gap make the requested threshold indefensible today.

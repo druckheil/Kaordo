@@ -330,4 +330,30 @@ func TestLigoConversationFlow(t *testing.T) {
 	if err != nil || !batch.Deleted || len(batch.Media) != 0 {
 		t.Fatalf("deleted media leaked: %+v, %v", batch, err)
 	}
+
+	memberIDs := make([]string, 0, 22)
+	for index := range 22 {
+		member, err := users.Upsert(ctx, fmt.Sprintf("ligo-cap-%d", index),
+			fmt.Sprintf("ligocap%d", index), fmt.Sprintf("Member %d", index))
+		if err != nil {
+			t.Fatal(err)
+		}
+		memberIDs = append(memberIDs, member.ID)
+	}
+	fullGroup, err := store.AddMembers(ctx, alice.ID, group.ID, memberIDs)
+	if err != nil || len(fullGroup.Members) != 25 {
+		t.Fatalf("group capacity fixture = %+v, %v", fullGroup, err)
+	}
+	repeated, err := store.AddMembers(ctx, alice.ID, group.ID, []string{bob.ID})
+	if err != nil || len(repeated.Members) != len(fullGroup.Members) ||
+		!repeated.UpdatedAt.Equal(fullGroup.UpdatedAt) {
+		t.Fatalf("re-adding an existing member at capacity = %+v, %v", repeated, err)
+	}
+	extra, err := users.Upsert(ctx, "ligo-cap-extra", "ligocapextra", "Extra member")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddMembers(ctx, alice.ID, group.ID, []string{extra.ID}); !errors.Is(err, ligo.ErrInvalid) {
+		t.Fatalf("new member passed group capacity: %v", err)
+	}
 }

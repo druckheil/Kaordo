@@ -1,6 +1,6 @@
 # Kaordo
 
-Kaordo is being rebuilt as independent applications in one repository. Local account registration and sign-in use Keycloak, TOTP, and a shared Kerno identity API. Fluo now has a working social feed with posts, interactions, and photo/video uploads through Nodo. Messaging, communities, and administration remain scaffolds.
+Kaordo is being rebuilt as independent applications in one repository. Local account registration and sign-in use Keycloak, TOTP, and a shared Kerno identity API. Fluo has a social feed with posts, interactions, and photo/video uploads through Nodo. Ligo has direct and group chats, message reactions and file attachments. Communities and administration remain scaffolds.
 
 ## Layout
 
@@ -28,7 +28,7 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:8765/register/` to create an account or `http://localhost:8765/login/` to sign in. After signing in, open `http://localhost:8765/fluo/`. The command creates ignored local configuration if missing, starts PostgreSQL and Keycloak, applies the Fluo migration, builds Kerno, Nodo and the static apps, then serves them on one origin. Install `ffmpeg` and `ffprobe` to process videos. Press Ctrl+C to stop Kerno, Nodo and the site, or run `pnpm dev:stop` from another terminal to stop those processes and the Docker containers together. For the frontend alone, use `pnpm dev:web`; account and social actions need the full stack. Restart `pnpm dev` after frontend source changes to rebuild the static apps.
+Open `http://localhost:8765/register/` to create an account or `http://localhost:8765/login/` to sign in. After signing in, open `http://localhost:8765/fluo/` or `http://localhost:8765/ligo/`. The command creates ignored local configuration if missing, starts PostgreSQL and Keycloak, applies the application migrations, builds Kerno, Nodo and the static apps, then serves them on one origin. Install `ffmpeg` and `ffprobe` to process videos. Press Ctrl+C to stop Kerno, Nodo and the site, or run `pnpm dev:stop` from another terminal to stop those processes and the Docker containers together. For the frontend alone, use `pnpm dev:web`; account and product actions need the full stack. Restart `pnpm dev` after frontend source changes to rebuild the static apps.
 
 The [local setup details](deploy/local/README.md) describe the services and configuration. Database and administrator passwords stay in the ignored `deploy/local/.env`.
 
@@ -45,8 +45,10 @@ pnpm test:pages
 pnpm test:auth
 pnpm test:dev
 pnpm test:dependencies
+pnpm test:ui-layout
+pnpm test:ui-public
 pnpm test:auth:live # while pnpm dev runs in another terminal
-pnpm test:fluo:db # with the local application database running
+pnpm test:product:db # with the local application database running; covers Fluo and Ligo
 pnpm test:backup
 pnpm test:backup:live # with the local database containers running
 go test ./services/kerno/...
@@ -54,8 +56,8 @@ go test ./services/nodo/... ./services/mediaauth/...
 go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
 ```
 
-Ligo, Rondo and Regado remain scaffolds. The current stack is local and has not been deployed as a public service. Nodo removes unreferenced uploads after 24 hours and Kerno requests immediate cleanup when a Fluo post is deleted. Fluo media still has no disk mirror or private-at-rest encryption; see the local storage and backup notes before relying on it for durable files.
+Rondo and Regado remain scaffolds. The current stack is local and has not been deployed as a public service. Nodo removes unreferenced uploads after 24 hours and Kerno requests immediate cleanup when Fluo posts or Ligo messages are deleted. Stored media still has no disk mirror or private-at-rest encryption; see the local storage and backup notes before relying on it for durable files.
 
 The complete previous codebase and Git history are preserved outside this repository at `/Users/druckheil/Projects/Archive/Kaordo-before-0.0.1`.
 
-The [current ISO/IEC 25010:2023 audit](docs/audits/iso-iec-25010-2023-current.md) scores every characteristic and subcharacteristic for the implemented account and Fluo slice, with reproducible evidence and remaining release blockers. The [original scaffold audit](docs/audits/iso-iec-25010-2023-scope-0.0.1.md) remains available for historical comparison.
+The [current ISO/IEC 25010:2023 audit](docs/audits/iso-iec-25010-2023-current.md) scores every characteristic and subcharacteristic for the implemented account, Fluo, Ligo and Nodo slice, with reproducible evidence and remaining release blockers. The [original scaffold audit](docs/audits/iso-iec-25010-2023-scope-0.0.1.md) remains available for historical comparison.

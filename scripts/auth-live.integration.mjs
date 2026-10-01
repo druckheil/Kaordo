@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,7 +13,8 @@ import { chromium } from 'playwright-core';
 const run = promisify(execFile);
 const site = 'http://localhost:8765';
 const identity = 'http://localhost:8080';
-const chrome = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const macChrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const chrome = process.env.CHROME_BIN || (existsSync(macChrome) ? macChrome : undefined);
 
 async function capture(page, name) {
   if (process.env.KAORDO_UI_SNAPSHOTS !== '1') return;

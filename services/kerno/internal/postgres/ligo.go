@@ -188,11 +188,13 @@ func (store *Ligo) AddMembers(ctx context.Context, actorID, conversationID strin
 	if creator != actorID {
 		return ligo.Conversation{}, ligo.ErrForbidden
 	}
-	var total int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM ligo_members WHERE conversation_id = $1::uuid`, conversationID).Scan(&total); err != nil {
+	var total, alreadyMembers int
+	if err := tx.QueryRow(ctx, `SELECT count(*)::int,
+		count(*) FILTER (WHERE user_id = ANY($2::uuid[]))::int
+		FROM ligo_members WHERE conversation_id = $1::uuid`, conversationID, memberIDs).Scan(&total, &alreadyMembers); err != nil {
 		return ligo.Conversation{}, err
 	}
-	if total+len(memberIDs) > 25 {
+	if total+len(memberIDs)-alreadyMembers > 25 {
 		return ligo.Conversation{}, ligo.ErrInvalid
 	}
 	var found int
@@ -201,6 +203,12 @@ func (store *Ligo) AddMembers(ctx context.Context, actorID, conversationID strin
 	}
 	if found != len(memberIDs) {
 		return ligo.Conversation{}, ligo.ErrNotFound
+	}
+	if alreadyMembers == len(memberIDs) {
+		if err := tx.Commit(ctx); err != nil {
+			return ligo.Conversation{}, err
+		}
+		return store.GetConversation(ctx, actorID, conversationID)
 	}
 	for _, userID := range memberIDs {
 		if _, err := tx.Exec(ctx, `INSERT INTO ligo_members (conversation_id, user_id)
