@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
@@ -14,7 +14,7 @@ function sourceFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return sourceFiles(path);
-    return /\.(?:css|js|svelte|ts)$/.test(entry.name) ? [path] : [];
+    return /\.(?:css|js|mjs|svelte|ts)$/.test(entry.name) ? [path] : [];
   });
 }
 
@@ -24,9 +24,9 @@ function packageName(specifier) {
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
 }
 
-function scanPackage(directory) {
+function scanPackage(directory, sourceDirectory = join(directory, 'src')) {
   const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
-  const files = sourceFiles(join(directory, 'src'));
+  const files = sourceFiles(sourceDirectory);
   const imports = new Set();
   for (const file of files) {
     const source = readFileSync(file, 'utf8');
@@ -37,7 +37,7 @@ function scanPackage(directory) {
   return { manifest, imports };
 }
 
-const packages = workspaces.map(scanPackage);
+const packages = [...workspaces.map((directory) => scanPackage(directory)), scanPackage(root, join(root, 'scripts'))];
 const workspaceNames = new Set(packages.map(({ manifest }) => manifest.name));
 
 for (const { manifest, imports } of packages) {
@@ -55,5 +55,17 @@ for (const { manifest, imports } of packages) {
     const undeclared = [...imports].filter((name) => workspaceNames.has(name) && !declared.has(name));
     assert.deepEqual(undeclared, [], 'Workspace imports must be declared in this package.');
   });
-}
 
+  test(`${manifest.name} declares every imported external package`, () => {
+    const declared = new Set(Object.keys({
+      ...manifest.dependencies,
+      ...manifest.devDependencies,
+      ...manifest.peerDependencies,
+      ...manifest.optionalDependencies
+    }));
+    const undeclared = [...imports].filter((name) =>
+      !name.startsWith('node:') && !workspaceNames.has(name) && !declared.has(name)
+    );
+    assert.deepEqual(undeclared, [], 'Source imports must be declared by the owning package.');
+  });
+}

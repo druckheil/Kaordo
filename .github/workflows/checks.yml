@@ -35,6 +35,7 @@ jobs:
           pnpm test:backup
           pnpm test:dependencies
           pnpm test:dev
+          pnpm test:ui-layout
           pnpm test:pages
       - name: Check Go services
         run: |

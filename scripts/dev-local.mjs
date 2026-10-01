@@ -4,6 +4,7 @@ import { copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import { assertAvailablePorts } from './local-ports.mjs';
+import { fluoMigrations } from './fluo-migrations.mjs';
 import { startLocalSession } from './local-session.mjs';
 import { syncKeycloak } from './sync-keycloak.mjs';
 
@@ -162,9 +163,9 @@ try {
   const localEnv = { ...process.env, ...privateConfig, KAORDO_SITE_ORIGIN: siteOrigin };
   console.log('Starting PostgreSQL and Keycloak…');
   await run('docker', [...compose, 'up', '-d', '--wait'], localEnv);
-  await run('docker', [...compose, 'exec', '-T', 'app-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', 'kaordo', '-f', '/migrations/002_fluo.sql'], localEnv);
-  await run('docker', [...compose, 'exec', '-T', 'app-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', 'kaordo', '-f', '/migrations/003_reusable_fluo_media.sql'], localEnv);
-  await run('docker', [...compose, 'exec', '-T', 'app-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', 'kaordo', '-f', '/migrations/004_fluo_saved_posts.sql'], localEnv);
+  for (const migration of fluoMigrations) {
+    await run('docker', [...compose, 'exec', '-T', 'app-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', 'kaordo', '-f', `/migrations/${migration}`], localEnv);
+  }
   await waitFor('http://127.0.0.1:8080/realms/kaordo/.well-known/openid-configuration', 180_000);
   await syncKeycloak(privateConfig);
 

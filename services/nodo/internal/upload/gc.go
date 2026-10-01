@@ -16,10 +16,13 @@ import (
 )
 
 const uploadRetention = 24 * time.Hour
+const uploadAcceptance = uploadRetention - time.Hour
 
 func (server *Server) uploadExpired(id string) bool {
 	info, err := os.Stat(filepath.Join(server.config.Directory, id+".info"))
-	return err != nil || time.Since(info.ModTime()) > uploadRetention
+	// Stop accepting a file before garbage collection can remove unclaimed
+	// bytes. Kerno has time to commit its media claim after validation.
+	return err != nil || time.Since(info.ModTime()) > uploadAcceptance
 }
 
 func (server *Server) referenced(ctx context.Context, id string) (bool, error) {
@@ -74,6 +77,17 @@ func (server *Server) removeFiles(id string) error {
 	}
 	if err := os.Remove(filepath.Join(server.config.Directory, id+".info")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
+	}
+	if item, exists := server.indexed[id]; exists {
+		used := server.used[item.owner]
+		used.count--
+		used.bytes -= item.size
+		if used.count == 0 {
+			delete(server.used, item.owner)
+		} else {
+			server.used[item.owner] = used
+		}
+		delete(server.indexed, id)
 	}
 	return nil
 }

@@ -2,6 +2,8 @@
 
 Docker Compose is required for the two PostgreSQL instances and Keycloak. Kerno and Nodo run as local Go processes. This profile is bound to localhost and uses Keycloak `start-dev`; it is not a public deployment configuration.
 
+Nodo accepts an uploaded file for a new post for 23 hours and garbage-collects unreferenced bytes after 24 hours. This gap lets Kerno finish its bounded media claim before cleanup can start. Once the final post reference is deleted, the upload ID is retired; upload the bytes again if you want to post them later.
+
 From the repository root, run `pnpm dev` with Docker running. Open `http://localhost:8765/register/` or `http://localhost:8765/login/`, then `/fluo/`. The command creates ignored public and private local configuration when missing, starts the dependencies, applies the Fluo schema and feature migrations, runs Kerno and Nodo, builds the static apps and serves every route at one origin. Press Ctrl+C to stop the site and both Go services; `pnpm dev:stop` stops them and the containers together. Install `ffmpeg` and `ffprobe` for video processing. `pnpm dev:web` runs the frontend alone if Docker is unavailable, but login and Fluo actions need the full stack.
 
 Run only one `pnpm dev` instance at a time. A second launch exits immediately if Kerno (`127.0.0.1:8081`), Nodo (`127.0.0.1:8082`) or the site (`127.0.0.1:8765`) already owns its port. Stop the existing `pnpm dev` terminal with Ctrl+C or run `pnpm dev:stop` from another terminal before restarting. The stop command only signals the Kaordo process registered by this checkout; it does not kill unrelated port owners.
@@ -17,6 +19,8 @@ The manual setup below is only needed when customizing addresses or running serv
    docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/002_fluo.sql
    docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/003_reusable_fluo_media.sql
    docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/004_fluo_saved_posts.sql
+   docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/005_fluo_media_retirement.sql
+   docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/006_fluo_search.sql
    ```
 
    Start `./scripts/run-kerno-local.sh` and `./scripts/run-nodo-local.sh` in separate terminals. Both read the ignored signing key; Kerno listens on `127.0.0.1:8081`, Nodo on `127.0.0.1:8082`.

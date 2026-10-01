@@ -135,6 +135,13 @@ func TestFluoPostFlow(t *testing.T) {
 	if err != nil || referenced {
 		t.Fatalf("deleted media reference = %t, %v", referenced, err)
 	}
+	if _, err := store.Create(ctx, a.ID, fluo.NewPost{Content: content, Visibility: "public"}, "hello", []fluo.Media{attachment}); !errors.Is(err, fluo.ErrMediaOwner) {
+		t.Fatalf("retired media was reused after its last reference was deleted: %v", err)
+	}
+	var retired bool
+	if err := pool.QueryRow(ctx, `SELECT retired_at IS NOT NULL FROM fluo_upload_claims WHERE upload_id = $1::uuid`, attachment.ID).Scan(&retired); err != nil || !retired {
+		t.Fatalf("unreferenced media claim was not retired: %t, %v", retired, err)
+	}
 	page, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Limit: 1})
 	if err != nil || len(page.Items) != 1 || page.NextCursor == nil {
 		t.Fatalf("first page = %+v, %v", page, err)
@@ -160,5 +167,53 @@ func TestFluoPostFlow(t *testing.T) {
 	remaining, err := store.Get(ctx, b.ID, quote.ID)
 	if err != nil || remaining.QuoteID != nil || remaining.Quote != nil {
 		t.Fatalf("deleted quote reference = %+v, %v", remaining, err)
+	}
+	literal, err := store.Create(ctx, a.ID, fluo.NewPost{Content: content, Visibility: "public"}, `literal %_\ marker`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"%", "_", `\`} {
+		matches, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Search: query, Limit: 20})
+		if err != nil || len(matches.Items) != 1 || matches.Items[0].ID != literal.ID {
+			t.Fatalf("literal search for %q = %+v, %v", query, matches, err)
+		}
+	}
+	// The final delete and a new reference can commit in either order. Both
+	// outcomes must be safe: a successful creation retains the bytes, while a
+	// retired claim rejects creation before Nodo can purge them.
+	concurrentMedia := fluo.Media{ID: "01999111-2222-7333-8444-555555555553", Kind: "image", MimeType: "image/png", Width: 8, Height: 6, Size: 80}
+	first := makePost(a.ID, "public", nil, nil, []fluo.Media{concurrentMedia})
+	start := make(chan struct{})
+	deleted := make(chan error, 1)
+	type createResult struct {
+		post fluo.Post
+		err  error
+	}
+	created := make(chan createResult, 1)
+	go func() {
+		<-start
+		_, err := store.Delete(ctx, a.ID, first.ID)
+		deleted <- err
+	}()
+	go func() {
+		<-start
+		post, err := store.Create(ctx, a.ID, fluo.NewPost{Content: content, Visibility: "public"}, "hello", []fluo.Media{concurrentMedia})
+		created <- createResult{post, err}
+	}()
+	close(start)
+	if err := <-deleted; err != nil {
+		t.Fatalf("concurrent delete failed: %v", err)
+	}
+	result := <-created
+	referenced, err = store.MediaReferenced(ctx, concurrentMedia.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.err == nil {
+		if !referenced || len(result.post.Media) != 1 {
+			t.Fatalf("committed concurrent post lost its media: %+v, referenced=%t", result.post, referenced)
+		}
+	} else if !errors.Is(result.err, fluo.ErrMediaOwner) || referenced {
+		t.Fatalf("unsafe concurrent media outcome: create=%v, referenced=%t", result.err, referenced)
 	}
 }

@@ -292,7 +292,9 @@ func (h fluoHandler) create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	post, err := h.deps.Store.Create(r.Context(), actor.ID, input, text, media)
+	createCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	post, err := h.deps.Store.Create(createCtx, actor.ID, input, text, media)
 	if err != nil {
 		fluoError(w, err)
 		return

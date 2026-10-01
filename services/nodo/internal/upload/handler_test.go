@@ -185,6 +185,72 @@ func TestResumableImageUploadAndAccess(t *testing.T) {
 	again.Header = post.Header.Clone()
 	newUpload := response(again, http.StatusCreated)
 	newUpload.Body.Close()
+	restarted, err := NewHandler(Config{
+		Directory: directory, KernoURL: kerno.URL, MediaKey: key, MaxOwnerUploads: 1,
+		VerifyOwner: func(_ context.Context, bearer string) (string, error) {
+			if bearer == "Bearer alice" {
+				return "alice", nil
+			}
+			return "", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedServer := httptest.NewServer(restarted)
+	defer restartedServer.Close()
+	restartPost, err := http.NewRequest(http.MethodPost, restartedServer.URL+"/v1/uploads/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartPost.Header = post.Header.Clone()
+	restartedQuota, err := restartedServer.Client().Do(restartPost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restartedQuota.Body.Close()
+	if restartedQuota.StatusCode != http.StatusInsufficientStorage {
+		t.Fatalf("quota after restart = %d, want %d", restartedQuota.StatusCode, http.StatusInsufficientStorage)
+	}
+}
+
+func TestQuotaIndexFailsClosedOnCorruptMetadata(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "broken.info"), []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewHandler(Config{
+		Directory: directory, MediaKey: []byte(strings.Repeat("k", 32)),
+		VerifyOwner: func(context.Context, string) (string, error) { return "alice", nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "broken.info") {
+		t.Fatalf("corrupt quota metadata was accepted: %v", err)
+	}
+}
+
+func TestUploadAcceptanceEndsBeforeGarbageCollection(t *testing.T) {
+	directory := t.TempDir()
+	id := "01999111-2222-7333-8444-555555555554"
+	path := filepath.Join(directory, id+".info")
+	if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{config: Config{Directory: directory}}
+	for _, age := range []struct {
+		value   time.Duration
+		expired bool
+	}{
+		{22 * time.Hour, false},
+		{23*time.Hour + 30*time.Minute, true},
+	} {
+		modified := time.Now().Add(-age.value)
+		if err := os.Chtimes(path, modified, modified); err != nil {
+			t.Fatal(err)
+		}
+		if got := server.uploadExpired(id); got != age.expired {
+			t.Fatalf("upload aged %s expired=%t, want %t", age.value, got, age.expired)
+		}
+	}
 }
 
 func TestFourConcurrentImageUploadsAcceptMislabeledWebP(t *testing.T) {

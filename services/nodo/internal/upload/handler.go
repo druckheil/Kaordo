@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -26,12 +27,17 @@ type ownerKey struct{}
 type reservationKey struct{}
 type reservation struct {
 	owner  string
+	id     string
 	size   int64
 	active bool
 }
 type usage struct {
 	count int
 	bytes int64
+}
+type indexedUpload struct {
+	owner string
+	size  int64
 }
 
 type Config struct {
@@ -54,6 +60,41 @@ type Server struct {
 	jobs    chan string
 	quotaMu sync.Mutex
 	pending map[string]usage
+	used    map[string]usage
+	indexed map[string]indexedUpload
+}
+
+func loadQuotaUsage(directory string) (map[string]usage, map[string]indexedUpload, error) {
+	files, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, nil, err
+	}
+	used := make(map[string]usage)
+	indexed := make(map[string]indexedUpload)
+	for _, file := range files {
+		if !strings.HasSuffix(file.Name(), ".info") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(directory, file.Name()))
+		if err != nil {
+			return nil, nil, fmt.Errorf("read upload metadata %s: %w", file.Name(), err)
+		}
+		var info tusd.FileInfo
+		if err := json.Unmarshal(data, &info); err != nil {
+			return nil, nil, fmt.Errorf("decode upload metadata %s: %w", file.Name(), err)
+		}
+		owner := info.MetaData["owner"]
+		if owner == "" {
+			continue
+		}
+		id := strings.TrimSuffix(file.Name(), ".info")
+		indexed[id] = indexedUpload{owner: owner, size: info.Size}
+		current := used[owner]
+		current.count++
+		current.bytes += info.Size
+		used[owner] = current
+	}
+	return used, indexed, nil
 }
 
 func NewHandler(config Config) (http.Handler, error) {
@@ -66,7 +107,11 @@ func NewHandler(config Config) (http.Handler, error) {
 	if err := os.MkdirAll(config.Directory, 0700); err != nil {
 		return nil, err
 	}
-	config.Directory, _ = filepath.Abs(config.Directory)
+	absoluteDirectory, err := filepath.Abs(config.Directory)
+	if err != nil {
+		return nil, err
+	}
+	config.Directory = absoluteDirectory
 	if config.MaxOwnerUploads == 0 {
 		config.MaxOwnerUploads = 200
 	}
@@ -76,13 +121,20 @@ func NewHandler(config Config) (http.Handler, error) {
 	if config.MaxOwnerUploads < 1 || config.MaxOwnerBytes < maxUploadSize {
 		return nil, errors.New("Nodo owner quota configuration is invalid")
 	}
+	used, indexed, err := loadQuotaUsage(config.Directory)
+	if err != nil {
+		return nil, err
+	}
 	store := filestore.New(config.Directory)
 	store.DirModePerm = 0700
 	store.FileModePerm = 0600
 	composer := tusd.NewStoreComposer()
 	store.UseIn(composer)
 	filelocker.New(config.Directory).UseIn(composer)
-	server := &Server{config: config, store: store, origins: make(map[string]bool), jobs: make(chan string, 16), pending: make(map[string]usage)}
+	server := &Server{
+		config: config, store: store, origins: make(map[string]bool), jobs: make(chan string, 16),
+		pending: make(map[string]usage), used: used, indexed: indexed,
+	}
 	for _, origin := range config.AllowedOrigins {
 		if trimmed := strings.TrimSpace(origin); trimmed != "" {
 			server.origins[trimmed] = true
@@ -237,28 +289,9 @@ func (server *Server) upload(w http.ResponseWriter, r *http.Request) {
 func (server *Server) reserve(entry *reservation, size int64) error {
 	server.quotaMu.Lock()
 	defer server.quotaMu.Unlock()
-	files, err := os.ReadDir(server.config.Directory)
-	if err != nil {
-		return err
-	}
 	current := server.pending[entry.owner]
-	for _, file := range files {
-		if !strings.HasSuffix(file.Name(), ".info") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(server.config.Directory, file.Name()))
-		if err != nil {
-			return err
-		}
-		var info tusd.FileInfo
-		if err := json.Unmarshal(data, &info); err != nil {
-			return err
-		}
-		if info.MetaData["owner"] == entry.owner {
-			current.count++
-			current.bytes += info.Size
-		}
-	}
+	current.count += server.used[entry.owner].count
+	current.bytes += server.used[entry.owner].bytes
 	if current.count >= server.config.MaxOwnerUploads || current.bytes+size > server.config.MaxOwnerBytes {
 		return errors.New("storage quota reached")
 	}
@@ -275,6 +308,21 @@ func (server *Server) release(entry *reservation) {
 	defer server.quotaMu.Unlock()
 	if !entry.active {
 		return
+	}
+	// tusd persists the .info file before returning from a successful POST.
+	// Move its reservation to the index atomically with releasing pending usage.
+	if entry.id != "" {
+		_, err := os.Stat(filepath.Join(server.config.Directory, entry.id+".info"))
+		_, indexed := server.indexed[entry.id]
+		// An unreadable .info file may still occupy quota. Count it until
+		// startup reconciliation rather than admitting more uploads.
+		if !indexed && (err == nil || !errors.Is(err, os.ErrNotExist)) {
+			server.indexed[entry.id] = indexedUpload{owner: entry.owner, size: entry.size}
+			used := server.used[entry.owner]
+			used.count++
+			used.bytes += entry.size
+			server.used[entry.owner] = used
+		}
 	}
 	pending := server.pending[entry.owner]
 	pending.count--
@@ -315,6 +363,7 @@ func (server *Server) beforeCreate(event tusd.HookEvent) (tusd.HTTPResponse, tus
 	if err := server.reserve(entry, info.Size); err != nil {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_STORAGE_QUOTA", "Storage quota reached.", http.StatusInsufficientStorage)
 	}
+	entry.id = id.String()
 	return tusd.HTTPResponse{}, tusd.FileInfoChanges{
 		ID: id.String(), MetaData: tusd.MetaData{"owner": ownerID, "filetype": mediaType},
 	}, nil

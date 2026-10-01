@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/jackc/pgx/v5"
@@ -38,7 +40,6 @@ const postColumns = `
 `
 
 const postJoins = `
-	FROM fluo_posts p
 	JOIN users a ON a.id = p.author_id
 	LEFT JOIN fluo_posts q ON q.id = p.quote_id AND q.parent_id IS NULL AND q.visibility = 'public'
 	LEFT JOIN users qa ON qa.id = q.author_id
@@ -88,7 +89,7 @@ func scanPost(row scanner) (fluo.Post, error) {
 }
 
 func (store *Fluo) Get(ctx context.Context, viewerID, id string) (fluo.Post, error) {
-	query := `SELECT ` + postColumns + postJoins + `
+	query := `SELECT ` + postColumns + ` FROM fluo_posts p ` + postJoins + `
 		WHERE p.id = $2::uuid
 		AND (p.visibility = 'public' OR p.author_id = $1::uuid)
 		AND (p.parent_id IS NULL OR EXISTS (
@@ -116,7 +117,25 @@ func (store *Fluo) List(ctx context.Context, options fluo.ListOptions) (fluo.Pag
 	if options.Cursor != nil {
 		cursorTime, cursorID = options.Cursor.CreatedAt, options.Cursor.ID
 	}
-	query := `SELECT ` + postColumns + postJoins + `
+	from := `FROM fluo_posts p`
+	prefix := ""
+	args := []any{options.ViewerID, options.ParentID, options.Feed, cursorTime, cursorID, options.Limit + 1}
+	if options.Search != "" {
+		// PostgreSQL can use pg_trgm and author indexes to build a small candidate
+		// set before fetching the timeline. Escape user wildcards to preserve
+		// literal case-insensitive substring search.
+		search := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(options.Search) + "%"
+		args = append(args, search)
+		prefix = `WITH matching_posts AS (
+			SELECT id FROM fluo_posts WHERE lower(plain_text) LIKE lower($7::text) ESCAPE '\'
+			UNION
+			SELECT p.id FROM users u JOIN fluo_posts p ON p.author_id = u.id
+			WHERE lower(u.username) LIKE lower($7::text) ESCAPE '\'
+				OR lower(u.display_name) LIKE lower($7::text) ESCAPE '\'
+		) `
+		from = `FROM matching_posts JOIN fluo_posts p ON p.id = matching_posts.id`
+	}
+	query := prefix + `SELECT ` + postColumns + ` ` + from + postJoins + `
 		WHERE ($2::uuid IS NULL AND p.parent_id IS NULL OR p.parent_id = $2::uuid)
 		AND (p.visibility = 'public' OR p.author_id = $1::uuid)
 		AND ($2::uuid IS NOT NULL OR $3::text = 'latest'
@@ -131,10 +150,8 @@ func (store *Fluo) List(ctx context.Context, options fluo.ListOptions) (fluo.Pag
 				)
 			)))
 		AND ($4::timestamptz IS NULL OR (p.created_at, p.id) < ($4::timestamptz, $5::uuid))
-		AND ($7::text = '' OR strpos(lower(p.plain_text), lower($7)) > 0
-			OR strpos(lower(a.username), lower($7)) > 0 OR strpos(lower(a.display_name), lower($7)) > 0)
 		ORDER BY p.created_at DESC, p.id DESC LIMIT $6`
-	rows, err := store.pool.Query(ctx, query, options.ViewerID, options.ParentID, options.Feed, cursorTime, cursorID, options.Limit+1, options.Search)
+	rows, err := store.pool.Query(ctx, query, args...)
 	if err != nil {
 		return fluo.Page{}, err
 	}
@@ -206,17 +223,22 @@ func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPos
 	if err != nil {
 		return fluo.Post{}, err
 	}
-	for position, item := range media {
+	claims := append([]fluo.Media(nil), media...)
+	sort.Slice(claims, func(i, j int) bool { return claims[i].ID < claims[j].ID })
+	for _, item := range claims {
 		claimed, err := tx.Exec(ctx, `INSERT INTO fluo_upload_claims (upload_id, owner_id)
 			VALUES ($1::uuid, $2::uuid)
 			ON CONFLICT (upload_id) DO UPDATE SET owner_id = EXCLUDED.owner_id
-			WHERE fluo_upload_claims.owner_id = EXCLUDED.owner_id`, item.ID, actorID)
+			WHERE fluo_upload_claims.owner_id = EXCLUDED.owner_id
+			AND fluo_upload_claims.retired_at IS NULL`, item.ID, actorID)
 		if err != nil {
 			return fluo.Post{}, err
 		}
 		if claimed.RowsAffected() == 0 {
 			return fluo.Post{}, fluo.ErrMediaOwner
 		}
+	}
+	for position, item := range media {
 		_, err = tx.Exec(ctx, `INSERT INTO fluo_post_media
 			(post_id, upload_id, position, kind, mime_type, width, height, size_bytes, alt_text)
 			VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)`,
@@ -244,8 +266,9 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 		}
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT upload_id::text FROM fluo_post_media WHERE post_id = $1::uuid
-		OR post_id IN (SELECT id FROM fluo_posts WHERE parent_id = $1::uuid)`, id)
+	rows, err := tx.Query(ctx, `SELECT DISTINCT upload_id::text FROM fluo_post_media WHERE post_id = $1::uuid
+		OR post_id IN (SELECT id FROM fluo_posts WHERE parent_id = $1::uuid)
+		ORDER BY upload_id::text`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -263,8 +286,25 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 		return nil, err
 	}
 	rows.Close()
+	// Lock claims before removing references. A concurrent Create acquires the
+	// same row through its upsert: it either commits a new reference first, or
+	// observes the retired claim and fails before the bytes can be purged.
+	for _, mediaID := range ids {
+		var lockedID string
+		if err := tx.QueryRow(ctx, `SELECT upload_id::text FROM fluo_upload_claims
+			WHERE upload_id = $1::uuid FOR UPDATE`, mediaID).Scan(&lockedID); err != nil {
+			return nil, fmt.Errorf("lock media claim %s: %w", mediaID, err)
+		}
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM fluo_posts WHERE id = $1::uuid`, id); err != nil {
 		return nil, err
+	}
+	for _, mediaID := range ids {
+		if _, err := tx.Exec(ctx, `UPDATE fluo_upload_claims AS claim SET retired_at = now()
+			WHERE claim.upload_id = $1::uuid AND claim.retired_at IS NULL
+			AND NOT EXISTS (SELECT 1 FROM fluo_post_media AS media WHERE media.upload_id = claim.upload_id)`, mediaID); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -274,7 +314,9 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 
 func (store *Fluo) MediaReferenced(ctx context.Context, id string) (bool, error) {
 	var referenced bool
-	err := store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM fluo_post_media WHERE upload_id = $1::uuid)`, id).Scan(&referenced)
+	err := store.pool.QueryRow(ctx, `SELECT
+		EXISTS(SELECT 1 FROM fluo_post_media WHERE upload_id = $1::uuid)
+		OR EXISTS(SELECT 1 FROM fluo_upload_claims WHERE upload_id = $1::uuid AND retired_at IS NULL)`, id).Scan(&referenced)
 	return referenced, err
 }
 

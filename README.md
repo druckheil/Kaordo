@@ -58,4 +58,4 @@ Ligo, Rondo and Regado remain scaffolds. The current stack is local and has not 
 
 The complete previous codebase and Git history are preserved outside this repository at `/Users/druckheil/Projects/Archive/Kaordo-before-0.0.1`.
 
-The [pre-Fluo ISO/IEC 25010:2023 audit](docs/audits/iso-iec-25010-2023-current.md) records the earlier account-only evidence and release blockers. Its scores have not been recalculated for this implementation. The [scaffold audit](docs/audits/iso-iec-25010-2023-scope-0.0.1.md) remains available for comparison.
+The [current ISO/IEC 25010:2023 audit](docs/audits/iso-iec-25010-2023-current.md) scores every characteristic and subcharacteristic for the implemented account and Fluo slice, with reproducible evidence and remaining release blockers. The [original scaffold audit](docs/audits/iso-iec-25010-2023-scope-0.0.1.md) remains available for historical comparison.

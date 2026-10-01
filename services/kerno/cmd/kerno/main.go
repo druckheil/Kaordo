@@ -82,6 +82,8 @@ func run() error {
 			MediaSignKey: mediaKey,
 		}, strings.Split(originList, ",")),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}

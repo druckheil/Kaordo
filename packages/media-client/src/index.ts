@@ -41,7 +41,10 @@ export async function uploadMedia(
   if (files.length === 0) return [];
   if (files.length > 4) throw new Error('Add at most four files.');
   if (files.some((file) => file.size > maxVideoSize)) throw new Error('A file exceeds the 100 MiB upload limit.');
-  const chosen = await Promise.all(files.map(prepared));
+  // Decoding and resizing several large images at once can retain multiple
+  // bitmaps and canvases in memory. Keep preprocessing bounded to one image.
+  const chosen: File[] = [];
+  for (const file of files) chosen.push(await prepared(file));
   for (const file of chosen) {
     if (!imageTypes.has(file.type) && !videoTypes.has(file.type)) {
       throw new Error('Choose JPEG, PNG, WebP, MP4, WebM or MOV files.');

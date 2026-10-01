@@ -65,7 +65,7 @@ the quoted content. A 30-post/minute per-author limit protects creation.
 
 Fluo client: the standalone /fluo/ SvelteKit app uses the account gate,
 TanStack Query for cached cursor pages, TanStack Virtual for visible cards,
-Tiptap for JSON editing, PhotoSwipe for photos and Video.js for processed
+Tiptap for JSON editing, PhotoSwipe for photos and Vidstack for processed
 video. @kaordo/api-client holds typed requests and pagination policy.
 @kaordo/media-client uses Pica for large image resize and Uppy/Tus for
 resumable upload. Post content is rendered as structured text, not HTML.

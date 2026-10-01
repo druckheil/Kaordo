@@ -2,6 +2,7 @@ import { spawn, execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { promisify, parseEnv } from 'node:util';
+import { fluoMigrations } from './fluo-migrations.mjs';
 
 const run = promisify(execFile);
 const database = `fluo_test_${randomBytes(4).toString('hex')}`;
@@ -26,11 +27,11 @@ if (!config.KAORDO_DB_PASSWORD) throw new Error('Local database credentials are 
 await run('docker', ['exec', container, 'createdb', '-U', 'kaordo', database]);
 try {
   await migrate('../deploy/postgres/001_users.sql');
-  await migrate('../deploy/postgres/002_fluo.sql');
-  await migrate('../deploy/postgres/003_reusable_fluo_media.sql');
-  await migrate('../deploy/postgres/004_fluo_saved_posts.sql');
+  for (const migration of fluoMigrations) {
+    await migrate(`../deploy/postgres/${migration}`);
+  }
   const dsn = `postgres://kaordo:${encodeURIComponent(config.KAORDO_DB_PASSWORD)}@127.0.0.1:5432/${database}?sslmode=disable`;
-  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-cover', '-run', 'TestFluoPostFlow', '-count=1', '-v'], {
+  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-cover', '-run', 'TestFluo', '-count=1', '-v'], {
     env: { ...process.env, KAORDO_TEST_DATABASE_URL: dsn }
   });
   process.stdout.write(stdout);
