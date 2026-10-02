@@ -9,7 +9,7 @@
 
 <div class="min-h-screen">
   <AppHeader name="Fluo" homeHref={appPaths.portal} sticky />
-  <main class="mx-auto max-w-6xl px-4 pt-7 sm:px-6 lg:pt-9">
+  <main id="main-content" tabindex="-1" class="mx-auto max-w-6xl px-4 pt-7 sm:px-6 lg:pt-9">
     <AccountGate appName="Fluo" returnPath={appPaths.fluo} environment={import.meta.env}>
       {#snippet preview(account)}
         <p class="text-sm text-muted-foreground">Welcome back, {account.displayName}. Loading your feed…</p>

@@ -17,12 +17,11 @@ function pageAt(route) {
 test('every application has a prerendered page and a route home', () => {
   const portal = pageAt('/');
   assert.match(portal, /href="\/fluo\/"/);
-  for (const route of ['/rondo/', '/regado/']) {
-    assert.match(pageAt(route), /href="\/"/);
-  }
-  for (const app of ['ligo', 'fluo']) {
+  assert.match(pageAt('/regado/'), /href="\/"/);
+  for (const app of ['ligo', 'fluo', 'rondo']) {
     assert.match(pageAt(`/${app}/`), /Checking your account/);
-    const source = readFileSync(resolve(import.meta.dirname, `../apps/${app}/src/lib/${app === 'ligo' ? 'LigoApp' : 'FluoApp'}.svelte`), 'utf8');
+    const component = app[0].toUpperCase() + app.slice(1) + 'App';
+    const source = readFileSync(resolve(import.meta.dirname, `../apps/${app}/src/lib/${component}.svelte`), 'utf8');
     assert.match(source, /appPaths\.portal/);
   }
   for (const name of ['Ligo', 'Rondo', 'Regado']) {

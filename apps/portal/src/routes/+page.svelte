@@ -63,7 +63,8 @@
 
 <svelte:head><title>Kaordo</title></svelte:head>
 
-<main class="mx-auto max-w-6xl px-5 pb-16 pt-7 sm:px-8 sm:pt-10">
+<a href="#main-content" class="sr-only focus:not-sr-only fixed left-3 top-3 z-50 rounded-xl bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-lg ring-2 ring-ring focus:outline-none">Skip to main content</a>
+<main id="main-content" tabindex="-1" class="mx-auto max-w-6xl px-5 pb-16 pt-7 sm:px-8 sm:pt-10">
   <header class="flex flex-wrap items-center justify-between gap-4">
     <a class="inline-flex items-center gap-2 rounded-xl text-lg font-bold tracking-[-0.04em] text-primary focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring" href={appPaths.portal}>
       <span class="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">K</span> Kaordo
@@ -84,11 +85,11 @@
     {/if}
   </header>
 
-  <section class="relative mt-10 overflow-hidden rounded-[2rem] border border-border bg-card px-6 py-10 shadow-[0_24px_80px_-48px_rgba(21,75,43,.45)] sm:px-10 sm:py-14">
+  <section class="relative mt-8 overflow-hidden rounded-[2rem] border border-border bg-card px-6 py-8 shadow-[0_24px_80px_-48px_rgba(21,75,43,.45)] sm:px-10 sm:py-10">
     <div class="pointer-events-none absolute -right-24 -top-28 size-80 rounded-full bg-accent blur-3xl" aria-hidden="true"></div>
     <div class="relative max-w-2xl">
       <p class="text-xs font-semibold uppercase tracking-[0.2em] text-primary">One space, many ways to connect</p>
-      <h1 class="mt-4 text-4xl font-bold leading-[1.08] tracking-[-0.055em] sm:text-6xl">Your connected space.</h1>
+      <h1 class="mt-4 text-4xl font-bold leading-[1.08] tracking-[-0.055em] sm:text-5xl">Your connected space.</h1>
       {#if loading}
         {#if accountPreview}
           <p class="mt-6 text-base text-muted-foreground" data-kaordo-preview aria-busy="true">Welcome, {accountPreview.displayName}.</p>
@@ -115,7 +116,7 @@
     <p class="mt-6 rounded-xl border border-destructive/30 bg-card p-4 text-sm text-destructive" role="alert">{error}</p>
   {/if}
 
-  <section class="mt-12" aria-label="Applications">
+  <section class="mt-8" aria-label="Applications">
     <div class="mb-5">
       <p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Apps</p>
       <h2 class="mt-1 text-2xl font-bold tracking-[-0.04em]">Choose an app</h2>
@@ -124,14 +125,14 @@
       {#each available as module (module.name)}
         {@const Icon = module.icon}
         <a href={module.href} rel="external"
-          class="group flex min-h-56 flex-col rounded-[1.5rem] border border-border bg-card p-6 shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring sm:p-7">
+          class="group flex min-h-48 flex-col rounded-[1.5rem] border border-border bg-card p-6 shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring">
           <div class="flex items-start justify-between gap-3">
             <span class="grid size-12 place-items-center rounded-2xl bg-accent text-primary" aria-hidden="true"><Icon class="size-6" /></span>
             <span class="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-secondary-foreground">{module.label}</span>
           </div>
-          <h3 class="mt-5 text-2xl font-bold tracking-tight">{module.name}</h3>
+          <h3 class="mt-4 text-2xl font-bold tracking-tight">{module.name}</h3>
           <p class="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">{module.description}</p>
-          <span class="mt-auto inline-flex items-center gap-1.5 pt-5 text-sm font-semibold text-primary">
+          <span class="mt-auto inline-flex items-center gap-1.5 pt-3 text-sm font-semibold text-primary">
             Open {module.name} <ArrowUpRightIcon class="size-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </span>
         </a>

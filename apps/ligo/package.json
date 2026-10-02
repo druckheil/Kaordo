@@ -29,7 +29,6 @@
     "@kaordo/contracts": "workspace:*",
     "@kaordo/links": "workspace:*",
     "@kaordo/media-client": "workspace:*",
-    "@kaordo/media-ui": "workspace:*",
     "@kaordo/ui": "workspace:*",
     "@tanstack/svelte-query": "^6.3.0"
   }

@@ -10,6 +10,7 @@
   } = $props();
 </script>
 
+<a href="#main-content" class="sr-only focus:not-sr-only fixed left-3 top-3 z-50 rounded-xl bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-lg ring-2 ring-ring focus:outline-none">Skip to main content</a>
 <header class={`shrink-0 border-b border-border/80 bg-background/95 backdrop-blur-xl ${sticky ? 'sticky top-0 z-20' : ''}`}>
   <div class={`mx-auto flex h-16 items-center justify-between gap-3 px-4 sm:px-6 ${wide ? 'max-w-[90rem]' : 'max-w-6xl'}`}>
     <div class="flex min-w-0 items-center gap-2.5">

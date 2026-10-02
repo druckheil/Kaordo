@@ -54,6 +54,26 @@
   // after that payload is ready prevents its width and height from jumping.
   const detailReady = $derived(postDialogOpen && (!!post || !!postError));
   let showPostLoading = $state(false);
+  let composerClosing = $state(false);
+  let composerWasOpen = false;
+  let closingReplyTo = $state<FluoPost | null>(null);
+  let closingQuoteTo = $state<FluoPost | null>(null);
+  const visibleReplyTo = $derived(composerOpen ? replyTo : closingReplyTo);
+  const visibleQuoteTo = $derived(composerOpen ? quoteTo : closingQuoteTo);
+
+  $effect(() => {
+    if (composerOpen) {
+      composerWasOpen = true;
+      composerClosing = false;
+      closingReplyTo = replyTo;
+      closingQuoteTo = quoteTo;
+      return;
+    }
+    if (!composerWasOpen) return;
+    composerClosing = true;
+    const timer = setTimeout(() => { composerClosing = false; composerWasOpen = false; }, 180);
+    return () => clearTimeout(timer);
+  });
 
   $effect(() => {
     if (!postDialogOpen || detailReady) {
@@ -78,11 +98,11 @@
   <Dialog.Content class="max-h-[90dvh] overflow-hidden p-2 sm:max-w-2xl">
     <div class="kaordo-scrollbar min-w-0 max-h-[calc(90dvh-1rem)] overflow-y-auto p-2 sm:p-4">
       <Dialog.Header class="mb-5 pr-12">
-        <Dialog.Title class="text-xl font-bold tracking-tight">{replyTo ? 'Reply to post' : quoteTo ? 'Quote post' : 'Create a post'}</Dialog.Title>
+        <Dialog.Title class="text-xl font-bold tracking-tight">{visibleReplyTo ? 'Reply to post' : visibleQuoteTo ? 'Quote post' : 'Create a post'}</Dialog.Title>
         <Dialog.Description class="sr-only">Write a post and optionally attach media or change post options.</Dialog.Description>
       </Dialog.Header>
-      {#if composerOpen}
-        <Composer {api} {replyTo} {quoteTo} onPublished={onPublished} onCancel={onRemoveQuote} />
+      {#if composerOpen || composerClosing}
+        <Composer {api} replyTo={visibleReplyTo} quoteTo={visibleQuoteTo} onPublished={onPublished} onCancel={onRemoveQuote} />
       {/if}
     </div>
   </Dialog.Content>

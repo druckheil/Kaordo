@@ -23,6 +23,7 @@
 
   let selectedId = $state<string | null>(null);
   let dialogMode = $state<'new' | 'add' | null>(null);
+  let dialogContentMode = $state<'new' | 'add'>('new');
   let groupMode = $state(false);
   let groupTitle = $state('');
   let selectedUsers = $state<LigoUser[]>([]);
@@ -56,6 +57,8 @@
   const conversations = $derived(conversationsQuery.data?.pages.flatMap((page) => page.items) ?? []);
   const selfConversation = $derived(conversations.find((item) => item.kind === 'self'));
   const selected = $derived(conversations.find((item) => item.id === selectedId) ?? selectedQuery.data ?? null);
+  const availableUsers = $derived((searchQuery.data?.items ?? []).filter((candidate) =>
+    dialogContentMode !== 'add' || !selected?.members.some((member) => member.id === candidate.id)));
   const messages = $derived(messagesQuery.data?.pages.flatMap((page) => page.items).reverse() ?? []);
   const activePending = $derived(pending.filter((item) => item.conversationId === selectedId &&
     !messages.some((message) => message.clientId === item.clientId)));
@@ -145,6 +148,7 @@
 
   function openDialog(mode: 'new' | 'add') {
     dialogMode = mode;
+    dialogContentMode = mode;
     groupMode = mode === 'add';
     groupTitle = '';
     selectedUsers = [];
@@ -334,7 +338,7 @@
 <div class="flex h-[100dvh] flex-col bg-background">
   <AppHeader name="Ligo" homeHref={appPaths.portal} wide />
 
-  <main class="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 overflow-hidden">
+  <main id="main-content" tabindex="-1" class="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 overflow-hidden">
     <aside class={`flex w-full shrink-0 flex-col border-r border-border/75 bg-card/75 md:w-[20rem] lg:w-[21rem] ${selectedId ? 'hidden md:flex' : ''}`}
       aria-label="Conversations">
       <div class="border-b border-border/70 px-4 pb-4 pt-4">
@@ -374,7 +378,7 @@
             Could not load conversations.
             <Button variant="outline" size="sm" class="mt-3" onclick={() => void conversationsQuery.refetch()}>Retry</Button>
           </div>
-        {:else if visibleConversations.length === 0}
+        {:else if visibleConversations.length === 0 && (searchFilter || !selfConversation)}
           <div class="px-5 py-12 text-center text-sm text-muted-foreground">
             <div class="mx-auto mb-3 grid size-12 place-items-center rounded-2xl bg-accent"><MessageCircleIcon class="size-6 text-primary" /></div>
             <p class="font-semibold text-foreground">{searchFilter ? 'No chats match your search' : 'Start a conversation'}</p>
@@ -514,10 +518,10 @@
   <Dialog.Content class="max-h-[90dvh] overflow-hidden p-2 sm:max-w-lg">
     <div class="kaordo-scrollbar max-h-[calc(90dvh-1rem)] overflow-y-auto p-3 sm:p-5">
       <Dialog.Header class="mb-5 pr-10">
-        <Dialog.Title class="text-xl font-bold">{dialogMode === 'add' ? 'Add people' : groupMode ? 'New group' : 'New conversation'}</Dialog.Title>
-        <Dialog.Description>Find Kaordo accounts by username. {dialogMode === 'add' ? 'New members can read messages sent after they join.' : 'Start a direct chat, create a group, or save a note for yourself.'}</Dialog.Description>
+        <Dialog.Title class="text-xl font-bold">{dialogContentMode === 'add' ? 'Add people' : groupMode ? 'New group' : 'New conversation'}</Dialog.Title>
+        <Dialog.Description>Find Kaordo accounts by username. {dialogContentMode === 'add' ? 'New members can read messages sent after they join.' : 'Start a direct chat, create a group, or save a note for yourself.'}</Dialog.Description>
       </Dialog.Header>
-      {#if dialogMode === 'new'}
+      {#if dialogContentMode === 'new'}
         <button type="button" disabled={selfBusy} onclick={() => void openSelf()}
           class="mb-4 flex w-full items-center gap-3 rounded-xl border border-border px-3 py-3 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
           <BookmarkIcon class="size-5 text-primary" />
@@ -528,7 +532,7 @@
           Create a group
         </label>
       {/if}
-      {#if groupMode && dialogMode === 'new'}
+      {#if groupMode && dialogContentMode === 'new'}
         <label class="mb-4 block text-xs font-semibold uppercase tracking-wider text-muted-foreground" for="ligo-group-title">Group name</label>
         <Input id="ligo-group-title" class="mb-4" maxlength={100} placeholder="Give your group a name" bind:value={groupTitle} />
       {/if}
@@ -555,10 +559,10 @@
           <p class="py-5 text-center text-sm text-muted-foreground" role="status">Searching accounts…</p>
         {:else if searchQuery.error}
           <p class="py-5 text-center text-sm text-destructive" role="alert">Search is unavailable. Try again.</p>
-        {:else if !searchQuery.data?.items.length}
-          <p class="py-5 text-center text-sm text-muted-foreground">No accounts found.</p>
+        {:else if !availableUsers.length}
+          <p class="py-5 text-center text-sm text-muted-foreground">{searchQuery.data?.items.length ? 'Everyone matching is already in this group.' : 'No accounts found.'}</p>
         {:else}
-          {#each searchQuery.data.items.filter((candidate) => dialogMode !== 'add' || !selected?.members.some((member) => member.id === candidate.id)) as candidate (candidate.id)}
+          {#each availableUsers as candidate (candidate.id)}
             <button type="button" disabled={dialogBusy} onclick={() => groupMode ? toggleUser(candidate) : void directChat(candidate)}
               class="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
               <span class="grid size-9 place-items-center rounded-xl bg-primary/10 text-xs font-bold text-primary">{initials(candidate.displayName)}</span>
@@ -575,9 +579,9 @@
       {#if groupMode}
         <Dialog.Footer class="mt-5 flex flex-row justify-end gap-2 border-t border-border pt-4">
           <Button variant="outline" disabled={dialogBusy} onclick={() => { dialogMode = null; }}>Cancel</Button>
-          <Button disabled={dialogBusy || !selectedUsers.length || (dialogMode === 'new' && !groupTitle.trim())}
+          <Button disabled={dialogBusy || !selectedUsers.length || (dialogContentMode === 'new' && !groupTitle.trim())}
             onclick={() => void confirmDialog()}>
-            {dialogBusy ? 'Working…' : dialogMode === 'add' ? 'Add people' : 'Create group'}
+            {dialogBusy ? 'Working…' : dialogContentMode === 'add' ? 'Add people' : 'Create group'}
           </Button>
         </Dialog.Footer>
       {/if}

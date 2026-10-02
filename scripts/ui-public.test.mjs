@@ -53,6 +53,11 @@ test('public app entry screens reflow and meet automated WCAG 2.2 A/AA checks', 
     }
 
     await page.goto(base + '/', { waitUntil: 'domcontentloaded' });
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), 'Skip to main content');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'main-content',
+      'Keyboard users must be able to skip directly to the portal content');
     const ligo = page.getByRole('link', { name: /Open Ligo/ });
     assert.equal(await ligo.getAttribute('href'), '/ligo/', 'portal must link to the available Ligo app');
   } finally {

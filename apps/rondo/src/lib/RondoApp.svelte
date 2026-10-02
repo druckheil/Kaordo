@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { createInfiniteQuery, createQuery, QueryClient, type InfiniteData } from '@tanstack/svelte-query';
   import {
     createLigoApi, createRondoApi, ligoMessageOptions, ligoUserSearchOptions,
@@ -31,6 +31,7 @@
   let serverId = $state<string | null>(null);
   let channelId = $state<string | null>(null);
   let dialog = $state<'create' | 'discover' | 'channel' | 'invite' | null>(null);
+  let dialogContentMode = $state<'create' | 'discover' | 'channel' | 'invite'>('create');
   let dialogBusy = $state(false);
   let dialogError = $state('');
   let actionError = $state('');
@@ -62,18 +63,27 @@
   let serversOpen = $state(true);
   let channelsOpen = $state(true);
   let membersOpen = $state<boolean | null>(null);
+  let mobileMembersOpen = $state(false);
   let wideMembers = $state(false);
   let narrowChannels = $state(false);
   let leaveOpen = $state(false);
+  let showServersButton = $state<HTMLButtonElement | null>(null);
+  let hideServersButton = $state<HTMLButtonElement | null>(null);
+  let showChannelsButton = $state<HTMLButtonElement | null>(null);
+  let hideChannelsButton = $state<HTMLButtonElement | null>(null);
+  let showMembersButton = $state<HTMLButtonElement | null>(null);
+  let hideMembersButton = $state<HTMLButtonElement | null>(null);
 
   const detailQuery = createQuery(() => rondoServerOptions(rondo, serverId), () => queryClient);
   const discoverQuery = createQuery(() => rondoDiscoverOptions(rondo, discoverTerm, dialog === 'discover'), () => queryClient);
   const inviteQuery = createQuery(() => ligoUserSearchOptions(ligo, inviteTerm, dialog === 'invite'), () => queryClient);
   const servers = $derived(serversQuery.data?.items ?? []);
   const detail = $derived(detailQuery.data ?? null);
+  const inviteCandidates = $derived((inviteQuery.data?.items ?? []).filter((candidate) =>
+    !detail?.members.some((member) => member.id === candidate.id)));
   const channel = $derived(detail?.channels.find((item) => item.id === channelId) ?? null);
   const voiceChannel = $derived(detail?.channels.find((item) => item.id === voiceChannelId) ?? null);
-  const membersVisible = $derived(membersOpen ?? wideMembers);
+  const membersVisible = $derived(wideMembers ? (membersOpen ?? true) : mobileMembersOpen);
   const channelsVisible = $derived(channelsOpen && (!narrowChannels || !channelId));
   const messagesQuery = createInfiniteQuery(() => ({
     ...ligoMessageOptions(ligo, channel?.conversationId ?? ''), enabled: !!channel
@@ -96,7 +106,7 @@
     const channelBreakpoint = window.matchMedia('(max-width: 639px)');
     wideMembers = memberBreakpoint.matches;
     narrowChannels = channelBreakpoint.matches;
-    const updateBreakpoint = () => { wideMembers = memberBreakpoint.matches; };
+    const updateBreakpoint = () => { wideMembers = memberBreakpoint.matches; mobileMembersOpen = false; };
     const updateChannelBreakpoint = () => { narrowChannels = channelBreakpoint.matches; };
     memberBreakpoint.addEventListener('change', updateBreakpoint);
     channelBreakpoint.addEventListener('change', updateChannelBreakpoint);
@@ -139,17 +149,28 @@
       servers: serversOpen, channels: channelsOpen, members: membersOpen
     }));
   }
-  function toggleServers() { serversOpen = !serversOpen; saveLayout(); }
-  function toggleChannels() {
+  async function toggleServers() {
+    serversOpen = !serversOpen;
+    saveLayout();
+    await tick();
+    (serversOpen ? hideServersButton : showServersButton)?.focus();
+  }
+  async function toggleChannels() {
     if (narrowChannels && channelId) {
       selectChannel(null);
       channelsOpen = true;
     } else channelsOpen = !channelsOpen;
     saveLayout();
+    await tick();
+    (channelsVisible ? hideChannelsButton : showChannelsButton)?.focus();
   }
-  function toggleMembers() {
-    membersOpen = !membersVisible;
-    saveLayout();
+  async function toggleMembers() {
+    if (wideMembers) {
+      membersOpen = !membersVisible;
+      saveLayout();
+    } else mobileMembersOpen = !mobileMembersOpen;
+    await tick();
+    (membersVisible ? hideMembersButton : showMembersButton)?.focus();
   }
   function changeSounds(enabled: boolean) {
     soundsEnabled = enabled;
@@ -163,6 +184,7 @@
     window.location.hash = `s/${id}`;
     actionError = '';
     voiceError = '';
+    mobileMembersOpen = false;
   }
   function selectChannel(id: string | null) {
     channelId = id;
@@ -170,9 +192,12 @@
     draft = '';
     files = [];
     actionError = '';
+    mobileMembersOpen = false;
   }
   function openDialog(mode: typeof dialog) {
+    mobileMembersOpen = false;
     dialog = mode;
+    if (mode) dialogContentMode = mode;
     dialogError = '';
     discoverTerm = '';
     discoverInput = '';
@@ -366,24 +391,46 @@
   }
 </script>
 
+{#snippet memberContents(current: RondoDetail)}
+  <div class="flex min-h-16 items-center gap-2 border-b border-border/70 px-4">
+    <div class="min-w-0 flex-1"><h2 class="text-sm font-bold">Members</h2><p class="text-xs text-muted-foreground">{current.server.memberCount} in this server</p></div>
+    {#if current.server.ownerId === user.id}
+      <Button size="icon-xs" variant="ghost" aria-label="Invite member" title="Invite member" onclick={() => openDialog('invite')}><UserPlusIcon class="size-4" /></Button>
+    {/if}
+    <Button bind:ref={hideMembersButton} size="icon-xs" variant="ghost" aria-label="Hide members" title="Hide members" onclick={toggleMembers}><ChevronRightIcon class="size-4" /></Button>
+  </div>
+  <div class="kaordo-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
+    {#each current.members as member (member.id)}
+      <div class="flex items-center gap-2.5 rounded-xl px-2 py-2">
+        <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-xs font-bold text-primary">{initials(member.displayName)}</span>
+        <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">{member.displayName}</span><span class="block truncate text-xs text-muted-foreground">@{member.username}</span></span>
+        {#if member.id === current.server.ownerId}<span class="text-[10px] font-semibold text-primary" title="Server owner">Owner</span>{/if}
+      </div>
+    {/each}
+    {#if current.server.memberCount > current.members.length}
+      <p class="px-2 py-3 text-xs text-muted-foreground">Showing the first {current.members.length} members.</p>
+    {/if}
+  </div>
+{/snippet}
+
 <div class="flex h-[100dvh] flex-col bg-background">
   <AppHeader name="Rondo" homeHref={appPaths.portal} wide />
   <div class="mx-auto flex h-11 w-full max-w-[110rem] shrink-0 items-center gap-1 border-x border-b border-border/70 bg-card px-2 sm:px-3" role="toolbar" aria-label="Rondo panels">
     {#if !serversOpen}
-      <Button variant="ghost" size="icon-xs" aria-label="Show servers" aria-controls="rondo-servers" aria-expanded="false" title="Show servers" onclick={toggleServers}><LayoutGridIcon class="size-4" /></Button>
+      <Button bind:ref={showServersButton} variant="ghost" size="icon-xs" aria-label="Show servers" title="Show servers" onclick={toggleServers}><LayoutGridIcon class="size-4" /></Button>
     {/if}
     {#if !channelsVisible}
-      <Button variant="ghost" size="icon-xs" aria-label="Show channels" aria-controls="rondo-channels" aria-expanded="false" title="Show channels" onclick={toggleChannels}><PanelLeftIcon class="size-4" /></Button>
+      <Button bind:ref={showChannelsButton} variant="ghost" size="icon-xs" aria-label="Show channels" title="Show channels" onclick={toggleChannels}><PanelLeftIcon class="size-4" /></Button>
     {/if}
     <span class="ml-2 min-w-0 flex-1 truncate text-xs font-semibold text-muted-foreground">{detail?.server.name ?? 'Rondo'}{channel ? ` / #${channel.name}` : ''}</span>
     {#if detail && !membersVisible}
-      <Button variant="ghost" size="icon-xs" aria-label="Show members" aria-controls="rondo-members" aria-expanded="false" title="Show members" onclick={toggleMembers}><PanelRightIcon class="size-4" /></Button>
+      <Button bind:ref={showMembersButton} variant="ghost" size="icon-xs" aria-label="Show members" title="Show members" onclick={toggleMembers}><PanelRightIcon class="size-4" /></Button>
     {/if}
   </div>
-  <main class="relative mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 overflow-hidden border-x border-border/60">
+  <main id="main-content" tabindex="-1" class="relative mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 overflow-hidden border-x border-border/60">
     {#if serversOpen}
       <nav id="rondo-servers" aria-label="Servers" class="flex w-14 shrink-0 flex-col items-center gap-1.5 overflow-hidden border-r border-border/75 bg-accent/35 px-1 py-2">
-        <Button variant="ghost" size="icon-xs" class="shrink-0" aria-label="Hide servers" aria-controls="rondo-servers" aria-expanded="true" title="Hide servers" onclick={toggleServers}><ChevronLeftIcon class="size-4" /></Button>
+        <Button bind:ref={hideServersButton} variant="ghost" size="icon-xs" class="shrink-0" aria-label="Hide servers" title="Hide servers" onclick={toggleServers}><ChevronLeftIcon class="size-4" /></Button>
         <div class="rondo-server-scroll flex min-h-0 min-w-0 w-full flex-1 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto">
           {#each servers as item (item.id)}
             <button type="button" aria-label={`Open ${item.name}`} aria-current={serverId === item.id ? 'page' : undefined}
@@ -402,7 +449,7 @@
     <aside id="rondo-channels" aria-label="Channels" class={`flex min-h-0 shrink-0 flex-col border-r border-border/75 bg-card/65 sm:w-[17rem] ${serversOpen ? 'w-[calc(100vw-3.5rem)]' : 'w-screen'}`}>
       <div class="flex h-11 shrink-0 items-center justify-between border-b border-border/70 px-3">
         <span class="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Channels</span>
-        <Button size="icon-xs" variant="ghost" aria-label="Hide channels" aria-controls="rondo-channels" aria-expanded="true" title="Hide channels" onclick={toggleChannels}><ChevronLeftIcon class="size-4" /></Button>
+        <Button bind:ref={hideChannelsButton} size="icon-xs" variant="ghost" aria-label="Hide channels" title="Hide channels" onclick={toggleChannels}><ChevronLeftIcon class="size-4" /></Button>
       </div>
       {#if detail}
         <div class="border-b border-border/70 px-4 py-4">
@@ -457,14 +504,14 @@
           onSoundsChanged={changeSounds} onDisconnect={() => { voiceError = ''; void stopVoice(); }} onError={(message) => { voiceError = message; }} />
       {/if}
       {#if channel}
-        <header class="flex min-h-16 shrink-0 items-center gap-3 border-b border-border/70 bg-card/75 px-4 shadow-xs sm:px-6">
+        <header class="grid min-h-16 shrink-0 grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-x-2 gap-y-2 border-b border-border/70 bg-card/75 px-3 py-2 shadow-xs sm:flex sm:gap-3 sm:px-6 sm:py-0">
           <Button variant="ghost" size="icon-sm" class="sm:hidden" aria-label="Back to channels" onclick={() => selectChannel(null)}><ChevronLeftIcon class="size-5" /></Button>
-          <span class="grid size-9 place-items-center rounded-xl bg-primary/10 text-primary"><HashIcon class="size-5" /></span>
-          <div class="min-w-0 flex-1"><h2 class="truncate text-sm font-bold">{channel.name}</h2><p class="text-xs text-muted-foreground">{detail?.server.name} · text and voice</p></div>
+          <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><HashIcon class="size-5" /></span>
+          <div class="min-w-0 flex-1"><h2 class="truncate text-sm font-bold">{channel.name}</h2><p class="truncate text-xs text-muted-foreground">{detail?.server.name} · text and voice</p></div>
           {#if voiceChannelId === channel.id}
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary"><span class="size-2 rounded-full bg-emerald-500"></span>Voice connected</span>
+            <span class="col-span-3 inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary sm:w-auto"><span class="size-2 rounded-full bg-emerald-500"></span>Voice connected</span>
           {:else}
-            <Button size="sm" disabled={voiceBusy} onclick={() => void startVoice(channel)}><MicIcon class="size-4" /> {voiceBusy ? 'Connecting…' : voiceChannelId ? 'Switch voice' : 'Join voice'}</Button>
+            <Button size="sm" class="col-span-3 w-full sm:w-auto" disabled={voiceBusy} onclick={() => void startVoice(channel)}><MicIcon class="size-4" /> {voiceBusy ? 'Connecting…' : voiceChannelId ? 'Switch voice' : 'Join voice'}</Button>
           {/if}
         </header>
         {#if actionError}<p class="mx-4 mt-3 rounded-xl bg-destructive/10 p-3 text-sm text-destructive" role="alert">{actionError}</p>{/if}
@@ -499,39 +546,29 @@
         <div class="flex flex-1 flex-col items-center justify-center px-6 text-center"><span class="grid size-20 place-items-center rounded-[1.75rem] bg-accent"><HashIcon class="size-10 text-primary" /></span><h2 class="mt-6 text-2xl font-bold tracking-tight">Choose a channel</h2><p class="mt-2 max-w-sm text-sm text-muted-foreground">Share messages, files and a voice room with your community.</p></div>
       {/if}
     </section>
-    {#if detail && membersVisible}
-      <button type="button" class="absolute inset-0 z-10 bg-foreground/20 xl:hidden" aria-label="Close members panel" onclick={toggleMembers}></button>
-      <aside id="rondo-members" aria-label="Server members" class="absolute inset-y-0 right-0 z-20 flex min-h-0 w-[min(15rem,calc(100vw-1rem))] shrink-0 flex-col border-l border-border/75 bg-card shadow-lg xl:static xl:shadow-none">
-        <div class="flex min-h-16 items-center gap-2 border-b border-border/70 px-4">
-          <div class="min-w-0 flex-1"><h2 class="text-sm font-bold">Members</h2><p class="text-xs text-muted-foreground">{detail.server.memberCount} in this server</p></div>
-          {#if detail.server.ownerId === user.id}
-            <Button size="icon-xs" variant="ghost" aria-label="Invite member" title="Invite member" onclick={() => openDialog('invite')}><UserPlusIcon class="size-4" /></Button>
-          {/if}
-          <Button size="icon-xs" variant="ghost" aria-label="Hide members" aria-controls="rondo-members" aria-expanded="true" title="Hide members" onclick={toggleMembers}><ChevronRightIcon class="size-4" /></Button>
-        </div>
-        <div class="kaordo-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
-          {#each detail.members as member (member.id)}
-            <div class="flex items-center gap-2.5 rounded-xl px-2 py-2">
-              <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-xs font-bold text-primary">{initials(member.displayName)}</span>
-              <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">{member.displayName}</span><span class="block truncate text-xs text-muted-foreground">@{member.username}</span></span>
-              {#if member.id === detail.server.ownerId}<span class="text-[10px] font-semibold text-primary" title="Server owner">Owner</span>{/if}
-            </div>
-          {/each}
-          {#if detail.server.memberCount > detail.members.length}
-            <p class="px-2 py-3 text-xs text-muted-foreground">Showing the first {detail.members.length} members.</p>
-          {/if}
-        </div>
+    {#if detail && membersVisible && wideMembers}
+      <aside aria-label="Server members" class="flex min-h-0 w-60 shrink-0 flex-col border-l border-border/75 bg-card">
+        {@render memberContents(detail)}
       </aside>
     {/if}
   </main>
 </div>
 
+<Dialog.Root open={!!detail && !wideMembers && membersVisible} onOpenChange={(open) => {
+  if (!open) { mobileMembersOpen = false; void tick().then(() => showMembersButton?.focus()); }
+}}>
+  <Dialog.Content class="rondo-members-sheet" showCloseButton={false}>
+    <Dialog.Header class="sr-only"><Dialog.Title>Server members</Dialog.Title><Dialog.Description>People in this server.</Dialog.Description></Dialog.Header>
+    {#if detail}{@render memberContents(detail)}{/if}
+  </Dialog.Content>
+</Dialog.Root>
+
 <Dialog.Root open={!!dialog} onOpenChange={(open) => { if (!open && !dialogBusy) dialog = null; }}>
   <Dialog.Content class="max-h-[90dvh] overflow-hidden p-2 sm:max-w-lg">
     <div class="kaordo-scrollbar max-h-[calc(90dvh-1rem)] space-y-4 overflow-y-auto p-3 sm:p-5">
-      <Dialog.Header class="pr-8"><Dialog.Title class="text-xl font-bold">{dialog === 'create' ? 'Create a server' : dialog === 'discover' ? 'Explore servers' : dialog === 'channel' ? 'Create a channel' : 'Invite a member'}</Dialog.Title>
-        <Dialog.Description>{dialog === 'create' ? 'Start with a general channel and invite people when you are ready.' : dialog === 'discover' ? 'Join a public community.' : dialog === 'channel' ? 'Every channel has messages and its own voice room.' : 'Find a Kaordo account by username.'}</Dialog.Description></Dialog.Header>
-      {#if dialog === 'create'}
+      <Dialog.Header class="pr-8"><Dialog.Title class="text-xl font-bold">{dialogContentMode === 'create' ? 'Create a server' : dialogContentMode === 'discover' ? 'Explore servers' : dialogContentMode === 'channel' ? 'Create a channel' : 'Invite a member'}</Dialog.Title>
+        <Dialog.Description>{dialogContentMode === 'create' ? 'Start with a general channel and invite people when you are ready.' : dialogContentMode === 'discover' ? 'Join a public community.' : dialogContentMode === 'channel' ? 'Every channel has messages and its own voice room.' : 'Find a Kaordo account by username.'}</Dialog.Description></Dialog.Header>
+      {#if dialogContentMode === 'create'}
         <label class="block text-sm font-semibold" for="rondo-name">Server name</label>
         <Input id="rondo-name" bind:value={serverName} maxlength={100} placeholder="Your community" />
         <label class="block text-sm font-semibold" for="rondo-description">Description</label>
@@ -541,7 +578,7 @@
           <label class="flex items-center gap-2 text-sm"><input type="radio" bind:group={serverAccess} value="public" class="accent-primary" /> Public · anyone can join</label>
         </fieldset>
         <Dialog.Footer><Button disabled={dialogBusy || !serverName.trim()} onclick={() => void createServer()}>{dialogBusy ? 'Creating…' : 'Create server'}</Button></Dialog.Footer>
-      {:else if dialog === 'discover'}
+      {:else if dialogContentMode === 'discover'}
         <label class="relative block"><SearchIcon class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search public servers" placeholder="Search public servers" class="pl-10" value={discoverInput} oninput={(event) => search(event.currentTarget.value, 'discover')} /></label>
         {#if discoverQuery.isPending}<p class="py-5 text-center text-sm text-muted-foreground" role="status">Loading communities…</p>
         {:else if discoverQuery.error}<p class="text-sm text-destructive" role="alert">Could not load public servers.</p>
@@ -549,16 +586,16 @@
         {:else}<div class="space-y-2">{#each discoverQuery.data.items as item (item.id)}
           <div class="flex items-center gap-3 rounded-xl border border-border p-3"><span class="grid size-11 shrink-0 place-items-center rounded-xl bg-primary/10 font-bold text-primary">{initials(item.name)}</span><div class="min-w-0 flex-1"><p class="truncate text-sm font-bold">{item.name}</p><p class="truncate text-xs text-muted-foreground">{item.memberCount} members · {item.description || 'Public community'}</p></div><Button size="sm" disabled={dialogBusy} onclick={() => void joinServer(item)}>Join</Button></div>
         {/each}</div>{/if}
-      {:else if dialog === 'channel'}
+      {:else if dialogContentMode === 'channel'}
         <label class="block text-sm font-semibold" for="rondo-channel">Channel name</label><Input id="rondo-channel" bind:value={channelName} maxlength={80} placeholder="ideas" />
         <Dialog.Footer><Button disabled={dialogBusy || !channelName.trim()} onclick={() => void createChannel()}>{dialogBusy ? 'Creating…' : 'Create channel'}</Button></Dialog.Footer>
-      {:else if dialog === 'invite'}
+      {:else if dialogContentMode === 'invite'}
         <label class="block text-sm font-semibold" for="rondo-invite">Find an account</label><Input id="rondo-invite" placeholder="Search by username" value={inviteInput} oninput={(event) => search(event.currentTarget.value, 'invite')} />
         {#if inviteTerm.length < 2}<p class="text-sm text-muted-foreground">Type at least two characters.</p>
         {:else if inviteQuery.isPending}<p class="text-sm text-muted-foreground" role="status">Searching accounts…</p>
         {:else if inviteQuery.error}<p class="text-sm text-destructive" role="alert">Search is unavailable.</p>
-        {:else if !inviteQuery.data?.items.length}<p class="text-sm text-muted-foreground">No accounts found.</p>
-        {:else}<div class="space-y-1">{#each inviteQuery.data.items.filter((candidate) => !detail?.members.some((member) => member.id === candidate.id)) as candidate (candidate.id)}
+        {:else if !inviteCandidates.length}<p class="text-sm text-muted-foreground">{inviteQuery.data?.items.length ? 'Everyone matching is already in this server.' : 'No accounts found.'}</p>
+        {:else}<div class="space-y-1">{#each inviteCandidates as candidate (candidate.id)}
           <button type="button" disabled={dialogBusy} onclick={() => void invite(candidate.id)} class="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"><span class="grid size-9 place-items-center rounded-xl bg-primary/10 text-xs font-bold text-primary">{initials(candidate.displayName)}</span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">{candidate.displayName}</span><span class="block truncate text-xs text-muted-foreground">@{candidate.username}</span></span><UserPlusIcon class="size-4 text-primary" /></button>
         {/each}</div>{/if}
       {/if}
@@ -576,4 +613,18 @@
 <style>
   .rondo-server-scroll { scrollbar-width: none; }
   .rondo-server-scroll::-webkit-scrollbar { display: none; }
+  :global(.rondo-members-sheet) {
+    top: 0;
+    right: 0;
+    left: auto;
+    display: flex;
+    width: min(20rem, 100vw);
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    gap: 0;
+    padding: 0;
+    border-radius: 0;
+    transform: none;
+  }
 </style>

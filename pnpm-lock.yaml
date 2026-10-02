@@ -108,9 +108,6 @@ importers:
       '@kaordo/media-client':
         specifier: workspace:*
         version: link:../../packages/media-client
-      '@kaordo/media-ui':
-        specifier: workspace:*
-        version: link:../../packages/media-ui
       '@kaordo/ui':
         specifier: workspace:*
         version: link:../../packages/ui

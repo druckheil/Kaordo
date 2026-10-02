@@ -18,6 +18,7 @@ const chrome = process.env.CHROME_BIN || (existsSync(macChrome) ? macChrome : un
 
 async function capture(page, name) {
   if (process.env.KAORDO_UI_SNAPSHOTS !== '1') return;
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const path = join(tmpdir(), `kaordo-ui-${name}.png`);
   await page.screenshot({ path });
   console.log(`UI snapshot: ${path}`);
@@ -121,15 +122,16 @@ async function removeTemporaryUser(username) {
     assert.equal(deletion.status, 204, 'Temporary identity deletion must succeed');
     await run('docker', [
       'exec', 'local-app-db-1', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', 'kaordo', '-tAc',
-      `BEGIN; DELETE FROM ligo_conversations WHERE created_by IN (SELECT id FROM users WHERE keycloak_sub = '${subject}'); DELETE FROM users WHERE keycloak_sub = '${subject}' RETURNING id; COMMIT;`
+      `BEGIN; DELETE FROM rondo_channels WHERE server_id IN (SELECT id FROM rondo_servers WHERE owner_id IN (SELECT id FROM users WHERE keycloak_sub = '${subject}')); DELETE FROM rondo_servers WHERE owner_id IN (SELECT id FROM users WHERE keycloak_sub = '${subject}'); DELETE FROM ligo_conversations WHERE created_by IN (SELECT id FROM users WHERE keycloak_sub = '${subject}'); DELETE FROM users WHERE keycloak_sub = '${subject}' RETURNING id; COMMIT;`
     ]);
   }
 }
 
-test('registration, TOTP and recovery login, Kerno account, Fluo posting, and app SSO', { timeout: 150_000 }, async () => {
+test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo and app SSO', { timeout: 210_000 }, async () => {
   const username = `test_${randomBytes(6).toString('hex')}`;
   const password = `Qa!${randomBytes(18).toString('hex')}`;
-  const browser = await chromium.launch({ headless: true, executablePath: chrome });
+  const browser = await chromium.launch({ headless: true, executablePath: chrome,
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
   try {
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -277,6 +279,8 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
         await page.getByRole('navigation', { name: 'Fluo navigation' }).waitFor();
       } else if (app === 'ligo') {
         await page.getByRole('heading', { name: 'Chats' }).waitFor();
+      } else if (app === 'rondo') {
+        await page.getByRole('navigation', { name: 'Servers' }).waitFor();
       } else {
         await page.getByText(`Welcome, ${username}.`, { exact: false }).waitFor();
       }
@@ -286,6 +290,97 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
         `${app} must reflow at 320 CSS pixels`);
       await checkAccessibility(page, `${app} at 320px`);
       await page.setViewportSize({ width: 1280, height: 720 });
+      if (app === 'rondo') {
+        await page.getByRole('button', { name: 'Create server' }).click();
+        const serverDialog = page.getByRole('dialog', { name: 'Create a server' });
+        const serverName = `UI community ${randomBytes(3).toString('hex')}`;
+        await serverDialog.getByLabel('Server name').fill(serverName);
+        await serverDialog.getByRole('button', { name: 'Create server' }).click();
+        await serverDialog.waitFor({ state: 'detached' });
+        const closingDialogText = await page.locator('[data-slot="dialog-content"]').allTextContents();
+        assert.ok(closingDialogText.every((text) => !text.includes('Invite a member')),
+          'A closing server dialog must not morph into a different dialog during its exit animation');
+        await page.getByRole('heading', { name: serverName }).waitFor();
+        await page.getByRole('textbox', { name: 'Write a message' }).waitFor();
+        await page.waitForTimeout(180);
+        await capture(page, 'rondo-channel');
+        await checkAccessibility(page, 'Rondo channel');
+        await page.getByRole('button', { name: 'Hide servers' }).click();
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Show servers',
+          'Collapsing a panel must keep keyboard focus on its replacement control');
+        await page.getByRole('button', { name: 'Show servers' }).click();
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Hide servers');
+        await page.getByRole('button', { name: 'Hide channels' }).click();
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Show channels');
+        await page.getByRole('button', { name: 'Show channels' }).click();
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Hide channels');
+        const messageText = `Rondo UI check ${randomBytes(3).toString('hex')}`;
+        await page.getByRole('textbox', { name: 'Write a message' }).fill(messageText);
+        await page.getByRole('button', { name: 'Send message' }).click();
+        await page.getByRole('log', { name: 'Messages' }).getByText(messageText).waitFor();
+        await page.getByRole('button', { name: 'Join voice' }).click();
+        await page.getByRole('group', { name: 'Voice controls' }).waitFor({ timeout: 15_000 });
+        await page.getByRole('button', { name: 'Turn on camera' }).click();
+        await page.getByLabel('Live video streams').locator('video').waitFor({ timeout: 15_000 });
+        await capture(page, 'rondo-voice');
+        await checkAccessibility(page, 'Rondo voice and video');
+        if (await page.evaluate(() => document.fullscreenEnabled)) {
+          const videoTile = page.locator('[data-voice-video-id]').first();
+          await videoTile.getByRole('button', { name: 'Fullscreen your camera' }).click();
+          await page.waitForFunction(() => document.fullscreenElement?.hasAttribute('data-voice-video-id'));
+          assert.equal(await videoTile.locator('video').evaluate((video) => getComputedStyle(video).objectFit), 'contain');
+          await videoTile.getByRole('button', { name: 'Exit fullscreen your camera' }).click();
+          await page.waitForFunction(() => !document.fullscreenElement);
+          await page.getByRole('button', { name: 'Fullscreen voice panel' }).click();
+          await page.waitForFunction(() => document.fullscreenElement?.classList.contains('voice-stage'));
+          await page.keyboard.press('Escape');
+          // Headless Chromium does not always deliver Escape to its native fullscreen controller.
+          // Exit through the browser API in that case; the app observes the same fullscreenchange.
+          await page.evaluate(async () => {
+            if (document.fullscreenElement) await document.exitFullscreen();
+          });
+          await page.waitForFunction(() => !document.fullscreenElement);
+          assert.equal(await page.getByText('Fullscreen unavailable.', { exact: true }).count(), 0,
+            'Exiting fullscreen must not show an error');
+        }
+        await page.setViewportSize({ width: 320, height: 768 });
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+          'Rondo channel must reflow at 320 CSS pixels');
+        await capture(page, 'rondo-channel-mobile');
+        const channelHeader = await page.locator('section[aria-label="Channel conversation"] > header').evaluate((header) => {
+          const title = header.querySelector('h2').getBoundingClientRect();
+          const action = [...header.querySelectorAll('button, span')].find((item) =>
+            item.textContent?.trim() === 'Voice connected' || item.textContent?.trim() === 'Join voice');
+          return { titleBottom: title.bottom, actionTop: action?.getBoundingClientRect().top,
+            overflow: header.scrollWidth - header.clientWidth,
+            children: [...header.children].map((item) => ({ text: item.textContent?.trim(),
+              width: item.getBoundingClientRect().width, left: item.getBoundingClientRect().left,
+              right: item.getBoundingClientRect().right })) };
+        });
+        assert.ok(channelHeader.actionTop >= channelHeader.titleBottom - 1 && channelHeader.overflow <= 1,
+          `Rondo's mobile voice action must sit below the channel title without overlap: ${JSON.stringify(channelHeader)}`);
+        await checkAccessibility(page, 'Rondo channel at 320px');
+        await page.evaluate(() => document.documentElement.classList.add('dark'));
+        await page.waitForTimeout(220);
+        await checkAccessibility(page, 'Rondo voice at 320px in dark mode');
+        await capture(page, 'rondo-channel-dark-mobile');
+        await page.evaluate(() => document.documentElement.classList.remove('dark'));
+        await page.waitForTimeout(220);
+        const voiceStage = await page.locator('.voice-stage').evaluate((stage) => ({
+          height: stage.getBoundingClientRect().height, overflow: stage.scrollHeight - stage.clientHeight
+        }));
+        assert.ok(voiceStage.height < 330 && voiceStage.overflow <= 1,
+          `The compact mobile voice stage must not take over the conversation: ${JSON.stringify(voiceStage)}`);
+        await page.getByRole('button', { name: 'Show members' }).click();
+        await page.getByRole('dialog', { name: 'Server members' }).waitFor();
+        await checkAccessibility(page, 'Rondo mobile members panel');
+        await page.keyboard.press('Escape');
+        await page.getByRole('dialog', { name: 'Server members' }).waitFor({ state: 'detached' });
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Show members',
+          'Closing the mobile members panel must restore focus to its trigger');
+        await page.setViewportSize({ width: 1280, height: 720 });
+        await page.getByRole('button', { name: 'Disconnect from voice' }).click();
+      }
       if (app === 'ligo') {
         await page.getByRole('button', { name: 'Saved messages', exact: true }).first().click();
         await page.getByRole('heading', { name: 'Saved messages' }).waitFor();
@@ -296,6 +391,14 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
         await bubble.waitFor();
         await capture(page, 'ligo-chat');
         await checkAccessibility(page, 'Ligo saved conversation');
+        await page.getByRole('button', { name: 'New conversation' }).click();
+        const newChatDialog = page.getByRole('dialog', { name: 'New conversation' });
+        await newChatDialog.waitFor();
+        await page.keyboard.press('Escape');
+        await newChatDialog.waitFor({ state: 'detached' });
+        assert.ok((await page.locator('[data-slot="dialog-content"]').allTextContents())
+          .every((text) => !text.includes('Add people')),
+          'Closing the new-chat dialog must not change its content during the exit animation');
         await bubble.click({ button: 'right' });
         await page.getByRole('menuitem', { name: 'Heart' }).click();
         await page.getByRole('button', { name: /❤️ reaction, 1/ }).waitFor();
@@ -704,6 +807,9 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     assert.equal((await replyResponse.json()).parentId, post.id,
       'The modal must publish a reply linked to its parent post');
     await replyComposer.waitFor({ state: 'detached' });
+    assert.ok((await page.locator('[data-slot="dialog-content"]').allTextContents())
+      .every((text) => !text.includes('Create a post')),
+      'Closing a reply composer must retain its title and content during the exit animation');
     await card.getByRole('button', { name: 'View 1 reply' }).click();
     const comments = card.getByRole('region', { name: 'Replies' });
     await comments.getByText(replyText).waitFor();
@@ -727,6 +833,9 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, and ap
     assert.equal(quoteResponse.status(), 201);
     const quotedPost = await quoteResponse.json();
     await quoteComposer.waitFor({ state: 'detached' });
+    assert.ok((await page.locator('[data-slot="dialog-content"]').allTextContents())
+      .every((text) => !text.includes('Create a post')),
+      'Closing a quote composer must retain its title and content during the exit animation');
     assert.equal(quotedPost.quote?.id, post.id,
       `The new post must reference the quoted post: ${JSON.stringify({ quoteId: quotedPost.quoteId, quote: quotedPost.quote, source: post.id })}`);
     assert.equal(quotedPost.quote.media.length, 4, 'A quoted post must include its original media');
