@@ -9,13 +9,14 @@
 
   let {
     messages, pending, viewerId, personal, group, hasMore, loadingMore, loadOlder, retry,
-    react, edit, remove
+    react, edit, remove, showReceipt = true
   }: {
     messages: LigoMessage[];
     pending: PendingMessage[];
     viewerId: string;
     personal: boolean;
     group: boolean;
+    showReceipt?: boolean;
     hasMore: boolean;
     loadingMore: boolean;
     loadOlder: () => Promise<void>;
@@ -122,7 +123,7 @@
           !startsSenderRun(previous.message, item.message)}
         <div data-index={index} class={`w-full ${continuesRun ? 'pb-1' : 'pb-2.5'}`}>
           {#if item.kind === 'sent'}
-            <MessageBubble message={item.message} {viewerId} {personal}
+            <MessageBubble message={item.message} {viewerId} {personal} {showReceipt}
               showSender={group && item.message.sender.id !== viewerId &&
                 startsSenderRun(previous?.kind === 'sent' ? previous.message : null, item.message)}
               showAvatarSlot={group && item.message.sender.id !== viewerId}

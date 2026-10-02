@@ -95,7 +95,7 @@ func (store *Ligo) ListConversations(ctx context.Context, actorID string, cursor
 	if cursor != nil {
 		updatedAt, id = cursor.UpdatedAt, cursor.ID
 	}
-	rows, err := store.pool.Query(ctx, conversationSelect+` WHERE ($2::timestamptz IS NULL OR
+	rows, err := store.pool.Query(ctx, conversationSelect+` WHERE c.kind <> 'channel' AND ($2::timestamptz IS NULL OR
 		(c.updated_at, c.id) < ($2::timestamptz, $3::uuid))
 		ORDER BY c.updated_at DESC, c.id DESC LIMIT $4`, actorID, updatedAt, id, limit+1)
 	if err != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligoevents"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
+	"github.com/druckheil/Kaordo/services/kerno/internal/rondovoice"
 	"github.com/druckheil/Kaordo/services/mediaauth"
 )
 
@@ -67,6 +68,13 @@ func run() error {
 	if !conversationsTableExists {
 		return errors.New("Ligo tables are missing; apply deploy/postgres/007_ligo.sql")
 	}
+	var rondoTableExists bool
+	if err := pool.QueryRow(ctx, "SELECT to_regclass('public.rondo_servers') IS NOT NULL").Scan(&rondoTableExists); err != nil {
+		return err
+	}
+	if !rondoTableExists {
+		return errors.New("Rondo tables are missing; apply deploy/postgres/010_rondo.sql")
+	}
 
 	provider, err := identity.NewProvider(ctx, issuer)
 	if err != nil {
@@ -83,9 +91,17 @@ func run() error {
 	}
 	ligoStore := postgres.NewLigo(pool)
 	ligoEvents := ligoevents.New(ctx, dsn, ligoStore)
+	voiceURL := os.Getenv("LIVEKIT_URL")
+	voicePublicURL := os.Getenv("LIVEKIT_PUBLIC_URL")
+	voiceKey := os.Getenv("LIVEKIT_API_KEY")
+	voiceSecret := os.Getenv("LIVEKIT_API_SECRET")
+	var voice httpapi.RondoVoice
+	if voiceURL != "" && voicePublicURL != "" && voiceKey != "" && voiceSecret != "" {
+		voice = rondovoice.New(voiceURL, voiceKey, voiceSecret)
+	}
 	server := &http.Server{
 		Addr: address,
-		Handler: httpapi.NewRouterWithModules(verify, postgres.NewUsers(pool), httpapi.FluoDependencies{
+		Handler: httpapi.NewRouterWithRondo(verify, postgres.NewUsers(pool), httpapi.FluoDependencies{
 			Store:        postgres.NewFluo(pool),
 			Media:        httpapi.NodoClient{BaseURL: nodoInternalURL, InternalKey: mediaKey},
 			MediaBaseURL: nodoPublicURL,
@@ -96,6 +112,8 @@ func run() error {
 			Media:        httpapi.NodoClient{BaseURL: nodoInternalURL, InternalKey: mediaKey},
 			MediaBaseURL: nodoPublicURL,
 			MediaSignKey: mediaKey,
+		}, httpapi.RondoDependencies{
+			Store: postgres.NewRondo(pool), Voice: voice, VoiceURL: voicePublicURL,
 		}, strings.Split(originList, ",")),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

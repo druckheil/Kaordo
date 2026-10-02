@@ -16,7 +16,11 @@ try {
   await new Promise((resolveStop, rejectStop) => {
     const child = spawn('docker', [
       'compose', '--env-file', 'deploy/local/.env', '-f', 'deploy/local/compose.yaml', 'stop'
-    ], { cwd: root, stdio: 'inherit' });
+    ], { cwd: root, stdio: 'inherit', env: {
+      ...process.env,
+      LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY || 'stop-only',
+      LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET || 'stop-only'
+    } });
     child.once('error', () => rejectStop(new Error('Docker Compose is unavailable. No local containers were stopped.')));
     child.once('exit', (code) => code === 0 ? resolveStop() : rejectStop(new Error(`Docker Compose stop failed (${code}).`)));
   });

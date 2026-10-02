@@ -9,3 +9,5 @@ The local launcher applies the numbered product migrations on each start. Migrat
 Migration 006 installs PostgreSQL's `pg_trgm` extension and indexes case-insensitive substring search over post text, usernames and display names. This is an existing PostgreSQL extension; Kerno does not implement its own search index.
 
 Migration 007 adds Ligo conversations, memberships, messages, and attachment references. Migration 008 adds unique personal Saved messages conversations. Migration 009 adds edits, deletion tombstones, three emoji reactions, delivery cursors, and the eight-attachment limit. The disposable database integration script reapplies migrations to check repeatability and shared attachment claims.
+
+Migration 010 adds Rondo servers, memberships and channels. A channel refers to a Ligo conversation of kind `channel`; the Rondo transaction mirrors server membership into Ligo membership so message access uses the same checks and media references. Ligo's direct/group list excludes channel conversations.

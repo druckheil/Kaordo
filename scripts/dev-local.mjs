@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import { assertAvailablePorts } from './local-ports.mjs';
@@ -54,11 +54,18 @@ async function ensureConfiguration() {
     await writeFile(privateEnv, values, { mode: 0o600, flag: 'wx' });
     console.log('Created ignored local credentials: deploy/local/.env');
   }
+  await chmod(privateEnv, 0o600);
 
   const privateConfig = parseEnv(await readFile(privateEnv, 'utf8'));
   if (!privateConfig.NODO_MEDIA_SIGNING_KEY) {
     privateConfig.NODO_MEDIA_SIGNING_KEY = randomBytes(32).toString('hex');
     await writeFile(privateEnv, `\nNODO_MEDIA_SIGNING_KEY=${privateConfig.NODO_MEDIA_SIGNING_KEY}\n`, { flag: 'a' });
+  }
+  for (const name of ['LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET']) {
+    if (!privateConfig[name] || privateConfig[name].startsWith('REPLACE_')) {
+      privateConfig[name] = randomBytes(name === 'LIVEKIT_API_KEY' ? 16 : 32).toString('hex');
+      await writeFile(privateEnv, `\n${name}=${privateConfig[name]}\n`, { flag: 'a' });
+    }
   }
   for (const name of ['KAORDO_DB_PASSWORD', 'KEYCLOAK_DB_PASSWORD', 'KEYCLOAK_ADMIN_PASSWORD']) {
     if (!privateConfig[name] || privateConfig[name].startsWith('REPLACE_')) {
@@ -70,6 +77,10 @@ async function ensureConfiguration() {
   }
   if (!/^[0-9a-f]{64}$/i.test(privateConfig.NODO_MEDIA_SIGNING_KEY)) {
     throw new Error('NODO_MEDIA_SIGNING_KEY must be 64 hexadecimal characters.');
+  }
+  if (!/^[0-9a-f]{32}$/.test(privateConfig.LIVEKIT_API_KEY) ||
+      !/^[0-9a-f]{64}$/.test(privateConfig.LIVEKIT_API_SECRET)) {
+    throw new Error('LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be generated hexadecimal credentials.');
   }
   return privateConfig;
 }
@@ -161,7 +172,7 @@ try {
   }
 
   const localEnv = { ...process.env, ...privateConfig, KAORDO_SITE_ORIGIN: siteOrigin };
-  console.log('Starting PostgreSQL and Keycloak…');
+  console.log('Starting PostgreSQL, Keycloak and LiveKit…');
   await run('docker', [...compose, 'up', '-d', '--wait'], localEnv);
   for (const migration of productMigrations) {
     await run('docker', [...compose, 'exec', '-T', 'app-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', 'kaordo', '-f', `/migrations/${migration}`], localEnv);
@@ -180,7 +191,11 @@ try {
     KAORDO_ALLOWED_ORIGINS: `${siteOrigin},http://localhost:5173`,
     NODO_INTERNAL_URL: 'http://127.0.0.1:8082',
     NODO_PUBLIC_URL: 'http://127.0.0.1:8082',
-    NODO_MEDIA_SIGNING_KEY: privateConfig.NODO_MEDIA_SIGNING_KEY
+    NODO_MEDIA_SIGNING_KEY: privateConfig.NODO_MEDIA_SIGNING_KEY,
+    LIVEKIT_URL: 'http://127.0.0.1:7880',
+    LIVEKIT_PUBLIC_URL: 'ws://127.0.0.1:7880',
+    LIVEKIT_API_KEY: privateConfig.LIVEKIT_API_KEY,
+    LIVEKIT_API_SECRET: privateConfig.LIVEKIT_API_SECRET
   };
   const kerno = start(resolve(root, 'dist/local/kerno'), [], kernoEnv);
   await waitFor('http://127.0.0.1:8081/healthz', 30_000, kerno);

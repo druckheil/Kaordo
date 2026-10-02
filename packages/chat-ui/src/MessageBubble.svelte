@@ -10,11 +10,12 @@
   } from '@kaordo/ui';
 
   let {
-    message, viewerId, personal, showSender, showAvatarSlot, react, edit, remove
+    message, viewerId, personal, showSender, showAvatarSlot, react, edit, remove, showReceipt = true
   }: {
     message: LigoMessage;
     viewerId: string;
     personal: boolean;
+    showReceipt?: boolean;
     showSender: boolean;
     showAvatarSlot: boolean;
     react: (message: LigoMessage, emoji: LigoReaction['emoji']) => Promise<void>;
@@ -97,7 +98,7 @@
   <span class="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap text-xs leading-none text-muted-foreground">
     <time datetime={message.createdAt}>{new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(new Date(message.createdAt))}</time>
     {#if message.editedAt && !message.deleted}<span aria-label="Edited">· edited</span>{/if}
-    {#if own && !personal && !message.deleted}
+    {#if own && !personal && !message.deleted && showReceipt}
       {#if message.status === 'read'}<CheckCheckIcon class="size-3.5 text-primary" aria-label="Read" />
       {:else if message.status === 'delivered'}<CheckIcon class="size-3.5 text-primary" aria-label="Delivered" />
       {:else}<CheckIcon class="size-3.5 text-muted-foreground/55" aria-label="Sent, not delivered" />{/if}

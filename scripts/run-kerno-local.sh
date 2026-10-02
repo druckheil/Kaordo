@@ -19,5 +19,7 @@ export KAORDO_ALLOWED_ORIGINS="${KAORDO_SITE_ORIGIN},http://localhost:5173"
 export NODO_INTERNAL_URL='http://127.0.0.1:8082'
 export NODO_PUBLIC_URL='http://127.0.0.1:8082'
 export NODO_MEDIA_SIGNING_KEY
+export LIVEKIT_URL='http://127.0.0.1:7880'
+export LIVEKIT_PUBLIC_URL='ws://127.0.0.1:7880'
 
 exec go run ./services/kerno/cmd/kerno

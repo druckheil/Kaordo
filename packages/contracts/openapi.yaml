@@ -101,7 +101,7 @@ components:
       required: [id, kind, title, createdBy, members, lastMessage, unreadCount, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [duo, group, self] }
+        kind: { type: string, enum: [duo, group, self, channel] }
         title: { type: string }
         createdBy: { type: string, format: uuid }
         members:
@@ -180,6 +180,70 @@ components:
         participantIds:
           type: array
           items: { type: string, format: uuid }
+    RondoServer:
+      type: object
+      required: [id, name, description, access, ownerId, memberCount, joined, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        access: { type: string, enum: [public, private] }
+        ownerId: { type: string, format: uuid }
+        memberCount: { type: integer }
+        joined: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    RondoChannel:
+      type: object
+      required: [id, serverId, conversationId, name, position, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        serverId: { type: string, format: uuid }
+        conversationId: { type: string, format: uuid }
+        name: { type: string }
+        position: { type: integer }
+        createdAt: { type: string, format: date-time }
+    RondoDetail:
+      type: object
+      required: [server, channels, members]
+      properties:
+        server: { $ref: '#/components/schemas/RondoServer' }
+        channels:
+          type: array
+          items: { $ref: '#/components/schemas/RondoChannel' }
+        members:
+          type: array
+          description: The first 100 members, ordered by join time.
+          items: { $ref: '#/components/schemas/LigoUser' }
+    RondoServerPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/RondoServer' }
+    RondoNewServer:
+      type: object
+      required: [name, description, access]
+      properties:
+        name: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 500 }
+        access: { type: string, enum: [public, private] }
+    RondoInvite:
+      type: object
+      required: [userId]
+      properties:
+        userId: { type: string, format: uuid }
+    RondoNewChannel:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 80 }
+    RondoVoiceTicket:
+      type: object
+      required: [serverUrl, participantToken]
+      properties:
+        serverUrl: { type: string, format: uri }
+        participantToken: { type: string }
     FluoDocument:
       type: object
       description: Tiptap JSON document. Only paragraphs, text, line breaks and bold/italic/strike marks are accepted.
@@ -793,6 +857,167 @@ paths:
           content:
             text/event-stream:
               schema: { type: string }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers:
+    get:
+      operationId: listRondoServers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 80 } }
+      responses:
+        '200':
+          description: Servers joined by the authenticated account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoServerPage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    post:
+      operationId: createRondoServer
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RondoNewServer' }
+      responses:
+        '201':
+          description: Server with its default general channel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoDetail' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/discover:
+    get:
+      operationId: discoverRondoServers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 80 } }
+      responses:
+        '200':
+          description: Public servers that the authenticated account has not joined.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoServerPage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers/{id}:
+    get:
+      operationId: getRondoServer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Server channels and members, visible to members only.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoDetail' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers/{id}/join:
+    post:
+      operationId: joinRondoServer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Membership and channel access established for a public server.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoDetail' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers/{id}/members:
+    post:
+      operationId: inviteRondoMember
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RondoInvite' }
+      responses:
+        '200':
+          description: Updated server membership; owner only.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoDetail' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers/{id}/membership:
+    delete:
+      operationId: leaveRondoServer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Membership removed. }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers/{id}/channels:
+    post:
+      operationId: createRondoChannel
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RondoNewChannel' }
+      responses:
+        '201':
+          description: New channel with message history and voice room access for current members.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoChannel' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/channels/{id}/voice-token:
+    post:
+      operationId: createRondoVoiceToken
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Short lived LiveKit token for one channel voice room.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoVoiceTicket' }
         default:
           description: Error.
           content:

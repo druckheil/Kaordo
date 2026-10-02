@@ -7,5 +7,6 @@ export const productMigrations = [
   '006_fluo_search.sql',
   '007_ligo.sql',
   '008_ligo_self.sql',
-  '009_ligo_message_actions.sql'
+  '009_ligo_message_actions.sql',
+  '010_rondo.sql'
 ];

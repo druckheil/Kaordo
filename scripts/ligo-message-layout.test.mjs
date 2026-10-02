@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { startsSenderRun } from '../apps/ligo/src/lib/message-grouping.ts';
+import { startsSenderRun } from '../packages/chat-ui/src/message-grouping.ts';
 
 const alice = { id: 'alice' };
 const bob = { id: 'bob' };

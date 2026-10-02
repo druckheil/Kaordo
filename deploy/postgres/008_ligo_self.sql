@@ -2,7 +2,7 @@ BEGIN;
 
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ligo_conversations'::regclass
-        AND conname = 'ligo_conversation_shape') THEN
+        AND conname IN ('ligo_conversation_shape', 'ligo_conversation_shape_rondo')) THEN
         ALTER TABLE ligo_conversations DROP CONSTRAINT IF EXISTS ligo_duo_shape;
         ALTER TABLE ligo_conversations ADD CONSTRAINT ligo_conversation_shape CHECK (
             (kind = 'duo' AND duo_low IS NOT NULL AND duo_high IS NOT NULL AND duo_low < duo_high AND title = '') OR

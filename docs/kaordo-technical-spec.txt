@@ -1,5 +1,5 @@
 KAORDO — TECHNICAL SPECIFICATION
-Version: scope-0.0.1, authentication, Fluo and Ligo slices
+Version: scope-0.0.1, authentication, Fluo, Ligo and Rondo slices
 
 Repository: independent SvelteKit applications in apps/, shared browser
 packages in packages/, Go services in services/, local service definitions in
@@ -83,6 +83,32 @@ The browser uses TanStack Query, cursor pagination and native scrolling with
 history anchoring. Attachments use Nodo and short-lived signed media URLs.
 End-to-end encryption and Matrix integration are not implemented.
 
+Rondo data: rondo_servers stores UUIDv7 server IDs, owner, public/private
+access, name and description. rondo_members stores server membership.
+rondo_channels maps each channel to a dedicated Ligo conversation; joins and
+owner invitations mirror membership into that conversation in one database
+transaction. A new member sees channel messages sent after joining. Existing
+Ligo message, reaction, edit, deletion, attachment, cursor and SSE logic is
+reused. Ligo's own conversation list excludes Rondo channels. Owners create
+channels and invite accounts; nonowners may leave, while owners must retain
+their server until ownership transfer or deletion is implemented.
+
+Rondo live room: a member may request a short-lived LiveKit join token from
+Kerno for one channel. The token allows microphone, camera, screen and screen
+audio publishing, plus subscription. The browser app uses livekit-client for
+voice and video tracks. Screen capture offers 360p/15, 720p/5, 720p/15,
+720p/30, 1080p/15, 1080p/30 and original presets; the browser and source
+determine actual quality.
+Participant video appears as compact, non-scrolling previews above the chat;
+the entire stage or an individual stream can enter fullscreen.
+The server rail, channel list and member list collapse independently. Local
+interface sounds signal connection and media-control changes and can be muted.
+The local Docker LiveKit SFU listens
+on 7880 for signaling, 7881/TCP and 7882/UDP for media. Its credentials live
+only in the ignored local environment. There is no public TURN/TLS ingress,
+E2EE, moderation or self-hosted token revocation; removal from a server stops
+new token issuance and asks LiveKit to disconnect the current participant.
+
 Nodo media: POST/HEAD/PATCH /v1/uploads/ are tusd 1.0 endpoints. Nodo asks
 Kerno /v1/me to verify the bearer token and gates each upload by owner. An
 account can store up to 200 source uploads and 2 GiB of source bytes. JPEG and
@@ -112,7 +138,7 @@ complete set into disposable databases and a temporary media directory. Operator
 must provide a separate repository, private password file, backup schedule and
 independent key copy. The dumps and media are not transactionally atomic.
 
-Scope boundary: Rondo and Regado remain scaffolds. All apps use the
+Scope boundary: Regado remains a scaffold. All apps use the
 shared @kaordo/account-ui gate backed by @kaordo/auth and @kaordo/api-client.
 No module role policy, self-service password recovery, email verification,
 automated backup schedule or public deployment is implemented in this slice.

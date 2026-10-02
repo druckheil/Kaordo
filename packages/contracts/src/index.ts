@@ -20,4 +20,10 @@ export type LigoConversationPage = components['schemas']['LigoConversationPage']
 export type LigoUserPage = components['schemas']['LigoUserPage'];
 export type LigoNewConversation = components['schemas']['LigoNewConversation'];
 export type LigoNewMessage = components['schemas']['LigoNewMessage'];
+export type RondoServer = components['schemas']['RondoServer'];
+export type RondoChannel = components['schemas']['RondoChannel'];
+export type RondoDetail = components['schemas']['RondoDetail'];
+export type RondoServerPage = components['schemas']['RondoServerPage'];
+export type RondoNewServer = components['schemas']['RondoNewServer'];
+export type RondoVoiceTicket = components['schemas']['RondoVoiceTicket'];
 export type { paths };

@@ -11,9 +11,9 @@
     AppHeader, BookmarkIcon, Button, CheckIcon, ChevronLeftIcon, Dialog, Input,
     MessageCircleIcon, PaperclipIcon, PlusIcon, SearchIcon, SendIcon, Textarea, UserPlusIcon
   } from '@kaordo/ui';
-  import DraftAttachment from './DraftAttachment.svelte';
-  import type MessageListComponent from './MessageList.svelte';
-  import type { PendingMessage } from './types';
+  import type { PendingMessage } from '@kaordo/chat-ui';
+  import DraftAttachment from '@kaordo/chat-ui/draft-attachment';
+  import type MessageListComponent from '@kaordo/chat-ui/message-list';
 
   let { user }: { user: UserIdentity } = $props();
 
@@ -65,7 +65,7 @@
 
   $effect(() => {
     if (!selectedId || LoadedMessageList || messageViewError) return;
-    void import('./MessageList.svelte')
+    void import('@kaordo/chat-ui/message-list')
       .then(({ default: component }) => { LoadedMessageList = component; })
       .catch(() => { messageViewError = true; });
   });
@@ -124,7 +124,7 @@
 
   function displayTitle(item: LigoConversation): string {
     if (item.kind === 'self') return 'Saved messages';
-    if (item.kind === 'group') return item.title;
+    if (item.kind === 'group' || item.kind === 'channel') return item.title;
     return item.members.find((member) => member.id !== user.id)?.displayName ?? 'Direct chat';
   }
 
@@ -238,15 +238,19 @@
     input.value = '';
   }
 
+  function updatePending(item: PendingMessage, changes: Partial<PendingMessage>) {
+    Object.assign(item, changes);
+    pending = pending.map((entry) => entry.clientId === item.clientId ? { ...item } : entry);
+  }
+
   async function deliver(item: PendingMessage) {
-    item.status = item.attachmentIds ? 'sending' : item.files.length ? 'uploading' : 'sending';
-    item.error = undefined;
+    updatePending(item, { status: item.attachmentIds ? 'sending' : item.files.length ? 'uploading' : 'sending', error: undefined });
     try {
       if (!item.attachmentIds && item.files.length) {
         item.attachmentIds = await uploadMedia(item.files, import.meta.env.VITE_KAORDO_NODO_URL, api,
-          (progress) => { item.progress = progress; }, { allowFiles: true, maxFiles: 8 });
+          (progress) => updatePending(item, { progress }), { allowFiles: true, maxFiles: 8 });
       }
-      item.status = 'sending';
+      updatePending(item, { status: 'sending' });
       const message = await api.send(item.conversationId, {
         clientId: item.clientId,
         text: item.text,
@@ -264,8 +268,8 @@
       pending = pending.filter((entry) => entry.clientId !== item.clientId);
       void queryClient.invalidateQueries({ queryKey: ['ligo', 'conversations'] });
     } catch (error) {
-      item.status = 'failed';
-      item.error = error instanceof Error ? error.message : 'Could not send the message.';
+      updatePending(item, { status: 'failed',
+        error: error instanceof Error ? error.message : 'Could not send the message.' });
     }
   }
 

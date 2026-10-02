@@ -27,6 +27,10 @@ func NewRouterWithFluo(verify VerifyFunc, users UserStore, social FluoDependenci
 }
 
 func NewRouterWithModules(verify VerifyFunc, users UserStore, social FluoDependencies, messaging LigoDependencies, allowedOrigins []string) http.Handler {
+	return NewRouterWithRondo(verify, users, social, messaging, RondoDependencies{}, allowedOrigins)
+}
+
+func NewRouterWithRondo(verify VerifyFunc, users UserStore, social FluoDependencies, messaging LigoDependencies, communities RondoDependencies, allowedOrigins []string) http.Handler {
 	router := chi.NewRouter()
 	origins := make(map[string]bool, len(allowedOrigins))
 	for _, origin := range allowedOrigins {
@@ -91,6 +95,9 @@ func NewRouterWithModules(verify VerifyFunc, users UserStore, social FluoDepende
 	}
 	if messaging.Store != nil {
 		mountLigo(router, verify, users, messaging)
+	}
+	if communities.Store != nil {
+		mountRondo(router, verify, users, communities)
 	}
 	return router
 }

@@ -3,17 +3,18 @@
   import { appPaths } from '@kaordo/links';
   import { signOut } from '@kaordo/auth';
   import { clearAccountPreview, createAccountSessionController, readAccountPreview, type AccountPreview } from '@kaordo/account-ui';
-  import { ArrowRightIcon, ArrowUpRightIcon, Button, HouseIcon, LogOutIcon, MessageCircleIcon } from '@kaordo/ui';
+  import { ArrowRightIcon, ArrowUpRightIcon, Button, HouseIcon, LogOutIcon, MessageCircleIcon, UsersIcon } from '@kaordo/ui';
   import type { UserIdentity } from '@kaordo/contracts';
 
   const available = [
     { name: 'Fluo', description: 'Share a thought, discover new voices and keep the posts you love.',
       label: 'Social', href: appPaths.fluo, icon: HouseIcon },
     { name: 'Ligo', description: 'Keep conversations, photos and files together in one place.',
-      label: 'Messages', href: appPaths.ligo, icon: MessageCircleIcon }
+      label: 'Messages', href: appPaths.ligo, icon: MessageCircleIcon },
+    { name: 'Rondo', description: 'Build a community with channels, shared files and local voice rooms.',
+      label: 'Communities', href: appPaths.rondo, icon: UsersIcon }
   ];
   const upcoming = [
-    { name: 'Rondo', description: 'Communities' },
     { name: 'Regado', description: 'Administration' }
   ];
   const accountSession = createAccountSessionController(import.meta.env);
@@ -119,7 +120,7 @@
       <p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Apps</p>
       <h2 class="mt-1 text-2xl font-bold tracking-[-0.04em]">Choose an app</h2>
     </div>
-    <div class="grid gap-4 md:grid-cols-2">
+    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {#each available as module (module.name)}
         {@const Icon = module.icon}
         <a href={module.href} rel="external"
