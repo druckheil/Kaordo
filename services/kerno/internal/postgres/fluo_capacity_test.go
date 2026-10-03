@@ -2,12 +2,15 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
+	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
+	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,34 +28,42 @@ func TestFluoReadCapacity(t *testing.T) {
 	}
 	defer pool.Close()
 	defer func() {
-		if _, err := pool.Exec(ctx, `DELETE FROM users WHERE keycloak_sub LIKE 'capacity-user-%'`); err != nil {
+		users := table.Users
+		if _, err := jetExec(ctx, pool, users.DELETE().WHERE(users.KeycloakSub.LIKE(jetpg.String("capacity-user-%")))); err != nil {
 			t.Errorf("remove capacity fixtures: %v", err)
 		}
 	}()
-	_, err = pool.Exec(ctx, `INSERT INTO users (keycloak_sub, username, display_name)
-		SELECT 'capacity-user-' || i, 'capacity_user_' || i, 'Capacity user ' || i
-		FROM generate_series(1, 100) AS i`)
-	if err != nil {
-		t.Fatal(err)
+	users := NewUsers(pool)
+	userIDs := make([]string, 100)
+	for index := range userIDs {
+		user, err := users.Upsert(ctx, fmt.Sprintf("capacity-user-%d", index+1),
+			fmt.Sprintf("capacity_user_%d", index+1), fmt.Sprintf("Capacity user %d", index+1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		userIDs[index] = user.ID
 	}
-	_, err = pool.Exec(ctx, `WITH authors AS (
-		SELECT id, row_number() OVER (ORDER BY id) AS position FROM users
-		WHERE keycloak_sub LIKE 'capacity-user-%'
-	)
-	INSERT INTO fluo_posts (author_id, content, plain_text, visibility)
-	SELECT authors.id, '{"type":"doc"}'::jsonb,
-		CASE WHEN number = 10000 THEN 'unique capacity needle' ELSE 'bulk post ' || number END,
-		'public'
-	FROM generate_series(1, 20000) AS number
-	JOIN authors ON authors.position = (number % 100) + 1`)
-	if err != nil {
-		t.Fatal(err)
+	posts := table.FluoPosts
+	for start := 1; start <= 20000; start += 1000 {
+		statement := posts.INSERT(posts.AuthorID, posts.Content, posts.PlainText, posts.Visibility)
+		for number := start; number < start+1000 && number <= 20000; number++ {
+			body := fmt.Sprintf("bulk post %d", number)
+			if number == 10000 {
+				body = "unique capacity needle"
+			}
+			statement = statement.VALUES(jetUUID(userIDs[number%100]), jetpg.Json([]byte(`{"type":"doc"}`)),
+				jetpg.String(body), jetpg.String("public"))
+		}
+		if _, err := jetExec(ctx, pool, statement); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := pool.Exec(ctx, `ANALYZE fluo_posts`); err != nil {
+	if _, err := jetExec(ctx, pool, jetpg.RawStatement("ANALYZE fluo_posts")); err != nil {
 		t.Fatal(err)
 	}
 	var viewerID string
-	if err := pool.QueryRow(ctx, `SELECT id::text FROM users WHERE keycloak_sub = 'capacity-user-1'`).Scan(&viewerID); err != nil {
+	if err := jetQueryRow(ctx, pool, table.Users.SELECT(jetpg.CAST(table.Users.ID).AS_TEXT()).
+		WHERE(table.Users.KeycloakSub.EQ(jetpg.String("capacity-user-1")))).Scan(&viewerID); err != nil {
 		t.Fatal(err)
 	}
 	store := NewFluo(pool)

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
+	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
+	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -18,32 +20,45 @@ type Fluo struct{ pool *pgxpool.Pool }
 
 func NewFluo(pool *pgxpool.Pool) *Fluo { return &Fluo{pool: pool} }
 
-const postColumns = `
-	p.id::text, a.id::text, a.username, a.display_name,
-	EXISTS (SELECT 1 FROM fluo_follows f WHERE f.follower_id = $1::uuid AND f.followed_id = a.id),
-	p.content, p.plain_text, p.visibility, p.parent_id::text, p.quote_id::text,
-	q.id::text, qa.id::text, qa.username, qa.display_name, q.plain_text,
-	COALESCE((SELECT jsonb_agg(jsonb_build_object(
+func postQuery(viewerID string) jetpg.SelectStatement {
+	p := table.FluoPosts.AS("p")
+	a := table.Users.AS("a")
+	q := table.FluoPosts.AS("q")
+	qa := table.Users.AS("qa")
+	follows := table.FluoFollows.AS("f")
+	saved := table.FluoSavedPosts.AS("s")
+	reaction := table.FluoReactions.AS("r")
+	good := table.FluoReactions.AS("good")
+	bad := table.FluoReactions.AS("bad")
+	comments := table.FluoPosts.AS("comments")
+	quotedMedia := jetpg.RawString(`COALESCE((SELECT jsonb_agg(jsonb_build_object(
 		'id', qm.upload_id::text, 'kind', qm.kind, 'mimeType', qm.mime_type,
 		'width', qm.width, 'height', qm.height, 'size', qm.size_bytes, 'altText', qm.alt_text
-	) ORDER BY qm.position) FROM fluo_post_media qm WHERE qm.post_id = q.id), '[]'::jsonb),
-	COALESCE((SELECT count(*) FROM fluo_reactions r WHERE r.post_id = p.id AND r.value = 'good'), 0),
-	COALESCE((SELECT count(*) FROM fluo_reactions r WHERE r.post_id = p.id AND r.value = 'bad'), 0),
-	COALESCE((SELECT count(*) FROM fluo_posts c WHERE c.parent_id = p.id), 0),
-	(SELECT r.value FROM fluo_reactions r WHERE r.post_id = p.id AND r.user_id = $1::uuid),
-	EXISTS (SELECT 1 FROM fluo_saved_posts s WHERE s.user_id = $1::uuid AND s.post_id = p.id),
-	COALESCE((SELECT jsonb_agg(jsonb_build_object(
-		'id', m.upload_id::text, 'kind', m.kind, 'mimeType', m.mime_type,
-		'width', m.width, 'height', m.height, 'size', m.size_bytes, 'altText', m.alt_text
-	) ORDER BY m.position) FROM fluo_post_media m WHERE m.post_id = p.id), '[]'::jsonb),
-	p.created_at, p.updated_at
-`
-
-const postJoins = `
-	JOIN users a ON a.id = p.author_id
-	LEFT JOIN fluo_posts q ON q.id = p.quote_id AND q.parent_id IS NULL AND q.visibility = 'public'
-	LEFT JOIN users qa ON qa.id = q.author_id
-`
+	) ORDER BY qm.position) FROM fluo_post_media qm WHERE qm.post_id = q.id), '[]'::jsonb)`)
+	media := jetpg.RawString(`COALESCE((SELECT jsonb_agg(jsonb_build_object(
+		'id', pm.upload_id::text, 'kind', pm.kind, 'mimeType', pm.mime_type,
+		'width', pm.width, 'height', pm.height, 'size', pm.size_bytes, 'altText', pm.alt_text
+	) ORDER BY pm.position) FROM fluo_post_media pm WHERE pm.post_id = p.id), '[]'::jsonb)`)
+	viewer := jetUUID(viewerID)
+	return jetpg.SELECT(
+		jetpg.CAST(p.ID).AS_TEXT(), jetpg.CAST(a.ID).AS_TEXT(), a.Username, a.DisplayName,
+		jetpg.EXISTS(jetpg.SELECT(follows.FollowerID).FROM(follows).
+			WHERE(jetpg.AND(follows.FollowerID.EQ(viewer), follows.FollowedID.EQ(a.ID)))),
+		p.Content, p.PlainText, p.Visibility, jetpg.CAST(p.ParentID).AS_TEXT(), jetpg.CAST(p.QuoteID).AS_TEXT(),
+		jetpg.CAST(q.ID).AS_TEXT(), jetpg.CAST(qa.ID).AS_TEXT(), qa.Username, qa.DisplayName, q.PlainText, quotedMedia,
+		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(good.PostID)).FROM(good).
+			WHERE(jetpg.AND(good.PostID.EQ(p.ID), good.Value.EQ(jetpg.String("good"))))),
+		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(bad.PostID)).FROM(bad).
+			WHERE(jetpg.AND(bad.PostID.EQ(p.ID), bad.Value.EQ(jetpg.String("bad"))))),
+		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(comments.ID)).FROM(comments).WHERE(comments.ParentID.EQ(p.ID))),
+		jetpg.SELECT(reaction.Value).FROM(reaction).WHERE(jetpg.AND(reaction.PostID.EQ(p.ID), reaction.UserID.EQ(viewer))),
+		jetpg.EXISTS(jetpg.SELECT(saved.PostID).FROM(saved).
+			WHERE(jetpg.AND(saved.UserID.EQ(viewer), saved.PostID.EQ(p.ID)))),
+		media, p.CreatedAt, p.UpdatedAt,
+	).FROM(p.INNER_JOIN(a, a.ID.EQ(p.AuthorID)).
+		LEFT_JOIN(q, jetpg.AND(q.ID.EQ(p.QuoteID), q.ParentID.IS_NULL(), q.Visibility.EQ(jetpg.String("public")))).
+		LEFT_JOIN(qa, qa.ID.EQ(q.AuthorID)))
+}
 
 type scanner interface{ Scan(...any) error }
 
@@ -89,14 +104,15 @@ func scanPost(row scanner) (fluo.Post, error) {
 }
 
 func (store *Fluo) Get(ctx context.Context, viewerID, id string) (fluo.Post, error) {
-	query := `SELECT ` + postColumns + ` FROM fluo_posts p ` + postJoins + `
-		WHERE p.id = $2::uuid
-		AND (p.visibility = 'public' OR p.author_id = $1::uuid)
-		AND (p.parent_id IS NULL OR EXISTS (
-			SELECT 1 FROM fluo_posts root WHERE root.id = p.parent_id
-			AND (root.visibility = 'public' OR root.author_id = $1::uuid)
-		))`
-	post, err := scanPost(store.pool.QueryRow(ctx, query, viewerID, id))
+	p := table.FluoPosts.AS("p")
+	root := table.FluoPosts.AS("root")
+	viewer := jetUUID(viewerID)
+	condition := jetpg.AND(p.ID.EQ(jetUUID(id)), jetpg.OR(p.Visibility.EQ(jetpg.String("public")), p.AuthorID.EQ(viewer)))
+	rootVisible := jetpg.EXISTS(jetpg.SELECT(root.ID).FROM(root).WHERE(jetpg.AND(
+		root.ID.EQ(p.ParentID), jetpg.OR(root.Visibility.EQ(jetpg.String("public")), root.AuthorID.EQ(viewer)),
+	)))
+	condition = jetpg.AND(condition, jetpg.OR(p.ParentID.IS_NULL(), rootVisible))
+	post, err := scanPost(jetQueryRow(ctx, store.pool, postQuery(viewerID).WHERE(condition)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fluo.Post{}, fluo.ErrNotFound
 	}
@@ -113,45 +129,49 @@ func (store *Fluo) List(ctx context.Context, options fluo.ListOptions) (fluo.Pag
 			return fluo.Page{}, fluo.ErrNotFound
 		}
 	}
-	var cursorTime, cursorID any
+	p := table.FluoPosts.AS("p")
+	viewer := jetUUID(options.ViewerID)
+	condition := jetpg.OR(p.Visibility.EQ(jetpg.String("public")), p.AuthorID.EQ(viewer))
+	if options.ParentID == nil {
+		condition = jetpg.AND(condition, p.ParentID.IS_NULL())
+	} else {
+		condition = jetpg.AND(condition, p.ParentID.EQ(jetUUID(*options.ParentID)))
+	}
+	if options.ParentID == nil {
+		saved := table.FluoSavedPosts.AS("s")
+		follows := table.FluoFollows.AS("f")
+		switch options.Feed {
+		case "latest":
+		case "mine":
+			condition = jetpg.AND(condition, p.AuthorID.EQ(viewer))
+		case "saved":
+			condition = jetpg.AND(condition, jetpg.EXISTS(jetpg.SELECT(saved.PostID).FROM(saved).
+				WHERE(jetpg.AND(saved.UserID.EQ(viewer), saved.PostID.EQ(p.ID)))))
+		case "following":
+			condition = jetpg.AND(condition, jetpg.OR(p.AuthorID.EQ(viewer), jetpg.EXISTS(jetpg.SELECT(follows.FollowedID).
+				FROM(follows).WHERE(jetpg.AND(follows.FollowerID.EQ(viewer), follows.FollowedID.EQ(p.AuthorID))))))
+		default:
+			condition = jetpg.AND(condition, jetpg.Bool(false))
+		}
+	}
 	if options.Cursor != nil {
-		cursorTime, cursorID = options.Cursor.CreatedAt, options.Cursor.ID
+		condition = jetpg.AND(condition, jetpg.OR(
+			p.CreatedAt.LT(jetpg.TimestampzT(options.Cursor.CreatedAt)),
+			jetpg.AND(p.CreatedAt.EQ(jetpg.TimestampzT(options.Cursor.CreatedAt)), p.ID.LT(jetUUID(options.Cursor.ID))),
+		))
 	}
-	from := `FROM fluo_posts p`
-	prefix := ""
-	args := []any{options.ViewerID, options.ParentID, options.Feed, cursorTime, cursorID, options.Limit + 1}
-	if options.Search != "" {
-		// PostgreSQL can use pg_trgm and author indexes to build a small candidate
-		// set before fetching the timeline. Escape user wildcards to preserve
-		// literal case-insensitive substring search.
-		search := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(options.Search) + "%"
-		args = append(args, search)
-		prefix = `WITH matching_posts AS (
-			SELECT id FROM fluo_posts WHERE lower(plain_text) LIKE lower($7::text) ESCAPE '\'
-			UNION
-			SELECT p.id FROM users u JOIN fluo_posts p ON p.author_id = u.id
-			WHERE lower(u.username) LIKE lower($7::text) ESCAPE '\'
-				OR lower(u.display_name) LIKE lower($7::text) ESCAPE '\'
-		) `
-		from = `FROM matching_posts JOIN fluo_posts p ON p.id = matching_posts.id`
+	if search := strings.TrimSpace(options.Search); search != "" {
+		author := table.Users.AS("a")
+		pattern := jetpg.String("%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(search) + "%")
+		condition = jetpg.AND(condition, jetpg.OR(
+			jetpg.LOWER(p.PlainText).LIKE(pattern),
+			jetpg.EXISTS(jetpg.SELECT(author.ID).FROM(author).WHERE(jetpg.AND(
+				author.ID.EQ(p.AuthorID), jetpg.OR(jetpg.LOWER(author.Username).LIKE(pattern), jetpg.LOWER(author.DisplayName).LIKE(pattern)),
+			))),
+		))
 	}
-	query := prefix + `SELECT ` + postColumns + ` ` + from + postJoins + `
-		WHERE ($2::uuid IS NULL AND p.parent_id IS NULL OR p.parent_id = $2::uuid)
-		AND (p.visibility = 'public' OR p.author_id = $1::uuid)
-		AND ($2::uuid IS NOT NULL OR $3::text = 'latest'
-			OR ($3::text = 'mine' AND p.author_id = $1::uuid)
-			OR ($3::text = 'saved' AND EXISTS (
-				SELECT 1 FROM fluo_saved_posts s WHERE s.user_id = $1::uuid AND s.post_id = p.id
-			))
-			OR ($3::text = 'following' AND (
-				p.author_id = $1::uuid OR EXISTS (
-					SELECT 1 FROM fluo_follows f
-					WHERE f.follower_id = $1::uuid AND f.followed_id = p.author_id
-				)
-			)))
-		AND ($4::timestamptz IS NULL OR (p.created_at, p.id) < ($4::timestamptz, $5::uuid))
-		ORDER BY p.created_at DESC, p.id DESC LIMIT $6`
-	rows, err := store.pool.Query(ctx, query, args...)
+	rows, err := jetQuery(ctx, store.pool, postQuery(options.ViewerID).WHERE(condition).
+		ORDER_BY(p.CreatedAt.DESC(), p.ID.DESC()).LIMIT(int64(options.Limit+1)))
 	if err != nil {
 		return fluo.Page{}, err
 	}
@@ -182,11 +202,14 @@ func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPos
 	}
 	defer tx.Rollback(ctx)
 	// Serializing each author's writes makes the per-minute limit effective under concurrency.
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, actorID); err != nil {
+	if err := jetAdvisoryLock(ctx, tx, jetpg.RawString("pg_advisory_xact_lock(hashtext(#actor))", jetpg.RawArgs{"#actor": actorID})); err != nil {
 		return fluo.Post{}, err
 	}
 	var recent int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM fluo_posts WHERE author_id = $1::uuid AND created_at > now() - interval '1 minute'`, actorID).Scan(&recent); err != nil {
+	posts := table.FluoPosts
+	if err := jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.COUNT(posts.ID)).FROM(posts).WHERE(jetpg.AND(
+		posts.AuthorID.EQ(jetUUID(actorID)), posts.CreatedAt.GT(jetpg.RawTimestampz("now() - interval '1 minute'")),
+	))).Scan(&recent); err != nil {
 		return fluo.Post{}, err
 	}
 	if recent >= 30 {
@@ -199,8 +222,10 @@ func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPos
 			referenceID = input.ParentID
 		}
 		var referenceVisibility, referenceAuthor string
-		err := tx.QueryRow(ctx, `SELECT visibility, author_id::text FROM fluo_posts
-			WHERE id = $1::uuid AND parent_id IS NULL FOR SHARE`, *referenceID).Scan(&referenceVisibility, &referenceAuthor)
+		reference := table.FluoPosts
+		err := jetQueryRow(ctx, tx, reference.SELECT(reference.Visibility, jetpg.CAST(reference.AuthorID).AS_TEXT()).
+			WHERE(jetpg.AND(reference.ID.EQ(jetUUID(*referenceID)), reference.ParentID.IS_NULL())).
+			FOR(jetpg.SHARE())).Scan(&referenceVisibility, &referenceAuthor)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fluo.Post{}, fluo.ErrInvalidRelation
 		}
@@ -217,20 +242,23 @@ func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPos
 		}
 	}
 	var id string
-	err = tx.QueryRow(ctx, `INSERT INTO fluo_posts (author_id, content, plain_text, visibility, parent_id, quote_id)
-		VALUES ($1::uuid, $2::jsonb, $3, $4, $5::uuid, $6::uuid) RETURNING id::text`,
-		actorID, input.Content, text, visibility, input.ParentID, input.QuoteID).Scan(&id)
+	posts = table.FluoPosts
+	err = jetQueryRow(ctx, tx, posts.INSERT(posts.AuthorID, posts.Content, posts.PlainText, posts.Visibility, posts.ParentID, posts.QuoteID).
+		VALUES(jetUUID(actorID), jetpg.Json([]byte(input.Content)), jetpg.String(text), jetpg.String(visibility),
+			nullableUUID(input.ParentID), nullableUUID(input.QuoteID)).
+		RETURNING(jetpg.CAST(posts.ID).AS_TEXT())).Scan(&id)
 	if err != nil {
 		return fluo.Post{}, err
 	}
 	claims := append([]fluo.Media(nil), media...)
 	sort.Slice(claims, func(i, j int) bool { return claims[i].ID < claims[j].ID })
+	uploadClaims := table.NodoUploadClaims
 	for _, item := range claims {
-		claimed, err := tx.Exec(ctx, `INSERT INTO nodo_upload_claims (upload_id, owner_id)
-			VALUES ($1::uuid, $2::uuid)
-			ON CONFLICT (upload_id) DO UPDATE SET owner_id = EXCLUDED.owner_id
-			WHERE nodo_upload_claims.owner_id = EXCLUDED.owner_id
-			AND nodo_upload_claims.retired_at IS NULL`, item.ID, actorID)
+		claimed, err := jetExec(ctx, tx, uploadClaims.INSERT(uploadClaims.UploadID, uploadClaims.OwnerID).
+			VALUES(jetUUID(item.ID), jetUUID(actorID)).
+			ON_CONFLICT(uploadClaims.UploadID).DO_UPDATE(jetpg.SET(
+			uploadClaims.OwnerID.SET(uploadClaims.EXCLUDED.OwnerID),
+		).WHERE(jetpg.AND(uploadClaims.OwnerID.EQ(uploadClaims.EXCLUDED.OwnerID), uploadClaims.RetiredAt.IS_NULL()))))
 		if err != nil {
 			return fluo.Post{}, err
 		}
@@ -238,11 +266,13 @@ func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPos
 			return fluo.Post{}, fluo.ErrMediaOwner
 		}
 	}
+	postMedia := table.FluoPostMedia
 	for position, item := range media {
-		_, err = tx.Exec(ctx, `INSERT INTO fluo_post_media
-			(post_id, upload_id, position, kind, mime_type, width, height, size_bytes, alt_text)
-			VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)`,
-			id, item.ID, position, item.Kind, item.MimeType, item.Width, item.Height, item.Size, item.AltText)
+		_, err = jetExec(ctx, tx, postMedia.INSERT(postMedia.PostID, postMedia.UploadID, postMedia.Position,
+			postMedia.Kind, postMedia.MimeType, postMedia.Width, postMedia.Height, postMedia.SizeBytes, postMedia.AltText).
+			VALUES(jetUUID(id), jetUUID(item.ID), jetpg.Int(int64(position)), jetpg.String(item.Kind),
+				jetpg.String(item.MimeType), jetpg.Int(int64(item.Width)), jetpg.Int(int64(item.Height)),
+				jetpg.Int(int64(item.Size)), jetpg.String(item.AltText)))
 		if err != nil {
 			return fluo.Post{}, err
 		}
@@ -260,15 +290,23 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 	}
 	defer tx.Rollback(ctx)
 	var lockedID string
-	if err := tx.QueryRow(ctx, `SELECT id::text FROM fluo_posts WHERE id = $1::uuid AND author_id = $2::uuid FOR UPDATE`, id, actorID).Scan(&lockedID); err != nil {
+	posts := table.FluoPosts
+	if err := jetQueryRow(ctx, tx, posts.SELECT(jetpg.CAST(posts.ID).AS_TEXT()).
+		WHERE(jetpg.AND(posts.ID.EQ(jetUUID(id)), posts.AuthorID.EQ(jetUUID(actorID)))).
+		FOR(jetpg.UPDATE())).Scan(&lockedID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fluo.ErrNotFound
 		}
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT DISTINCT upload_id::text FROM fluo_post_media WHERE post_id = $1::uuid
-		OR post_id IN (SELECT id FROM fluo_posts WHERE parent_id = $1::uuid)
-		ORDER BY upload_id::text`, id)
+	postMedia := table.FluoPostMedia.AS("pm")
+	children := table.FluoPosts.AS("children")
+	uploadIDText := jetpg.CAST(postMedia.UploadID).AS_TEXT()
+	rows, err := jetQuery(ctx, tx, postMedia.SELECT(uploadIDText).
+		DISTINCT().WHERE(jetpg.OR(postMedia.PostID.EQ(jetUUID(id)),
+		jetpg.EXISTS(jetpg.SELECT(children.ID).FROM(children).WHERE(jetpg.AND(
+			children.ID.EQ(postMedia.PostID), children.ParentID.EQ(jetUUID(id)),
+		))))).ORDER_BY(uploadIDText.ASC()))
 	if err != nil {
 		return nil, err
 	}
@@ -289,22 +327,30 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 	// Lock claims before removing references. A concurrent Create acquires the
 	// same row through its upsert: it either commits a new reference first, or
 	// observes the retired claim and fails before the bytes can be purged.
+	uploadClaims := table.NodoUploadClaims
 	for _, mediaID := range ids {
 		var lockedID string
-		if err := tx.QueryRow(ctx, `SELECT upload_id::text FROM nodo_upload_claims
-			WHERE upload_id = $1::uuid FOR UPDATE`, mediaID).Scan(&lockedID); err != nil {
+		if err := jetQueryRow(ctx, tx, uploadClaims.SELECT(jetpg.CAST(uploadClaims.UploadID).AS_TEXT()).
+			WHERE(uploadClaims.UploadID.EQ(jetUUID(mediaID))).FOR(jetpg.UPDATE())).Scan(&lockedID); err != nil {
 			return nil, fmt.Errorf("lock media claim %s: %w", mediaID, err)
 		}
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM fluo_posts WHERE id = $1::uuid`, id); err != nil {
+	if _, err := jetExec(ctx, tx, posts.DELETE().WHERE(posts.ID.EQ(jetUUID(id)))); err != nil {
 		return nil, err
 	}
 	retiredIDs := make([]string, 0, len(ids))
 	for _, mediaID := range ids {
-		result, err := tx.Exec(ctx, `UPDATE nodo_upload_claims AS claim SET retired_at = now()
-			WHERE claim.upload_id = $1::uuid AND claim.retired_at IS NULL
-			AND NOT EXISTS (SELECT 1 FROM fluo_post_media AS media WHERE media.upload_id = claim.upload_id)
-			AND NOT EXISTS (SELECT 1 FROM ligo_message_media AS media WHERE media.upload_id = claim.upload_id)`, mediaID)
+		claim := table.NodoUploadClaims.AS("claim")
+		postMedia := table.FluoPostMedia.AS("post_media")
+		messageMedia := table.LigoMessageMedia.AS("message_media")
+		unused := jetpg.AND(
+			jetpg.NOT(jetpg.EXISTS(jetpg.SELECT(postMedia.UploadID).FROM(postMedia).
+				WHERE(postMedia.UploadID.EQ(claim.UploadID)))),
+			jetpg.NOT(jetpg.EXISTS(jetpg.SELECT(messageMedia.UploadID).FROM(messageMedia).
+				WHERE(messageMedia.UploadID.EQ(claim.UploadID)))),
+		)
+		result, err := jetExec(ctx, tx, claim.UPDATE().SET(claim.RetiredAt.SET(jetpg.RawTimestampz("now()"))).
+			WHERE(jetpg.AND(claim.UploadID.EQ(jetUUID(mediaID)), claim.RetiredAt.IS_NULL(), unused)))
 		if err != nil {
 			return nil, err
 		}
@@ -320,10 +366,17 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 
 func (store *Fluo) MediaReferenced(ctx context.Context, id string) (bool, error) {
 	var referenced bool
-	err := store.pool.QueryRow(ctx, `SELECT
-		EXISTS(SELECT 1 FROM fluo_post_media WHERE upload_id = $1::uuid)
-		OR EXISTS(SELECT 1 FROM ligo_message_media WHERE upload_id = $1::uuid)
-		OR EXISTS(SELECT 1 FROM nodo_upload_claims WHERE upload_id = $1::uuid AND retired_at IS NULL)`, id).Scan(&referenced)
+	postMedia := table.FluoPostMedia
+	messageMedia := table.LigoMessageMedia
+	claims := table.NodoUploadClaims
+	uploadID := jetUUID(id)
+	err := jetQueryRow(ctx, store.pool, jetpg.SELECT(jetpg.OR(
+		jetpg.EXISTS(jetpg.SELECT(postMedia.UploadID).FROM(postMedia).WHERE(postMedia.UploadID.EQ(uploadID))),
+		jetpg.EXISTS(jetpg.SELECT(messageMedia.UploadID).FROM(messageMedia).WHERE(messageMedia.UploadID.EQ(uploadID))),
+		jetpg.EXISTS(jetpg.SELECT(claims.UploadID).FROM(claims).WHERE(jetpg.AND(
+			claims.UploadID.EQ(uploadID), claims.RetiredAt.IS_NULL(),
+		))),
+	))).Scan(&referenced)
 	return referenced, err
 }
 
@@ -332,11 +385,15 @@ func (store *Fluo) SetSaved(ctx context.Context, viewerID, postID string, saved 
 		return err
 	}
 	if saved {
-		_, err := store.pool.Exec(ctx, `INSERT INTO fluo_saved_posts (user_id, post_id)
-			VALUES ($1::uuid, $2::uuid) ON CONFLICT (user_id, post_id) DO NOTHING`, viewerID, postID)
+		savedPosts := table.FluoSavedPosts
+		_, err := jetExec(ctx, store.pool, savedPosts.INSERT(savedPosts.UserID, savedPosts.PostID).
+			VALUES(jetUUID(viewerID), jetUUID(postID)).ON_CONFLICT(savedPosts.UserID, savedPosts.PostID).DO_NOTHING())
 		return err
 	}
-	_, err := store.pool.Exec(ctx, `DELETE FROM fluo_saved_posts WHERE user_id = $1::uuid AND post_id = $2::uuid`, viewerID, postID)
+	savedPosts := table.FluoSavedPosts
+	_, err := jetExec(ctx, store.pool, savedPosts.DELETE().WHERE(jetpg.AND(
+		savedPosts.UserID.EQ(jetUUID(viewerID)), savedPosts.PostID.EQ(jetUUID(postID)),
+	)))
 	return err
 }
 
@@ -344,15 +401,20 @@ func (store *Fluo) React(ctx context.Context, actorID, postID string, value *str
 	if _, err := store.Get(ctx, actorID, postID); err != nil {
 		return fluo.Post{}, err
 	}
+	reactions := table.FluoReactions
 	if value == nil {
-		_, err := store.pool.Exec(ctx, `DELETE FROM fluo_reactions WHERE post_id = $1::uuid AND user_id = $2::uuid`, postID, actorID)
+		_, err := jetExec(ctx, store.pool, reactions.DELETE().WHERE(jetpg.AND(
+			reactions.PostID.EQ(jetUUID(postID)), reactions.UserID.EQ(jetUUID(actorID)),
+		)))
 		if err != nil {
 			return fluo.Post{}, err
 		}
 	} else {
-		_, err := store.pool.Exec(ctx, `INSERT INTO fluo_reactions (post_id, user_id, value)
-			VALUES ($1::uuid, $2::uuid, $3) ON CONFLICT (post_id, user_id)
-			DO UPDATE SET value = EXCLUDED.value`, postID, actorID, *value)
+		_, err := jetExec(ctx, store.pool, reactions.INSERT(reactions.PostID, reactions.UserID, reactions.Value).
+			VALUES(jetUUID(postID), jetUUID(actorID), jetpg.String(*value)).
+			ON_CONFLICT(reactions.PostID, reactions.UserID).DO_UPDATE(jetpg.SET(
+			reactions.Value.SET(reactions.EXCLUDED.Value),
+		)))
 		if err != nil {
 			return fluo.Post{}, err
 		}
@@ -365,18 +427,24 @@ func (store *Fluo) Follow(ctx context.Context, actorID, targetID string, followi
 		return fluo.ErrSelfFollow
 	}
 	var exists bool
-	if err := store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1::uuid)`, targetID).Scan(&exists); err != nil {
+	users := table.Users
+	if err := jetQueryRow(ctx, store.pool, jetpg.SELECT(jetpg.EXISTS(jetpg.SELECT(users.ID).FROM(users).
+		WHERE(users.ID.EQ(jetUUID(targetID)))))).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
 		return fluo.ErrNotFound
 	}
 	if following {
-		_, err := store.pool.Exec(ctx, `INSERT INTO fluo_follows (follower_id, followed_id) VALUES ($1::uuid, $2::uuid)
-			ON CONFLICT DO NOTHING`, actorID, targetID)
+		follows := table.FluoFollows
+		_, err := jetExec(ctx, store.pool, follows.INSERT(follows.FollowerID, follows.FollowedID).
+			VALUES(jetUUID(actorID), jetUUID(targetID)).ON_CONFLICT().DO_NOTHING())
 		return err
 	}
-	_, err := store.pool.Exec(ctx, `DELETE FROM fluo_follows WHERE follower_id = $1::uuid AND followed_id = $2::uuid`, actorID, targetID)
+	follows := table.FluoFollows
+	_, err := jetExec(ctx, store.pool, follows.DELETE().WHERE(jetpg.AND(
+		follows.FollowerID.EQ(jetUUID(actorID)), follows.FollowedID.EQ(jetUUID(targetID)),
+	)))
 	return err
 }
 

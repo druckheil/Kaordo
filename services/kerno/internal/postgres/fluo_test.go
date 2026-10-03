@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
+	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -139,7 +140,9 @@ func TestFluoPostFlow(t *testing.T) {
 		t.Fatalf("retired media was reused after its last reference was deleted: %v", err)
 	}
 	var retired bool
-	if err := pool.QueryRow(ctx, `SELECT retired_at IS NOT NULL FROM nodo_upload_claims WHERE upload_id = $1::uuid`, attachment.ID).Scan(&retired); err != nil || !retired {
+	claims := table.NodoUploadClaims
+	if err := jetQueryRow(ctx, pool, claims.SELECT(claims.RetiredAt.IS_NOT_NULL()).
+		WHERE(claims.UploadID.EQ(jetUUID(attachment.ID)))).Scan(&retired); err != nil || !retired {
 		t.Fatalf("unreferenced media claim was not retired: %t, %v", retired, err)
 	}
 	page, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Limit: 1})

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
+	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -80,7 +81,9 @@ func (hub *Hub) run(ctx context.Context, dsn string) {
 	for ctx.Err() == nil {
 		conn, err := pgx.Connect(ctx, dsn)
 		if err == nil {
-			_, err = conn.Exec(ctx, "LISTEN ligo_activity")
+			statement := jetpg.RawStatement("LISTEN ligo_activity")
+			query, args := statement.Sql()
+			_, err = conn.Exec(ctx, query, args...)
 			if err == nil {
 				hub.resync()
 				for ctx.Err() == nil {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
+	"github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -24,28 +26,38 @@ func NewUsers(pool *pgxpool.Pool) *Users { return &Users{pool: pool} }
 
 func (store *Users) Upsert(ctx context.Context, subject, username, displayName string) (User, error) {
 	var user User
-	err := store.pool.QueryRow(ctx, `
-		WITH updated AS (INSERT INTO users (keycloak_sub, username, display_name)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (keycloak_sub) DO UPDATE
-		SET username = EXCLUDED.username,
-		    display_name = EXCLUDED.display_name,
-		    updated_at = now()
-		RETURNING id, username, display_name, created_at, disabled_at)
-		SELECT u.id::text, u.username, u.display_name, u.created_at,
-		EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role = 'admin'), u.disabled_at
-		FROM updated u
-	`, subject, username, displayName).Scan(&user.ID, &user.Username, &user.DisplayName, &user.CreatedAt, &user.IsAdmin, &user.DisabledAt)
+	query := table.Users.INSERT(table.Users.KeycloakSub, table.Users.Username, table.Users.DisplayName).
+		VALUES(postgres.String(subject), postgres.String(username), postgres.String(displayName)).
+		ON_CONFLICT(table.Users.KeycloakSub).
+		DO_UPDATE(postgres.SET(
+			table.Users.Username.SET(postgres.String(username)),
+			table.Users.DisplayName.SET(postgres.String(displayName)),
+			table.Users.UpdatedAt.SET(postgres.RawTimestampz("now()")),
+		)).
+		RETURNING(
+			postgres.CAST(table.Users.ID).AS_TEXT(),
+			table.Users.Username,
+			table.Users.DisplayName,
+			table.Users.CreatedAt,
+			postgres.RawBool("EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin')"),
+			table.Users.DisabledAt,
+		)
+	err := jetQueryRow(ctx, store.pool, query).Scan(&user.ID, &user.Username, &user.DisplayName, &user.CreatedAt, &user.IsAdmin, &user.DisabledAt)
 	return user, err
 }
 
 func (store *Users) BySubject(ctx context.Context, subject string) (User, error) {
 	var user User
-	err := store.pool.QueryRow(ctx, `
-		SELECT u.id::text, u.username, u.display_name, u.created_at,
-		EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role = 'admin'), u.disabled_at
-		FROM users u WHERE u.keycloak_sub = $1
-	`, subject).Scan(&user.ID, &user.Username, &user.DisplayName, &user.CreatedAt, &user.IsAdmin, &user.DisabledAt)
+	users := table.Users.AS("u")
+	query := postgres.SELECT(
+		postgres.RawString("u.id::text"),
+		users.Username,
+		users.DisplayName,
+		users.CreatedAt,
+		postgres.RawBool("EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role = 'admin')"),
+		users.DisabledAt,
+	).FROM(users).WHERE(users.KeycloakSub.EQ(postgres.String(subject)))
+	err := jetQueryRow(ctx, store.pool, query).Scan(&user.ID, &user.Username, &user.DisplayName, &user.CreatedAt, &user.IsAdmin, &user.DisabledAt)
 	return user, err
 }
 

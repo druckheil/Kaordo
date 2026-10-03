@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
+	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -39,22 +41,34 @@ type AdminMediaUsage struct {
 func (store *Admin) Summary(ctx context.Context) (AdminSummary, error) {
 	var summary AdminSummary
 	var breakdown []byte
-	err := store.pool.QueryRow(ctx, `WITH referenced_media AS (
-		SELECT DISTINCT ON (upload_id) upload_id, kind, size_bytes FROM (
-			SELECT upload_id, kind, size_bytes FROM fluo_post_media
-			UNION ALL SELECT upload_id, kind, size_bytes FROM ligo_message_media
-		) media ORDER BY upload_id
-	), usage AS (
-		SELECT kind, count(*) AS objects, sum(size_bytes) AS bytes FROM referenced_media GROUP BY kind
-	) SELECT
-		(SELECT count(*) FROM users),
-		(SELECT count(*) FROM fluo_posts),
-		(SELECT count(*) FROM ligo_messages WHERE deleted_at IS NULL AND NOT system_notice),
-		(SELECT count(*) FROM nodo_upload_claims WHERE retired_at IS NULL),
-		COALESCE((SELECT sum(size_bytes) FROM referenced_media), 0),
-		pg_database_size(current_database()),
-		(SELECT count(*) FROM admin_access_cases WHERE expires_at > clock_timestamp()),
-		COALESCE((SELECT jsonb_agg(to_jsonb(usage) ORDER BY kind) FROM usage), '[]'::jsonb)`).Scan(
+	users := table.Users
+	posts := table.FluoPosts
+	messages := table.LigoMessages
+	claims := table.NodoUploadClaims
+	cases := table.AdminAccessCases
+	query := jetpg.SELECT(
+		jetpg.COUNT(users.ID), jetpg.SELECT(jetpg.COUNT(posts.ID)).FROM(posts),
+		jetpg.SELECT(jetpg.COUNT(messages.ID)).FROM(messages).WHERE(jetpg.AND(messages.DeletedAt.IS_NULL(), messages.SystemNotice.IS_FALSE())),
+		jetpg.SELECT(jetpg.COUNT(claims.UploadID)).FROM(claims).WHERE(claims.RetiredAt.IS_NULL()),
+		jetpg.RawInt(`COALESCE((SELECT sum(size_bytes) FROM (
+			SELECT DISTINCT ON (upload_id) upload_id, size_bytes FROM (
+				SELECT upload_id, size_bytes FROM fluo_post_media
+				UNION ALL SELECT upload_id, size_bytes FROM ligo_message_media
+			) referenced ORDER BY upload_id
+		) unique_media), 0)`),
+		jetpg.RawInt("pg_database_size(current_database())"),
+		jetpg.SELECT(jetpg.COUNT(cases.ID)).FROM(cases).WHERE(cases.ExpiresAt.GT(jetpg.RawTimestampz("clock_timestamp()"))),
+		jetpg.RawString(`COALESCE((SELECT jsonb_agg(jsonb_build_object('kind', usage.kind,
+			'objects', usage.objects, 'bytes', usage.bytes) ORDER BY usage.kind) FROM (
+			SELECT kind, count(*) AS objects, sum(size_bytes) AS bytes FROM (
+				SELECT DISTINCT ON (upload_id) upload_id, kind, size_bytes FROM (
+					SELECT upload_id, kind, size_bytes FROM fluo_post_media
+					UNION ALL SELECT upload_id, kind, size_bytes FROM ligo_message_media
+				) referenced ORDER BY upload_id
+			) unique_media GROUP BY kind
+		) usage), '[]'::jsonb)`),
+	).FROM(users)
+	err := jetQueryRow(ctx, store.pool, query).Scan(
 		&summary.Users, &summary.Posts, &summary.Messages, &summary.Uploads, &summary.MediaBytes, &summary.DatabaseBytes, &summary.OpenCases, &breakdown)
 	if err != nil {
 		return summary, err
@@ -75,22 +89,30 @@ type AdminUser struct {
 	CreatedAt    time.Time  `json:"createdAt"`
 }
 
-const adminUserSelect = `SELECT u.id::text, u.username, u.display_name,
-	EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role = 'admin'), u.disabled_at,
-	(SELECT count(*) FROM fluo_posts p WHERE p.author_id = u.id),
-	(SELECT count(*) FROM ligo_messages m WHERE m.sender_id = u.id AND m.deleted_at IS NULL AND NOT m.system_notice),
-	COALESCE((SELECT sum(refs.size_bytes) FROM (
-		SELECT DISTINCT ON (upload_id) upload_id, size_bytes FROM (
-			SELECT f.upload_id, f.size_bytes FROM fluo_post_media f
-			JOIN nodo_upload_claims c ON c.upload_id = f.upload_id WHERE c.owner_id = u.id
-			UNION ALL
-			SELECT m.upload_id, m.size_bytes FROM ligo_message_media m
-			JOIN nodo_upload_claims c ON c.upload_id = m.upload_id WHERE c.owner_id = u.id
-		) media ORDER BY upload_id
-	) refs), 0),
-	GREATEST((SELECT max(created_at) FROM fluo_posts p WHERE p.author_id = u.id),
-		(SELECT max(created_at) FROM ligo_messages m WHERE m.sender_id = u.id AND NOT m.system_notice)), u.created_at
-	FROM users u`
+func adminUserQuery() (jetpg.SelectStatement, *table.UsersTable) {
+	u := table.Users.AS("u")
+	r := table.UserRoles.AS("r")
+	p := table.FluoPosts.AS("p")
+	m := table.LigoMessages.AS("m")
+	return jetpg.SELECT(jetpg.CAST(u.ID).AS_TEXT(), u.Username, u.DisplayName,
+		jetpg.EXISTS(jetpg.SELECT(r.UserID).FROM(r).WHERE(jetpg.AND(r.UserID.EQ(u.ID), r.Role.EQ(jetpg.String("admin"))))),
+		u.DisabledAt,
+		jetpg.SELECT(jetpg.COUNT(p.ID)).FROM(p).WHERE(p.AuthorID.EQ(u.ID)),
+		jetpg.SELECT(jetpg.COUNT(m.ID)).FROM(m).WHERE(jetpg.AND(m.SenderID.EQ(u.ID), m.DeletedAt.IS_NULL(), m.SystemNotice.IS_FALSE())),
+		jetpg.RawInt(`COALESCE((SELECT sum(refs.size_bytes) FROM (
+			SELECT DISTINCT ON (upload_id) upload_id, size_bytes FROM (
+				SELECT f.upload_id, f.size_bytes FROM fluo_post_media f
+				JOIN nodo_upload_claims c ON c.upload_id = f.upload_id WHERE c.owner_id = u.id
+				UNION ALL
+				SELECT lm.upload_id, lm.size_bytes FROM ligo_message_media lm
+				JOIN nodo_upload_claims c ON c.upload_id = lm.upload_id WHERE c.owner_id = u.id
+			) media ORDER BY upload_id
+		) refs), 0)`),
+		jetpg.RawTimestampz(`GREATEST((SELECT max(created_at) FROM fluo_posts p WHERE p.author_id = u.id),
+			(SELECT max(created_at) FROM ligo_messages m WHERE m.sender_id = u.id AND NOT m.system_notice))`),
+		u.CreatedAt,
+	).FROM(u), u
+}
 
 func scanAdminUser(row pgx.Row) (AdminUser, error) {
 	var user AdminUser
@@ -102,10 +124,14 @@ func scanAdminUser(row pgx.Row) (AdminUser, error) {
 func (store *Admin) Users(ctx context.Context, search string) ([]AdminUser, error) {
 	search = strings.TrimSpace(search)
 	literal := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(search)
-	rows, err := store.pool.Query(ctx, adminUserSelect+` WHERE ($1 = '' OR
-		lower(u.username) LIKE '%' || lower($1) || '%' ESCAPE '\' OR
-		lower(u.display_name) LIKE '%' || lower($1) || '%' ESCAPE '\')
-		ORDER BY lower(u.username), u.id LIMIT 100`, literal)
+	query, u := adminUserQuery()
+	condition := jetpg.Bool(true)
+	if literal != "" {
+		pattern := jetpg.String("%" + literal + "%")
+		condition = jetpg.OR(jetpg.LOWER(u.Username).LIKE(pattern), jetpg.LOWER(u.DisplayName).LIKE(pattern))
+	}
+	rows, err := jetQuery(ctx, store.pool, query.WHERE(condition).
+		ORDER_BY(jetpg.LOWER(u.Username).ASC(), u.ID.ASC()).LIMIT(100))
 	if err != nil {
 		return nil, err
 	}
@@ -131,28 +157,35 @@ func (store *Admin) SetDisabled(ctx context.Context, actorID, targetID string, d
 	}
 	defer tx.Rollback(ctx)
 	var admin bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = id AND role = 'admin')
-		FROM users WHERE id = $1::uuid FOR UPDATE`, targetID).Scan(&admin)
+	users := table.Users
+	roles := table.UserRoles.AS("roles")
+	err = jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.EXISTS(jetpg.SELECT(roles.UserID).FROM(roles).
+		WHERE(jetpg.AND(roles.UserID.EQ(users.ID), roles.Role.EQ(jetpg.String("admin")))))).
+		FROM(users).WHERE(users.ID.EQ(jetUUID(targetID))).FOR(jetpg.UPDATE())).Scan(&admin)
 	if errors.Is(err, pgx.ErrNoRows) || admin {
 		return AdminUser{}, ErrAdminTarget
 	}
 	if err != nil {
 		return AdminUser{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE users SET disabled_at = CASE WHEN $2 THEN clock_timestamp() ELSE NULL END,
-		disabled_reason = CASE WHEN $2 THEN $3 ELSE '' END, updated_at = clock_timestamp()
-		WHERE id = $1::uuid`, targetID, disabled, reason); err != nil {
+	if _, err := jetExec(ctx, tx, users.UPDATE().SET(
+		users.DisabledAt.SET(jetpg.RawTimestampz("CASE WHEN #disabled THEN clock_timestamp() ELSE NULL END", jetpg.RawArgs{"#disabled": disabled})),
+		users.DisabledReason.SET(jetpg.RawString("CASE WHEN #disabled THEN #reason ELSE '' END", jetpg.RawArgs{"#disabled": disabled, "#reason": reason})),
+		users.UpdatedAt.SET(jetpg.RawTimestampz("clock_timestamp()")),
+	).WHERE(users.ID.EQ(jetUUID(targetID)))); err != nil {
 		return AdminUser{}, err
 	}
 	action := "user.enabled"
 	if disabled {
 		action = "user.disabled"
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO admin_audit (actor_id, target_user_id, action, reason)
-		VALUES ($1::uuid, $2::uuid, $3, $4)`, actorID, targetID, action, reason); err != nil {
+	audit := table.AdminAudit
+	if _, err := jetExec(ctx, tx, audit.INSERT(audit.ActorID, audit.TargetUserID, audit.Action, audit.Reason).
+		VALUES(jetUUID(actorID), jetUUID(targetID), jetpg.String(action), jetpg.String(reason))); err != nil {
 		return AdminUser{}, err
 	}
-	user, err := scanAdminUser(tx.QueryRow(ctx, adminUserSelect+` WHERE u.id = $1::uuid`, targetID))
+	query, userTable := adminUserQuery()
+	user, err := scanAdminUser(jetQueryRow(ctx, tx, query.WHERE(userTable.ID.EQ(jetUUID(targetID)))))
 	if err != nil {
 		return AdminUser{}, err
 	}
@@ -170,19 +203,25 @@ func (store *Admin) SetAdmin(ctx context.Context, actorID, targetID string, enab
 	defer tx.Rollback(ctx)
 	// Serialize role changes and recheck the actor to prevent concurrent mutual
 	// revocations from removing every administrator.
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(776620003)`); err != nil {
+	if err := jetAdvisoryLock(ctx, tx, jetpg.RawString("pg_advisory_xact_lock(776620003)")); err != nil {
 		return AdminUser{}, err
 	}
 	var allowed bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users u JOIN user_roles r ON r.user_id = u.id
-		WHERE u.id = $1::uuid AND r.role = 'admin' AND u.disabled_at IS NULL)`, actorID).Scan(&allowed); err != nil {
+	u := table.Users.AS("actor")
+	r := table.UserRoles.AS("role")
+	if err := jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.EXISTS(jetpg.SELECT(r.UserID).
+		FROM(u.INNER_JOIN(r, r.UserID.EQ(u.ID))).WHERE(jetpg.AND(
+		u.ID.EQ(jetUUID(actorID)), r.Role.EQ(jetpg.String("admin")), u.DisabledAt.IS_NULL(),
+	))))).Scan(&allowed); err != nil {
 		return AdminUser{}, err
 	}
 	if !allowed {
 		return AdminUser{}, ErrAdminTarget
 	}
 	var disabled bool
-	if err := tx.QueryRow(ctx, `SELECT disabled_at IS NOT NULL FROM users WHERE id = $1::uuid FOR UPDATE`, targetID).Scan(&disabled); errors.Is(err, pgx.ErrNoRows) {
+	target := table.Users
+	if err := jetQueryRow(ctx, tx, target.SELECT(jetpg.RawBool("disabled_at IS NOT NULL")).
+		WHERE(target.ID.EQ(jetUUID(targetID))).FOR(jetpg.UPDATE())).Scan(&disabled); errors.Is(err, pgx.ErrNoRows) {
 		return AdminUser{}, ErrAdminTarget
 	} else if err != nil {
 		return AdminUser{}, err
@@ -191,9 +230,14 @@ func (store *Admin) SetAdmin(ctx context.Context, actorID, targetID string, enab
 		return AdminUser{}, ErrAdminTarget
 	}
 	if enabled {
-		_, err = tx.Exec(ctx, `INSERT INTO user_roles (user_id, role) VALUES ($1::uuid, 'admin') ON CONFLICT DO NOTHING`, targetID)
+		roles := table.UserRoles
+		_, err = jetExec(ctx, tx, roles.INSERT(roles.UserID, roles.Role).
+			VALUES(jetUUID(targetID), jetpg.String("admin")).ON_CONFLICT().DO_NOTHING())
 	} else {
-		_, err = tx.Exec(ctx, `DELETE FROM user_roles WHERE user_id = $1::uuid AND role = 'admin'`, targetID)
+		roles := table.UserRoles
+		_, err = jetExec(ctx, tx, roles.DELETE().WHERE(jetpg.AND(
+			roles.UserID.EQ(jetUUID(targetID)), roles.Role.EQ(jetpg.String("admin")),
+		)))
 	}
 	if err != nil {
 		return AdminUser{}, err
@@ -202,11 +246,13 @@ func (store *Admin) SetAdmin(ctx context.Context, actorID, targetID string, enab
 	if enabled {
 		action = "user.admin_granted"
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO admin_audit (actor_id, target_user_id, action, reason)
-		VALUES ($1::uuid, $2::uuid, $3, $4)`, actorID, targetID, action, reason); err != nil {
+	audit := table.AdminAudit
+	if _, err := jetExec(ctx, tx, audit.INSERT(audit.ActorID, audit.TargetUserID, audit.Action, audit.Reason).
+		VALUES(jetUUID(actorID), jetUUID(targetID), jetpg.String(action), jetpg.String(reason))); err != nil {
 		return AdminUser{}, err
 	}
-	user, err := scanAdminUser(tx.QueryRow(ctx, adminUserSelect+` WHERE u.id = $1::uuid`, targetID))
+	query, userTable := adminUserQuery()
+	user, err := scanAdminUser(jetQueryRow(ctx, tx, query.WHERE(userTable.ID.EQ(jetUUID(targetID)))))
 	if err != nil {
 		return AdminUser{}, err
 	}
@@ -224,11 +270,14 @@ type AdminAuditEntry struct {
 }
 
 func (store *Admin) Audit(ctx context.Context) ([]AdminAuditEntry, error) {
-	rows, err := store.pool.Query(ctx, `SELECT a.id::text, actor.username, target.username, a.action, a.reason,
-		a.detail, a.created_at FROM admin_audit a
-		JOIN users actor ON actor.id = a.actor_id
-		LEFT JOIN users target ON target.id = a.target_user_id
-		ORDER BY a.created_at DESC, a.id DESC LIMIT 100`)
+	audit := table.AdminAudit.AS("a")
+	actor := table.Users.AS("actor")
+	target := table.Users.AS("target")
+	rows, err := jetQuery(ctx, store.pool, jetpg.SELECT(jetpg.CAST(audit.ID).AS_TEXT(), actor.Username, target.Username,
+		audit.Action, audit.Reason, audit.Detail, audit.CreatedAt).
+		FROM(audit.INNER_JOIN(actor, actor.ID.EQ(audit.ActorID)).
+			LEFT_JOIN(target, target.ID.EQ(audit.TargetUserID))).
+		ORDER_BY(audit.CreatedAt.DESC(), audit.ID.DESC()).LIMIT(100))
 	if err != nil {
 		return nil, err
 	}
@@ -250,8 +299,13 @@ func (store *Admin) Record(ctx context.Context, actorID, targetID, action, reaso
 	if err != nil {
 		return fmt.Errorf("encode audit detail: %w", err)
 	}
-	_, err = store.pool.Exec(ctx, `INSERT INTO admin_audit (actor_id, target_user_id, action, reason, detail)
-		VALUES ($1::uuid, NULLIF($2::text, '')::uuid, $3, $4, $5::jsonb)`, actorID, targetID, action, reason, encoded)
+	var target *string
+	if targetID != "" {
+		target = &targetID
+	}
+	audit := table.AdminAudit
+	_, err = jetExec(ctx, store.pool, audit.INSERT(audit.ActorID, audit.TargetUserID, audit.Action, audit.Reason, audit.Detail).
+		VALUES(jetUUID(actorID), nullableUUID(target), jetpg.String(action), jetpg.String(reason), jetpg.Json(encoded)))
 	return err
 }
 
@@ -274,57 +328,68 @@ func (store *Admin) CreateAccessCase(ctx context.Context, actorID, targetID, rea
 	}
 	defer tx.Rollback(ctx)
 	var actorName string
-	if err := tx.QueryRow(ctx, `SELECT username FROM users WHERE id = $1::uuid FOR UPDATE`, actorID).Scan(&actorName); err != nil {
+	users := table.Users
+	if err := jetQueryRow(ctx, tx, users.SELECT(users.Username).
+		WHERE(users.ID.EQ(jetUUID(actorID))).FOR(jetpg.UPDATE())).Scan(&actorName); err != nil {
 		return AdminAccessCase{}, err
 	}
 	var recent int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM admin_access_cases
-		WHERE actor_id = $1::uuid AND created_at > clock_timestamp() - interval '1 hour'`, actorID).Scan(&recent); err != nil {
+	cases := table.AdminAccessCases
+	if err := jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.COUNT(cases.ID)).FROM(cases).WHERE(jetpg.AND(
+		cases.ActorID.EQ(jetUUID(actorID)), cases.CreatedAt.GT(jetpg.RawTimestampz("clock_timestamp() - interval '1 hour'")),
+	))).Scan(&recent); err != nil {
 		return AdminAccessCase{}, err
 	}
 	if recent >= 3 {
 		return AdminAccessCase{}, ErrAccessLimit
 	}
 	var item AdminAccessCase
-	if err := tx.QueryRow(ctx, `SELECT id::text, username FROM users WHERE id = $1::uuid FOR SHARE`, targetID).
+	if err := jetQueryRow(ctx, tx, users.SELECT(jetpg.CAST(users.ID).AS_TEXT(), users.Username).
+		WHERE(users.ID.EQ(jetUUID(targetID))).FOR(jetpg.SHARE())).
 		Scan(&item.TargetUserID, &item.TargetUsername); errors.Is(err, pgx.ErrNoRows) {
 		return AdminAccessCase{}, ErrAdminTarget
 	} else if err != nil {
 		return AdminAccessCase{}, err
 	}
 	item.Reason = reason
-	if err := tx.QueryRow(ctx, `INSERT INTO admin_access_cases (actor_id, target_user_id, reason)
-		VALUES ($1::uuid, $2::uuid, $3)
-		RETURNING id::text, created_at, expires_at`, actorID, targetID, reason).
+	if err := jetQueryRow(ctx, tx, cases.INSERT(cases.ActorID, cases.TargetUserID, cases.Reason).
+		VALUES(jetUUID(actorID), jetUUID(targetID), jetpg.String(reason)).
+		RETURNING(jetpg.CAST(cases.ID).AS_TEXT(), cases.CreatedAt, cases.ExpiresAt)).
 		Scan(&item.ID, &item.CreatedAt, &item.ExpiresAt); err != nil {
 		return AdminAccessCase{}, err
 	}
 	var conversationID string
-	if err := tx.QueryRow(ctx, `INSERT INTO ligo_conversations (kind, created_by)
-		VALUES ('self', $1::uuid)
-		ON CONFLICT (created_by) WHERE kind = 'self' DO UPDATE SET created_by = EXCLUDED.created_by
-		RETURNING id::text`, targetID).Scan(&conversationID); err != nil {
+	conversations := table.LigoConversations
+	if err := jetQueryRow(ctx, tx, conversations.INSERT(conversations.Kind, conversations.CreatedBy).
+		VALUES(jetpg.String("self"), jetUUID(targetID)).
+		ON_CONFLICT(conversations.CreatedBy).WHERE(conversations.Kind.EQ(jetpg.String("self"))).
+		DO_UPDATE(jetpg.SET(conversations.CreatedBy.SET(conversations.EXCLUDED.CreatedBy))).
+		RETURNING(jetpg.CAST(conversations.ID).AS_TEXT())).Scan(&conversationID); err != nil {
 		return AdminAccessCase{}, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO ligo_members (conversation_id, user_id)
-		VALUES ($1::uuid, $2::uuid) ON CONFLICT DO NOTHING`, conversationID, targetID); err != nil {
+	members := table.LigoMembers
+	if _, err := jetExec(ctx, tx, members.INSERT(members.ConversationID, members.UserID).
+		VALUES(jetUUID(conversationID), jetUUID(targetID)).ON_CONFLICT().DO_NOTHING()); err != nil {
 		return AdminAccessCase{}, err
 	}
 	notice := fmt.Sprintf("Administrator @%s opened a 15-minute access case for content associated with your account. Reason: %s. Case ID: %s", actorName, reason, item.ID)
-	if _, err := tx.Exec(ctx, `INSERT INTO ligo_messages (conversation_id, sender_id, client_id, body, system_notice)
-		VALUES ($1::uuid, $2::uuid, uuidv7(), $3, true)`, conversationID, targetID, notice); err != nil {
+	messages := table.LigoMessages
+	if _, err := jetExec(ctx, tx, messages.INSERT(messages.ConversationID, messages.SenderID, messages.ClientID, messages.Body, messages.SystemNotice).
+		VALUES(jetUUID(conversationID), jetUUID(targetID), jetpg.RawString("uuidv7()"), jetpg.String(notice), jetpg.Bool(true))); err != nil {
 		return AdminAccessCase{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE ligo_conversations SET updated_at = clock_timestamp()
-		WHERE id = $1::uuid`, conversationID); err != nil {
+	if _, err := jetExec(ctx, tx, conversations.UPDATE().SET(
+		conversations.UpdatedAt.SET(jetpg.RawTimestampz("clock_timestamp()")),
+	).WHERE(conversations.ID.EQ(jetUUID(conversationID)))); err != nil {
 		return AdminAccessCase{}, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO admin_audit (actor_id, target_user_id, action, reason, detail)
-		VALUES ($1::uuid, $2::uuid, 'case.opened', $3, jsonb_build_object('caseId', $4::text))`,
-		actorID, targetID, reason, item.ID); err != nil {
+	audit := table.AdminAudit
+	detail, _ := json.Marshal(map[string]string{"caseId": item.ID})
+	if _, err := jetExec(ctx, tx, audit.INSERT(audit.ActorID, audit.TargetUserID, audit.Action, audit.Reason, audit.Detail).
+		VALUES(jetUUID(actorID), jetUUID(targetID), jetpg.String("case.opened"), jetpg.String(reason), jetpg.Json(detail))); err != nil {
 		return AdminAccessCase{}, err
 	}
-	if _, err := tx.Exec(ctx, `SELECT pg_notify('ligo_activity', $1)`, conversationID); err != nil {
+	if err := jetNotify(ctx, tx, "ligo_activity", conversationID); err != nil {
 		return AdminAccessCase{}, err
 	}
 	return item, tx.Commit(ctx)
@@ -332,11 +397,14 @@ func (store *Admin) CreateAccessCase(ctx context.Context, actorID, targetID, rea
 
 func (store *Admin) AccessCase(ctx context.Context, actorID, caseID string) (AdminAccessCase, error) {
 	var item AdminAccessCase
-	err := store.pool.QueryRow(ctx, `SELECT c.id::text, c.target_user_id::text, u.username,
-		c.reason, c.created_at, c.expires_at FROM admin_access_cases c
-		JOIN users u ON u.id = c.target_user_id
-		WHERE c.id = $1::uuid AND c.actor_id = $2::uuid AND c.expires_at > clock_timestamp()`,
-		caseID, actorID).Scan(&item.ID, &item.TargetUserID, &item.TargetUsername,
+	cases := table.AdminAccessCases.AS("c")
+	users := table.Users.AS("u")
+	err := jetQueryRow(ctx, store.pool, jetpg.SELECT(jetpg.CAST(cases.ID).AS_TEXT(), jetpg.CAST(cases.TargetUserID).AS_TEXT(),
+		users.Username, cases.Reason, cases.CreatedAt, cases.ExpiresAt).
+		FROM(cases.INNER_JOIN(users, users.ID.EQ(cases.TargetUserID))).WHERE(jetpg.AND(
+		cases.ID.EQ(jetUUID(caseID)), cases.ActorID.EQ(jetUUID(actorID)),
+		cases.ExpiresAt.GT(jetpg.RawTimestampz("clock_timestamp()")),
+	))).Scan(&item.ID, &item.TargetUserID, &item.TargetUsername,
 		&item.Reason, &item.CreatedAt, &item.ExpiresAt)
 	return item, err
 }
@@ -348,18 +416,22 @@ func (store *Admin) CloseCase(ctx context.Context, actorID, caseID string) error
 	}
 	defer tx.Rollback(ctx)
 	var targetID, reason string
-	if err := tx.QueryRow(ctx, `SELECT target_user_id::text, reason FROM admin_access_cases
-		WHERE id = $1::uuid AND actor_id = $2::uuid FOR UPDATE`, caseID, actorID).Scan(&targetID, &reason); err != nil {
+	cases := table.AdminAccessCases
+	if err := jetQueryRow(ctx, tx, cases.SELECT(jetpg.CAST(cases.TargetUserID).AS_TEXT(), cases.Reason).
+		WHERE(jetpg.AND(cases.ID.EQ(jetUUID(caseID)), cases.ActorID.EQ(jetUUID(actorID)))).
+		FOR(jetpg.UPDATE())).Scan(&targetID, &reason); err != nil {
 		return err
 	}
-	result, err := tx.Exec(ctx, `UPDATE admin_access_cases SET expires_at = clock_timestamp()
-		WHERE id = $1::uuid AND expires_at > clock_timestamp()`, caseID)
+	result, err := jetExec(ctx, tx, cases.UPDATE().SET(cases.ExpiresAt.SET(jetpg.RawTimestampz("clock_timestamp()"))).
+		WHERE(jetpg.AND(cases.ID.EQ(jetUUID(caseID)), cases.ExpiresAt.GT(jetpg.RawTimestampz("clock_timestamp()")))))
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() > 0 {
-		if _, err := tx.Exec(ctx, `INSERT INTO admin_audit (actor_id, target_user_id, action, reason, detail)
-			VALUES ($1::uuid, $2::uuid, 'case.closed', $3, jsonb_build_object('caseId', $4::text))`, actorID, targetID, reason, caseID); err != nil {
+		audit := table.AdminAudit
+		detail, _ := json.Marshal(map[string]string{"caseId": caseID})
+		if _, err := jetExec(ctx, tx, audit.INSERT(audit.ActorID, audit.TargetUserID, audit.Action, audit.Reason, audit.Detail).
+			VALUES(jetUUID(actorID), jetUUID(targetID), jetpg.String("case.closed"), jetpg.String(reason), jetpg.Json(detail))); err != nil {
 			return err
 		}
 	}
@@ -389,34 +461,42 @@ type AdminContentPage struct {
 }
 
 func (store *Admin) CaseContent(ctx context.Context, targetID, kind, before string) (AdminContentPage, error) {
-	var query string
+	var query jetpg.SelectStatement
 	switch kind {
 	case "posts":
-		query = `SELECT p.id::text, p.plain_text, p.visibility, p.created_at,
-			COALESCE(jsonb_agg(jsonb_build_object('id', m.upload_id::text, 'kind', m.kind,
-				'mimeType', m.mime_type, 'filename', '', 'size', m.size_bytes)
-				ORDER BY m.position) FILTER (WHERE m.upload_id IS NOT NULL), '[]'::jsonb)
-			FROM fluo_posts p LEFT JOIN fluo_post_media m ON m.post_id = p.id
-			WHERE p.author_id = $1::uuid AND ($2::uuid IS NULL OR p.id < $2::uuid)
-			GROUP BY p.id ORDER BY p.id DESC LIMIT 51`
+		posts := table.FluoPosts.AS("p")
+		media := table.FluoPostMedia.AS("m")
+		condition := posts.AuthorID.EQ(jetUUID(targetID))
+		if before != "" {
+			condition = jetpg.AND(condition, posts.ID.LT(jetUUID(before)))
+		}
+		mediaJSON := jetpg.RawString(`COALESCE(jsonb_agg(jsonb_build_object('id', m.upload_id::text, 'kind', m.kind,
+			'mimeType', m.mime_type, 'filename', '', 'size', m.size_bytes)
+			ORDER BY m.position) FILTER (WHERE m.upload_id IS NOT NULL), '[]'::jsonb)`)
+		query = jetpg.SELECT(jetpg.CAST(posts.ID).AS_TEXT(), posts.PlainText, posts.Visibility, posts.CreatedAt, mediaJSON).
+			FROM(posts.LEFT_JOIN(media, media.PostID.EQ(posts.ID))).WHERE(condition).
+			GROUP_BY(posts.ID, posts.PlainText, posts.Visibility, posts.CreatedAt).
+			ORDER_BY(posts.ID.DESC()).LIMIT(51)
 	case "messages":
-		query = `SELECT m.id::text, m.body, c.kind, m.created_at,
-			COALESCE(jsonb_agg(jsonb_build_object('id', media.upload_id::text, 'kind', media.kind,
-				'mimeType', media.mime_type, 'filename', media.filename, 'size', media.size_bytes)
-				ORDER BY media.position) FILTER (WHERE media.upload_id IS NOT NULL), '[]'::jsonb)
-			FROM ligo_messages m JOIN ligo_conversations c ON c.id = m.conversation_id
-			LEFT JOIN ligo_message_media media ON media.message_id = m.id
-			WHERE m.sender_id = $1::uuid AND m.deleted_at IS NULL AND NOT m.system_notice
-			AND ($2::uuid IS NULL OR m.id < $2::uuid)
-			GROUP BY m.id, c.kind ORDER BY m.id DESC LIMIT 51`
+		messages := table.LigoMessages.AS("m")
+		conversations := table.LigoConversations.AS("c")
+		media := table.LigoMessageMedia.AS("media")
+		condition := jetpg.AND(messages.SenderID.EQ(jetUUID(targetID)), messages.DeletedAt.IS_NULL(), messages.SystemNotice.IS_FALSE())
+		if before != "" {
+			condition = jetpg.AND(condition, messages.ID.LT(jetUUID(before)))
+		}
+		mediaJSON := jetpg.RawString(`COALESCE(jsonb_agg(jsonb_build_object('id', media.upload_id::text, 'kind', media.kind,
+			'mimeType', media.mime_type, 'filename', media.filename, 'size', media.size_bytes)
+			ORDER BY media.position) FILTER (WHERE media.upload_id IS NOT NULL), '[]'::jsonb)`)
+		query = jetpg.SELECT(jetpg.CAST(messages.ID).AS_TEXT(), messages.Body, conversations.Kind, messages.CreatedAt, mediaJSON).
+			FROM(messages.INNER_JOIN(conversations, conversations.ID.EQ(messages.ConversationID)).
+				LEFT_JOIN(media, media.MessageID.EQ(messages.ID))).WHERE(condition).
+			GROUP_BY(messages.ID, conversations.Kind).
+			ORDER_BY(messages.ID.DESC()).LIMIT(51)
 	default:
 		return AdminContentPage{}, errors.New("unsupported case content type")
 	}
-	var cursor any
-	if before != "" {
-		cursor = before
-	}
-	rows, err := store.pool.Query(ctx, query, targetID, cursor)
+	rows, err := jetQuery(ctx, store.pool, query)
 	if err != nil {
 		return AdminContentPage{}, err
 	}

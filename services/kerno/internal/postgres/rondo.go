@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
+	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
+	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,10 +18,28 @@ type Rondo struct{ pool *pgxpool.Pool }
 
 func NewRondo(pool *pgxpool.Pool) *Rondo { return &Rondo{pool: pool} }
 
-const rondoServerSelect = `SELECT s.id::text, s.name, s.description, s.access, s.owner_id::text,
-	(SELECT count(*)::int FROM rondo_members m WHERE m.server_id = s.id),
-	EXISTS(SELECT 1 FROM rondo_members mine WHERE mine.server_id = s.id AND mine.user_id = $1::uuid),
-	s.created_at FROM rondo_servers s`
+func rondoServerQuery(actorID string) (jetpg.SelectStatement, *table.RondoServersTable) {
+	servers := table.RondoServers.AS("s")
+	members := table.RondoMembers.AS("m")
+	mine := table.RondoMembers.AS("mine")
+	memberCount := jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(members.UserID)).
+		FROM(members).WHERE(members.ServerID.EQ(servers.ID)))
+	joined := jetpg.EXISTS(jetpg.SELECT(mine.UserID).
+		FROM(mine).WHERE(jetpg.AND(mine.ServerID.EQ(servers.ID), mine.UserID.EQ(jetUUID(actorID)))))
+	query := jetpg.SELECT(
+		jetpg.CAST(servers.ID).AS_TEXT(), servers.Name, servers.Description, servers.Access,
+		jetpg.CAST(servers.OwnerID).AS_TEXT(), memberCount, joined, servers.CreatedAt,
+	).FROM(servers)
+	return query, servers
+}
+
+func rondoNameMatches(servers *table.RondoServersTable, search string) jetpg.BoolExpression {
+	if search == "" {
+		return jetpg.Bool(true)
+	}
+	literal := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(search)
+	return jetpg.LOWER(servers.Name).LIKE(jetpg.String("%" + strings.ToLower(literal) + "%"))
+}
 
 func scanRondoServer(row pgx.Row) (rondo.Server, error) {
 	var item rondo.Server
@@ -41,11 +61,15 @@ func scanRondoServers(rows pgx.Rows) ([]rondo.Server, error) {
 }
 
 func (store *Rondo) List(ctx context.Context, actorID, search string) ([]rondo.Server, error) {
-	literal := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(search)
-	rows, err := store.pool.Query(ctx, rondoServerSelect+`
-		WHERE EXISTS(SELECT 1 FROM rondo_members m WHERE m.server_id = s.id AND m.user_id = $1::uuid)
-		AND ($2 = '' OR lower(s.name) LIKE '%' || lower($2) || '%' ESCAPE '\')
-		ORDER BY s.created_at DESC, s.id DESC LIMIT 100`, actorID, literal)
+	query, servers := rondoServerQuery(actorID)
+	members := table.RondoMembers.AS("membership")
+	query = query.WHERE(jetpg.AND(
+		jetpg.EXISTS(jetpg.SELECT(members.UserID).FROM(members).WHERE(jetpg.AND(
+			members.ServerID.EQ(servers.ID), members.UserID.EQ(jetUUID(actorID)),
+		))),
+		rondoNameMatches(servers, search),
+	)).ORDER_BY(servers.CreatedAt.DESC(), servers.ID.DESC()).LIMIT(100)
+	rows, err := jetQuery(ctx, store.pool, query)
 	if err != nil {
 		return nil, err
 	}
@@ -54,12 +78,16 @@ func (store *Rondo) List(ctx context.Context, actorID, search string) ([]rondo.S
 }
 
 func (store *Rondo) Discover(ctx context.Context, actorID, search string) ([]rondo.Server, error) {
-	literal := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(search)
-	rows, err := store.pool.Query(ctx, rondoServerSelect+`
-		WHERE s.access = 'public'
-		AND NOT EXISTS(SELECT 1 FROM rondo_members m WHERE m.server_id = s.id AND m.user_id = $1::uuid)
-		AND ($2 = '' OR lower(s.name) LIKE '%' || lower($2) || '%' ESCAPE '\')
-		ORDER BY s.created_at DESC, s.id DESC LIMIT 50`, actorID, literal)
+	query, servers := rondoServerQuery(actorID)
+	members := table.RondoMembers.AS("membership")
+	query = query.WHERE(jetpg.AND(
+		servers.Access.EQ(jetpg.String("public")),
+		jetpg.NOT(jetpg.EXISTS(jetpg.SELECT(members.UserID).FROM(members).WHERE(jetpg.AND(
+			members.ServerID.EQ(servers.ID), members.UserID.EQ(jetUUID(actorID)),
+		)))),
+		rondoNameMatches(servers, search),
+	)).ORDER_BY(servers.CreatedAt.DESC(), servers.ID.DESC()).LIMIT(50)
+	rows, err := jetQuery(ctx, store.pool, query)
 	if err != nil {
 		return nil, err
 	}
@@ -68,9 +96,15 @@ func (store *Rondo) Discover(ctx context.Context, actorID, search string) ([]ron
 }
 
 func (store *Rondo) Get(ctx context.Context, actorID, serverID string) (rondo.Detail, error) {
-	server, err := scanRondoServer(store.pool.QueryRow(ctx, rondoServerSelect+`
-		WHERE s.id = $2::uuid AND EXISTS(SELECT 1 FROM rondo_members m
-		WHERE m.server_id = s.id AND m.user_id = $1::uuid)`, actorID, serverID))
+	query, servers := rondoServerQuery(actorID)
+	members := table.RondoMembers.AS("membership")
+	query = query.WHERE(jetpg.AND(
+		servers.ID.EQ(jetUUID(serverID)),
+		jetpg.EXISTS(jetpg.SELECT(members.UserID).FROM(members).WHERE(jetpg.AND(
+			members.ServerID.EQ(servers.ID), members.UserID.EQ(jetUUID(actorID)),
+		))),
+	))
+	server, err := scanRondoServer(jetQueryRow(ctx, store.pool, query))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rondo.Detail{}, rondo.ErrNotFound
 	}
@@ -78,8 +112,11 @@ func (store *Rondo) Get(ctx context.Context, actorID, serverID string) (rondo.De
 		return rondo.Detail{}, err
 	}
 	detail := rondo.Detail{Server: server, Channels: make([]rondo.Channel, 0), Members: make([]ligo.User, 0)}
-	rows, err := store.pool.Query(ctx, `SELECT id::text, server_id::text, conversation_id::text,
-		name, position, created_at FROM rondo_channels WHERE server_id = $1::uuid ORDER BY position`, serverID)
+	channels := table.RondoChannels
+	rows, err := jetQuery(ctx, store.pool, jetpg.SELECT(
+		jetpg.CAST(channels.ID).AS_TEXT(), jetpg.CAST(channels.ServerID).AS_TEXT(),
+		jetpg.CAST(channels.ConversationID).AS_TEXT(), channels.Name, channels.Position, channels.CreatedAt,
+	).FROM(channels).WHERE(channels.ServerID.EQ(jetUUID(serverID))).ORDER_BY(channels.Position.ASC()))
 	if err != nil {
 		return rondo.Detail{}, err
 	}
@@ -97,9 +134,13 @@ func (store *Rondo) Get(ctx context.Context, actorID, serverID string) (rondo.De
 		return rondo.Detail{}, err
 	}
 	rows.Close()
-	rows, err = store.pool.Query(ctx, `SELECT u.id::text, u.username, u.display_name FROM rondo_members m
-		JOIN users u ON u.id = m.user_id WHERE m.server_id = $1::uuid
-		ORDER BY m.joined_at, u.id LIMIT 100`, serverID)
+	serverMembers := table.RondoMembers.AS("m")
+	users := table.Users.AS("u")
+	rows, err = jetQuery(ctx, store.pool, jetpg.SELECT(
+		jetpg.CAST(users.ID).AS_TEXT(), users.Username, users.DisplayName,
+	).FROM(serverMembers.INNER_JOIN(users, users.ID.EQ(serverMembers.UserID))).
+		WHERE(serverMembers.ServerID.EQ(jetUUID(serverID))).
+		ORDER_BY(serverMembers.JoinedAt.ASC(), users.ID.ASC()).LIMIT(100))
 	if err != nil {
 		return rondo.Detail{}, err
 	}
@@ -117,22 +158,31 @@ func (store *Rondo) Get(ctx context.Context, actorID, serverID string) (rondo.De
 func insertRondoChannel(ctx context.Context, tx pgx.Tx, serverID, ownerID, name string) (rondo.Channel, error) {
 	var channel rondo.Channel
 	var conversationID string
-	err := tx.QueryRow(ctx, `INSERT INTO ligo_conversations (kind, title, created_by)
-		VALUES ('channel', $1, $2::uuid) RETURNING id::text`, name, ownerID).Scan(&conversationID)
+	conversations := table.LigoConversations
+	err := jetQueryRow(ctx, tx, conversations.INSERT(conversations.Kind, conversations.Title, conversations.CreatedBy).
+		VALUES(jetpg.String("channel"), jetpg.String(name), jetUUID(ownerID)).
+		RETURNING(jetpg.CAST(conversations.ID).AS_TEXT())).Scan(&conversationID)
 	if err != nil {
 		return channel, err
 	}
-	err = tx.QueryRow(ctx, `INSERT INTO rondo_channels (server_id, conversation_id, name, position)
-		VALUES ($1::uuid, $2::uuid, $3,
-			(SELECT count(*)::int FROM rondo_channels WHERE server_id = $1::uuid))
-		RETURNING id::text, server_id::text, conversation_id::text, name, position, created_at`,
-		serverID, conversationID, name).Scan(&channel.ID, &channel.ServerID, &channel.ConversationID,
-		&channel.Name, &channel.Position, &channel.CreatedAt)
+	channels := table.RondoChannels
+	position := jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(channels.ID)).FROM(channels).
+		WHERE(channels.ServerID.EQ(jetUUID(serverID))))
+	err = jetQueryRow(ctx, tx, channels.INSERT(channels.ServerID, channels.ConversationID, channels.Name, channels.Position).
+		VALUES(jetUUID(serverID), jetUUID(conversationID), jetpg.String(name), position).
+		RETURNING(jetpg.CAST(channels.ID).AS_TEXT(), jetpg.CAST(channels.ServerID).AS_TEXT(),
+			jetpg.CAST(channels.ConversationID).AS_TEXT(), channels.Name, channels.Position, channels.CreatedAt)).
+		Scan(&channel.ID, &channel.ServerID, &channel.ConversationID,
+			&channel.Name, &channel.Position, &channel.CreatedAt)
 	if err != nil {
 		return channel, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO ligo_members (conversation_id, user_id, joined_at)
-		SELECT $1::uuid, user_id, clock_timestamp() FROM rondo_members WHERE server_id = $2::uuid`, conversationID, serverID)
+	serverMembers := table.RondoMembers.AS("server_members")
+	conversationMembers := table.LigoMembers
+	_, err = jetExec(ctx, tx, conversationMembers.INSERT(conversationMembers.ConversationID,
+		conversationMembers.UserID, conversationMembers.JoinedAt).QUERY(jetpg.SELECT(
+		jetUUID(conversationID), serverMembers.UserID, jetpg.RawTimestampz("clock_timestamp()"),
+	).FROM(serverMembers).WHERE(serverMembers.ServerID.EQ(jetUUID(serverID)))))
 	return channel, err
 }
 
@@ -143,11 +193,13 @@ func (store *Rondo) Create(ctx context.Context, actorID string, input rondo.NewS
 	}
 	defer tx.Rollback(ctx)
 	var locked string
-	if err := tx.QueryRow(ctx, `SELECT id::text FROM users WHERE id = $1::uuid FOR UPDATE`, actorID).Scan(&locked); err != nil {
+	if err := jetQueryRow(ctx, tx, table.Users.SELECT(jetpg.CAST(table.Users.ID).AS_TEXT()).
+		WHERE(table.Users.ID.EQ(jetUUID(actorID))).FOR(jetpg.UPDATE())).Scan(&locked); err != nil {
 		return rondo.Detail{}, err
 	}
 	var owned int
-	if err := tx.QueryRow(ctx, `SELECT count(*)::int FROM rondo_servers WHERE owner_id = $1::uuid`, actorID).Scan(&owned); err != nil {
+	if err := jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.COUNT(table.RondoServers.ID)).FROM(table.RondoServers).
+		WHERE(table.RondoServers.OwnerID.EQ(jetUUID(actorID)))).Scan(&owned); err != nil {
 		return rondo.Detail{}, err
 	}
 	if owned >= 20 {
@@ -157,13 +209,16 @@ func (store *Rondo) Create(ctx context.Context, actorID string, input rondo.NewS
 		return rondo.Detail{}, err
 	}
 	var id string
-	err = tx.QueryRow(ctx, `INSERT INTO rondo_servers (name, description, access, owner_id)
-		VALUES ($1, $2, $3, $4::uuid) RETURNING id::text`, input.Name, input.Description, input.Access, actorID).Scan(&id)
+	servers := table.RondoServers
+	err = jetQueryRow(ctx, tx, servers.INSERT(servers.Name, servers.Description, servers.Access, servers.OwnerID).
+		VALUES(jetpg.String(input.Name), jetpg.String(input.Description), jetpg.String(input.Access), jetUUID(actorID)).
+		RETURNING(jetpg.CAST(servers.ID).AS_TEXT())).Scan(&id)
 	if err != nil {
 		return rondo.Detail{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO rondo_members (server_id, user_id)
-		VALUES ($1::uuid, $2::uuid)`, id, actorID); err != nil {
+	members := table.RondoMembers
+	if _, err = jetExec(ctx, tx, members.INSERT(members.ServerID, members.UserID).
+		VALUES(jetUUID(id), jetUUID(actorID))); err != nil {
 		return rondo.Detail{}, err
 	}
 	if _, err = insertRondoChannel(ctx, tx, id, actorID, "general"); err != nil {
@@ -182,7 +237,9 @@ func (store *Rondo) Join(ctx context.Context, actorID, serverID string) (rondo.D
 	}
 	defer tx.Rollback(ctx)
 	var access string
-	err = tx.QueryRow(ctx, `SELECT access FROM rondo_servers WHERE id = $1::uuid FOR UPDATE`, serverID).Scan(&access)
+	servers := table.RondoServers
+	err = jetQueryRow(ctx, tx, servers.SELECT(servers.Access).
+		WHERE(servers.ID.EQ(jetUUID(serverID))).FOR(jetpg.UPDATE())).Scan(&access)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rondo.Detail{}, rondo.ErrNotFound
 	}
@@ -190,8 +247,10 @@ func (store *Rondo) Join(ctx context.Context, actorID, serverID string) (rondo.D
 		return rondo.Detail{}, err
 	}
 	var exists bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rondo_members
-		WHERE server_id = $1::uuid AND user_id = $2::uuid)`, serverID, actorID).Scan(&exists); err != nil {
+	members := table.RondoMembers
+	if err = jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.EXISTS(jetpg.SELECT(members.UserID).
+		FROM(members).WHERE(jetpg.AND(members.ServerID.EQ(jetUUID(serverID)), members.UserID.EQ(jetUUID(actorID))))))).
+		Scan(&exists); err != nil {
 		return rondo.Detail{}, err
 	}
 	if !exists {
@@ -216,7 +275,8 @@ func (store *Rondo) Join(ctx context.Context, actorID, serverID string) (rondo.D
 
 func checkRondoMemberLimit(ctx context.Context, tx pgx.Tx, serverID string) error {
 	var total int
-	if err := tx.QueryRow(ctx, `SELECT count(*)::int FROM rondo_members WHERE server_id = $1::uuid`, serverID).Scan(&total); err != nil {
+	if err := jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.COUNT(table.RondoMembers.UserID)).
+		FROM(table.RondoMembers).WHERE(table.RondoMembers.ServerID.EQ(jetUUID(serverID)))).Scan(&total); err != nil {
 		return err
 	}
 	if total >= 500 {
@@ -227,11 +287,13 @@ func checkRondoMemberLimit(ctx context.Context, tx pgx.Tx, serverID string) erro
 
 func checkRondoUserLimit(ctx context.Context, tx pgx.Tx, userID string) error {
 	var locked string
-	if err := tx.QueryRow(ctx, `SELECT id::text FROM users WHERE id = $1::uuid FOR UPDATE`, userID).Scan(&locked); err != nil {
+	if err := jetQueryRow(ctx, tx, table.Users.SELECT(jetpg.CAST(table.Users.ID).AS_TEXT()).
+		WHERE(table.Users.ID.EQ(jetUUID(userID))).FOR(jetpg.UPDATE())).Scan(&locked); err != nil {
 		return err
 	}
 	var total int
-	if err := tx.QueryRow(ctx, `SELECT count(*)::int FROM rondo_members WHERE user_id = $1::uuid`, userID).Scan(&total); err != nil {
+	if err := jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.COUNT(table.RondoMembers.UserID)).
+		FROM(table.RondoMembers).WHERE(table.RondoMembers.UserID.EQ(jetUUID(userID)))).Scan(&total); err != nil {
 		return err
 	}
 	if total >= 100 {
@@ -244,36 +306,43 @@ func checkRondoUserLimit(ctx context.Context, tx pgx.Tx, userID string) error {
 // locks while changing server membership so message timestamps and join times
 // have one consistent order, even when a send runs concurrently.
 func lockRondoConversations(ctx context.Context, tx pgx.Tx, serverID string) ([]string, error) {
-	rows, err := tx.Query(ctx, `SELECT channel.id::text FROM rondo_channels channel
-		JOIN ligo_conversations conversation ON conversation.id = channel.conversation_id
-		WHERE channel.server_id = $1::uuid ORDER BY conversation.id FOR UPDATE OF conversation`, serverID)
+	channelTable := table.RondoChannels.AS("channel")
+	conversations := table.LigoConversations.AS("conversation")
+	statement := jetpg.SELECT(jetpg.CAST(channelTable.ID).AS_TEXT()).
+		FROM(channelTable.INNER_JOIN(conversations, conversations.ID.EQ(channelTable.ConversationID))).
+		WHERE(channelTable.ServerID.EQ(jetUUID(serverID))).
+		ORDER_BY(conversations.ID.ASC()).FOR(jetpg.UPDATE().OF(conversations))
+	rows, err := jetQuery(ctx, tx, statement)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	channels := make([]string, 0)
+	channelIDs := make([]string, 0)
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		channels = append(channels, id)
+		channelIDs = append(channelIDs, id)
 	}
-	return channels, rows.Err()
+	return channelIDs, rows.Err()
 }
 
 func addRondoMember(ctx context.Context, tx pgx.Tx, serverID, userID string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO rondo_members (server_id, user_id)
-		VALUES ($1::uuid, $2::uuid)`, serverID, userID)
+	members := table.RondoMembers
+	_, err := jetExec(ctx, tx, members.INSERT(members.ServerID, members.UserID).
+		VALUES(jetUUID(serverID), jetUUID(userID)))
 	if err != nil {
 		return err
 	}
 	if _, err = lockRondoConversations(ctx, tx, serverID); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO ligo_members (conversation_id, user_id, joined_at)
-		SELECT conversation_id, $2::uuid, clock_timestamp() FROM rondo_channels c
-		WHERE c.server_id = $1::uuid`, serverID, userID)
+	channels := table.RondoChannels.AS("channel")
+	ligoMembers := table.LigoMembers
+	_, err = jetExec(ctx, tx, ligoMembers.INSERT(ligoMembers.ConversationID, ligoMembers.UserID, ligoMembers.JoinedAt).
+		QUERY(jetpg.SELECT(channels.ConversationID, jetUUID(userID), jetpg.RawTimestampz("clock_timestamp()")).
+			FROM(channels).WHERE(channels.ServerID.EQ(jetUUID(serverID)))))
 	return err
 }
 
@@ -284,7 +353,9 @@ func (store *Rondo) Invite(ctx context.Context, actorID, serverID, userID string
 	}
 	defer tx.Rollback(ctx)
 	var ownerID string
-	err = tx.QueryRow(ctx, `SELECT owner_id::text FROM rondo_servers WHERE id = $1::uuid FOR UPDATE`, serverID).Scan(&ownerID)
+	servers := table.RondoServers
+	err = jetQueryRow(ctx, tx, servers.SELECT(jetpg.CAST(servers.OwnerID).AS_TEXT()).
+		WHERE(servers.ID.EQ(jetUUID(serverID))).FOR(jetpg.UPDATE())).Scan(&ownerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rondo.Detail{}, rondo.ErrNotFound
 	}
@@ -295,13 +366,17 @@ func (store *Rondo) Invite(ctx context.Context, actorID, serverID, userID string
 		return rondo.Detail{}, rondo.ErrForbidden
 	}
 	var exists bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1::uuid)`, userID).Scan(&exists); err != nil {
+	if err = jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.EXISTS(jetpg.SELECT(table.Users.ID).
+		FROM(table.Users).WHERE(table.Users.ID.EQ(jetUUID(userID)))))).Scan(&exists); err != nil {
 		return rondo.Detail{}, err
 	}
 	if !exists {
 		return rondo.Detail{}, rondo.ErrNotFound
 	}
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rondo_members WHERE server_id = $1::uuid AND user_id = $2::uuid)`, serverID, userID).Scan(&exists); err != nil {
+	members := table.RondoMembers
+	if err = jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.EXISTS(jetpg.SELECT(members.UserID).FROM(members).
+		WHERE(jetpg.AND(members.ServerID.EQ(jetUUID(serverID)), members.UserID.EQ(jetUUID(userID))))))).
+		Scan(&exists); err != nil {
 		return rondo.Detail{}, err
 	}
 	if !exists {
@@ -328,7 +403,9 @@ func (store *Rondo) Leave(ctx context.Context, actorID, serverID string) ([]stri
 	}
 	defer tx.Rollback(ctx)
 	var ownerID string
-	err = tx.QueryRow(ctx, `SELECT owner_id::text FROM rondo_servers WHERE id = $1::uuid FOR UPDATE`, serverID).Scan(&ownerID)
+	servers := table.RondoServers
+	err = jetQueryRow(ctx, tx, servers.SELECT(jetpg.CAST(servers.OwnerID).AS_TEXT()).
+		WHERE(servers.ID.EQ(jetUUID(serverID))).FOR(jetpg.UPDATE())).Scan(&ownerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, rondo.ErrNotFound
 	}
@@ -339,7 +416,10 @@ func (store *Rondo) Leave(ctx context.Context, actorID, serverID string) ([]stri
 		return nil, rondo.ErrInvalid
 	}
 	var member bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rondo_members WHERE server_id = $1::uuid AND user_id = $2::uuid)`, serverID, actorID).Scan(&member); err != nil {
+	members := table.RondoMembers
+	if err = jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.EXISTS(jetpg.SELECT(members.UserID).FROM(members).
+		WHERE(jetpg.AND(members.ServerID.EQ(jetUUID(serverID)), members.UserID.EQ(jetUUID(actorID))))))).
+		Scan(&member); err != nil {
 		return nil, err
 	}
 	if !member {
@@ -349,11 +429,18 @@ func (store *Rondo) Leave(ctx context.Context, actorID, serverID string) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM ligo_members WHERE user_id = $2::uuid AND conversation_id IN
-		(SELECT conversation_id FROM rondo_channels WHERE server_id = $1::uuid)`, serverID, actorID); err != nil {
+	channelsTable := table.RondoChannels
+	ligoMembers := table.LigoMembers
+	conversationIDs := jetpg.SELECT(channelsTable.ConversationID).FROM(channelsTable).
+		WHERE(channelsTable.ServerID.EQ(jetUUID(serverID)))
+	if _, err = jetExec(ctx, tx, ligoMembers.DELETE().WHERE(jetpg.AND(
+		ligoMembers.UserID.EQ(jetUUID(actorID)), ligoMembers.ConversationID.IN(conversationIDs),
+	))); err != nil {
 		return nil, err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM rondo_members WHERE server_id = $1::uuid AND user_id = $2::uuid`, serverID, actorID); err != nil {
+	if _, err = jetExec(ctx, tx, members.DELETE().WHERE(jetpg.AND(
+		members.ServerID.EQ(jetUUID(serverID)), members.UserID.EQ(jetUUID(actorID)),
+	))); err != nil {
 		return nil, err
 	}
 	return channels, tx.Commit(ctx)
@@ -366,7 +453,9 @@ func (store *Rondo) CreateChannel(ctx context.Context, actorID, serverID, name s
 	}
 	defer tx.Rollback(ctx)
 	var ownerID string
-	err = tx.QueryRow(ctx, `SELECT owner_id::text FROM rondo_servers WHERE id = $1::uuid FOR UPDATE`, serverID).Scan(&ownerID)
+	servers := table.RondoServers
+	err = jetQueryRow(ctx, tx, servers.SELECT(jetpg.CAST(servers.OwnerID).AS_TEXT()).
+		WHERE(servers.ID.EQ(jetUUID(serverID))).FOR(jetpg.UPDATE())).Scan(&ownerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rondo.Channel{}, rondo.ErrNotFound
 	}
@@ -377,7 +466,8 @@ func (store *Rondo) CreateChannel(ctx context.Context, actorID, serverID, name s
 		return rondo.Channel{}, rondo.ErrForbidden
 	}
 	var channels int
-	if err := tx.QueryRow(ctx, `SELECT count(*)::int FROM rondo_channels WHERE server_id = $1::uuid`, serverID).Scan(&channels); err != nil {
+	if err := jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.COUNT(table.RondoChannels.ID)).
+		FROM(table.RondoChannels).WHERE(table.RondoChannels.ServerID.EQ(jetUUID(serverID)))).Scan(&channels); err != nil {
 		return rondo.Channel{}, err
 	}
 	if channels >= 100 {
@@ -400,10 +490,13 @@ func isRondoUnique(err error) bool {
 
 func (store *Rondo) VoiceChannel(ctx context.Context, actorID, channelID string) (rondo.Channel, error) {
 	var channel rondo.Channel
-	err := store.pool.QueryRow(ctx, `SELECT c.id::text, c.server_id::text, c.conversation_id::text,
-		c.name, c.position, c.created_at FROM rondo_channels c
-		JOIN rondo_members m ON m.server_id = c.server_id AND m.user_id = $1::uuid
-		WHERE c.id = $2::uuid`, actorID, channelID).Scan(&channel.ID, &channel.ServerID,
+	channels := table.RondoChannels.AS("c")
+	members := table.RondoMembers.AS("m")
+	query := jetpg.SELECT(jetpg.CAST(channels.ID).AS_TEXT(), jetpg.CAST(channels.ServerID).AS_TEXT(),
+		jetpg.CAST(channels.ConversationID).AS_TEXT(), channels.Name, channels.Position, channels.CreatedAt).
+		FROM(channels.INNER_JOIN(members, jetpg.AND(members.ServerID.EQ(channels.ServerID),
+			members.UserID.EQ(jetUUID(actorID))))).WHERE(channels.ID.EQ(jetUUID(channelID)))
+	err := jetQueryRow(ctx, store.pool, query).Scan(&channel.ID, &channel.ServerID,
 		&channel.ConversationID, &channel.Name, &channel.Position, &channel.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rondo.Channel{}, rondo.ErrNotFound

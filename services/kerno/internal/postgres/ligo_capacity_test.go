@@ -2,12 +2,15 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
+	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
+	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -41,19 +44,27 @@ func TestLigoReadCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if _, err := pool.Exec(ctx, `DELETE FROM ligo_conversations WHERE id = $1::uuid`, conversation.ID); err != nil {
+		conversations := table.LigoConversations
+		if _, err := jetExec(ctx, pool, conversations.DELETE().WHERE(conversations.ID.EQ(jetUUID(conversation.ID)))); err != nil {
 			t.Errorf("remove capacity conversation: %v", err)
 		}
-		if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id IN ($1::uuid, $2::uuid)`, owner.ID, peer.ID); err != nil {
+		users := table.Users
+		if _, err := jetExec(ctx, pool, users.DELETE().WHERE(users.ID.IN(jetUUID(owner.ID), jetUUID(peer.ID)))); err != nil {
 			t.Errorf("remove capacity users: %v", err)
 		}
 	})
-	if _, err := pool.Exec(ctx, `INSERT INTO ligo_messages (conversation_id, sender_id, client_id, body)
-		SELECT $1::uuid, $2::uuid, uuidv7(), 'bulk message ' || number
-		FROM generate_series(1, 10000) AS number`, conversation.ID, peer.ID); err != nil {
-		t.Fatal(err)
+	messages := table.LigoMessages
+	for start := 1; start <= 10000; start += 1000 {
+		statement := messages.INSERT(messages.ConversationID, messages.SenderID, messages.ClientID, messages.Body)
+		for number := start; number < start+1000 && number <= 10000; number++ {
+			statement = statement.VALUES(jetUUID(conversation.ID), jetUUID(peer.ID), jetpg.RawString("uuidv7()"),
+				jetpg.String(fmt.Sprintf("bulk message %d", number)))
+		}
+		if _, err := jetExec(ctx, pool, statement); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := pool.Exec(ctx, `ANALYZE ligo_messages`); err != nil {
+	if _, err := jetExec(ctx, pool, jetpg.RawStatement("ANALYZE ligo_messages")); err != nil {
 		t.Fatal(err)
 	}
 	for _, scenario := range []struct {

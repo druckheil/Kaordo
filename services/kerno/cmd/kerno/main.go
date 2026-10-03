@@ -19,6 +19,7 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/regado"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondovoice"
 	"github.com/druckheil/Kaordo/services/mediaauth"
+	jetpg "github.com/go-jet/jet/v2/postgres"
 )
 
 func main() {
@@ -49,35 +50,35 @@ func run() error {
 	defer pool.Close()
 
 	var usersTableExists bool
-	if err := pool.QueryRow(ctx, "SELECT to_regclass('public.users') IS NOT NULL").Scan(&usersTableExists); err != nil {
+	if err := postgres.JetQueryRow(ctx, pool, jetpg.SELECT(jetpg.RawBool("to_regclass('public.users') IS NOT NULL"))).Scan(&usersTableExists); err != nil {
 		return err
 	}
 	if !usersTableExists {
 		return errors.New("users table is missing; apply deploy/postgres/001_users.sql")
 	}
 	var postsTableExists bool
-	if err := pool.QueryRow(ctx, "SELECT to_regclass('public.fluo_posts') IS NOT NULL").Scan(&postsTableExists); err != nil {
+	if err := postgres.JetQueryRow(ctx, pool, jetpg.SELECT(jetpg.RawBool("to_regclass('public.fluo_posts') IS NOT NULL"))).Scan(&postsTableExists); err != nil {
 		return err
 	}
 	if !postsTableExists {
 		return errors.New("Fluo tables are missing; apply deploy/postgres/002_fluo.sql")
 	}
 	var conversationsTableExists bool
-	if err := pool.QueryRow(ctx, "SELECT to_regclass('public.ligo_conversations') IS NOT NULL").Scan(&conversationsTableExists); err != nil {
+	if err := postgres.JetQueryRow(ctx, pool, jetpg.SELECT(jetpg.RawBool("to_regclass('public.ligo_conversations') IS NOT NULL"))).Scan(&conversationsTableExists); err != nil {
 		return err
 	}
 	if !conversationsTableExists {
 		return errors.New("Ligo tables are missing; apply deploy/postgres/007_ligo.sql")
 	}
 	var rondoTableExists bool
-	if err := pool.QueryRow(ctx, "SELECT to_regclass('public.rondo_servers') IS NOT NULL").Scan(&rondoTableExists); err != nil {
+	if err := postgres.JetQueryRow(ctx, pool, jetpg.SELECT(jetpg.RawBool("to_regclass('public.rondo_servers') IS NOT NULL"))).Scan(&rondoTableExists); err != nil {
 		return err
 	}
 	if !rondoTableExists {
 		return errors.New("Rondo tables are missing; apply deploy/postgres/010_rondo.sql")
 	}
 	var adminTableExists bool
-	if err := pool.QueryRow(ctx, "SELECT to_regclass('public.admin_audit') IS NOT NULL").Scan(&adminTableExists); err != nil {
+	if err := postgres.JetQueryRow(ctx, pool, jetpg.SELECT(jetpg.RawBool("to_regclass('public.admin_audit') IS NOT NULL"))).Scan(&adminTableExists); err != nil {
 		return err
 	}
 	if !adminTableExists {

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
+	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -31,7 +33,9 @@ func TestAdminAccessFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO user_roles (user_id, role) VALUES ($1::uuid, 'admin') ON CONFLICT DO NOTHING`, admin.ID); err != nil {
+	roles := table.UserRoles
+	if _, err := jetExec(ctx, pool, roles.INSERT(roles.UserID, roles.Role).
+		VALUES(jetUUID(admin.ID), jetpg.String("admin")).ON_CONFLICT().DO_NOTHING()); err != nil {
 		t.Fatal(err)
 	}
 	admin, err = users.BySubject(ctx, "regado-admin")
@@ -78,14 +82,17 @@ func TestAdminAccessFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	var noticeID string
-	if err := pool.QueryRow(ctx, `SELECT m.id::text FROM ligo_messages m
-		JOIN ligo_conversations c ON c.id = m.conversation_id
-		WHERE c.kind = 'self' AND c.created_by = $1::uuid AND m.system_notice
-		ORDER BY m.created_at DESC LIMIT 1`, target.ID).Scan(&noticeID); err != nil {
+	messages := table.LigoMessages.AS("m")
+	conversations := table.LigoConversations.AS("c")
+	if err := jetQueryRow(ctx, pool, messages.SELECT(jetpg.CAST(messages.ID).AS_TEXT()).
+		FROM(messages.INNER_JOIN(conversations, conversations.ID.EQ(messages.ConversationID))).
+		WHERE(jetpg.AND(conversations.Kind.EQ(jetpg.String("self")), conversations.CreatedBy.EQ(jetUUID(target.ID)), messages.SystemNotice.IS_TRUE())).
+		ORDER_BY(messages.CreatedAt.DESC()).LIMIT(1)).Scan(&noticeID); err != nil {
 		t.Fatal(err)
 	}
 	var conversationID string
-	if err := pool.QueryRow(ctx, `SELECT conversation_id::text FROM ligo_messages WHERE id = $1::uuid`, noticeID).Scan(&conversationID); err != nil {
+	if err := jetQueryRow(ctx, pool, messages.SELECT(jetpg.CAST(messages.ConversationID).AS_TEXT()).
+		WHERE(messages.ID.EQ(jetUUID(noticeID)))).Scan(&conversationID); err != nil {
 		t.Fatal(err)
 	}
 	message, err := NewLigo(pool).message(ctx, target.ID, noticeID)
@@ -177,7 +184,9 @@ func TestAdminMutualRevocationPreservesAdministrator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO user_roles (user_id, role) VALUES ($1::uuid, 'admin'), ($2::uuid, 'admin')`, a.ID, b.ID); err != nil {
+	roles := table.UserRoles
+	if _, err := jetExec(ctx, pool, roles.INSERT(roles.UserID, roles.Role).
+		VALUES(jetUUID(a.ID), jetpg.String("admin")).VALUES(jetUUID(b.ID), jetpg.String("admin"))); err != nil {
 		t.Fatal(err)
 	}
 	store := NewAdmin(pool)
@@ -200,7 +209,8 @@ func TestAdminMutualRevocationPreservesAdministrator(t *testing.T) {
 		}
 	}
 	var count int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_roles WHERE user_id = ANY($1::uuid[])`, []string{a.ID, b.ID}).Scan(&count); err != nil {
+	if err := jetQueryRow(ctx, pool, jetpg.SELECT(jetpg.COUNT(roles.UserID)).FROM(roles).
+		WHERE(roles.UserID.IN(jetUUID(a.ID), jetUUID(b.ID)))).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if success != 1 || count != 1 {
