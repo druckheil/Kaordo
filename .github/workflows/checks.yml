@@ -1,0 +1,115 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/setup@v3
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            services/kerno/go.sum
+            services/nodo/go.sum
+            services/mediaauth/go.sum
+            services/regado-agent/go.sum
+      - name: Check frontend and generated API contract
+        run: |
+          pnpm check:front
+          pnpm --filter @kaordo/contracts generate
+          git diff --exit-code -- packages/contracts/src/openapi.d.ts
+      - name: Test browser-independent code and static Pages artifact
+        run: |
+          pnpm test:auth
+          pnpm test:backup
+          pnpm test:dependencies
+          pnpm test:dev
+          pnpm test:media
+          pnpm test:ui-layout
+          pnpm test:pages
+      - name: Install headless Chromium for UI checks
+        run: pnpm exec playwright-core install --with-deps chromium --only-shell
+      - name: Check public screens and product interactions in Chromium
+        run: |
+          node --test scripts/ui-public.test.mjs scripts/product-ui.test.mjs scripts/regado-ui.test.mjs
+      - name: Check Go services
+        run: |
+          go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
+          go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
+          go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
+      - name: Check Go dependency vulnerabilities
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        working-directory: services/kerno
+      - name: Check Nodo dependency vulnerabilities
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        working-directory: services/nodo
+      - name: Check media authorization dependency vulnerabilities
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        working-directory: services/mediaauth
+      - name: Check Regado agent dependency vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        working-directory: services/regado-agent
+      - name: Test product PostgreSQL integration
+        run: |
+          cat > deploy/local/.env <<EOF
+          KAORDO_DB_PASSWORD=$(openssl rand -hex 24)
+          KEYCLOAK_DB_PASSWORD=$(openssl rand -hex 24)
+          KEYCLOAK_ADMIN_USERNAME=admin
+          KEYCLOAK_ADMIN_PASSWORD=$(openssl rand -hex 24)
+          KAORDO_SITE_ORIGIN=http://localhost:8765
+          NODO_MEDIA_SIGNING_KEY=$(openssl rand -hex 32)
+          LIVEKIT_API_KEY=$(openssl rand -hex 16)
+          LIVEKIT_API_SECRET=$(openssl rand -hex 32)
+          EOF
+          chmod 600 deploy/local/.env
+          docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml up -d --wait app-db
+          pnpm test:product:db
+      - name: Reject npm advisories
+        run: pnpm audit --audit-level=low
+      - name: Install local recovery tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          curl --fail --location --silent --show-error \
+            https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2 \
+            --output "$RUNNER_TEMP/restic.bz2"
+          echo "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c  $RUNNER_TEMP/restic.bz2" | sha256sum --check
+          bzip2 --decompress "$RUNNER_TEMP/restic.bz2"
+          sudo install -m 0755 "$RUNNER_TEMP/restic" /usr/local/bin/restic
+          restic version
+      - name: Test live account, product and recovery journeys
+        run: |
+          pnpm dev > "$RUNNER_TEMP/kaordo-dev.log" 2>&1 &
+          for attempt in {1..120}; do
+            if curl -fsS http://127.0.0.1:8081/healthz > /dev/null 2>&1 &&
+               curl -fsS http://localhost:8765/login/ > /dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          if ! curl -fsS http://127.0.0.1:8081/healthz > /dev/null ||
+             ! curl -fsS http://localhost:8765/login/ > /dev/null; then
+            tail -n 100 "$RUNNER_TEMP/kaordo-dev.log"
+            exit 1
+          fi
+          pnpm test:auth:live
+          pnpm test:backup:live
+      - name: Stop local services
+        if: always()
+        run: pnpm dev:stop || true

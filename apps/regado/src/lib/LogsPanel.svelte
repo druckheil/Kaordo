@@ -1,0 +1,101 @@
+<script lang="ts">
+	// Filters, refreshes, and exports service journal entries
+
+	import type { AdminLogs } from "@kaordo/contracts";
+	import { Button, Input } from "@kaordo/ui";
+	import { filterLogs, formatLogTime, logPriorities, logServices, type LogPriority } from "./regado-model";
+
+	let {
+		logs,
+		loading,
+		service = $bindable(),
+		priority = $bindable(),
+		search = $bindable(),
+		onRefresh,
+	}: {
+		logs: AdminLogs | null;
+		loading: boolean;
+		service: string;
+		priority: LogPriority;
+		search: string;
+		onRefresh: () => void;
+	} = $props();
+
+	const visibleLogs = $derived(filterLogs(logs, priority, search));
+
+	function downloadLogs(): void {
+		if (!logs) return;
+
+		const exportData = {
+			service: logs.service,
+			exportedAt: new Date().toISOString(),
+			items: visibleLogs,
+		};
+		const objectUrl = URL.createObjectURL(
+			new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" }),
+		);
+		const link = document.createElement("a");
+		link.href = objectUrl;
+		link.download = `kaordo-${logs.service}-journal.json`;
+		link.click();
+		window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+	}
+</script>
+
+<section class="mt-6 rounded-[1.4rem] border border-border bg-card p-5 sm:p-6">
+	<div class="flex flex-wrap items-end justify-between gap-4">
+		<div>
+			<h2 class="text-lg font-bold">Service journal</h2>
+			<p class="mt-1 text-sm text-muted-foreground">The latest 80 entries per service.</p>
+		</div>
+		<div class="flex flex-wrap gap-2">
+			<label class="text-xs font-semibold text-muted-foreground">
+				Service
+				<select
+					bind:value={service}
+					aria-label="Service"
+					class="mt-1 block rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+				>
+					{#each logServices as logService (logService)}
+						<option value={logService}>{logService}</option>
+					{/each}
+				</select>
+			</label>
+			<label class="text-xs font-semibold text-muted-foreground">
+				Priority
+				<select
+					bind:value={priority}
+					aria-label="Priority"
+					class="mt-1 block rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+				>
+					{#each logPriorities as option (option.value)}
+						<option value={option.value}>{option.label}</option>
+					{/each}
+				</select>
+			</label>
+			<Button variant="outline" onclick={onRefresh} disabled={loading}>Refresh</Button>
+			<Button variant="outline" onclick={downloadLogs} disabled={!logs}>Download JSON</Button>
+		</div>
+	</div>
+
+	<Input
+		class="mt-4"
+		bind:value={search}
+		placeholder="Filter journal messages"
+		aria-label="Filter journal messages"
+	/>
+	{#if loading}
+		<p class="mt-6 text-sm text-muted-foreground" role="status">Loading logs…</p>
+	{/if}
+
+	<div class="kaordo-scrollbar mt-5 max-h-[60dvh] space-y-1 overflow-auto rounded-xl bg-secondary/40 p-3 font-mono text-xs">
+		{#each visibleLogs as entry}
+			<div class="grid gap-1 border-b border-border/70 px-2 py-2 sm:grid-cols-[10rem_1fr]">
+				<time class="text-muted-foreground">{formatLogTime(entry.time)}</time>
+				<p class="break-all whitespace-pre-wrap">{entry.message}</p>
+			</div>
+		{:else}
+			<p class="p-4 text-muted-foreground">No entries match this filter.</p>
+		{/each}
+	</div>
+</section>

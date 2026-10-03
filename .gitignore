@@ -1,0 +1,16 @@
+node_modules/
+.svelte-kit/
+build/
+dist/
+coverage/
+backups/
+*.dump
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.idea/
+.vscode/
+go.work.sum
+deploy/local/media/

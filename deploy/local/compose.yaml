@@ -1,0 +1,73 @@
+services:
+  app-db:
+    image: postgres:18.6
+    environment:
+      POSTGRES_DB: kaordo
+      POSTGRES_USER: kaordo
+      POSTGRES_PASSWORD: ${KAORDO_DB_PASSWORD:?Set KAORDO_DB_PASSWORD}
+    ports:
+      - 127.0.0.1:5432:5432
+    volumes:
+      - app-db-data:/var/lib/postgresql
+      - ../postgres/001_users.sql:/docker-entrypoint-initdb.d/001_users.sql:ro
+      - ../postgres:/migrations:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U kaordo -d kaordo]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  identity-db:
+    image: postgres:18.6
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - identity-db-data:/var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U keycloak -d keycloak]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  identity:
+    image: quay.io/keycloak/keycloak:26.7.4
+    command: start-dev --import-realm --hostname=http://localhost:8080
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://identity-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:?Set KEYCLOAK_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD}
+      KAORDO_SITE_ORIGIN: ${KAORDO_SITE_ORIGIN:?Set KAORDO_SITE_ORIGIN}
+    ports:
+      - 127.0.0.1:8080:8080
+    volumes:
+      - ../keycloak/kaordo-realm.json:/opt/keycloak/data/import/kaordo-realm.json:ro
+      - ../keycloak/themes/kaordo:/opt/keycloak/themes/kaordo:ro
+    depends_on:
+      identity-db:
+        condition: service_healthy
+
+  livekit:
+    image: livekit/livekit-server:v1.13.7
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: false
+          node_ip: 127.0.0.1
+        keys:
+          ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET}
+    ports:
+      - 127.0.0.1:7880:7880
+      - 127.0.0.1:7881:7881
+      - 127.0.0.1:7882:7882/udp
+
+volumes:
+  app-db-data:
+  identity-db-data:

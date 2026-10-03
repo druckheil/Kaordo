@@ -1,0 +1,1326 @@
+openapi: 3.1.0
+info:
+  title: Kaordo API
+  version: 0.0.1
+servers:
+  - url: http://localhost:8081
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak access token with aud=kerno-api
+    internalToken:
+      type: apiKey
+      in: header
+      name: X-Kaordo-Internal-Token
+      description: Derived token shared only by the local Kerno and Nodo processes.
+  schemas:
+    UserIdentity:
+      type: object
+      required: [id, username, displayName, createdAt, isAdmin]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Kaordo UUIDv7; distinct from the Keycloak subject.
+        username:
+          type: string
+        displayName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        isAdmin:
+          type: boolean
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: A stable, non-sensitive reason when an authentication request is rejected.
+    RegadoSummary:
+      type: object
+      required: [users, posts, messages, uploads, mediaBytes, databaseBytes, openCases, mediaByKind]
+      properties:
+        users: { type: integer }
+        posts: { type: integer }
+        messages: { type: integer }
+        uploads: { type: integer }
+        mediaBytes: { type: integer }
+        databaseBytes: { type: integer }
+        openCases: { type: integer }
+        mediaByKind:
+          type: array
+          items:
+            type: object
+            required: [kind, objects, bytes]
+            properties:
+              kind: { type: string }
+              objects: { type: integer }
+              bytes: { type: integer }
+    RegadoUser:
+      type: object
+      required: [id, username, displayName, isAdmin, disabledAt, postCount, messageCount, mediaBytes, lastActivity, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        isAdmin: { type: boolean }
+        disabledAt: { type: [string, 'null'], format: date-time }
+        postCount: { type: integer }
+        messageCount: { type: integer }
+        mediaBytes: { type: integer }
+        lastActivity: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    RegadoAuditEntry:
+      type: object
+      required: [id, actor, target, action, reason, detail, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        actor: { type: string }
+        target: { type: [string, 'null'] }
+        action: { type: string }
+        reason: { type: string }
+        detail: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+    RegadoCase:
+      type: object
+      required: [id, targetUserId, targetUsername, reason, createdAt, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        targetUserId: { type: string, format: uuid }
+        targetUsername: { type: string }
+        reason: { type: string }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+    RegadoContentMedia:
+      type: object
+      required: [id, kind, mimeType, filename, size, url]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        mimeType: { type: string }
+        filename: { type: string }
+        size: { type: integer }
+        url: { type: string, format: uri }
+    RegadoContent:
+      type: object
+      required: [id, text, context, createdAt, media]
+      properties:
+        id: { type: string, format: uuid }
+        text: { type: string }
+        context: { type: string }
+        createdAt: { type: string, format: date-time }
+        media: { type: array, items: { $ref: '#/components/schemas/RegadoContentMedia' } }
+    RegadoContentPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/RegadoContent' } }
+        nextCursor: { type: [string, 'null'], format: uuid }
+    RegadoDisk:
+      type: object
+      required: [name, path, label, fsType, size, type, model, mountpoints]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        label: { type: [string, 'null'] }
+        fsType: { type: [string, 'null'] }
+        size: { type: integer }
+        type: { type: string }
+        model: { type: [string, 'null'] }
+        mountpoints: { type: array, items: { type: [string, 'null'] } }
+        children: { type: array, items: { $ref: '#/components/schemas/RegadoDisk' } }
+        health: { $ref: '#/components/schemas/RegadoDiskHealth' }
+    RegadoDiskHealth:
+      type: object
+      required: [state, passed, temperatureC, powerOnHours, reallocatedSectors, pendingSectors, uncorrectableSectors, checkedAt]
+      properties:
+        state: { type: string, enum: [passed, warning, failed, unavailable, standby] }
+        passed: { type: [boolean, 'null'] }
+        temperatureC: { type: [integer, 'null'] }
+        powerOnHours: { type: [integer, 'null'] }
+        reallocatedSectors: { type: [integer, 'null'] }
+        pendingSectors: { type: [integer, 'null'] }
+        uncorrectableSectors: { type: [integer, 'null'] }
+        checkedAt: { type: string, format: date-time }
+    RegadoMount:
+      type: object
+      required: [path, total, used, free]
+      properties:
+        path: { type: string }
+        total: { type: integer }
+        used: { type: integer }
+        free: { type: integer }
+    RegadoMirror:
+      type: object
+      required: [dataProfile, metadataProfile, systemProfile, mirroredPercent, deviceErrors, devicesOnline, healthy, scrub]
+      properties:
+        dataProfile: { type: string }
+        metadataProfile: { type: string }
+        systemProfile: { type: string }
+        mirroredPercent: { type: integer }
+        deviceErrors: { type: integer }
+        devicesOnline: { type: integer }
+        healthy: { type: boolean }
+        scrub: { type: string }
+    RegadoService:
+      type: object
+      required: [id, active, substate, loaded]
+      properties:
+        id: { type: string }
+        active: { type: string }
+        substate: { type: string }
+        loaded: { type: string }
+    RegadoSystem:
+      type: object
+      required: [hostname, host, time, disks, mounts, mirror, services]
+      properties:
+        hostname: { type: string }
+        host:
+          type: object
+          required: [cpuModel, logicalCores, memoryTotalBytes, uptimeSeconds, kernel]
+          properties:
+            cpuModel: { type: string }
+            logicalCores: { type: integer }
+            memoryTotalBytes: { type: integer }
+            uptimeSeconds: { type: integer }
+            kernel: { type: string }
+        time: { type: string, format: date-time }
+        disks: { type: array, items: { $ref: '#/components/schemas/RegadoDisk' } }
+        mounts: { type: array, items: { $ref: '#/components/schemas/RegadoMount' } }
+        mirror: { $ref: '#/components/schemas/RegadoMirror' }
+        services: { type: array, items: { $ref: '#/components/schemas/RegadoService' } }
+    RegadoSample:
+      type: object
+      required: [time, value]
+      properties:
+        time: { type: integer }
+        value: { type: number }
+    RegadoMetrics:
+      type: object
+      required: [window, series]
+      properties:
+        window: { type: string, enum: [1h, 24h, 7d] }
+        series:
+          type: object
+          additionalProperties: { type: array, items: { $ref: '#/components/schemas/RegadoSample' } }
+    RegadoLogs:
+      type: object
+      required: [service, items]
+      properties:
+        service: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            required: [time, priority, message]
+            properties:
+              time: { type: string }
+              priority: { type: string }
+              message: { type: string }
+    LigoUser:
+      type: object
+      required: [id, username, displayName]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+    LigoMedia:
+      type: object
+      required: [id, kind, mimeType, filename, width, height, size, altText, url]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [image, video, file] }
+        mimeType: { type: string }
+        filename: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        size: { type: integer, format: int64 }
+        altText: { type: string }
+        url: { type: string, format: uri }
+    LigoReaction:
+      type: object
+      required: [emoji, count, mine]
+      properties:
+        emoji: { type: string, enum: [❤️, 👍, 👎] }
+        count: { type: integer, minimum: 1 }
+        mine: { type: boolean }
+    LigoMessage:
+      type: object
+      required: [id, conversationId, clientId, sender, text, media, reactions, status, editedAt, deleted, systemNotice, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        conversationId: { type: string, format: uuid }
+        clientId: { type: string, format: uuid }
+        sender: { $ref: '#/components/schemas/LigoUser' }
+        text: { type: string }
+        media:
+          type: array
+          items: { $ref: '#/components/schemas/LigoMedia' }
+        reactions:
+          type: array
+          items: { $ref: '#/components/schemas/LigoReaction' }
+        status: { type: string, enum: [sent, delivered, read] }
+        editedAt: { type: [string, 'null'], format: date-time }
+        deleted: { type: boolean }
+        systemNotice: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    LigoMessagePreview:
+      type: object
+      required: [id, text, senderId, deleted, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        text: { type: string }
+        senderId: { type: string, format: uuid }
+        deleted: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    LigoConversation:
+      type: object
+      required: [id, kind, title, createdBy, members, lastMessage, unreadCount, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [duo, group, self, channel] }
+        title: { type: string }
+        createdBy: { type: string, format: uuid }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/LigoUser' }
+        lastMessage:
+          anyOf: [{ $ref: '#/components/schemas/LigoMessagePreview' }, { type: 'null' }]
+        unreadCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LigoConversationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LigoConversation' }
+        nextCursor: { type: [string, 'null'] }
+    LigoUserPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LigoUser' }
+    LigoMessagePage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LigoMessage' }
+        nextCursor: { type: [string, 'null'], format: uuid }
+    LigoNewConversation:
+      type: object
+      required: [kind, participantIds]
+      properties:
+        kind: { type: string, enum: [duo, group, self] }
+        title: { type: string, maxLength: 100 }
+        participantIds:
+          type: array
+          items: { type: string, format: uuid }
+    LigoNewMessage:
+      type: object
+      required: [clientId, text]
+      properties:
+        clientId: { type: string, format: uuid }
+        text: { type: string, maxLength: 4000 }
+        attachmentIds:
+          type: array
+          maxItems: 8
+          items: { type: string, format: uuid }
+        altTexts:
+          type: object
+          additionalProperties: { type: string, maxLength: 500 }
+    LigoReadRequest:
+      type: object
+      required: [messageId]
+      properties:
+        messageId: { type: string, format: uuid }
+    LigoEditMessageRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 4000 }
+    LigoReactionRequest:
+      type: object
+      required: [emoji, active]
+      properties:
+        emoji: { type: string, enum: [❤️, 👍, 👎] }
+        active: { type: boolean }
+    LigoMembersRequest:
+      type: object
+      required: [participantIds]
+      properties:
+        participantIds:
+          type: array
+          items: { type: string, format: uuid }
+    RondoServer:
+      type: object
+      required: [id, name, description, access, ownerId, memberCount, joined, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        access: { type: string, enum: [public, private] }
+        ownerId: { type: string, format: uuid }
+        memberCount: { type: integer }
+        joined: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    RondoChannel:
+      type: object
+      required: [id, serverId, conversationId, name, position, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        serverId: { type: string, format: uuid }
+        conversationId: { type: string, format: uuid }
+        name: { type: string }
+        position: { type: integer }
+        createdAt: { type: string, format: date-time }
+    RondoDetail:
+      type: object
+      required: [server, channels, members]
+      properties:
+        server: { $ref: '#/components/schemas/RondoServer' }
+        channels:
+          type: array
+          items: { $ref: '#/components/schemas/RondoChannel' }
+        members:
+          type: array
+          description: The first 100 members, ordered by join time.
+          items: { $ref: '#/components/schemas/LigoUser' }
+    RondoServerPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/RondoServer' }
+    RondoNewServer:
+      type: object
+      required: [name, description, access]
+      properties:
+        name: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 500 }
+        access: { type: string, enum: [public, private] }
+    RondoInvite:
+      type: object
+      required: [userId]
+      properties:
+        userId: { type: string, format: uuid }
+    RondoNewChannel:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 80 }
+    RondoVoiceTicket:
+      type: object
+      required: [serverUrl, participantToken]
+      properties:
+        serverUrl: { type: string, format: uri }
+        participantToken: { type: string }
+    FluoDocument:
+      type: object
+      description: Tiptap JSON document. Only paragraphs, text, line breaks and bold/italic/strike marks are accepted.
+      required: [type, content]
+      properties:
+        type: { type: string, const: doc }
+        content:
+          type: array
+          items: { type: object, additionalProperties: true }
+    FluoAuthor:
+      type: object
+      required: [id, username, displayName, following]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        following: { type: boolean }
+    FluoMedia:
+      type: object
+      required: [id, kind, mimeType, width, height, size, altText, url]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [image, video] }
+        mimeType: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        size: { type: integer, format: int64 }
+        altText: { type: string, maxLength: 500, description: Description for assistive technology, scoped to this post. }
+        url: { type: string, format: uri, description: Short lived signed Nodo URL. }
+    FluoQuote:
+      type: object
+      required: [id, author, text, media]
+      properties:
+        id: { type: string, format: uuid }
+        author: { $ref: '#/components/schemas/FluoAuthor' }
+        text: { type: string }
+        media:
+          type: array
+          items: { $ref: '#/components/schemas/FluoMedia' }
+    FluoCounts:
+      type: object
+      required: [good, bad, comments]
+      properties:
+        good: { type: integer, format: int64 }
+        bad: { type: integer, format: int64 }
+        comments: { type: integer, format: int64 }
+    FluoPost:
+      type: object
+      required: [id, author, content, text, visibility, parentId, quoteId, quote, media, counts, myReaction, saved, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        author: { $ref: '#/components/schemas/FluoAuthor' }
+        content: { $ref: '#/components/schemas/FluoDocument' }
+        text: { type: string }
+        visibility: { type: string, enum: [public, private] }
+        parentId: { type: [string, 'null'], format: uuid }
+        quoteId: { type: [string, 'null'], format: uuid }
+        quote: { anyOf: [{ $ref: '#/components/schemas/FluoQuote' }, { type: 'null' }] }
+        media:
+          type: array
+          items: { $ref: '#/components/schemas/FluoMedia' }
+        counts: { $ref: '#/components/schemas/FluoCounts' }
+        myReaction: { type: [string, 'null'], enum: [good, bad, null] }
+        saved: { type: boolean, description: Whether the current user saved this post. }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    FluoPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/FluoPost' }
+        nextCursor: { type: [string, 'null'] }
+    FluoNewPost:
+      type: object
+      required: [content, visibility]
+      properties:
+        content: { $ref: '#/components/schemas/FluoDocument' }
+        visibility: { type: string, enum: [public, private] }
+        parentId: { type: string, format: uuid }
+        quoteId: { type: string, format: uuid }
+        attachmentIds:
+          type: array
+          maxItems: 4
+          items: { type: string, format: uuid }
+        altTexts:
+          type: object
+          additionalProperties: { type: string, maxLength: 500 }
+          description: Optional descriptions keyed by attached upload ID; stored per post.
+    FluoReaction:
+      type: object
+      required: [value]
+      properties:
+        value: { type: string, enum: [good, bad] }
+    NodoUpload:
+      type: object
+      required: [id, kind, mimeType, filename, width, height, size, complete]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [image, video, file] }
+        mimeType: { type: string }
+        filename: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        size: { type: integer, format: int64 }
+        complete: { type: boolean }
+    MediaReference:
+      type: object
+      required: [referenced]
+      properties:
+        referenced: { type: boolean }
+paths:
+  /v1/uploads/{id}/meta:
+    servers:
+      - url: http://localhost:8082
+    get:
+      operationId: getNodoUploadMetadata
+      description: The owning account can read processing state for a resumable upload.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Processed upload metadata, ready for an authorized application reference.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NodoUpload' }
+        '202':
+          description: Upload or media processing is not complete.
+        default:
+          description: Invalid, expired, failed or inaccessible upload.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/internal/media/{id}/referenced:
+    get:
+      operationId: isNodoMediaReferenced
+      description: Internal Nodo cleanup gate. A missing or invalid response must preserve the file.
+      security: [{ internalToken: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Current database reference state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaReference' }
+        default:
+          description: The reference state could not be checked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /healthz:
+    get:
+      operationId: health
+      responses:
+        '204':
+          description: Process is available.
+  /v1/session:
+    post:
+      operationId: bootstrapSession
+      summary: Create or refresh the local account projection for an authenticated user.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Stable Kaordo identity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserIdentity' }
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/me:
+    get:
+      operationId: getMe
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current Kaordo identity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserIdentity' }
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: Account projection has not been created yet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts:
+    get:
+      operationId: listFluoPosts
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: feed, in: query, schema: { type: string, enum: [latest, following, mine, saved] } }
+        - { name: q, in: query, description: Search post text and author names, schema: { type: string, minLength: 2, maxLength: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
+      responses:
+        '200':
+          description: Accessible root posts in reverse chronological order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPage' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    post:
+      operationId: createFluoPost
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FluoNewPost' }
+      responses:
+        '201':
+          description: Created post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPost' }
+        default:
+          description: Validation, access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getFluoPost
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Accessible post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPost' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      operationId: deleteFluoPost
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted own post and its comments. }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts/{id}/comments:
+    get:
+      operationId: listFluoComments
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Accessible direct comments.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPage' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts/{id}/saved:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: saveFluoPost
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Saved the accessible post to the current user's private list. }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      operationId: unsaveFluoPost
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Removed the post from the current user's saved list. }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts/{id}/reaction:
+    put:
+      operationId: setFluoReaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FluoReaction' }
+      responses:
+        '200':
+          description: Updated post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPost' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      operationId: clearFluoReaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Updated post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPost' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/users/{id}/follow:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: followFluoUser
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Followed user. }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      operationId: unfollowFluoUser
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Unfollowed user. }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /v1/ligo/users:
+    get:
+      operationId: searchLigoUsers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 50 } }
+      responses:
+        '200':
+          description: Matching Kaordo accounts other than the viewer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoUserPage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations:
+    get:
+      operationId: listLigoConversations
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
+      responses:
+        '200':
+          description: Conversations containing the current user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoConversationPage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    post:
+      operationId: createLigoConversation
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoNewConversation' }
+      responses:
+        '201':
+          description: New or existing direct conversation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoConversation' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}:
+    get:
+      operationId: getLigoConversation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Accessible conversation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoConversation' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/members:
+    post:
+      operationId: addLigoMembers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoMembersRequest' }
+      responses:
+        '200':
+          description: Group with newly added members.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoConversation' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/messages:
+    get:
+      operationId: listLigoMessages
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: before, in: query, schema: { type: string, format: uuid } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
+      responses:
+        '200':
+          description: Newest first, older pages use nextCursor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoMessagePage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    post:
+      operationId: sendLigoMessage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoNewMessage' }
+      responses:
+        '201':
+          description: Sent or idempotently replayed message.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoMessage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/messages/{messageId}:
+    patch:
+      operationId: editLigoMessage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoEditMessageRequest' }
+      responses:
+        '200':
+          description: Edited message.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoMessage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      operationId: deleteLigoMessage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Message content removed, history position retained. }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/messages/{messageId}/reaction:
+    put:
+      operationId: setLigoReaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoReactionRequest' }
+      responses:
+        '200':
+          description: Message with updated reactions.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LigoMessage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/delivered:
+    put:
+      operationId: markLigoDelivered
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoReadRequest' }
+      responses:
+        '204': { description: Delivery position updated after receipt by an active client. }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/conversations/{id}/read:
+    put:
+      operationId: markLigoRead
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LigoReadRequest' }
+      responses:
+        '204': { description: Read position updated. }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/ligo/events:
+    get:
+      operationId: streamLigoEvents
+      security: [{ bearerAuth: [] }]
+      description: Short-lived SSE change hints scoped to the authenticated account. Reconnect after the stream closes.
+      responses:
+        '200':
+          description: text/event-stream with ready, update and resync events.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers:
+    get:
+      operationId: listRondoServers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 80 } }
+      responses:
+        '200':
+          description: Servers joined by the authenticated account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoServerPage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    post:
+      operationId: createRondoServer
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RondoNewServer' }
+      responses:
+        '201':
+          description: Server with its default general channel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoDetail' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/discover:
+    get:
+      operationId: discoverRondoServers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 80 } }
+      responses:
+        '200':
+          description: Public servers that the authenticated account has not joined.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoServerPage' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers/{id}:
+    get:
+      operationId: getRondoServer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Server channels and members, visible to members only.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoDetail' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers/{id}/join:
+    post:
+      operationId: joinRondoServer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Membership and channel access established for a public server.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoDetail' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers/{id}/members:
+    post:
+      operationId: inviteRondoMember
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RondoInvite' }
+      responses:
+        '200':
+          description: Updated server membership; owner only.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoDetail' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers/{id}/membership:
+    delete:
+      operationId: leaveRondoServer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Membership removed. }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/servers/{id}/channels:
+    post:
+      operationId: createRondoChannel
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RondoNewChannel' }
+      responses:
+        '201':
+          description: New channel with message history and voice room access for current members.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoChannel' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/rondo/channels/{id}/voice-token:
+    post:
+      operationId: createRondoVoiceToken
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Short lived LiveKit token for one channel voice room.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RondoVoiceTicket' }
+        default:
+          description: Error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/admin/summary:
+    get:
+      operationId: getRegadoSummary
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Product counts for an administrator.
+          content: { application/json: { schema: { $ref: '#/components/schemas/RegadoSummary' } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/users:
+    get:
+      operationId: listRegadoUsers
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: q, in: query, schema: { type: string, maxLength: 50 } }]
+      responses:
+        '200':
+          description: Up to 100 matching accounts and their usage.
+          content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/RegadoUser' } } } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/users/{id}/status:
+    patch:
+      operationId: setRegadoUserStatus
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [disabled, reason], properties: { disabled: { type: boolean }, reason: { type: string, minLength: 10, maxLength: 500 } } } } }
+      responses:
+        '200': { description: Updated account, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoUser' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/audit:
+    get:
+      operationId: listRegadoAudit
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Latest 100 administrator audit entries.
+          content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/RegadoAuditEntry' } } } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/users/{id}/role:
+    patch:
+      operationId: setRegadoUserRole
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      description: Audited administrator role change. Self changes and granting admin to disabled accounts are rejected.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [isAdmin, reason], properties: { isAdmin: { type: boolean }, reason: { type: string, minLength: 10, maxLength: 500 } } } } }
+      responses:
+        '200': { description: Updated account, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoUser' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/cases:
+    post:
+      operationId: openRegadoAccessCase
+      security: [{ bearerAuth: [] }]
+      description: Opens a 15-minute account-content access case, audits it and notifies the target in Ligo Saved messages.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [targetUserId, reason], properties: { targetUserId: { type: string, format: uuid }, reason: { type: string, minLength: 20, maxLength: 500 } } } } }
+      responses:
+        '201': { description: Opened case, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoCase' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/cases/{id}/content:
+    get:
+      operationId: readRegadoCaseContent
+      security: [{ bearerAuth: [] }]
+      description: Audited content read for the case creator before expiry. Media URLs expire after one minute.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: kind, in: query, required: true, schema: { type: string, enum: [posts, messages] } }
+        - { name: before, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Up to 50 content items, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoContentPage' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/cases/{id}/close:
+    post:
+      operationId: closeRegadoAccessCase
+      security: [{ bearerAuth: [] }]
+      description: Ends the case immediately and audits it. Previously issued media links expire within one minute.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: Case closed }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/system:
+    get:
+      operationId: getRegadoSystem
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Local host, disks, Btrfs mirror, scrub and service status, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoSystem' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/metrics:
+    get:
+      operationId: getRegadoMetrics
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: window, in: query, required: true, schema: { type: string, enum: [1h, 24h, 7d] } }]
+      responses:
+        '200': { description: Prometheus time series, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoMetrics' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/logs:
+    get:
+      operationId: getRegadoLogs
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: service, in: query, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Latest journal entries for an allowlisted service, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoLogs' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/actions/{action}:
+    post:
+      operationId: runRegadoAction
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: action, in: path, required: true, schema: { type: string, enum: [restart-nodo, restart-livekit, restart-ddclient, scrub-data] } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 10, maxLength: 500 } } } } }
+      responses:
+        '202': { description: Audited system operation accepted, content: { application/json: { schema: { type: object } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }

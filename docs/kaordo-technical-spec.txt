@@ -1,0 +1,180 @@
+KAORDO — TECHNICAL SPECIFICATION
+Updated: 2026-10-03; implemented accounts, Fluo, Ligo, Rondo and Regado
+
+Repository: independent SvelteKit applications in apps/, shared browser
+packages in packages/, Go services in services/, local service definitions in
+deploy/. The static Pages artifact combines the independently built apps under
+/, /ligo/, /fluo/, /rondo/ and /regado/.
+
+Identity provider: self-hosted Keycloak 26.7.4 in a separate PostgreSQL 18.6
+database. Keycloak owns passwords, OTP secrets, authentication sessions and
+the browser login/registration forms. The kaordo-web client is public and
+uses Authorization Code + PKCE S256. Direct password grants and implicit flow
+are disabled. New accounts must configure TOTP and save one-time recovery
+codes before a token is issued; subsequent sign-ins use the browser flow's OTP
+or recovery-code step. Keycloak protects against
+repeated failed sign-ins. Passwords and OTP codes never pass through Kerno or
+Svelte application code.
+
+UI: /login/ and /register/ are Svelte 5 pages using the shared Tailwind,
+shadcn-svelte/Rhea and Lucide system. Their actions launch the Keycloak-hosted
+forms. A Keycloak CSS theme visually aligns the hosted credential forms with
+the site. The credential form is not a Svelte component: it must run within
+Keycloak to preserve the OIDC browser flow and TOTP required action.
+
+Tokens: @kaordo/auth uses keycloak-js. Access and refresh tokens remain in
+browser memory. authorizedFetch refreshes the access token before adding its
+Bearer header. Separate applications on the same site call check-sso against
+the same Keycloak realm using the static /silent-check-sso.html callback and
+a hidden iframe where browser policy permits it. Navigation between apps still
+loads a separate app document; it does not create one SPA. A per-tab
+sessionStorage preview keeps only the verified account ID, username and display
+name visible during the next session check. It expires after one hour and is
+cleared when signed out or when Keycloak confirms there is no session. This
+preview is presentation-only: API requests and account-gated content wait for
+the current Keycloak session and Kerno response. If iframe SSO is blocked or
+Kerno cannot verify the account, the UI falls back to normal sign-in or an
+account-service error. No bearer token is written to storage or the URL. The
+kaordo-web access token contains aud=kerno-api through an explicit audience mapper, sub through
+the basic client scope, and preferred_username through the profile scope.
+Kerno checks signature, issuer, audience and expiration against Keycloak discovery/JWKS.
+The ID token is not accepted as the API access token.
+
+Kaordo users: PostgreSQL table users contains a generated UUIDv7 primary key,
+unique Keycloak subject, username, display name and timestamps. POST /v1/session
+requires a valid access token and idempotently creates/updates the local row.
+GET /v1/me reads the same row. OpenAPI is the source for generated TypeScript
+types and the openapi-fetch client. The Keycloak subject is the immutable join key;
+the Kaordo UUID is the identity used by future modules. Kerno never stores a
+password, OTP seed or refresh token. API errors are JSON and private responses
+carry Cache-Control: no-store.
+
+Fluo data: fluo_posts stores UUIDv7 IDs, Tiptap JSON restricted to paragraphs,
+text, line breaks and bold/italic/strike marks, extracted plain text, author,
+public/private visibility, optional direct-comment parent or public quote,
+and timestamps. fluo_reactions stores one good/bad reaction per user/post;
+fluo_follows maps users; fluo_post_media stores ordered upload references and
+validated width/height, MIME type and processed byte size. Public posts are
+visible to signed-in users; private posts and their comments are visible only
+to their author. Comments inherit the parent visibility. The initial
+feeds are Latest (public and own private) and Following (followed authors and
+own posts); the user's posts are shown on Profile. Reverse chronological
+(created_at, id) cursors avoid training data requirements and offset
+pagination. Deleting a post also
+deletes its comments and reactions; a quote of a deleted post remains without
+the quoted content. A 30-post/minute per-author limit protects creation.
+
+Fluo client: the standalone /fluo/ SvelteKit app uses the account gate,
+TanStack Query for cached cursor pages, TanStack Virtual for visible cards,
+Tiptap for JSON editing, PhotoSwipe for photos and Vidstack for processed
+video. @kaordo/api-client holds typed requests and pagination policy.
+@kaordo/media-client uses Pica for large image resize and Uppy/Tus for
+resumable upload. Post content is rendered as structured text, not HTML.
+
+Ligo data: ligo_conversations stores direct, group and self conversations.
+ligo_members records membership and delivery/read cursors; ligo_messages
+stores ordered UUIDv7 messages, body text, edits and deletion tombstones.
+Reactions and up to eight ordered media/file references belong to a message.
+Only members can read messages; newly added group members cannot read history
+from before their join. The group creator may add members up to 25 total.
+Client IDs make sending idempotent. Kerno sends authenticated,
+membership-scoped change hints over SSE backed by PostgreSQL notifications.
+The browser uses TanStack Query, cursor pagination and native scrolling with
+history anchoring. Attachments use Nodo and short-lived signed media URLs.
+End-to-end encryption and Matrix integration are not implemented.
+
+Rondo data: rondo_servers stores UUIDv7 server IDs, owner, public/private
+access, name and description. rondo_members stores server membership.
+rondo_channels maps each channel to a dedicated Ligo conversation; joins and
+owner invitations mirror membership into that conversation in one database
+transaction. A new member sees channel messages sent after joining. Existing
+Ligo message, reaction, edit, deletion, attachment, cursor and SSE logic is
+reused. Ligo's own conversation list excludes Rondo channels. Owners create
+channels and invite accounts; nonowners may leave, while owners must retain
+their server until ownership transfer or deletion is implemented.
+
+Rondo live room: a member may request a short-lived LiveKit join token from
+Kerno for one channel. The token allows microphone, camera, screen and screen
+audio publishing, plus subscription. The browser app uses livekit-client for
+voice and video tracks. Screen capture offers 360p/15, 720p/5, 720p/15,
+720p/30, 1080p/15, 1080p/30 and original presets; the browser and source
+determine actual quality.
+Participant video appears as compact, non-scrolling previews above the chat;
+the entire stage or an individual stream can enter fullscreen.
+The server rail, channel list and member list collapse independently. Local
+interface sounds signal connection and media-control changes and can be muted.
+The local Docker LiveKit SFU listens
+on 7880 for signaling, 7881/TCP and 7882/UDP for media. Its credentials live
+only in the ignored local environment. The local profile has no public TURN/TLS ingress. NixOS separately configures
+Caddy signaling, TURN and router media ports. There is no
+E2EE, moderation or self-hosted token revocation; removal from a server stops
+new token issuance and asks LiveKit to disconnect the current participant.
+
+Nodo media: POST/HEAD/PATCH /v1/uploads/ use tus protocol 1.0 implemented by tusd v2. Nodo asks
+Kerno /v1/me to verify the bearer token and gates each upload by owner. An
+account can store up to 200 source uploads and 2 GiB of source bytes. JPEG/PNG/WebP
+images are identified by decoded bytes (including mislabeled image MIME) and
+re-encoded to JPEG/PNG; generic files are staged unchanged for download; ffprobe validates video duration and
+dimensions before FFmpeg produces H.264/AAC MP4. GET /v1/uploads/{id}/meta
+returns processed dimensions and bytes only to the owner. Kerno checks that
+metadata before linking a file to a post or message, then issues a short-lived
+HMAC-signed URL for accessible media. GET /v1/media/{id} serves only processed
+bytes with a valid signature. Files are mode 0600 in the ignored local media
+directory. Final-reference deletion asks Nodo to purge media immediately; Nodo
+first checks Kerno for any remaining Fluo or Ligo reference. A six-hour scan removes
+unreferenced uploads older than 24 hours. On failed reference checks it keeps
+the files for a later attempt. Production media and PostgreSQL use the two-disk
+Btrfs RAID1 Data1 filesystem on NixOS. Product content encryption is not implemented.
+
+Local binding: Keycloak and application PostgreSQL bind to 127.0.0.1 in the
+development Compose file; Kerno defaults to 127.0.0.1:8081 and Nodo to
+127.0.0.1:8082. Browser origins
+are explicitly listed for the OIDC client and Kerno CORS. Production values
+use an HTTPS site origin and HTTPS Keycloak issuer behind Caddy.
+The development Compose profile and start-dev command are for local use only.
+
+Local backups: pg_dump streams both databases directly into separate encrypted
+restic snapshots and the local media directory into a third snapshot with one
+run ID. A verification command checks stored data and restores the latest
+complete set into disposable databases and a temporary media directory. Operators
+must provide a separate repository, private password file, backup schedule and
+independent key copy. The dumps and media are not transactionally atomic.
+
+Regado: /regado/ is hidden from the portal and checks the current admin role.
+It shows CPU/RAM/load/network/disk history from local Prometheus + Node Exporter,
+Data1 usage and RAID1 profiles, scrub results, physical disk SMART data,
+photo/video/file usage, per-service journal filters/downloads, user usage,
+disable/enable and administrator role controls, and administrator audit records.
+A group-protected Unix agent supports fixed service restarts and Btrfs scrub.
+A reason is required for privileged operations. A 15-minute content access case
+notifies the target in Ligo Saved messages. Reads are audited; closure ends access
+on the server. Signed media URLs remain usable for at most one minute.
+There are no user decryption keys or system escrow keys because content is not
+currently encrypted. The access-case workflow is not cryptographic key recovery.
+
+All apps use the shared @kaordo/account-ui gate backed by @kaordo/auth and
+@kaordo/api-client. The production profile is deployed on NixOS at kaordo.link.
+Self-service password recovery, email verification, a scheduled independent
+backup destination and content encryption are not implemented.
+
+REFACTORED SOURCE OWNERSHIP
+
+App controllers coordinate selection, navigation and mutations; feature panels
+and dialogs render their own views. Shared auth/account snapshot controllers,
+typed requests/query options, message-cache updates, chat composer/scrolling,
+media processing/display and LiveKit lifecycle belong in packages. Fluo post
+windows use SvelteKit shallow history; closing after a fresh document without
+return context falls back to Feed. Ligo/Rondo use one native message list and
+composer, without wheel interception or row virtualization. Regado resources
+have independent keyed/cancellable queries and disposable access-case caches.
+
+Go entry points load configuration and wire services. Kerno/Nodo drain HTTP
+before closing dependencies; Nodo cancels and joins processing/GC workers.
+PostgreSQL reads, writes, interactions, membership, receipts and administrator
+operations are separated by responsibility. Jet builds queries; pgx owns pools
+and transactions. Schema types stay generated from OpenAPI/migrated PostgreSQL.
+No wire schema or content-encryption migration accompanies this refactor.
+
+Verification commands and observed results: docs/refactoring.md. Earlier audit
+scores apply only to their dated snapshots; this specification makes no
+certification, universal bug-free, full WCAG or 100/100 quality claim.

@@ -1,0 +1,39 @@
+{
+  "name": "kaordo",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "dev": "node scripts/dev-local.mjs",
+    "dev:web": "pnpm build:pages && node scripts/serve-pages.mjs",
+    "dev:stop": "node scripts/stop-local.mjs",
+    "auth:configure": "node scripts/sync-keycloak.mjs",
+    "test:account-preview": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs",
+    "backup:local": "node scripts/local-backup.mjs backup",
+    "backup:verify": "node scripts/local-backup.mjs verify",
+    "test:backup:live": "node --test scripts/backup-live.integration.mjs",
+    "test:auth": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs scripts/api-client.test.mjs scripts/auth-config.test.mjs",
+    "test:auth:live": "node --test scripts/auth-live.integration.mjs",
+    "test:product:db": "node scripts/product-db.integration.mjs",
+    "test:fluo:db": "node scripts/product-db.integration.mjs",
+    "test:ligo:db": "node scripts/product-db.integration.mjs",
+    "test:backup": "node --test scripts/backup-config.test.mjs",
+    "test:dependencies": "node --test scripts/dependencies.test.mjs",
+    "test:dev": "node --test scripts/dev-local.test.mjs",
+    "test:media": "node --test scripts/media-upload-storage.test.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
+    "check:front": "pnpm -r --filter \"@kaordo/*\" check",
+    "test:pages": "pnpm build:pages && node --test scripts/pages.test.mjs",
+    "test:ui-layout": "node --test scripts/media-layout.test.mjs scripts/ligo-message-layout.test.mjs",
+    "test:ui-public": "pnpm build:pages && node --test scripts/ui-public.test.mjs",
+    "test:regado:ui": "node --test scripts/regado-ui.test.mjs",
+    "test:product:ui": "node --test scripts/product-ui.test.mjs",
+    "test:rondo:db": "node scripts/product-db.integration.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "playwright-core": "^1.63.0",
+    "sirv": "3.0.2"
+  }
+}
