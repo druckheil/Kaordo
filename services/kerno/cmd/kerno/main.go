@@ -76,7 +76,7 @@ func run() error {
 		return errors.New("Rondo tables are missing; apply deploy/postgres/010_rondo.sql")
 	}
 
-	provider, err := identity.NewProvider(ctx, issuer)
+	provider, err := identity.NewProviderWithBackchannel(ctx, issuer, os.Getenv("OIDC_BACKCHANNEL_URL"))
 	if err != nil {
 		return err
 	}

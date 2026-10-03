@@ -146,6 +146,7 @@ func NewHandler(config Config) (http.Handler, error) {
 	handler, err := tusd.NewHandler(tusd.Config{
 		BasePath: "/v1/uploads/", StoreComposer: composer, MaxSize: maxUploadSize,
 		DisableDownload: true, DisableTermination: true, DisableConcatenation: true,
+		RespectForwardedHeaders: true,
 		Cors:                    &tusd.CorsConfig{Disable: true},
 		NotifyCompleteUploads:   true,
 		PreUploadCreateCallback: server.beforeCreate,
@@ -286,6 +287,9 @@ func (server *Server) upload(w http.ResponseWriter, r *http.Request) {
 	ctx := context.WithValue(r.Context(), ownerKey{}, ownerID)
 	ctx = context.WithValue(ctx, reservationKey{}, reservation)
 	request := r.Clone(ctx)
+	// Caddy overwrites X-Forwarded-* but passes Forwarded through unchanged.
+	// tusd gives Forwarded precedence, so discard a client-supplied value.
+	request.Header.Del("Forwarded")
 	http.StripPrefix("/v1/uploads/", server.tus).ServeHTTP(w, request)
 }
 

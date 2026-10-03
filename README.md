@@ -44,6 +44,7 @@ pnpm build:pages
 pnpm test:pages
 pnpm test:auth
 pnpm test:dev
+pnpm test:media
 pnpm test:dependencies
 pnpm test:ui-layout
 pnpm test:ui-public

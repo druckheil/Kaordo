@@ -21,6 +21,7 @@
     "test:backup": "node --test scripts/backup-config.test.mjs",
     "test:dependencies": "node --test scripts/dependencies.test.mjs",
     "test:dev": "node --test scripts/dev-local.test.mjs",
+    "test:media": "node --test scripts/media-upload-storage.test.mjs",
     "build:pages": "node scripts/build-pages.mjs",
     "check:front": "pnpm -r --filter \"@kaordo/*\" check",
     "test:pages": "pnpm build:pages && node --test scripts/pages.test.mjs",

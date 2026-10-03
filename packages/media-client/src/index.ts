@@ -3,6 +3,7 @@ import type { NodoUpload } from '@kaordo/contracts';
 import Uppy from '@uppy/core';
 import Tus from '@uppy/tus';
 import pica from 'pica';
+import { uploadStorage } from './tus-storage.js';
 
 const imageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const videoTypes = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
@@ -59,6 +60,7 @@ export async function uploadMedia(
   const uppy = new Uppy({ autoProceed: false, restrictions: { maxNumberOfFiles: maxFiles, maxFileSize: maxVideoSize } });
   uppy.use(Tus, {
     endpoint: `${nodoBaseUrl.replace(/\/$/, '')}/v1/uploads/`,
+    urlStorage: uploadStorage(nodoBaseUrl),
     retryDelays: [0, 1000, 3000, 5000],
     onBeforeRequest: async (request) => request.setHeader('Authorization', `Bearer ${await accessToken()}`)
   });

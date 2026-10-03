@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -69,6 +70,7 @@ func NewRouterWithRondo(verify VerifyFunc, users UserStore, social FluoDependenc
 		}
 		user, err := users.Upsert(r.Context(), claims.Subject, claims.Username, claims.Name)
 		if err != nil {
+			log.Printf("account record upsert failed: %v", err)
 			writeError(w, http.StatusInternalServerError, "Could not create the account record.")
 			return
 		}

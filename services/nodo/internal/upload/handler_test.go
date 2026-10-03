@@ -26,6 +26,41 @@ import (
 	"github.com/druckheil/Kaordo/services/mediaauth"
 )
 
+func TestUploadLocationUsesProxyHTTPS(t *testing.T) {
+	handler, err := NewHandler(Config{
+		Directory: t.TempDir(), MediaKey: []byte(strings.Repeat("k", 32)),
+		VerifyOwner: func(_ context.Context, bearer string) (string, error) {
+			if bearer == "Bearer alice" {
+				return "alice", nil
+			}
+			return "", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8082/v1/uploads/", nil)
+	request.Header.Set("Authorization", "Bearer alice")
+	request.Header.Set("Tus-Resumable", "1.0.0")
+	request.Header.Set("Upload-Length", "1")
+	request.Header.Set("Upload-Metadata", "filetype "+base64.StdEncoding.EncodeToString([]byte("image/png")))
+	request.Header.Set("X-Forwarded-Host", "kaordo.link")
+	request.Header.Set("X-Forwarded-Proto", "https")
+	request.Header.Set("Forwarded", "host=attacker.example;proto=http")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("upload creation = %d, want %d: %s", response.Code, http.StatusCreated, response.Body.String())
+	}
+	location, err := url.Parse(response.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location.Scheme != "https" || location.Host != "kaordo.link" || !strings.HasPrefix(location.Path, "/v1/uploads/") {
+		t.Fatalf("upload location = %q, want https://kaordo.link/v1/uploads/<id>", location)
+	}
+}
+
 func TestResumableImageUploadAndAccess(t *testing.T) {
 	key := []byte(strings.Repeat("k", 32))
 	var referenced atomic.Bool
