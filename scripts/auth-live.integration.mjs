@@ -344,6 +344,9 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
             'Exiting fullscreen must not show an error');
         }
         await page.setViewportSize({ width: 320, height: 768 });
+        await page.waitForFunction(() => window.matchMedia('(max-width: 639px)').matches &&
+          document.querySelector('#rondo-channels') === null,
+        null, { timeout: 5_000 });
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
           'Rondo channel must reflow at 320 CSS pixels');
         await capture(page, 'rondo-channel-mobile');
