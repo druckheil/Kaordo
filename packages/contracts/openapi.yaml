@@ -19,7 +19,7 @@ components:
   schemas:
     UserIdentity:
       type: object
-      required: [id, username, displayName, createdAt]
+      required: [id, username, displayName, createdAt, isAdmin]
       properties:
         id:
           type: string
@@ -32,6 +32,8 @@ components:
         createdAt:
           type: string
           format: date-time
+        isAdmin:
+          type: boolean
     ApiError:
       type: object
       required: [error]
@@ -41,6 +43,187 @@ components:
         code:
           type: string
           description: A stable, non-sensitive reason when an authentication request is rejected.
+    RegadoSummary:
+      type: object
+      required: [users, posts, messages, uploads, mediaBytes, databaseBytes, openCases, mediaByKind]
+      properties:
+        users: { type: integer }
+        posts: { type: integer }
+        messages: { type: integer }
+        uploads: { type: integer }
+        mediaBytes: { type: integer }
+        databaseBytes: { type: integer }
+        openCases: { type: integer }
+        mediaByKind:
+          type: array
+          items:
+            type: object
+            required: [kind, objects, bytes]
+            properties:
+              kind: { type: string }
+              objects: { type: integer }
+              bytes: { type: integer }
+    RegadoUser:
+      type: object
+      required: [id, username, displayName, isAdmin, disabledAt, postCount, messageCount, mediaBytes, lastActivity, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        isAdmin: { type: boolean }
+        disabledAt: { type: [string, 'null'], format: date-time }
+        postCount: { type: integer }
+        messageCount: { type: integer }
+        mediaBytes: { type: integer }
+        lastActivity: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    RegadoAuditEntry:
+      type: object
+      required: [id, actor, target, action, reason, detail, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        actor: { type: string }
+        target: { type: [string, 'null'] }
+        action: { type: string }
+        reason: { type: string }
+        detail: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+    RegadoCase:
+      type: object
+      required: [id, targetUserId, targetUsername, reason, createdAt, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        targetUserId: { type: string, format: uuid }
+        targetUsername: { type: string }
+        reason: { type: string }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+    RegadoContentMedia:
+      type: object
+      required: [id, kind, mimeType, filename, size, url]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        mimeType: { type: string }
+        filename: { type: string }
+        size: { type: integer }
+        url: { type: string, format: uri }
+    RegadoContent:
+      type: object
+      required: [id, text, context, createdAt, media]
+      properties:
+        id: { type: string, format: uuid }
+        text: { type: string }
+        context: { type: string }
+        createdAt: { type: string, format: date-time }
+        media: { type: array, items: { $ref: '#/components/schemas/RegadoContentMedia' } }
+    RegadoContentPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/RegadoContent' } }
+        nextCursor: { type: [string, 'null'], format: uuid }
+    RegadoDisk:
+      type: object
+      required: [name, path, label, fsType, size, type, model, mountpoints]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        label: { type: [string, 'null'] }
+        fsType: { type: [string, 'null'] }
+        size: { type: integer }
+        type: { type: string }
+        model: { type: [string, 'null'] }
+        mountpoints: { type: array, items: { type: [string, 'null'] } }
+        children: { type: array, items: { $ref: '#/components/schemas/RegadoDisk' } }
+        health: { $ref: '#/components/schemas/RegadoDiskHealth' }
+    RegadoDiskHealth:
+      type: object
+      required: [state, passed, temperatureC, powerOnHours, reallocatedSectors, pendingSectors, uncorrectableSectors, checkedAt]
+      properties:
+        state: { type: string, enum: [passed, warning, failed, unavailable, standby] }
+        passed: { type: [boolean, 'null'] }
+        temperatureC: { type: [integer, 'null'] }
+        powerOnHours: { type: [integer, 'null'] }
+        reallocatedSectors: { type: [integer, 'null'] }
+        pendingSectors: { type: [integer, 'null'] }
+        uncorrectableSectors: { type: [integer, 'null'] }
+        checkedAt: { type: string, format: date-time }
+    RegadoMount:
+      type: object
+      required: [path, total, used, free]
+      properties:
+        path: { type: string }
+        total: { type: integer }
+        used: { type: integer }
+        free: { type: integer }
+    RegadoMirror:
+      type: object
+      required: [dataProfile, metadataProfile, systemProfile, mirroredPercent, deviceErrors, devicesOnline, healthy, scrub]
+      properties:
+        dataProfile: { type: string }
+        metadataProfile: { type: string }
+        systemProfile: { type: string }
+        mirroredPercent: { type: integer }
+        deviceErrors: { type: integer }
+        devicesOnline: { type: integer }
+        healthy: { type: boolean }
+        scrub: { type: string }
+    RegadoService:
+      type: object
+      required: [id, active, substate, loaded]
+      properties:
+        id: { type: string }
+        active: { type: string }
+        substate: { type: string }
+        loaded: { type: string }
+    RegadoSystem:
+      type: object
+      required: [hostname, host, time, disks, mounts, mirror, services]
+      properties:
+        hostname: { type: string }
+        host:
+          type: object
+          required: [cpuModel, logicalCores, memoryTotalBytes, uptimeSeconds, kernel]
+          properties:
+            cpuModel: { type: string }
+            logicalCores: { type: integer }
+            memoryTotalBytes: { type: integer }
+            uptimeSeconds: { type: integer }
+            kernel: { type: string }
+        time: { type: string, format: date-time }
+        disks: { type: array, items: { $ref: '#/components/schemas/RegadoDisk' } }
+        mounts: { type: array, items: { $ref: '#/components/schemas/RegadoMount' } }
+        mirror: { $ref: '#/components/schemas/RegadoMirror' }
+        services: { type: array, items: { $ref: '#/components/schemas/RegadoService' } }
+    RegadoSample:
+      type: object
+      required: [time, value]
+      properties:
+        time: { type: integer }
+        value: { type: number }
+    RegadoMetrics:
+      type: object
+      required: [window, series]
+      properties:
+        window: { type: string, enum: [1h, 24h, 7d] }
+        series:
+          type: object
+          additionalProperties: { type: array, items: { $ref: '#/components/schemas/RegadoSample' } }
+    RegadoLogs:
+      type: object
+      required: [service, items]
+      properties:
+        service: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            required: [time, priority, message]
+            properties:
+              time: { type: string }
+              priority: { type: string }
+              message: { type: string }
     LigoUser:
       type: object
       required: [id, username, displayName]
@@ -70,7 +253,7 @@ components:
         mine: { type: boolean }
     LigoMessage:
       type: object
-      required: [id, conversationId, clientId, sender, text, media, reactions, status, editedAt, deleted, createdAt]
+      required: [id, conversationId, clientId, sender, text, media, reactions, status, editedAt, deleted, systemNotice, createdAt]
       properties:
         id: { type: string, format: uuid }
         conversationId: { type: string, format: uuid }
@@ -86,6 +269,7 @@ components:
         status: { type: string, enum: [sent, delivered, read] }
         editedAt: { type: [string, 'null'], format: date-time }
         deleted: { type: boolean }
+        systemNotice: { type: boolean }
         createdAt: { type: string, format: date-time }
     LigoMessagePreview:
       type: object
@@ -1023,3 +1207,120 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/admin/summary:
+    get:
+      operationId: getRegadoSummary
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Product counts for an administrator.
+          content: { application/json: { schema: { $ref: '#/components/schemas/RegadoSummary' } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/users:
+    get:
+      operationId: listRegadoUsers
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: q, in: query, schema: { type: string, maxLength: 50 } }]
+      responses:
+        '200':
+          description: Up to 100 matching accounts and their usage.
+          content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/RegadoUser' } } } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/users/{id}/status:
+    patch:
+      operationId: setRegadoUserStatus
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [disabled, reason], properties: { disabled: { type: boolean }, reason: { type: string, minLength: 10, maxLength: 500 } } } } }
+      responses:
+        '200': { description: Updated account, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoUser' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/audit:
+    get:
+      operationId: listRegadoAudit
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Latest 100 administrator audit entries.
+          content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/RegadoAuditEntry' } } } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/users/{id}/role:
+    patch:
+      operationId: setRegadoUserRole
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      description: Audited administrator role change. Self changes and granting admin to disabled accounts are rejected.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [isAdmin, reason], properties: { isAdmin: { type: boolean }, reason: { type: string, minLength: 10, maxLength: 500 } } } } }
+      responses:
+        '200': { description: Updated account, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoUser' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/cases:
+    post:
+      operationId: openRegadoAccessCase
+      security: [{ bearerAuth: [] }]
+      description: Opens a 15-minute account-content access case, audits it and notifies the target in Ligo Saved messages.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [targetUserId, reason], properties: { targetUserId: { type: string, format: uuid }, reason: { type: string, minLength: 20, maxLength: 500 } } } } }
+      responses:
+        '201': { description: Opened case, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoCase' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/cases/{id}/content:
+    get:
+      operationId: readRegadoCaseContent
+      security: [{ bearerAuth: [] }]
+      description: Audited content read for the case creator before expiry. Media URLs expire after one minute.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: kind, in: query, required: true, schema: { type: string, enum: [posts, messages] } }
+        - { name: before, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Up to 50 content items, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoContentPage' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/cases/{id}/close:
+    post:
+      operationId: closeRegadoAccessCase
+      security: [{ bearerAuth: [] }]
+      description: Ends the case immediately and audits it. Previously issued media links expire within one minute.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: Case closed }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/system:
+    get:
+      operationId: getRegadoSystem
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Local host, disks, Btrfs mirror, scrub and service status, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoSystem' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/metrics:
+    get:
+      operationId: getRegadoMetrics
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: window, in: query, required: true, schema: { type: string, enum: [1h, 24h, 7d] } }]
+      responses:
+        '200': { description: Prometheus time series, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoMetrics' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/logs:
+    get:
+      operationId: getRegadoLogs
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: service, in: query, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Latest journal entries for an allowlisted service, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoLogs' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/actions/{action}:
+    post:
+      operationId: runRegadoAction
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: action, in: path, required: true, schema: { type: string, enum: [restart-nodo, restart-livekit, restart-ddclient, scrub-data] } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 10, maxLength: 500 } } } } }
+      responses:
+        '202': { description: Audited system operation accepted, content: { application/json: { schema: { type: object } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }

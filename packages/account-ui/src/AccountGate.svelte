@@ -24,6 +24,7 @@
   let controller: ReturnType<typeof createAccountSessionController> | undefined;
   let snapshot = $state(initialAccountSnapshot);
   let accountPreview = $state<AccountPreview | null>(null);
+  const accountDisabled = $derived(snapshot.error?.includes('This account is disabled.') ?? false);
 
   function refresh() {
     controller ??= createAccountSessionController(environment);
@@ -67,12 +68,14 @@
     aria-label={`${appName} account access`}>
     <div class="grid size-12 place-items-center rounded-2xl bg-accent"><ShieldCheckIcon class="size-6 text-primary" /></div>
     {#if compact}
-      <h2 class="mt-6 text-2xl font-bold tracking-[-0.04em]">{snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h2>
+      <h2 class="mt-6 text-2xl font-bold tracking-[-0.04em]">{accountDisabled ? 'Account disabled' : snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h2>
     {:else}
-      <h1 class="mt-6 text-2xl font-bold tracking-[-0.04em]">{snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h1>
+      <h1 class="mt-6 text-2xl font-bold tracking-[-0.04em]">{accountDisabled ? 'Account disabled' : snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h1>
     {/if}
     {#if snapshot.error}<p class="mt-4 rounded-xl bg-destructive/10 p-3 text-sm text-destructive" role="alert">{snapshot.error}</p>{/if}
-    {#if snapshot.authenticated}
+    {#if accountDisabled}
+      <p class="mt-3 text-sm leading-6 text-muted-foreground">Access to this Kaordo account has been disabled. Contact an administrator if you believe this is an error.</p>
+    {:else if snapshot.authenticated}
       <p class="mt-3 text-sm leading-6 text-muted-foreground">We could not connect your Kaordo account. Try again when the service is available.</p>
       <Button class="mt-6" variant="outline" onclick={refresh}>Retry account setup</Button>
     {:else}

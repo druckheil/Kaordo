@@ -23,6 +23,7 @@ in
   networking.firewall.allowedUDPPorts = [ 3478 7882 ];
 
   users.groups.kaordo = { };
+  users.groups.regado-agent = { };
   users.users.kaordo = {
     isSystemUser = true;
     group = "kaordo";
@@ -33,9 +34,53 @@ in
     "d ${dataRoot}/media 0700 kaordo kaordo - -"
     "d ${dataRoot}/secrets 0700 root root - -"
     "d ${dataRoot}/caddy 0700 caddy caddy - -"
+    "d ${dataRoot}/prometheus 0700 prometheus prometheus - -"
   ];
 
-  environment.systemPackages = with pkgs; [ btrfs-progs ffmpeg-headless restic ];
+  services.prometheus = {
+    enable = true;
+    listenAddress = "127.0.0.1";
+    retentionTime = "7d";
+    globalConfig.scrape_interval = "15s";
+    exporters.node = {
+      enable = true;
+      listenAddress = "127.0.0.1";
+    };
+    scrapeConfigs = [{
+      job_name = "nixos";
+      static_configs = [{ targets = [ "127.0.0.1:9100" ]; }];
+    }];
+  };
+
+  systemd.services.prometheus = {
+    unitConfig.RequiresMountsFor = dataRoot;
+    serviceConfig.BindPaths = [ "${dataRoot}/prometheus:/var/lib/prometheus2" ];
+  };
+
+  systemd.services.regado-agent = {
+    description = "Kaordo local system monitor and restricted control agent";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "local-fs.target" ];
+    unitConfig.RequiresMountsFor = dataRoot;
+    path = [ pkgs.util-linux pkgs.btrfs-progs pkgs.systemd pkgs.smartmontools ];
+    serviceConfig = {
+      User = "root";
+      Group = "regado-agent";
+      ExecStart = "${dataRoot}/bin/regado-agent";
+      Restart = "on-failure";
+      RestartSec = 5;
+      RuntimeDirectory = "regado-agent";
+      RuntimeDirectoryMode = "0750";
+      NoNewPrivileges = true;
+      PrivateNetwork = true;
+      ProtectHome = true;
+      ProtectSystem = "strict";
+      ReadWritePaths = [ dataRoot "/run/regado-agent" ];
+      RestrictAddressFamilies = [ "AF_UNIX" ];
+    };
+  };
+
+  environment.systemPackages = with pkgs; [ btrfs-progs ffmpeg-headless restic smartmontools ];
 
   services.postgresql = {
     enable = true;
@@ -129,13 +174,14 @@ in
   systemd.services.kerno = {
     description = "Kaordo API service";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" "postgresql.service" "keycloak.service" "nodo.service" ];
+    after = [ "network-online.target" "postgresql.service" "keycloak.service" "nodo.service" "regado-agent.service" ];
     wants = [ "network-online.target" ];
     requires = [ "postgresql.service" "keycloak.service" "nodo.service" ];
     unitConfig.RequiresMountsFor = dataRoot;
     serviceConfig = {
       User = "kaordo";
       Group = "kaordo";
+      SupplementaryGroups = [ "regado-agent" ];
       ExecStart = "${dataRoot}/bin/kerno";
       EnvironmentFile = "${dataRoot}/secrets/kerno.env";
       Restart = "on-failure";

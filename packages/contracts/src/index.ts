@@ -27,3 +27,7 @@ export type RondoServerPage = components['schemas']['RondoServerPage'];
 export type RondoNewServer = components['schemas']['RondoNewServer'];
 export type RondoVoiceTicket = components['schemas']['RondoVoiceTicket'];
 export type { paths };
+export type {
+  AdminSummary, AdminUser, AdminAuditEntry, AdminAccessCase, AdminContent, AdminContentPage,
+  AdminDisk, AdminSystem, AdminMetrics, AdminLogs
+} from './admin.js';

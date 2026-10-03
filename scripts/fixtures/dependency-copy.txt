@@ -1,0 +1,2 @@
+notice = `Role ${enabled ? 'granted to' : 'revoked from'} @${name}.`;
+await loadUsers();

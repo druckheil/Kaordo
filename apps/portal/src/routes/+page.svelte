@@ -14,9 +14,6 @@
     { name: 'Rondo', description: 'Build a community with channels, shared files and local voice rooms.',
       label: 'Communities', href: appPaths.rondo, icon: UsersIcon }
   ];
-  const upcoming = [
-    { name: 'Regado', description: 'Administration' }
-  ];
   const accountSession = createAccountSessionController(import.meta.env);
 
   let user = $state<UserIdentity | null>(null);
@@ -136,18 +133,6 @@
             Open {module.name} <ArrowUpRightIcon class="size-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </span>
         </a>
-      {/each}
-    </div>
-    <h3 class="mt-8 text-sm font-semibold text-muted-foreground">Coming next</h3>
-    <div class="mt-3 grid gap-3 sm:grid-cols-2">
-      {#each upcoming as module}
-        <div class="rounded-2xl border border-border bg-card/75 p-5">
-          <div class="flex items-center justify-between gap-2">
-            <h4 class="text-base font-bold">{module.name}</h4>
-            <span class="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">In development</span>
-          </div>
-          <p class="mt-2 text-sm text-muted-foreground">{module.description}</p>
-        </div>
       {/each}
     </div>
   </section>

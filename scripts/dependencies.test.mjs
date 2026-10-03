@@ -24,14 +24,24 @@ function packageName(specifier) {
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
 }
 
+function importedPackages(source) {
+  const pattern = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|@import\s*)['"]([^'"\r\n]+)['"]/g;
+  return [...source.matchAll(pattern)].map((match) => packageName(match[1])).filter(Boolean);
+}
+
+test('dependency scanning does not treat multiline UI copy as an import', () => {
+  const fixture = (name) => readFileSync(join(root, 'scripts/fixtures', name), 'utf8');
+  assert.deepEqual(importedPackages(fixture('dependency-copy.txt')), []);
+  assert.deepEqual(importedPackages(fixture('dependency-imports.txt')), ['@kaordo/ui', 'uplot', 'tailwindcss']);
+});
+
 function scanPackage(directory, sourceDirectory = join(directory, 'src')) {
   const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
   const files = sourceFiles(sourceDirectory);
   const imports = new Set();
   for (const file of files) {
     const source = readFileSync(file, 'utf8');
-    const pattern = /(?:from\s*|import\s*(?:\(\s*)?|@import\s*)['"]([^'"]+)['"]/g;
-    for (const match of source.matchAll(pattern)) imports.add(packageName(match[1]));
+    for (const name of importedPackages(source)) imports.add(name);
   }
   imports.delete(null);
   return { manifest, imports };

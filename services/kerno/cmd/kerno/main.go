@@ -16,6 +16,7 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligoevents"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
+	"github.com/druckheil/Kaordo/services/kerno/internal/regado"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondovoice"
 	"github.com/druckheil/Kaordo/services/mediaauth"
 )
@@ -75,6 +76,13 @@ func run() error {
 	if !rondoTableExists {
 		return errors.New("Rondo tables are missing; apply deploy/postgres/010_rondo.sql")
 	}
+	var adminTableExists bool
+	if err := pool.QueryRow(ctx, "SELECT to_regclass('public.admin_audit') IS NOT NULL").Scan(&adminTableExists); err != nil {
+		return err
+	}
+	if !adminTableExists {
+		return errors.New("Regado tables are missing; apply deploy/postgres/011_regado.sql")
+	}
 
 	provider, err := identity.NewProviderWithBackchannel(ctx, issuer, os.Getenv("OIDC_BACKCHANNEL_URL"))
 	if err != nil {
@@ -101,7 +109,7 @@ func run() error {
 	}
 	server := &http.Server{
 		Addr: address,
-		Handler: httpapi.NewRouterWithRondo(verify, postgres.NewUsers(pool), httpapi.FluoDependencies{
+		Handler: httpapi.NewRouterWithAdmin(verify, postgres.NewUsers(pool), httpapi.FluoDependencies{
 			Store:        postgres.NewFluo(pool),
 			Media:        httpapi.NodoClient{BaseURL: nodoInternalURL, InternalKey: mediaKey},
 			MediaBaseURL: nodoPublicURL,
@@ -114,6 +122,12 @@ func run() error {
 			MediaSignKey: mediaKey,
 		}, httpapi.RondoDependencies{
 			Store: postgres.NewRondo(pool), Voice: voice, VoiceURL: voicePublicURL,
+		}, httpapi.AdminDependencies{
+			Store:        postgres.NewAdmin(pool),
+			System:       regado.NewSystemClient("/run/regado-agent/agent.sock"),
+			Metrics:      regado.NewMetricsClient("http://127.0.0.1:9090"),
+			MediaBaseURL: nodoPublicURL,
+			MediaSignKey: mediaKey,
 		}, strings.Split(originList, ",")),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

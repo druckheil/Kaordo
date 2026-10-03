@@ -194,12 +194,21 @@ importers:
       '@kaordo/account-ui':
         specifier: workspace:*
         version: link:../../packages/account-ui
+      '@kaordo/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@kaordo/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@kaordo/links':
         specifier: workspace:*
         version: link:../../packages/links
       '@kaordo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      uplot:
+        specifier: ^1.6.32
+        version: 1.6.32
     devDependencies:
       '@sveltejs/adapter-static':
         specifier: ^3.0.10
@@ -1758,6 +1767,9 @@ packages:
     resolution: {integrity: sha512-4/u/j4FrCKdi17jaxuJA0jClGxB1AvU2hw/IuayPc4ay1XGaJs/rbb4v5WKwAjNifjmXK9PIFyuPiaK8azyR9w==}
     engines: {node: '>=14.0.0'}
 
+  uplot@1.6.32:
+    resolution: {integrity: sha512-KIMVnG68zvu5XXUbC4LQEPnhwOxBuLyW1AHtpm6IKTXImkbLgkMy+jabjLgSLMasNuGGzQm/ep3tOkyTxpiQIw==}
+
   uri-js-replace@1.0.1:
     resolution: {integrity: sha512-W+C9NWNLFOoBI2QWDp4UT9pv65r2w5Cx+3sTYFvtMdDBxkKt1syCqsUdSFAChbEe1uK5TfS04wt/nGwmaeIQ0g==}
 
@@ -2995,6 +3007,8 @@ snapshots:
     dependencies:
       acorn: 8.18.0
       webpack-virtual-modules: 0.6.2
+
+  uplot@1.6.32: {}
 
   uri-js-replace@1.0.1: {}
 

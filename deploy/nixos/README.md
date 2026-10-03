@@ -8,8 +8,11 @@ provides about 867 GiB of usable mirrored space, not 1.7 TiB. NixOS is
 installed only on the first drive.
 
 `kaordo.nix` is imported by `/etc/nixos/configuration.nix`. PostgreSQL,
-Keycloak, LiveKit, Kerno, Nodo, Caddy, and ddclient are systemd services.
-The application database, media, website, and runtime secrets live on
+Keycloak, LiveKit, Kerno, Nodo, Caddy, ddclient, Prometheus, Node Exporter,
+and the local Regado agent are systemd services. Prometheus and Node Exporter
+listen only on loopback; Kerno is their only public API gateway. The agent
+listens on a Unix socket readable by Kerno's supplementary group.
+The application database, media, website, metrics, and runtime secrets live on
 `Data1`. Static apps are served from `/srv/kaordo/www/current`.
 
 ## Network
@@ -42,9 +45,10 @@ Never put runtime secrets in Git or the Nix store. The idempotent
 file must be named `kaordo-realm.json` so Keycloak imports it. The NixOS
 module recreates its import symlink whenever Keycloak starts.
 
-Build static apps with `pnpm build:pages` and cross-build Kerno and Nodo for
-Linux amd64 with `CGO_ENABLED=0`. Copy release files to `Data1`, run
-`nixos-rebuild switch`, then run `apply-migrations.sh`. It applies the SQL
+Build static apps with `pnpm build:pages` and cross-build Kerno, Nodo, and
+Regado Agent for Linux amd64 with `CGO_ENABLED=0`. Copy release files to
+`Data1`, run `apply-migrations.sh`, then run `nixos-rebuild switch`. Migrations
+must precede a Kerno restart because Kerno requires the Regado tables. It applies the SQL
 files in numeric order as the `kaordo` database role. Running them as
 `postgres` leaves application tables inaccessible to Kerno. Run
 `sync-keycloak-production.mjs` with Node.js afterward. That script reads
@@ -52,6 +56,23 @@ the bootstrap admin credential from the mirrored root-only secret file and
 synchronizes registration, TOTP, recovery codes, scopes, and the API audience.
 Kerno uses Keycloak's local backchannel for discovery and signing keys while
 still validating the public HTTPS issuer in tokens.
+
+Regado roles are not inferred from usernames. Grant the `admin` role to the
+existing DruckHeil account by verifying its exact Kaordo user ID and
+Keycloak subject in PostgreSQL, then inserting that ID into `user_roles`.
+Do not create an administrator merely because an account chooses the name
+`DruckHeil`. Admin operations and content access cases are written to
+`admin_audit`. The only supported system actions are restart of Nodo,
+LiveKit or ddclient, and starting a Data1 Btrfs scrub.
+SMART reads use smartmontools and are cached for five minutes. Standby disks
+are not deliberately awakened for a dashboard refresh. Unsupported health
+checks are shown as unavailable rather than being counted as healthy.
+
+Prometheus uses a bind mount from `/srv/kaordo/prometheus` into its standard
+state directory. When enabling it on an existing deployment, stop Prometheus,
+copy its existing `/var/lib/prometheus2` contents into the mirrored directory,
+and apply the NixOS configuration. Preserve the old copy until the metrics
+history is verified after startup.
 
 Check `systemctl --failed`, the `ddclient.timer` and
 `btrfs-scrub-srv-kaordo.timer`, and the local service health endpoints

@@ -32,6 +32,10 @@ func NewRouterWithModules(verify VerifyFunc, users UserStore, social FluoDepende
 }
 
 func NewRouterWithRondo(verify VerifyFunc, users UserStore, social FluoDependencies, messaging LigoDependencies, communities RondoDependencies, allowedOrigins []string) http.Handler {
+	return NewRouterWithAdmin(verify, users, social, messaging, communities, AdminDependencies{}, allowedOrigins)
+}
+
+func NewRouterWithAdmin(verify VerifyFunc, users UserStore, social FluoDependencies, messaging LigoDependencies, communities RondoDependencies, admin AdminDependencies, allowedOrigins []string) http.Handler {
 	router := chi.NewRouter()
 	origins := make(map[string]bool, len(allowedOrigins))
 	for _, origin := range allowedOrigins {
@@ -74,6 +78,10 @@ func NewRouterWithRondo(verify VerifyFunc, users UserStore, social FluoDependenc
 			writeError(w, http.StatusInternalServerError, "Could not create the account record.")
 			return
 		}
+		if user.DisabledAt != nil {
+			writeError(w, http.StatusForbidden, "This account is disabled.")
+			return
+		}
 		writeJSON(w, http.StatusOK, user)
 	})
 	router.Get("/v1/me", func(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +98,10 @@ func NewRouterWithRondo(verify VerifyFunc, users UserStore, social FluoDependenc
 			writeError(w, http.StatusInternalServerError, "Could not load the account record.")
 			return
 		}
+		if user.DisabledAt != nil {
+			writeError(w, http.StatusForbidden, "This account is disabled.")
+			return
+		}
 		writeJSON(w, http.StatusOK, user)
 	})
 	if social.Store != nil {
@@ -100,6 +112,9 @@ func NewRouterWithRondo(verify VerifyFunc, users UserStore, social FluoDependenc
 	}
 	if communities.Store != nil {
 		mountRondo(router, verify, users, communities)
+	}
+	if admin.Store != nil {
+		mountAdmin(router, verify, users, admin)
 	}
 	return router
 }

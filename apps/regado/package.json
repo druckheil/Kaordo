@@ -24,7 +24,10 @@
   },
   "dependencies": {
     "@kaordo/account-ui": "workspace:*",
+    "@kaordo/api-client": "workspace:*",
+    "@kaordo/contracts": "workspace:*",
     "@kaordo/links": "workspace:*",
-    "@kaordo/ui": "workspace:*"
+    "@kaordo/ui": "workspace:*",
+    "uplot": "^1.6.32"
   }
 }

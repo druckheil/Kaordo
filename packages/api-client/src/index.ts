@@ -4,6 +4,7 @@ import createClient from 'openapi-fetch';
 export { createFluoApi, feedOptions, commentsOptions, type Feed, type FluoApi } from './fluo.ts';
 export { createLigoApi, ligoConversationOptions, ligoConversationDetailOptions, ligoUserSearchOptions, ligoMessageOptions, type LigoApi } from './ligo.ts';
 export { createRondoApi, rondoServersOptions, rondoDiscoverOptions, rondoServerOptions, type RondoApi } from './rondo.ts';
+export { createAdminApi, type AdminApi } from './admin.ts';
 
 export async function bootstrapIdentity(
   apiBaseUrl: string,

@@ -53,7 +53,7 @@ const conversationSelect = `
 		 FROM ligo_messages m WHERE m.conversation_id = c.id
 		 AND m.created_at >= viewer.joined_at ORDER BY m.id DESC LIMIT 1),
 		(SELECT count(*)::int FROM ligo_messages m
-		 WHERE m.conversation_id = c.id AND m.sender_id <> $1::uuid
+		 WHERE m.conversation_id = c.id AND (m.sender_id <> $1::uuid OR m.system_notice)
 		 AND m.created_at >= viewer.joined_at
 		 AND (viewer.last_read_message_id IS NULL OR m.id > viewer.last_read_message_id))
 	FROM ligo_conversations c
@@ -230,7 +230,7 @@ func (store *Ligo) AddMembers(ctx context.Context, actorID, conversationID strin
 
 const messageSelect = `
 	SELECT m.id::text, m.conversation_id::text, m.client_id::text, m.body, m.created_at,
-		m.edited_at, m.deleted_at IS NOT NULL,
+		m.edited_at, m.deleted_at IS NOT NULL, m.system_notice,
 		u.id::text, u.username, u.display_name,
 		COALESCE((SELECT jsonb_agg(jsonb_build_object('id', media.upload_id::text,
 			'kind', media.kind, 'mimeType', media.mime_type, 'filename', media.filename, 'width', media.width,
@@ -258,7 +258,7 @@ func scanMessage(row pgx.Row) (ligo.Message, error) {
 	var item ligo.Message
 	var media, reactions []byte
 	err := row.Scan(&item.ID, &item.ConversationID, &item.ClientID, &item.Text, &item.CreatedAt,
-		&item.EditedAt, &item.Deleted,
+		&item.EditedAt, &item.Deleted, &item.SystemNotice,
 		&item.Sender.ID, &item.Sender.Username, &item.Sender.DisplayName, &media, &reactions, &item.Status)
 	if err != nil {
 		return item, err
@@ -435,7 +435,7 @@ func (store *Ligo) Edit(ctx context.Context, actorID, conversationID, messageID,
 	err = tx.QueryRow(ctx, `SELECT m.id::text FROM ligo_messages m
 		JOIN ligo_members member ON member.conversation_id = m.conversation_id AND member.user_id = $1::uuid
 		WHERE m.id = $2::uuid AND m.conversation_id = $3::uuid
-		AND m.sender_id = $1::uuid AND m.deleted_at IS NULL FOR UPDATE OF m`,
+		AND m.sender_id = $1::uuid AND m.deleted_at IS NULL AND NOT m.system_notice FOR UPDATE OF m`,
 		actorID, messageID, conversationID).Scan(&locked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ligo.Message{}, ligo.ErrNotFound
@@ -479,7 +479,7 @@ func (store *Ligo) DeleteMessage(ctx context.Context, actorID, conversationID, m
 	err = tx.QueryRow(ctx, `SELECT m.deleted_at IS NOT NULL FROM ligo_messages m
 		JOIN ligo_members member ON member.conversation_id = m.conversation_id AND member.user_id = $1::uuid
 		WHERE m.id = $2::uuid AND m.conversation_id = $3::uuid
-		AND m.sender_id = $1::uuid FOR UPDATE OF m`, actorID, messageID, conversationID).Scan(&deleted)
+		AND m.sender_id = $1::uuid AND NOT m.system_notice FOR UPDATE OF m`, actorID, messageID, conversationID).Scan(&deleted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ligo.ErrNotFound
 	}
@@ -560,7 +560,7 @@ func (store *Ligo) SetReaction(ctx context.Context, actorID, conversationID, mes
 	err = tx.QueryRow(ctx, `SELECT m.id::text FROM ligo_messages m
 		JOIN ligo_members member ON member.conversation_id = m.conversation_id AND member.user_id = $1::uuid
 		WHERE m.id = $2::uuid AND m.conversation_id = $3::uuid
-		AND m.created_at >= member.joined_at AND m.deleted_at IS NULL FOR SHARE OF m`,
+		AND m.created_at >= member.joined_at AND m.deleted_at IS NULL AND NOT m.system_notice FOR SHARE OF m`,
 		actorID, messageID, conversationID).Scan(&locked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ligo.Message{}, ligo.ErrNotFound

@@ -121,14 +121,14 @@ bytes with a valid signature. Files are mode 0600 in the ignored local media
 directory. Final-reference deletion asks Nodo to purge media immediately; Nodo
 first checks Kerno for any remaining Fluo or Ligo reference. A six-hour scan removes
 unreferenced uploads older than 24 hours. On failed reference checks it keeps
-the files for a later attempt. Disk mirroring, at-rest encryption and remote
-deployment are not implemented yet.
+the files for a later attempt. Production media and PostgreSQL use the two-disk
+Btrfs RAID1 Data1 filesystem on NixOS. Product content encryption is not implemented.
 
 Local binding: Keycloak and application PostgreSQL bind to 127.0.0.1 in the
 development Compose file; Kerno defaults to 127.0.0.1:8081 and Nodo to
 127.0.0.1:8082. Browser origins
 are explicitly listed for the OIDC client and Kerno CORS. Production values
-require an HTTPS site origin and an HTTPS Keycloak issuer with tunnel ingress.
+use an HTTPS site origin and HTTPS Keycloak issuer behind Caddy.
 The development Compose profile and start-dev command are for local use only.
 
 Local backups: pg_dump streams both databases directly into separate encrypted
@@ -138,7 +138,19 @@ complete set into disposable databases and a temporary media directory. Operator
 must provide a separate repository, private password file, backup schedule and
 independent key copy. The dumps and media are not transactionally atomic.
 
-Scope boundary: Regado remains a scaffold. All apps use the
-shared @kaordo/account-ui gate backed by @kaordo/auth and @kaordo/api-client.
-No module role policy, self-service password recovery, email verification,
-automated backup schedule or public deployment is implemented in this slice.
+Regado: /regado/ is hidden from the portal and checks the current admin role.
+It shows CPU/RAM/load/network/disk history from local Prometheus + Node Exporter,
+Data1 usage and RAID1 profiles, scrub results, physical disk SMART data,
+photo/video/file usage, per-service journal filters/downloads, user usage,
+disable/enable and administrator role controls, and administrator audit records.
+A group-protected Unix agent supports fixed service restarts and Btrfs scrub.
+A reason is required for privileged operations. A 15-minute content access case
+notifies the target in Ligo Saved messages. Reads are audited; closure ends access
+on the server. Signed media URLs remain usable for at most one minute.
+There are no user decryption keys or system escrow keys because content is not
+currently encrypted. The access-case workflow is not cryptographic key recovery.
+
+All apps use the shared @kaordo/account-ui gate backed by @kaordo/auth and
+@kaordo/api-client. The production profile is deployed on NixOS at kaordo.link.
+Self-service password recovery, email verification, a scheduled independent
+backup destination and content encryption are not implemented.

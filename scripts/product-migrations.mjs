@@ -8,5 +8,6 @@ export const productMigrations = [
   '007_ligo.sql',
   '008_ligo_self.sql',
   '009_ligo_message_actions.sql',
-  '010_rondo.sql'
+  '010_rondo.sql',
+  '011_regado.sql'
 ];

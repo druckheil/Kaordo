@@ -14,20 +14,21 @@ function pageAt(route) {
   return readFileSync(file, 'utf8');
 }
 
-test('every application has a prerendered page and a route home', () => {
+test('public applications have prerendered pages; Regado stays out of the app directory', () => {
   const portal = pageAt('/');
   assert.match(portal, /href="\/fluo\/"/);
-  assert.match(pageAt('/regado/'), /href="\/"/);
+  assert.match(pageAt('/regado/'), /Checking your account/);
+  assert.match(readFileSync(resolve(import.meta.dirname, '../apps/regado/src/lib/RegadoDashboard.svelte'), 'utf8'), /appPaths\.portal/);
   for (const app of ['ligo', 'fluo', 'rondo']) {
     assert.match(pageAt(`/${app}/`), /Checking your account/);
     const component = app[0].toUpperCase() + app.slice(1) + 'App';
     const source = readFileSync(resolve(import.meta.dirname, `../apps/${app}/src/lib/${component}.svelte`), 'utf8');
     assert.match(source, /appPaths\.portal/);
   }
-  for (const name of ['Ligo', 'Rondo', 'Regado']) {
+  for (const name of ['Ligo', 'Rondo']) {
     assert.match(portal, new RegExp(name));
   }
-  assert.match(portal, /In development/);
+  assert.doesNotMatch(portal, /Regado|In development/);
 });
 
 test('authentication entry points are prerendered without showing guest actions before session resolution', () => {

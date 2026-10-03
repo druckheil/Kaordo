@@ -4,4 +4,5 @@ use (
 	./services/kerno
 	./services/mediaauth
 	./services/nodo
+	./services/regado-agent
 )

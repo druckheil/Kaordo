@@ -68,6 +68,10 @@ func (h fluoHandler) actor(w http.ResponseWriter, r *http.Request) (postgres.Use
 		writeError(w, http.StatusInternalServerError, "Could not load your account.")
 		return postgres.User{}, false
 	}
+	if actor.DisabledAt != nil {
+		writeError(w, http.StatusForbidden, "This account is disabled.")
+		return postgres.User{}, false
+	}
 	return actor, true
 }
 

@@ -478,6 +478,202 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRegadoUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/users/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["setRegadoUserStatus"];
+        trace?: never;
+    };
+    "/v1/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRegadoAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/users/{id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Audited administrator role change. Self changes and granting admin to disabled accounts are rejected. */
+        patch: operations["setRegadoUserRole"];
+        trace?: never;
+    };
+    "/v1/admin/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Opens a 15-minute account-content access case, audits it and notifies the target in Ligo Saved messages. */
+        post: operations["openRegadoAccessCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/cases/{id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Audited content read for the case creator before expiry. Media URLs expire after one minute. */
+        get: operations["readRegadoCaseContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/cases/{id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Ends the case immediately and audits it. Previously issued media links expire within one minute. */
+        post: operations["closeRegadoAccessCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/system": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoSystem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/actions/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["runRegadoAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -492,11 +688,172 @@ export interface components {
             displayName: string;
             /** Format: date-time */
             createdAt: string;
+            isAdmin: boolean;
         };
         ApiError: {
             error: string;
             /** @description A stable, non-sensitive reason when an authentication request is rejected. */
             code?: string;
+        };
+        RegadoSummary: {
+            users: number;
+            posts: number;
+            messages: number;
+            uploads: number;
+            mediaBytes: number;
+            databaseBytes: number;
+            openCases: number;
+            mediaByKind: {
+                kind: string;
+                objects: number;
+                bytes: number;
+            }[];
+        };
+        RegadoUser: {
+            /** Format: uuid */
+            id: string;
+            username: string;
+            displayName: string;
+            isAdmin: boolean;
+            /** Format: date-time */
+            disabledAt: string | null;
+            postCount: number;
+            messageCount: number;
+            mediaBytes: number;
+            /** Format: date-time */
+            lastActivity: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        RegadoAuditEntry: {
+            /** Format: uuid */
+            id: string;
+            actor: string;
+            target: string | null;
+            action: string;
+            reason: string;
+            detail: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+        };
+        RegadoCase: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            targetUserId: string;
+            targetUsername: string;
+            reason: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        RegadoContentMedia: {
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            mimeType: string;
+            filename: string;
+            size: number;
+            /** Format: uri */
+            url: string;
+        };
+        RegadoContent: {
+            /** Format: uuid */
+            id: string;
+            text: string;
+            context: string;
+            /** Format: date-time */
+            createdAt: string;
+            media: components["schemas"]["RegadoContentMedia"][];
+        };
+        RegadoContentPage: {
+            items: components["schemas"]["RegadoContent"][];
+            /** Format: uuid */
+            nextCursor: string | null;
+        };
+        RegadoDisk: {
+            name: string;
+            path: string;
+            label: string | null;
+            fsType: string | null;
+            size: number;
+            type: string;
+            model: string | null;
+            mountpoints: (string | null)[];
+            children?: components["schemas"]["RegadoDisk"][];
+            health?: components["schemas"]["RegadoDiskHealth"];
+        };
+        RegadoDiskHealth: {
+            /** @enum {string} */
+            state: "passed" | "warning" | "failed" | "unavailable" | "standby";
+            passed: boolean | null;
+            temperatureC: number | null;
+            powerOnHours: number | null;
+            reallocatedSectors: number | null;
+            pendingSectors: number | null;
+            uncorrectableSectors: number | null;
+            /** Format: date-time */
+            checkedAt: string;
+        };
+        RegadoMount: {
+            path: string;
+            total: number;
+            used: number;
+            free: number;
+        };
+        RegadoMirror: {
+            dataProfile: string;
+            metadataProfile: string;
+            systemProfile: string;
+            mirroredPercent: number;
+            deviceErrors: number;
+            devicesOnline: number;
+            healthy: boolean;
+            scrub: string;
+        };
+        RegadoService: {
+            id: string;
+            active: string;
+            substate: string;
+            loaded: string;
+        };
+        RegadoSystem: {
+            hostname: string;
+            host: {
+                cpuModel: string;
+                logicalCores: number;
+                memoryTotalBytes: number;
+                uptimeSeconds: number;
+                kernel: string;
+            };
+            /** Format: date-time */
+            time: string;
+            disks: components["schemas"]["RegadoDisk"][];
+            mounts: components["schemas"]["RegadoMount"][];
+            mirror: components["schemas"]["RegadoMirror"];
+            services: components["schemas"]["RegadoService"][];
+        };
+        RegadoSample: {
+            time: number;
+            value: number;
+        };
+        RegadoMetrics: {
+            /** @enum {string} */
+            window: "1h" | "24h" | "7d";
+            series: {
+                [key: string]: components["schemas"]["RegadoSample"][];
+            };
+        };
+        RegadoLogs: {
+            service: string;
+            items: {
+                time: string;
+                priority: string;
+                message: string;
+            }[];
         };
         LigoUser: {
             /** Format: uuid */
@@ -541,6 +898,7 @@ export interface components {
             /** Format: date-time */
             editedAt: string | null;
             deleted: boolean;
+            systemNotice: boolean;
             /** Format: date-time */
             createdAt: string;
         };
@@ -2004,6 +2362,403 @@ export interface operations {
                 };
             };
             /** @description Error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getRegadoSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Product counts for an administrator. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoSummary"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listRegadoUsers: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Up to 100 matching accounts and their usage. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["RegadoUser"][];
+                    };
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setRegadoUserStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    disabled: boolean;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoUser"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listRegadoAudit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Latest 100 administrator audit entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["RegadoAuditEntry"][];
+                    };
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setRegadoUserRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    isAdmin: boolean;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoUser"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    openRegadoAccessCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    targetUserId: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Opened case */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoCase"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    readRegadoCaseContent: {
+        parameters: {
+            query: {
+                kind: "posts" | "messages";
+                before?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Up to 50 content items */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoContentPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    closeRegadoAccessCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Case closed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getRegadoSystem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Local host */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoSystem"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getRegadoMetrics: {
+        parameters: {
+            query: {
+                window: "1h" | "24h" | "7d";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prometheus time series */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoMetrics"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getRegadoLogs: {
+        parameters: {
+            query: {
+                service: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Latest journal entries for an allowlisted service */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoLogs"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    runRegadoAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action: "restart-nodo" | "restart-livekit" | "restart-ddclient" | "scrub-data";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Audited system operation accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Error */
             default: {
                 headers: {
                     [name: string]: unknown;

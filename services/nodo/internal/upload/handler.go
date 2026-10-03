@@ -233,6 +233,9 @@ func (server *Server) identity(ctx context.Context, bearer string) (string, int)
 	if response.StatusCode == http.StatusUnauthorized {
 		return "", http.StatusUnauthorized
 	}
+	if response.StatusCode == http.StatusForbidden {
+		return "", http.StatusForbidden
+	}
 	if response.StatusCode != http.StatusOK {
 		return "", http.StatusServiceUnavailable
 	}

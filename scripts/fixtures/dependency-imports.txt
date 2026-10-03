@@ -1,0 +1,3 @@
+import { x } from '@kaordo/ui';
+import('uplot');
+@import 'tailwindcss';

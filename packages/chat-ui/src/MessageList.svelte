@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import type { LigoMessage, LigoReaction } from '@kaordo/contracts';
-  import { Button, ChevronLeftIcon, CircleIcon, MessageCircleIcon } from '@kaordo/ui';
+  import { Button, ChevronLeftIcon, CircleIcon, MessageCircleIcon, ShieldCheckIcon } from '@kaordo/ui';
   import DraftAttachment from './DraftAttachment.svelte';
   import MessageBubble from './MessageBubble.svelte';
   import { startsSenderRun } from './message-grouping';
@@ -122,7 +122,11 @@
         {@const continuesRun = item.kind === 'sent' && previous?.kind === 'sent' &&
           !startsSenderRun(previous.message, item.message)}
         <div data-index={index} class={`w-full ${continuesRun ? 'pb-1' : 'pb-2.5'}`}>
-          {#if item.kind === 'sent'}
+          {#if item.kind === 'sent' && item.message.systemNotice}
+            <p class="mx-auto max-w-xl rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-center text-sm leading-6 text-foreground" role="status">
+              <ShieldCheckIcon class="mr-1 inline size-4 align-[-2px] text-primary" />{item.message.text}
+            </p>
+          {:else if item.kind === 'sent'}
             <MessageBubble message={item.message} {viewerId} {personal} {showReceipt}
               showSender={group && item.message.sender.id !== viewerId &&
                 startsSenderRun(previous?.kind === 'sent' ? previous.message : null, item.message)}

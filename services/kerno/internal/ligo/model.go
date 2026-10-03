@@ -52,6 +52,7 @@ type Message struct {
 	Status         string     `json:"status"`
 	EditedAt       *time.Time `json:"editedAt"`
 	Deleted        bool       `json:"deleted"`
+	SystemNotice   bool       `json:"systemNotice"`
 	CreatedAt      time.Time  `json:"createdAt"`
 }
 

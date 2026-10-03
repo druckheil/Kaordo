@@ -31,7 +31,7 @@ try {
     await migrate(`../deploy/postgres/${migration}`);
   }
   const dsn = `postgres://kaordo:${encodeURIComponent(config.KAORDO_DB_PASSWORD)}@127.0.0.1:5432/${database}?sslmode=disable`;
-  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-cover', '-run', 'Test(Fluo|Ligo)', '-count=1', '-v'], {
+  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-cover', '-run', 'Test(Fluo|Ligo|Admin)', '-count=1', '-v'], {
     env: { ...process.env, KAORDO_TEST_DATABASE_URL: dsn }
   });
   process.stdout.write(stdout);
