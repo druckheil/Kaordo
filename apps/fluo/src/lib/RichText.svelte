@@ -1,20 +1,29 @@
 <script lang="ts">
+	// Renders the supported safe subset of a Fluo rich-text document
+
   import type { FluoDocument } from '@kaordo/contracts';
 
   let { content }: { content: FluoDocument } = $props();
-  type Inline = { type: 'text' | 'hardBreak'; text?: string; marks: string[] };
-  function paragraphs(doc: FluoDocument): Inline[][] {
-    return (doc.content ?? []).map((block) => {
-      if (!block || block.type !== 'paragraph' || !Array.isArray(block.content)) return [];
-      const line: Inline[] = [];
-      for (const item of block.content) {
-        if (!item || typeof item !== 'object') continue;
-        const value = item as { type?: string; text?: string; marks?: { type?: string }[] };
-        if (value.type !== 'text' && value.type !== 'hardBreak') continue;
-        line.push({ type: value.type, text: value.text, marks: value.marks?.map((mark) => mark.type ?? '') ?? [] });
-      }
-      return line;
-    }).filter((line) => line.length > 0);
+  type InlineText = { type: 'text' | 'hardBreak'; text?: string; marks: string[] };
+
+  function paragraphs(doc: FluoDocument): InlineText[][] {
+    return (doc.content ?? [])
+      .map((block) => {
+        if (!block || block.type !== 'paragraph' || !Array.isArray(block.content)) return [];
+        const line: InlineText[] = [];
+        for (const item of block.content) {
+          if (!item || typeof item !== 'object') continue;
+          const value = item as { type?: string; text?: string; marks?: { type?: string }[] };
+          if (value.type !== 'text' && value.type !== 'hardBreak') continue;
+          line.push({
+            type: value.type,
+            text: value.text,
+            marks: value.marks?.map((mark) => mark.type ?? '') ?? [],
+          });
+        }
+        return line;
+      })
+      .filter((line) => line.length > 0);
   }
   const lines = $derived(paragraphs(content));
 </script>

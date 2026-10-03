@@ -83,3 +83,9 @@ RAID1 protects against one data disk failing. It does not protect against
 deletion, corruption propagated to both disks, or loss of the host. Configure
 an encrypted restic repository on an independent third device or remote
 storage before treating the deployment as backed up.
+
+## Source and verification boundaries
+
+Service entry points now separate configuration/wiring from feature behavior. Kerno/Nodo drain HTTP before closing pools and background processing; service paths and environment contracts stay compatible with this module. The maintainability refactor does not itself rebuild or deploy the remote host. Run the [local verification matrix](../../docs/refactoring.md) before an explicitly authorized release and recheck host health afterward.
+
+The network observations above describe provisioning, not a fresh reachability check. Recheck router shares, DNS and TURN from an external network before making public call-availability claims.

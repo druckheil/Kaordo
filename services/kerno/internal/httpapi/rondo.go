@@ -1,5 +1,6 @@
 package httpapi
 
+// Handles Rondo server, membership, channel, and voice requests
 import (
 	"context"
 	"errors"
@@ -49,24 +50,7 @@ func mountRondo(router chi.Router, verify VerifyFunc, users UserStore, deps Rond
 }
 
 func (h rondoHandler) actor(w http.ResponseWriter, r *http.Request) (postgres.User, bool) {
-	claims, ok := authenticate(w, r, h.verify)
-	if !ok {
-		return postgres.User{}, false
-	}
-	actor, err := h.users.BySubject(r.Context(), claims.Subject)
-	if postgres.IsNotFound(err) {
-		writeError(w, http.StatusConflict, "Start a Kaordo account session before using Rondo.")
-		return postgres.User{}, false
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load your account.")
-		return postgres.User{}, false
-	}
-	if actor.DisabledAt != nil {
-		writeError(w, http.StatusForbidden, "This account is disabled.")
-		return postgres.User{}, false
-	}
-	return actor, true
+	return authenticatedActor(w, r, h.verify, h.users, "Start a Kaordo account session before using Rondo.")
 }
 
 func rondoError(w http.ResponseWriter, err error) {
@@ -152,10 +136,7 @@ func (h rondoHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Name, input.Description = strings.TrimSpace(input.Name), strings.TrimSpace(input.Description)
-	if !rondoName(input.Name, 100) ||
-		utf8.RuneCountInString(input.Description) > 500 ||
-		strings.ContainsRune(input.Name+input.Description, 0) ||
-		(input.Access != "public" && input.Access != "private") {
+	if !validNewServer(input) {
 		writeError(w, http.StatusBadRequest, "Use a name up to 100 characters, a description up to 500 characters and public or private access.")
 		return
 	}
@@ -166,6 +147,13 @@ func (h rondoHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Location", "/v1/rondo/servers/"+item.Server.ID)
 	writeJSON(w, http.StatusCreated, item)
+}
+
+func validNewServer(input rondo.NewServer) bool {
+	return rondoName(input.Name, 100) &&
+		utf8.RuneCountInString(input.Description) <= 500 &&
+		!strings.ContainsRune(input.Name+input.Description, 0) &&
+		(input.Access == "public" || input.Access == "private")
 }
 
 func (h rondoHandler) get(w http.ResponseWriter, r *http.Request) {
@@ -243,30 +231,44 @@ func (h rondoHandler) leave(w http.ResponseWriter, r *http.Request) {
 		rondoError(w, err)
 		return
 	}
-	if h.deps.Voice != nil {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
-		defer cancel()
-		var removals sync.WaitGroup
-		limit := make(chan struct{}, 8)
-	removeChannels:
-		for _, channel := range channels {
-			select {
-			case limit <- struct{}{}:
-			case <-ctx.Done():
-				break removeChannels
-			}
-			removals.Add(1)
-			go func() {
-				defer removals.Done()
-				defer func() { <-limit }()
-				if err := h.deps.Voice.Remove(ctx, channel, actor.ID); err != nil {
-					log.Printf("Rondo voice removal failed for channel %s: %v", channel, err)
-				}
-			}()
-		}
-		removals.Wait()
-	}
+	h.removeVoiceMemberships(r.Context(), actor.ID, channels)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h rondoHandler) removeVoiceMemberships(parent context.Context, userID string, channels []string) {
+	if h.deps.Voice == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
+	defer cancel()
+
+	var removals sync.WaitGroup
+	limit := make(chan struct{}, 8)
+	for _, channelID := range channels {
+		if !acquireVoiceRemovalSlot(ctx, limit) {
+			break
+		}
+		removals.Add(1)
+		go h.removeVoiceMember(ctx, &removals, limit, channelID, userID)
+	}
+	removals.Wait()
+}
+
+func acquireVoiceRemovalSlot(ctx context.Context, limit chan struct{}) bool {
+	select {
+	case limit <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (h rondoHandler) removeVoiceMember(ctx context.Context, removals *sync.WaitGroup, limit chan struct{}, channelID, userID string) {
+	defer removals.Done()
+	defer func() { <-limit }()
+	if err := h.deps.Voice.Remove(ctx, channelID, userID); err != nil {
+		log.Printf("Rondo voice removal failed for channel %s: %v", channelID, err)
+	}
 }
 
 func (h rondoHandler) createChannel(w http.ResponseWriter, r *http.Request) {

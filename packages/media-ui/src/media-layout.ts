@@ -1,5 +1,13 @@
+// Defines shared media types, frame sizing and gallery layout rules
 export interface MediaAttachment {
-  id: string; kind: 'image' | 'video'; mimeType: string; width: number; height: number; size: number; altText: string; url: string;
+  id: string;
+  kind: 'image' | 'video';
+  mimeType: string;
+  width: number;
+  height: number;
+  size: number;
+  altText: string;
+  url: string;
 }
 
 export const minMediaRatio = 0.5;
@@ -8,10 +16,10 @@ export const maxMediaHeightRem = 34;
 export const mediaGapPx = 8;
 
 export function mediaFrameRatio(item: Pick<MediaAttachment, 'width' | 'height'>): number {
-  const natural = item.width / item.height;
-  return Number.isFinite(natural) && natural > 0
-    ? Math.min(maxMediaRatio, Math.max(minMediaRatio, natural))
-    : 1;
+  const naturalRatio = item.width / item.height;
+  if (!Number.isFinite(naturalRatio) || naturalRatio <= 0) return 1;
+
+  return Math.min(maxMediaRatio, Math.max(minMediaRatio, naturalRatio));
 }
 
 export function mediaFrameHeightPx(
@@ -20,9 +28,52 @@ export function mediaFrameHeightPx(
   remPx = 16
 ): number {
   if (!media.length || availableWidth <= 0) return 0;
+
   const ratios = media.map(mediaFrameRatio);
   const maxHeight = maxMediaHeightRem * remPx;
-  if (ratios.length === 1) return Math.min(availableWidth, maxHeight * ratios[0]) / ratios[0];
-  const stripWidth = maxHeight * ratios.reduce((sum, ratio) => sum + ratio, 0) + mediaGapPx * (ratios.length - 1);
-  return Math.min(maxHeight, Math.min(availableWidth, stripWidth) / Math.max(1, ...ratios));
+  if (ratios.length === 1) return singleMediaHeight(ratios[0], availableWidth, maxHeight);
+
+  return mediaStripHeight(ratios, availableWidth, maxHeight);
+}
+
+export function mediaStripMaxWidth(ratios: readonly number[]): string {
+  const mediaWidthRem = maxMediaHeightRem * ratios.reduce((sum, ratio) => sum + ratio, 0);
+  const gapWidthPx = Math.max(0, ratios.length - 1) * mediaGapPx;
+
+  return `calc(${mediaWidthRem}rem + ${gapWidthPx}px)`;
+}
+
+export function mediaPositionLabel(visibleIndexes: readonly number[], total: number): string {
+  const firstVisible = visibleIndexes[0] ?? 0;
+  const lastVisible = visibleIndexes[visibleIndexes.length - 1] ?? firstVisible;
+
+  if (visibleIndexes.length > 1) return `${firstVisible + 1}–${lastVisible + 1} / ${total}`;
+  return `${firstVisible + 1} / ${total}`;
+}
+
+export function mediaGridColumns(count: number): string {
+  switch (count) {
+    case 1:
+      return 'grid-cols-1';
+    case 3:
+      return 'grid-cols-2 sm:grid-cols-3';
+    case 2:
+    case 4:
+      return 'grid-cols-2';
+    default:
+      return 'grid-cols-2 sm:grid-cols-4';
+  }
+}
+
+function singleMediaHeight(ratio: number, availableWidth: number, maxHeight: number): number {
+  return Math.min(availableWidth, maxHeight * ratio) / ratio;
+}
+
+function mediaStripHeight(ratios: readonly number[], availableWidth: number, maxHeight: number): number {
+  const stripWidth = maxHeight * ratios.reduce((sum, ratio) => sum + ratio, 0);
+  const totalGapWidth = mediaGapPx * (ratios.length - 1);
+  const widestFrameRatio = Math.max(1, ...ratios);
+  const availableStripWidth = Math.min(availableWidth, stripWidth + totalGapWidth);
+
+  return Math.min(maxHeight, availableStripWidth / widestFrameRatio);
 }

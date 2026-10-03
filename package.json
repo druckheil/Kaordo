@@ -27,7 +27,9 @@
     "test:pages": "pnpm build:pages && node --test scripts/pages.test.mjs",
     "test:ui-layout": "node --test scripts/media-layout.test.mjs scripts/ligo-message-layout.test.mjs",
     "test:ui-public": "pnpm build:pages && node --test scripts/ui-public.test.mjs",
-    "test:regado:ui": "node --test scripts/regado-ui.test.mjs"
+    "test:regado:ui": "node --test scripts/regado-ui.test.mjs",
+    "test:product:ui": "node --test scripts/product-ui.test.mjs",
+    "test:rondo:db": "node scripts/product-db.integration.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

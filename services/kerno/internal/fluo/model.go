@@ -1,5 +1,6 @@
 package fluo
 
+// Defines Fluo models, cursor encoding, and persistence contracts
 import (
 	"context"
 	"encoding/base64"
@@ -9,16 +10,24 @@ import (
 	"time"
 )
 
+const maxEncodedCursorLength = 256
+
 var (
 	ErrNotFound        = errors.New("post not found")
 	ErrInvalidRelation = errors.New("post cannot reference that item")
 	ErrSelfFollow      = errors.New("you cannot follow yourself")
 	ErrRateLimited     = errors.New("posting too quickly")
 	ErrMediaOwner      = errors.New("media upload belongs to another account")
-	uuidPattern        = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 
-func ValidID(id string) bool { return uuidPattern.MatchString(id) }
+var fluoIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+var (
+	errCursorTooLong = errors.New("cursor is too long")
+	errInvalidCursor = errors.New("invalid cursor")
+)
+
+func ValidID(id string) bool { return fluoIDPattern.MatchString(id) }
 
 type Author struct {
 	ID          string `json:"id"`
@@ -97,7 +106,10 @@ type Cursor struct {
 }
 
 func EncodeCursor(post Post) string {
-	encoded, _ := json.Marshal(Cursor{CreatedAt: post.CreatedAt, ID: post.ID})
+	encoded, err := json.Marshal(Cursor{CreatedAt: post.CreatedAt, ID: post.ID})
+	if err != nil {
+		return ""
+	}
 	return base64.RawURLEncoding.EncodeToString(encoded)
 }
 
@@ -105,16 +117,23 @@ func DecodeCursor(raw string) (*Cursor, error) {
 	if raw == "" {
 		return nil, nil
 	}
-	if len(raw) > 256 {
-		return nil, errors.New("cursor is too long")
+	if len(raw) > maxEncodedCursorLength {
+		return nil, errCursorTooLong
 	}
 	data, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
-		return nil, errors.New("invalid cursor")
+		return nil, errInvalidCursor
 	}
+	return parseCursor(data)
+}
+
+func parseCursor(data []byte) (*Cursor, error) {
 	var cursor Cursor
-	if err := json.Unmarshal(data, &cursor); err != nil || !ValidID(cursor.ID) || cursor.CreatedAt.IsZero() {
-		return nil, errors.New("invalid cursor")
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return nil, errInvalidCursor
+	}
+	if !ValidID(cursor.ID) || cursor.CreatedAt.IsZero() {
+		return nil, errInvalidCursor
 	}
 	return &cursor, nil
 }

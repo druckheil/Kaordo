@@ -1,3 +1,5 @@
+// Augments SvelteKit's app-wide ambient types for Fluo
+
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces
 declare global {
@@ -5,7 +7,11 @@ declare global {
 		// interface Error {}
 		// interface Locals {}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+      kaordoFluoPost?: string;
+      kaordoFluoReturnView?: string;
+      kaordoFluoReturnHash?: string;
+    }
 		// interface Platform {}
 	}
 }

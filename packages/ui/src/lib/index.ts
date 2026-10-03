@@ -1,9 +1,15 @@
+// Exports shared components, layout shells and Lucide icons
+// Form and action controls
 export { Button, buttonVariants } from './components/ui/button/index.js';
 export type { ButtonProps, ButtonSize, ButtonVariant } from './components/ui/button/index.js';
 export { Input } from './components/ui/input/index.js';
 export { Textarea } from './components/ui/textarea/index.js';
+
+// Shared application shells
 export { default as ModuleLanding } from './ModuleLanding.svelte';
 export { default as AppHeader } from './AppHeader.svelte';
+
+// Composite interaction components
 export * as Dialog from './components/ui/dialog/index.js';
 export * as AlertDialog from './components/ui/alert-dialog/index.js';
 export * as ContextMenu from './components/ui/context-menu/index.js';
@@ -12,6 +18,8 @@ export * as Message from './components/ui/message/index.js';
 export * as Bubble from './components/ui/bubble/index.js';
 export * as Attachment from './components/ui/attachment/index.js';
 export * as Avatar from './components/ui/avatar/index.js';
+
+// Navigation and account icons
 export { default as ArrowUpRightIcon } from '@lucide/svelte/icons/arrow-up-right';
 export { default as ArrowRightIcon } from '@lucide/svelte/icons/arrow-right';
 export { default as ChevronLeftIcon } from '@lucide/svelte/icons/chevron-left';
@@ -21,6 +29,8 @@ export { default as XIcon } from '@lucide/svelte/icons/x';
 export { default as ShieldCheckIcon } from '@lucide/svelte/icons/shield-check';
 export { default as KeyRoundIcon } from '@lucide/svelte/icons/key-round';
 export { default as LogOutIcon } from '@lucide/svelte/icons/log-out';
+
+// Post and message icons
 export { default as MessageCircleIcon } from '@lucide/svelte/icons/message-circle';
 export { default as ThumbsUpIcon } from '@lucide/svelte/icons/thumbs-up';
 export { default as ThumbsDownIcon } from '@lucide/svelte/icons/thumbs-down';
@@ -32,6 +42,8 @@ export { default as Trash2Icon } from '@lucide/svelte/icons/trash-2';
 export { default as BoldIcon } from '@lucide/svelte/icons/bold';
 export { default as ItalicIcon } from '@lucide/svelte/icons/italic';
 export { default as StrikethroughIcon } from '@lucide/svelte/icons/strikethrough';
+
+// Ligo and Rondo icons
 export { default as HouseIcon } from '@lucide/svelte/icons/house';
 export { default as SearchIcon } from '@lucide/svelte/icons/search';
 export { default as BellIcon } from '@lucide/svelte/icons/bell';

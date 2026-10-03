@@ -98,8 +98,8 @@ test('Fluo keeps its initial JavaScript under budget and lazy-loads the editor a
     assert.ok([...lazyModules].some((dependency) => dependency.includes(library)),
       `${library} must remain outside the initial Fluo JavaScript graph`);
   }
-  assert.match(readFileSync(resolve(import.meta.dirname, '../apps/fluo/src/lib/Composer.svelte'), 'utf8'), /import\('@tiptap\/core'\)/,
-    'The Tiptap editor core must load on demand');
+  assert.ok([...initialModules].every((dependency) => !dependency.includes('@tiptap')),
+    'Tiptap must remain outside the initial JavaScript graph');
 
   const playerStyles = Object.entries(manifest).filter(([key]) => key.includes('vidstack/player/styles/default/'));
   assert.equal(playerStyles.length, 2, 'Vidstack theme and video layout styles must be present');

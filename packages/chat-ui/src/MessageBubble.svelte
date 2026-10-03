@@ -1,13 +1,15 @@
 <script lang="ts">
+  // Renders one conversation message with its attachments, reactions, and actions
+
   import { tick } from 'svelte';
   import type { LigoMedia, LigoMessage, LigoReaction } from '@kaordo/contracts';
-  import { appPaths } from '@kaordo/links';
   import { MessageMediaGrid, type MediaAttachment } from '@kaordo/media-ui';
   import {
     AlertDialog, Attachment, Avatar, Bubble, Button, CheckCheckIcon, CheckIcon,
     ContextMenu, DropdownMenu, EllipsisIcon, FileIcon, HeartIcon, Message,
     PencilIcon, Textarea, ThumbsDownIcon, ThumbsUpIcon, Trash2Icon
   } from '@kaordo/ui';
+  import { formatFileSize, formatMessageTime, splitMessageText } from './message-formatting';
 
   let {
     message, viewerId, personal, showSender, showAvatarSlot, react, edit, remove, showReceipt = true
@@ -55,48 +57,48 @@
       await edit(message, editText.trim());
       editing = false;
     } catch (reason) {
-      error = reason instanceof Error ? reason.message : 'Could not edit the message.';
-    } finally { busy = false; }
+      error = errorMessage(reason, 'Could not edit the message.');
+    } finally {
+      busy = false;
+    }
   }
 
   async function toggleReaction(emoji: LigoReaction['emoji']) {
-    try { await react(message, emoji); }
-    catch (reason) { error = reason instanceof Error ? reason.message : 'Could not add the reaction.'; }
+    try {
+      await react(message, emoji);
+    } catch (reason) {
+      error = errorMessage(reason, 'Could not add the reaction.');
+    }
   }
 
   async function confirmDelete() {
     if (busy) return;
     busy = true;
     error = '';
-    try { await remove(message); deleteOpen = false; }
-    catch (reason) { error = reason instanceof Error ? reason.message : 'Could not delete the message.'; }
-    finally { busy = false; }
-  }
-
-  function parts(text: string): { text: string; href?: string }[] {
-    const pattern = /(?:https?:\/\/[^\s]+)?\/fluo\/#post\/([0-9a-f-]{36})/gi;
-    const result: { text: string; href?: string }[] = [];
-    let start = 0;
-    for (const found of text.matchAll(pattern)) {
-      if (found[0].startsWith('http') &&
-        (typeof window === 'undefined' || new URL(found[0]).origin !== window.location.origin)) continue;
-      const index = found.index ?? 0;
-      if (index > start) result.push({ text: text.slice(start, index) });
-      result.push({ text: 'View Fluo post', href: `${appPaths.fluo}#post/${found[1]}` });
-      start = index + found[0].length;
+    try {
+      await remove(message);
+      deleteOpen = false;
+    } catch (reason) {
+      error = errorMessage(reason, 'Could not delete the message.');
+    } finally {
+      busy = false;
     }
-    if (start < text.length) result.push({ text: text.slice(start) });
-    return result;
   }
 
-  function fileSize(bytes: number): string {
-    return bytes < 1024 * 1024 ? `${Math.max(1, Math.ceil(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  function errorMessage(reason: unknown, fallback: string): string {
+    return reason instanceof Error ? reason.message : fallback;
   }
 </script>
 
+{#snippet linkedText(text: string)}
+  {#each splitMessageText(text) as part}
+    {#if part.href}<a href={part.href} rel="external" class="font-semibold text-primary underline underline-offset-2">{part.text}</a>{:else}{part.text}{/if}
+  {/each}
+{/snippet}
+
 {#snippet timestamp()}
   <span class="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap text-xs leading-none text-muted-foreground">
-    <time datetime={message.createdAt}>{new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(new Date(message.createdAt))}</time>
+    <time datetime={message.createdAt}>{formatMessageTime(message.createdAt)}</time>
     {#if message.editedAt && !message.deleted}<span aria-label="Edited">· edited</span>{/if}
     {#if own && !personal && !message.deleted && showReceipt}
       {#if message.status === 'read'}<CheckCheckIcon class="size-3.5 text-primary" aria-label="Read" />
@@ -138,7 +140,7 @@
                       <Attachment.Media variant="icon"><FileIcon class="size-4" /></Attachment.Media>
                       <Attachment.Content class="min-w-0 flex-1">
                         <Attachment.Title class="truncate">{file.filename}</Attachment.Title>
-                        <Attachment.Description>{fileSize(file.size)}</Attachment.Description>
+                        <Attachment.Description>{formatFileSize(file.size)}</Attachment.Description>
                       </Attachment.Content>
                       <Attachment.Actions><Attachment.Action href={file.url} target="_blank" rel="noreferrer" aria-label={`Download ${file.filename}`}>Download</Attachment.Action></Attachment.Actions>
                     </Attachment.Root>
@@ -159,15 +161,11 @@
                 </div>
               {:else if hasAttachments}
                 {#if message.text}
-                  <p class="whitespace-pre-wrap break-words px-2.5 pb-0.5 pt-1 text-sm leading-5">{#each parts(message.text) as part}
-                    {#if part.href}<a href={part.href} rel="external" class="font-semibold text-primary underline underline-offset-2">{part.text}</a>{:else}{part.text}{/if}
-                  {/each}</p>
+                  <p class="whitespace-pre-wrap break-words px-2.5 pb-0.5 pt-1 text-sm leading-5">{@render linkedText(message.text)}</p>
                 {/if}
                 <div class="flex justify-end px-2 pb-1.5 pt-0.5">{@render timestamp()}</div>
               {:else}
-                <p class="whitespace-pre-wrap break-words text-sm leading-5">{#each parts(message.text) as part}
-                  {#if part.href}<a href={part.href} rel="external" class="font-semibold text-primary underline underline-offset-2">{part.text}</a>{:else}{part.text}{/if}
-                {/each}<span class="ml-2 inline-block align-[-0.125em]">{@render timestamp()}</span></p>
+                <p class="whitespace-pre-wrap break-words text-sm leading-5">{@render linkedText(message.text)}<span class="ml-2 inline-block align-[-0.125em]">{@render timestamp()}</span></p>
               {/if}
             </Bubble.Content>
             {#if !message.deleted && message.reactions.length}

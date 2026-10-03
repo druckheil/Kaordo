@@ -1,3 +1,4 @@
+// Tracks the running local development session and accepts authenticated stop requests
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -30,9 +31,8 @@ async function sessionRequest(session, path, method, timeout = 2000) {
   });
 }
 
-export async function startLocalSession(onStop, file = localSessionFile) {
-  const token = randomBytes(32).toString('hex');
-  const server = createServer((request, response) => {
+function createSessionServer(token, onStop) {
+  return createServer((request, response) => {
     if (request.headers.authorization !== `Bearer ${token}`) {
       response.writeHead(403).end();
       return;
@@ -48,29 +48,49 @@ export async function startLocalSession(onStop, file = localSessionFile) {
     }
     response.writeHead(404).end();
   });
+}
+
+async function isSessionRunning(session) {
+  if (!session) return false;
+  try {
+    const response = await sessionRequest(session, '/healthz', 'GET');
+    return response.status === 204;
+  } catch {
+    return false;
+  }
+}
+
+async function writeSessionFile(file, session) {
+  try {
+    await writeFile(file, JSON.stringify(session), { mode: 0o600, flag: 'wx' });
+    return;
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+  }
+
+  const previous = await readSession(file);
+  if (await isSessionRunning(previous)) {
+    throw new Error('Kaordo is already running. Use pnpm dev:stop before starting another session.');
+  }
+  await rm(file);
+  await writeFile(file, JSON.stringify(session), { mode: 0o600, flag: 'wx' });
+}
+
+async function listen(server) {
   await new Promise((resolveListen, rejectListen) => {
     server.once('error', rejectListen);
     server.listen(0, '127.0.0.1', resolveListen);
   });
+}
+
+export async function startLocalSession(onStop, file = localSessionFile) {
+  const token = randomBytes(32).toString('hex');
+  const server = createSessionServer(token, onStop);
+  await listen(server);
   const session = { pid: process.pid, port: server.address().port, token };
   try {
     await mkdir(dirname(file), { recursive: true });
-    try {
-      await writeFile(file, JSON.stringify(session), { mode: 0o600, flag: 'wx' });
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-      const previous = await readSession(file);
-      try {
-        const response = await sessionRequest(previous, '/healthz', 'GET');
-        if (response.status === 204) {
-          throw new Error('Kaordo is already running. Use pnpm dev:stop before starting another session.');
-        }
-      } catch (cause) {
-        if (cause?.message?.startsWith('Kaordo is already running.')) throw cause;
-      }
-      await rm(file);
-      await writeFile(file, JSON.stringify(session), { mode: 0o600, flag: 'wx' });
-    }
+    await writeSessionFile(file, session);
   } catch (error) {
     server.close();
     throw error;
@@ -95,6 +115,11 @@ export async function stopLocalSession(file = localSessionFile) {
   if (response.status !== 204) {
     throw new Error(`Kaordo refused its local stop request (${response.status}).`);
   }
+  await waitForSessionStop(session);
+  return true;
+}
+
+async function waitForSessionStop(session) {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     try {

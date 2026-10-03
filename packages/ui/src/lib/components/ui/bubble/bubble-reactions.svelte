@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	// Defines reaction badge placement variants
 	import { tv, type VariantProps } from "tailwind-variants";
 
 	export const bubbleReactionsVariants = tv({
@@ -40,6 +41,10 @@
 		align?: BubbleReactionsAlign;
 		placement?: "overlay" | "inline";
 	} = $props();
+
+	const placementClass = $derived(placement === "inline"
+		? "relative flex w-fit max-w-full flex-wrap items-center gap-1 self-start group-data-[align=end]/message:self-end"
+		: bubbleReactionsVariants({ side, align }));
 </script>
 
 <div
@@ -48,9 +53,7 @@
 	data-align={align}
 	data-side={side}
 	data-placement={placement}
-	class={cn(placement === "inline"
-		? "relative flex w-fit max-w-full flex-wrap items-center gap-1 self-start group-data-[align=end]/message:self-end"
-		: bubbleReactionsVariants({ side, align }), className)}
+	class={cn(placementClass, className)}
 	{...restProps}
 >
 	{@render children?.()}

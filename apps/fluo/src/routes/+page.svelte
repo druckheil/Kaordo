@@ -1,4 +1,6 @@
 <script lang="ts">
+	// Gates the Fluo feed behind the shared account session
+
   import { AccountGate } from '@kaordo/account-ui';
   import { appPaths } from '@kaordo/links';
   import { AppHeader } from '@kaordo/ui';

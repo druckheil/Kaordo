@@ -1,5 +1,6 @@
 package main
 
+// Checks SMART report parsing and monitor cache behavior
 import (
 	"context"
 	"errors"

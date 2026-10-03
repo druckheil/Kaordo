@@ -1,5 +1,6 @@
 package rondo
 
+// Defines Rondo API models, store operations, and domain errors
 import (
 	"context"
 	"errors"
@@ -16,6 +17,7 @@ var (
 	ErrLimit     = errors.New("Rondo capacity limit reached")
 )
 
+// Server is a Rondo server and the current user's membership state
 type Server struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -27,6 +29,7 @@ type Server struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
+// Channel is a text or voice conversation attached to a server
 type Channel struct {
 	ID             string    `json:"id"`
 	ServerID       string    `json:"serverId"`
@@ -36,26 +39,29 @@ type Channel struct {
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
+// Detail combines a server with its channels and visible members
 type Detail struct {
 	Server   Server      `json:"server"`
 	Channels []Channel   `json:"channels"`
 	Members  []ligo.User `json:"members"`
 }
 
+// NewServer contains the fields accepted when creating a server
 type NewServer struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Access      string `json:"access"`
 }
 
+// Store defines the persistence operations used by the Rondo API
 type Store interface {
-	List(context.Context, string, string) ([]Server, error)
-	Discover(context.Context, string, string) ([]Server, error)
-	Create(context.Context, string, NewServer) (Detail, error)
-	Get(context.Context, string, string) (Detail, error)
-	Join(context.Context, string, string) (Detail, error)
-	Invite(context.Context, string, string, string) (Detail, error)
-	Leave(context.Context, string, string) ([]string, error)
-	CreateChannel(context.Context, string, string, string) (Channel, error)
-	VoiceChannel(context.Context, string, string) (Channel, error)
+	List(ctx context.Context, actorID, search string) ([]Server, error)
+	Discover(ctx context.Context, actorID, search string) ([]Server, error)
+	Create(ctx context.Context, actorID string, input NewServer) (Detail, error)
+	Get(ctx context.Context, actorID, serverID string) (Detail, error)
+	Join(ctx context.Context, actorID, serverID string) (Detail, error)
+	Invite(ctx context.Context, actorID, serverID, userID string) (Detail, error)
+	Leave(ctx context.Context, actorID, serverID string) ([]string, error)
+	CreateChannel(ctx context.Context, actorID, serverID, name string) (Channel, error)
+	VoiceChannel(ctx context.Context, actorID, channelID string) (Channel, error)
 }

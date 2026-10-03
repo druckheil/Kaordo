@@ -1,5 +1,6 @@
 package main
 
+// Loads Nodo configuration and serves the upload API
 import (
 	"context"
 	"errors"
@@ -15,6 +16,14 @@ import (
 	"github.com/druckheil/Kaordo/services/nodo/internal/upload"
 )
 
+type config struct {
+	dataDirectory  string
+	kernoURL       string
+	allowedOrigins []string
+	mediaKey       []byte
+	listenAddress  string
+}
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -22,37 +31,77 @@ func main() {
 }
 
 func run() error {
-	directory := os.Getenv("NODO_DATA_DIR")
-	kernoURL := os.Getenv("KERNO_INTERNAL_URL")
-	origins := os.Getenv("NODO_ALLOWED_ORIGINS")
-	key, err := mediaauth.ParseKey(os.Getenv("NODO_MEDIA_SIGNING_KEY"))
-	if directory == "" || kernoURL == "" || origins == "" || err != nil {
-		return errors.New("NODO_DATA_DIR, KERNO_INTERNAL_URL, NODO_ALLOWED_ORIGINS and NODO_MEDIA_SIGNING_KEY are required")
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	handler, err := upload.NewHandler(upload.Config{
-		Directory: directory, KernoURL: kernoURL, AllowedOrigins: strings.Split(origins, ","), MediaKey: key,
+		Directory: cfg.dataDirectory, KernoURL: cfg.kernoURL,
+		AllowedOrigins: cfg.allowedOrigins, MediaKey: cfg.mediaKey,
 	})
 	if err != nil {
 		return err
 	}
-	address := os.Getenv("LISTEN_ADDR")
-	if address == "" {
-		address = "127.0.0.1:8082"
+	defer handler.Close()
+	return serve(ctx, newHTTPServer(cfg.listenAddress, handler))
+}
+
+func loadConfig() (config, error) {
+	rawOrigins := os.Getenv("NODO_ALLOWED_ORIGINS")
+	cfg := config{
+		dataDirectory:  os.Getenv("NODO_DATA_DIR"),
+		kernoURL:       os.Getenv("KERNO_INTERNAL_URL"),
+		allowedOrigins: strings.Split(rawOrigins, ","),
+		listenAddress:  envOrDefault("LISTEN_ADDR", "127.0.0.1:8082"),
 	}
-	server := &http.Server{
-		Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second,
-		IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20,
+	key, err := mediaauth.ParseKey(os.Getenv("NODO_MEDIA_SIGNING_KEY"))
+	if cfg.dataDirectory == "" || cfg.kernoURL == "" || rawOrigins == "" || err != nil {
+		return config{}, errors.New("NODO_DATA_DIR, KERNO_INTERNAL_URL, NODO_ALLOWED_ORIGINS and NODO_MEDIA_SIGNING_KEY are required")
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	go func() {
-		<-ctx.Done()
+	cfg.mediaKey = key
+	return cfg, nil
+}
+
+func envOrDefault(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func newHTTPServer(address string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              address,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+}
+
+func serve(ctx context.Context, server *http.Server) error {
+	result := make(chan error, 1)
+	go func() { result <- server.ListenAndServe() }()
+	log.Printf("Nodo listening on %s", server.Addr)
+
+	select {
+	case err := <-result:
+		return serveError(err)
+	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = server.Shutdown(shutdownCtx)
-	}()
-	log.Printf("Nodo listening on %s", address)
-	err = server.ListenAndServe()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			_ = server.Close()
+			return err
+		}
+		return serveError(<-result)
+	}
+}
+
+func serveError(err error) error {
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

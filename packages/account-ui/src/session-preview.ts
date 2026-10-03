@@ -1,6 +1,6 @@
-import type { UserIdentity } from '@kaordo/contracts';
+// Stores only a short-lived visual account preview and never grants access
 
-// Presentation only. A cached preview must never authorize API requests or private content.
+import type { UserIdentity } from '@kaordo/contracts';
 export type AccountPreview = Pick<UserIdentity, 'id' | 'username' | 'displayName'>;
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -13,7 +13,7 @@ function browserStorage(): StorageLike | undefined {
   try { return globalThis.sessionStorage; } catch { return undefined; }
 }
 
-function validText(value: unknown): value is string {
+function isValidText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 256;
 }
 
@@ -21,21 +21,23 @@ export function readAccountPreview(storage = browserStorage(), now = Date.now())
   try {
     const raw = storage?.getItem(accountPreviewKey);
     if (!raw) return null;
-    const saved = JSON.parse(raw) as Partial<SavedPreview>;
-    if (!validText(saved.id) || !validText(saved.username) || !validText(saved.displayName) ||
-        typeof saved.savedAt !== 'number' || now < saved.savedAt || now - saved.savedAt > maxAgeMs) {
-      storage?.removeItem(accountPreviewKey);
+
+    const saved: unknown = JSON.parse(raw);
+    if (!isSavedPreview(saved, now)) {
+      removePreview(storage);
       return null;
     }
+
     return { id: saved.id, username: saved.username, displayName: saved.displayName };
   } catch {
-    try { storage?.removeItem(accountPreviewKey); } catch { /* Storage can be disabled. */ }
+    removePreview(storage);
     return null;
   }
 }
 
 export function rememberAccountPreview(user: UserIdentity, storage = browserStorage(), now = Date.now()): void {
-  if (!validText(user.id) || !validText(user.username) || !validText(user.displayName)) return;
+  if (!isValidText(user.id) || !isValidText(user.username) || !isValidText(user.displayName)) return;
+
   try {
     storage?.setItem(accountPreviewKey, JSON.stringify({
       id: user.id, username: user.username, displayName: user.displayName, savedAt: now
@@ -46,5 +48,25 @@ export function rememberAccountPreview(user: UserIdentity, storage = browserStor
 }
 
 export function clearAccountPreview(storage = browserStorage()): void {
-  try { storage?.removeItem(accountPreviewKey); } catch { /* Storage can be disabled. */ }
+  removePreview(storage);
+}
+
+function isSavedPreview(value: unknown, now: number): value is SavedPreview {
+  if (!isRecord(value)) return false;
+
+  const { id, username, displayName, savedAt } = value;
+  return isValidText(id) && isValidText(username) && isValidText(displayName) &&
+    typeof savedAt === 'number' && now >= savedAt && now - savedAt <= maxAgeMs;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function removePreview(storage?: StorageLike): void {
+  try {
+    storage?.removeItem(accountPreviewKey);
+  } catch {
+    // Storage can be disabled.
+  }
 }

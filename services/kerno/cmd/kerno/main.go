@@ -1,8 +1,10 @@
 package main
 
+// Starts Kerno by loading configuration, connecting dependencies, and serving HTTP
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +22,45 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondovoice"
 	"github.com/druckheil/Kaordo/services/mediaauth"
 	jetpg "github.com/go-jet/jet/v2/postgres"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type config struct {
+	DatabaseURL      string
+	OIDCIssuer       string
+	OIDCAudience     string
+	OIDCBackchannel  string
+	AllowedOrigins   []string
+	NodoInternalURL  string
+	NodoPublicURL    string
+	MediaSigningKey  []byte
+	ListenAddress    string
+	LiveKitURL       string
+	LiveKitPublicURL string
+	LiveKitAPIKey    string
+	LiveKitAPISecret string
+}
+
+type tokenVerifier = httpapi.VerifyFunc
+
+type requiredTable struct {
+	name      string
+	missing   string
+	migration string
+}
+
+var schemaRequirements = []requiredTable{
+	{name: "users", missing: "users table is missing", migration: "deploy/postgres/001_users.sql"},
+	{name: "fluo_posts", missing: "Fluo tables are missing", migration: "deploy/postgres/002_fluo.sql"},
+	{name: "ligo_conversations", missing: "Ligo tables are missing", migration: "deploy/postgres/007_ligo.sql"},
+	{name: "rondo_servers", missing: "Rondo tables are missing", migration: "deploy/postgres/010_rondo.sql"},
+	{name: "admin_audit", missing: "Regado tables are missing", migration: "deploy/postgres/011_regado.sql"},
+}
+
+const (
+	regadoAgentSocket = "/run/regado-agent/agent.sock"
+	metricsEndpoint   = "http://127.0.0.1:9090"
+	shutdownTimeout   = 10 * time.Second
 )
 
 func main() {
@@ -29,121 +70,227 @@ func main() {
 }
 
 func run() error {
-	dsn := os.Getenv("DATABASE_URL")
-	issuer := os.Getenv("OIDC_ISSUER")
-	audience := os.Getenv("OIDC_AUDIENCE")
-	originList := os.Getenv("KAORDO_ALLOWED_ORIGINS")
-	nodoInternalURL := os.Getenv("NODO_INTERNAL_URL")
-	nodoPublicURL := os.Getenv("NODO_PUBLIC_URL")
-	mediaKey, keyError := mediaauth.ParseKey(os.Getenv("NODO_MEDIA_SIGNING_KEY"))
-	if dsn == "" || issuer == "" || audience == "" || originList == "" ||
-		nodoInternalURL == "" || nodoPublicURL == "" || keyError != nil {
-		return errors.New("DATABASE_URL, OIDC_ISSUER, OIDC_AUDIENCE, KAORDO_ALLOWED_ORIGINS, NODO_INTERNAL_URL, NODO_PUBLIC_URL and NODO_MEDIA_SIGNING_KEY are required")
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	pool, err := postgres.Open(ctx, dsn)
+
+	pool, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	var usersTableExists bool
-	if err := postgres.JetQueryRow(ctx, pool, jetpg.SELECT(jetpg.RawBool("to_regclass('public.users') IS NOT NULL"))).Scan(&usersTableExists); err != nil {
+	if err := verifySchema(ctx, pool); err != nil {
 		return err
-	}
-	if !usersTableExists {
-		return errors.New("users table is missing; apply deploy/postgres/001_users.sql")
-	}
-	var postsTableExists bool
-	if err := postgres.JetQueryRow(ctx, pool, jetpg.SELECT(jetpg.RawBool("to_regclass('public.fluo_posts') IS NOT NULL"))).Scan(&postsTableExists); err != nil {
-		return err
-	}
-	if !postsTableExists {
-		return errors.New("Fluo tables are missing; apply deploy/postgres/002_fluo.sql")
-	}
-	var conversationsTableExists bool
-	if err := postgres.JetQueryRow(ctx, pool, jetpg.SELECT(jetpg.RawBool("to_regclass('public.ligo_conversations') IS NOT NULL"))).Scan(&conversationsTableExists); err != nil {
-		return err
-	}
-	if !conversationsTableExists {
-		return errors.New("Ligo tables are missing; apply deploy/postgres/007_ligo.sql")
-	}
-	var rondoTableExists bool
-	if err := postgres.JetQueryRow(ctx, pool, jetpg.SELECT(jetpg.RawBool("to_regclass('public.rondo_servers') IS NOT NULL"))).Scan(&rondoTableExists); err != nil {
-		return err
-	}
-	if !rondoTableExists {
-		return errors.New("Rondo tables are missing; apply deploy/postgres/010_rondo.sql")
-	}
-	var adminTableExists bool
-	if err := postgres.JetQueryRow(ctx, pool, jetpg.SELECT(jetpg.RawBool("to_regclass('public.admin_audit') IS NOT NULL"))).Scan(&adminTableExists); err != nil {
-		return err
-	}
-	if !adminTableExists {
-		return errors.New("Regado tables are missing; apply deploy/postgres/011_regado.sql")
 	}
 
-	provider, err := identity.NewProviderWithBackchannel(ctx, issuer, os.Getenv("OIDC_BACKCHANNEL_URL"))
+	verify, err := newTokenVerifier(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	verifier := provider.Verifier(&oidc.Config{ClientID: audience})
-	verify := func(ctx context.Context, raw string) (identity.Claims, error) {
-		return identity.Verify(ctx, verifier, raw)
+
+	server := newHTTPServer(ctx, cfg, pool, verify)
+	return serve(ctx, server)
+}
+
+func loadConfig() (config, error) {
+	cfg := readConfig()
+	if missing := missingConfigValues(cfg); len(missing) > 0 {
+		return config{}, fmt.Errorf("required environment variables are missing: %s", strings.Join(missing, ", "))
+	}
+	mediaKey, err := mediaauth.ParseKey(os.Getenv("NODO_MEDIA_SIGNING_KEY"))
+	if err != nil {
+		return config{}, fmt.Errorf("invalid NODO_MEDIA_SIGNING_KEY: %w", err)
+	}
+	cfg.MediaSigningKey = mediaKey
+	return cfg, nil
+}
+
+func readConfig() config {
+	return config{
+		DatabaseURL:      os.Getenv("DATABASE_URL"),
+		OIDCIssuer:       os.Getenv("OIDC_ISSUER"),
+		OIDCAudience:     os.Getenv("OIDC_AUDIENCE"),
+		OIDCBackchannel:  os.Getenv("OIDC_BACKCHANNEL_URL"),
+		NodoInternalURL:  os.Getenv("NODO_INTERNAL_URL"),
+		NodoPublicURL:    os.Getenv("NODO_PUBLIC_URL"),
+		ListenAddress:    envOrDefault("LISTEN_ADDR", "127.0.0.1:8081"),
+		LiveKitURL:       os.Getenv("LIVEKIT_URL"),
+		LiveKitPublicURL: os.Getenv("LIVEKIT_PUBLIC_URL"),
+		LiveKitAPIKey:    os.Getenv("LIVEKIT_API_KEY"),
+		LiveKitAPISecret: os.Getenv("LIVEKIT_API_SECRET"),
+		AllowedOrigins:   splitOrigins(os.Getenv("KAORDO_ALLOWED_ORIGINS")),
+	}
+}
+
+func missingConfigValues(cfg config) []string {
+	var missing []string
+	for _, variable := range []struct{ name, value string }{
+		{"DATABASE_URL", cfg.DatabaseURL},
+		{"OIDC_ISSUER", cfg.OIDCIssuer},
+		{"OIDC_AUDIENCE", cfg.OIDCAudience},
+		{"NODO_INTERNAL_URL", cfg.NodoInternalURL},
+		{"NODO_PUBLIC_URL", cfg.NodoPublicURL},
+	} {
+		if variable.value == "" {
+			missing = append(missing, variable.name)
+		}
+	}
+	if len(cfg.AllowedOrigins) == 0 {
+		missing = append(missing, "KAORDO_ALLOWED_ORIGINS")
+	}
+	return missing
+}
+
+func envOrDefault(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func splitOrigins(raw string) []string {
+	var origins []string
+	for _, origin := range strings.Split(raw, ",") {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
+}
+
+func verifySchema(ctx context.Context, pool *pgxpool.Pool) error {
+	for _, requirement := range schemaRequirements {
+		if err := verifyRequiredTable(ctx, pool, requirement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func verifyRequiredTable(ctx context.Context, pool *pgxpool.Pool, requirement requiredTable) error {
+	var exists bool
+	query := jetpg.SELECT(jetpg.RawBool("to_regclass(#table_name) IS NOT NULL",
+		jetpg.RawArgs{"#table_name": "public." + requirement.name}))
+	if err := postgres.JetQueryRow(ctx, pool, query).Scan(&exists); err != nil {
+		return fmt.Errorf("check schema table %q: %w", requirement.name, err)
+	}
+	if !exists {
+		return fmt.Errorf("%s; apply %s", requirement.missing, requirement.migration)
+	}
+	return nil
+}
+
+func newTokenVerifier(ctx context.Context, cfg config) (tokenVerifier, error) {
+	provider, err := identity.NewProviderWithBackchannel(ctx, cfg.OIDCIssuer, cfg.OIDCBackchannel)
+	if err != nil {
+		return nil, fmt.Errorf("initialize OIDC provider: %w", err)
 	}
 
-	address := os.Getenv("LISTEN_ADDR")
-	if address == "" {
-		address = "127.0.0.1:8081"
-	}
-	ligoStore := postgres.NewLigo(pool)
-	ligoEvents := ligoevents.New(ctx, dsn, ligoStore)
-	voiceURL := os.Getenv("LIVEKIT_URL")
-	voicePublicURL := os.Getenv("LIVEKIT_PUBLIC_URL")
-	voiceKey := os.Getenv("LIVEKIT_API_KEY")
-	voiceSecret := os.Getenv("LIVEKIT_API_SECRET")
-	var voice httpapi.RondoVoice
-	if voiceURL != "" && voicePublicURL != "" && voiceKey != "" && voiceSecret != "" {
-		voice = rondovoice.New(voiceURL, voiceKey, voiceSecret)
-	}
-	server := &http.Server{
-		Addr: address,
-		Handler: httpapi.NewRouterWithAdmin(verify, postgres.NewUsers(pool), httpapi.FluoDependencies{
-			Store:        postgres.NewFluo(pool),
-			Media:        httpapi.NodoClient{BaseURL: nodoInternalURL, InternalKey: mediaKey},
-			MediaBaseURL: nodoPublicURL,
-			MediaSignKey: mediaKey,
-		}, httpapi.LigoDependencies{
-			Store:        ligoStore,
-			Events:       ligoEvents,
-			Media:        httpapi.NodoClient{BaseURL: nodoInternalURL, InternalKey: mediaKey},
-			MediaBaseURL: nodoPublicURL,
-			MediaSignKey: mediaKey,
-		}, httpapi.RondoDependencies{
-			Store: postgres.NewRondo(pool), Voice: voice, VoiceURL: voicePublicURL,
-		}, httpapi.AdminDependencies{
-			Store:        postgres.NewAdmin(pool),
-			System:       regado.NewSystemClient("/run/regado-agent/agent.sock"),
-			Metrics:      regado.NewMetricsClient("http://127.0.0.1:9090"),
-			MediaBaseURL: nodoPublicURL,
-			MediaSignKey: mediaKey,
-		}, strings.Split(originList, ",")),
+	verifier := provider.Verifier(&oidc.Config{ClientID: cfg.OIDCAudience})
+	return func(ctx context.Context, raw string) (identity.Claims, error) {
+		return identity.Verify(ctx, verifier, raw)
+	}, nil
+}
+
+func newHTTPServer(ctx context.Context, cfg config, pool *pgxpool.Pool, verify tokenVerifier) *http.Server {
+	return &http.Server{
+		Addr:              cfg.ListenAddress,
+		Handler:           newHTTPRouter(ctx, cfg, pool, verify),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+}
+
+func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify tokenVerifier) http.Handler {
+	ligoStore := postgres.NewLigo(pool)
+	ligoEvents := ligoevents.New(ctx, cfg.DatabaseURL, ligoStore)
+	mediaClient := httpapi.NodoClient{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey}
+	voice := newRondoVoice(cfg)
+
+	router := httpapi.NewRouterWithAdmin(
+		verify,
+		postgres.NewUsers(pool),
+		fluoDependencies(cfg, pool, mediaClient),
+		ligoDependencies(cfg, mediaClient, ligoStore, ligoEvents),
+		rondoDependencies(cfg, pool, voice),
+		adminDependencies(cfg, pool),
+		cfg.AllowedOrigins,
+	)
+	return router
+}
+
+func fluoDependencies(cfg config, pool *pgxpool.Pool, media httpapi.NodoClient) httpapi.FluoDependencies {
+	return httpapi.FluoDependencies{
+		Store:        postgres.NewFluo(pool),
+		Media:        media,
+		MediaBaseURL: cfg.NodoPublicURL,
+		MediaSignKey: cfg.MediaSigningKey,
+	}
+}
+
+func ligoDependencies(cfg config, media httpapi.NodoClient, store *postgres.Ligo, events *ligoevents.Hub) httpapi.LigoDependencies {
+	return httpapi.LigoDependencies{
+		Store:        store,
+		Events:       events,
+		Media:        media,
+		MediaBaseURL: cfg.NodoPublicURL,
+		MediaSignKey: cfg.MediaSigningKey,
+	}
+}
+
+func rondoDependencies(cfg config, pool *pgxpool.Pool, voice httpapi.RondoVoice) httpapi.RondoDependencies {
+	return httpapi.RondoDependencies{
+		Store:    postgres.NewRondo(pool),
+		Voice:    voice,
+		VoiceURL: cfg.LiveKitPublicURL,
+	}
+}
+
+func adminDependencies(cfg config, pool *pgxpool.Pool) httpapi.AdminDependencies {
+	return httpapi.AdminDependencies{
+		Store:        postgres.NewAdmin(pool),
+		System:       regado.NewSystemClient(regadoAgentSocket),
+		Metrics:      regado.NewMetricsClient(metricsEndpoint),
+		MediaBaseURL: cfg.NodoPublicURL,
+		MediaSignKey: cfg.MediaSigningKey,
+	}
+}
+
+func newRondoVoice(cfg config) httpapi.RondoVoice {
+	if cfg.LiveKitURL == "" || cfg.LiveKitPublicURL == "" || cfg.LiveKitAPIKey == "" || cfg.LiveKitAPISecret == "" {
+		return nil
+	}
+	return rondovoice.New(cfg.LiveKitURL, cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
+}
+
+func serve(ctx context.Context, server *http.Server) error {
+	result := make(chan error, 1)
+	go func() { result <- server.ListenAndServe() }()
+	log.Printf("Kerno listening on %s", server.Addr)
+
+	select {
+	case err := <-result:
+		return serveError(err)
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		_ = server.Shutdown(shutdownCtx)
-	}()
-	log.Printf("Kerno listening on %s", address)
-	err = server.ListenAndServe()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			_ = server.Close()
+			return err
+		}
+		return serveError(<-result)
+	}
+}
+
+func serveError(err error) error {
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

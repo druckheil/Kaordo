@@ -1,5 +1,6 @@
 package postgres
 
+// Opens and verifies the shared PostgreSQL connection pool
 import (
 	"context"
 

@@ -24,6 +24,8 @@ jobs:
           cache-dependency-path: |
             services/kerno/go.sum
             services/nodo/go.sum
+            services/mediaauth/go.sum
+            services/regado-agent/go.sum
       - name: Check frontend and generated API contract
         run: |
           pnpm check:front
@@ -40,13 +42,14 @@ jobs:
           pnpm test:pages
       - name: Install headless Chromium for UI checks
         run: pnpm exec playwright-core install --with-deps chromium --only-shell
-      - name: Check public entry screens in Chromium
-        run: node --test scripts/ui-public.test.mjs
+      - name: Check public screens and product interactions in Chromium
+        run: |
+          node --test scripts/ui-public.test.mjs scripts/product-ui.test.mjs scripts/regado-ui.test.mjs
       - name: Check Go services
         run: |
-          go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
-          go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
-          go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
+          go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
+          go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
+          go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
       - name: Check Go dependency vulnerabilities
         run: |
           go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
@@ -59,6 +62,9 @@ jobs:
         run: |
           go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
         working-directory: services/mediaauth
+      - name: Check Regado agent dependency vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        working-directory: services/regado-agent
       - name: Test product PostgreSQL integration
         run: |
           cat > deploy/local/.env <<EOF

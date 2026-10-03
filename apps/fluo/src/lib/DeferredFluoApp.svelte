@@ -1,4 +1,6 @@
 <script lang="ts">
+	// Defers the feed bundle until the account session has loaded
+
   import { onMount } from 'svelte';
   import type { UserIdentity } from '@kaordo/contracts';
   import { Button } from '@kaordo/ui';
@@ -7,11 +9,13 @@
   let App = $state.raw<typeof import('./FluoApp.svelte').default | null>(null);
   let failed = $state(false);
 
-  function load() {
+  function load(): void {
     failed = false;
     void import('./FluoApp.svelte')
       .then(({ default: component }) => { App = component; })
-      .catch(() => { failed = true; });
+      .catch(() => {
+        failed = true;
+      });
   }
 
   onMount(load);

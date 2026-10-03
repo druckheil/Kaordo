@@ -1,3 +1,5 @@
+// Initializes Keycloak and exposes the shared browser session and request helpers
+
 import type Keycloak from 'keycloak-js';
 
 export interface AuthConfig {
@@ -12,77 +14,57 @@ export interface AuthSession {
   username?: string;
 }
 
-let adapter: Keycloak | undefined;
 let initialization: Promise<Keycloak> | undefined;
 
 export function authConfigFromEnv(env: Record<string, string | undefined>): AuthConfig {
-  const url = env.VITE_KAORDO_AUTH_URL;
-  const realm = env.VITE_KAORDO_AUTH_REALM;
-  const clientId = env.VITE_KAORDO_AUTH_CLIENT_ID;
-  if (!url || !realm || !clientId) {
+  const config = {
+    url: env.VITE_KAORDO_AUTH_URL,
+    realm: env.VITE_KAORDO_AUTH_REALM,
+    clientId: env.VITE_KAORDO_AUTH_CLIENT_ID
+  };
+
+  if (!config.url || !config.realm || !config.clientId) {
     throw new Error('Authentication is not configured. Set the VITE_KAORDO_AUTH_* variables.');
   }
-  return { url, realm, clientId };
+
+  return { url: config.url, realm: config.realm, clientId: config.clientId };
 }
 
 export async function initializeAuth(config: AuthConfig): Promise<AuthSession> {
-  if (typeof window === 'undefined') throw new Error('Authentication requires a browser.');
-  initialization ??= (async () => {
-    const { default: KeycloakClient } = await import('keycloak-js');
-    const instance = new KeycloakClient(config);
-    await instance.init({
-      onLoad: 'check-sso',
-      pkceMethod: 'S256',
-      checkLoginIframe: false,
-      silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`
-    });
-    adapter = instance;
-    return instance;
-  })();
-  let instance: Keycloak;
+  requireBrowser();
+
+  const pending = initialization ?? createInitializedClient(config);
+  initialization = pending;
+
   try {
-    instance = await initialization;
+    return toAuthSession(await pending);
   } catch (error) {
-    initialization = undefined;
+    if (initialization === pending) initialization = undefined;
     throw error;
   }
-  return {
-    authenticated: Boolean(instance.authenticated),
-    subject: instance.tokenParsed?.sub,
-    username: instance.tokenParsed?.preferred_username as string | undefined
-  };
 }
 
-async function ready(): Promise<Keycloak> {
-  if (!initialization) throw new Error('Authentication has not been initialized.');
-  return initialization;
+export async function signIn(redirectUri?: string): Promise<void> {
+  const client = await ready();
+  await client.login({ redirectUri: redirectUri ?? currentPageUrl() });
 }
 
-export async function signIn(redirectUri = window.location.href): Promise<void> {
-  await (await ready()).login({ redirectUri });
+export async function signUp(redirectUri?: string): Promise<void> {
+  const client = await ready();
+  await client.register({ redirectUri: redirectUri ?? currentPageUrl() });
 }
 
-export async function signUp(redirectUri = window.location.href): Promise<void> {
-  await (await ready()).register({ redirectUri });
-}
-
-export async function signOut(redirectUri = window.location.origin + '/'): Promise<void> {
-  await (await ready()).logout({ redirectUri });
+export async function signOut(redirectUri?: string): Promise<void> {
+  const client = await ready();
+  await client.logout({ redirectUri: redirectUri ?? applicationHomeUrl() });
 }
 
 export async function accessToken(): Promise<string> {
-  const instance = adapter ?? (await ready());
-  if (!instance.authenticated) throw new Error('Sign in to continue.');
-  await instance.updateToken(30);
-  if (!instance.token) throw new Error('The session has expired. Sign in again.');
-  return instance.token;
+  return updateAuthenticatedToken(30);
 }
 
 export async function refreshAccessToken(): Promise<void> {
-  const instance = adapter ?? (await ready());
-  if (!instance.authenticated) throw new Error('Sign in to continue.');
-  await instance.updateToken(-1);
-  if (!instance.token) throw new Error('The session has expired. Sign in again.');
+  await updateAuthenticatedToken(-1);
 }
 
 export function createAuthorizedFetch(
@@ -97,3 +79,54 @@ export function createAuthorizedFetch(
 }
 
 export const authorizedFetch = createAuthorizedFetch(accessToken);
+
+async function createInitializedClient(config: AuthConfig): Promise<Keycloak> {
+  const { default: KeycloakClient } = await import('keycloak-js');
+  const client = new KeycloakClient(config);
+
+  await client.init({
+    onLoad: 'check-sso',
+    pkceMethod: 'S256',
+    checkLoginIframe: false,
+    silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`
+  });
+
+  return client;
+}
+
+function toAuthSession(client: Keycloak): AuthSession {
+  const username = client.tokenParsed?.preferred_username;
+  return {
+    authenticated: Boolean(client.authenticated),
+    subject: client.tokenParsed?.sub,
+    username: typeof username === 'string' ? username : undefined
+  };
+}
+
+async function ready(): Promise<Keycloak> {
+  if (!initialization) throw new Error('Authentication has not been initialized.');
+  return initialization;
+}
+
+async function updateAuthenticatedToken(minValidity: number): Promise<string> {
+  const client = await ready();
+  if (!client.authenticated) throw new Error('Sign in to continue.');
+
+  await client.updateToken(minValidity);
+  if (!client.token) throw new Error('The session has expired. Sign in again.');
+  return client.token;
+}
+
+function requireBrowser(): void {
+  if (typeof window === 'undefined') throw new Error('Authentication requires a browser.');
+}
+
+function currentPageUrl(): string {
+  requireBrowser();
+  return window.location.href;
+}
+
+function applicationHomeUrl(): string {
+  requireBrowser();
+  return `${window.location.origin}/`;
+}

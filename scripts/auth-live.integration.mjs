@@ -282,7 +282,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       } else if (app === 'rondo') {
         await page.getByRole('navigation', { name: 'Servers' }).waitFor();
       } else {
-        await page.getByText(`Welcome, ${username}.`, { exact: false }).waitFor();
+        await page.getByRole("heading", { name: "Administrator access required", exact: true }).waitFor();
       }
       await checkAccessibility(page, `${app} account gate`);
       await page.setViewportSize({ width: 320, height: 768 });
@@ -757,7 +757,15 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     await card.waitFor();
     await fluoNav.getByRole('button', { name: 'Search', exact: true }).click();
     const search = page.getByRole('searchbox', { name: 'Search posts' });
+    const searchResponsePromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === '/v1/fluo/posts' && url.searchParams.get('q') === postText;
+    });
     await search.fill(postText);
+    const searchResponse = await searchResponsePromise;
+    assert.equal(searchResponse.status(), 200, 'Post search must succeed');
+    assert.ok((await searchResponse.json()).items.some((item) => item.id === post.id),
+      'Post search must include the matching post');
     await card.waitFor();
     await fluoNav.getByRole('button', { name: 'Feed', exact: true }).click();
     await card.waitFor();

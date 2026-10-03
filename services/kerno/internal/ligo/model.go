@@ -1,5 +1,6 @@
 package ligo
 
+// Defines Ligo domain models, request inputs, and store contracts
 import (
 	"context"
 	"encoding/base64"
@@ -9,6 +10,8 @@ import (
 	"time"
 )
 
+const maxEncodedConversationCursorLength = 256
+
 var (
 	ErrNotFound    = errors.New("conversation or account not found")
 	ErrForbidden   = errors.New("conversation membership required")
@@ -16,6 +19,8 @@ var (
 	ErrRateLimited = errors.New("sending too quickly")
 	ErrMediaOwner  = errors.New("attachment belongs to another account")
 )
+
+var errInvalidConversationCursor = errors.New("invalid conversation cursor")
 
 type User struct {
 	ID          string `json:"id"`
@@ -91,10 +96,13 @@ type ConversationCursor struct {
 	ID        string    `json:"id"`
 }
 
-var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var conversationCursorIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 func EncodeConversationCursor(item Conversation) string {
-	data, _ := json.Marshal(ConversationCursor{UpdatedAt: item.UpdatedAt, ID: item.ID})
+	data, err := json.Marshal(ConversationCursor{UpdatedAt: item.UpdatedAt, ID: item.ID})
+	if err != nil {
+		return ""
+	}
 	return base64.RawURLEncoding.EncodeToString(data)
 }
 
@@ -102,16 +110,24 @@ func DecodeConversationCursor(value string) (*ConversationCursor, error) {
 	if value == "" {
 		return nil, nil
 	}
-	if len(value) > 256 {
-		return nil, errors.New("invalid conversation cursor")
+	if len(value) > maxEncodedConversationCursorLength {
+		return nil, errInvalidConversationCursor
 	}
+
 	data, err := base64.RawURLEncoding.DecodeString(value)
 	if err != nil {
-		return nil, errors.New("invalid conversation cursor")
+		return nil, errInvalidConversationCursor
 	}
+	return parseConversationCursor(data)
+}
+
+func parseConversationCursor(data []byte) (*ConversationCursor, error) {
 	var cursor ConversationCursor
-	if err := json.Unmarshal(data, &cursor); err != nil || cursor.UpdatedAt.IsZero() || !uuidPattern.MatchString(cursor.ID) {
-		return nil, errors.New("invalid conversation cursor")
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return nil, errInvalidConversationCursor
+	}
+	if cursor.UpdatedAt.IsZero() || !conversationCursorIDPattern.MatchString(cursor.ID) {
+		return nil, errInvalidConversationCursor
 	}
 	return &cursor, nil
 }

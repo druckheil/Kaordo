@@ -1,5 +1,6 @@
 package postgres
 
+// Executes Jet statements through pgx and provides PostgreSQL helpers
 import (
 	"context"
 

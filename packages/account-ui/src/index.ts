@@ -1,3 +1,5 @@
+// Exposes the shared account gate, session, and preview helpers
+
 export { default as AccountGate } from './AccountGate.svelte';
 export { createAccountSessionController, loadAccountSnapshot } from './session.js';
 export type { AccountSnapshot } from './session.js';

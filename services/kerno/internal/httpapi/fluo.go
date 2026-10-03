@@ -1,10 +1,9 @@
 package httpapi
 
+// Handles Fluo post, media, reaction, follow, and feed requests
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -36,6 +35,8 @@ type fluoHandler struct {
 	deps   FluoDependencies
 }
 
+const maxPostAttachments = 4
+
 func mountFluo(router chi.Router, verify VerifyFunc, users UserStore, deps FluoDependencies) {
 	h := fluoHandler{verify: verify, users: users, deps: deps}
 	router.Get("/v1/internal/media/{id}/referenced", h.mediaReferenced)
@@ -55,24 +56,7 @@ func mountFluo(router chi.Router, verify VerifyFunc, users UserStore, deps FluoD
 }
 
 func (h fluoHandler) actor(w http.ResponseWriter, r *http.Request) (postgres.User, bool) {
-	claims, ok := authenticate(w, r, h.verify)
-	if !ok {
-		return postgres.User{}, false
-	}
-	actor, err := h.users.BySubject(r.Context(), claims.Subject)
-	if postgres.IsNotFound(err) {
-		writeError(w, http.StatusConflict, "Start a Kaordo account session before using Fluo.")
-		return postgres.User{}, false
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load your account.")
-		return postgres.User{}, false
-	}
-	if actor.DisabledAt != nil {
-		writeError(w, http.StatusForbidden, "This account is disabled.")
-		return postgres.User{}, false
-	}
-	return actor, true
+	return authenticatedActor(w, r, h.verify, h.users, "Start a Kaordo account session before using Fluo.")
 }
 
 func fluoError(w http.ResponseWriter, err error) {
@@ -94,21 +78,22 @@ func fluoError(w http.ResponseWriter, err error) {
 }
 
 func (h fluoHandler) decorate(post *fluo.Post) error {
-	sign := func(items []fluo.Media) error {
-		for index := range items {
-			url, err := mediaauth.SignedURL(h.deps.MediaBaseURL, items[index].ID, time.Now().Add(9*time.Minute), h.deps.MediaSignKey)
-			if err != nil {
-				return err
-			}
-			items[index].URL = url
-		}
-		return nil
-	}
-	if err := sign(post.Media); err != nil {
+	if err := h.signMedia(post.Media); err != nil {
 		return err
 	}
 	if post.Quote != nil {
-		return sign(post.Quote.Media)
+		return h.signMedia(post.Quote.Media)
+	}
+	return nil
+}
+
+func (h fluoHandler) signMedia(items []fluo.Media) error {
+	for index := range items {
+		url, err := mediaauth.SignedURL(h.deps.MediaBaseURL, items[index].ID, time.Now().Add(9*time.Minute), h.deps.MediaSignKey)
+		if err != nil {
+			return err
+		}
+		items[index].URL = url
 	}
 	return nil
 }
@@ -135,19 +120,26 @@ func readPageOptions(r *http.Request, viewerID string, parentID *string) (fluo.L
 	if utf8.RuneCountInString(search) > 100 || (search != "" && utf8.RuneCountInString(search) < 2) {
 		return fluo.ListOptions{}, errors.New("search must contain between 2 and 100 characters")
 	}
-	limit := 20
-	if raw := query.Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed < 1 || parsed > 50 {
-			return fluo.ListOptions{}, errors.New("limit must be between 1 and 50")
-		}
-		limit = parsed
+	limit, err := parseFluoPageLimit(query.Get("limit"))
+	if err != nil {
+		return fluo.ListOptions{}, err
 	}
 	cursor, err := fluo.DecodeCursor(query.Get("cursor"))
 	if err != nil {
 		return fluo.ListOptions{}, err
 	}
 	return fluo.ListOptions{ViewerID: viewerID, ParentID: parentID, Feed: feed, Search: search, Limit: limit, Cursor: cursor}, nil
+}
+
+func parseFluoPageLimit(raw string) (int, error) {
+	if raw == "" {
+		return 20, nil
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 || limit > 50 {
+		return 0, errors.New("limit must be between 1 and 50")
+	}
+	return limit, nil
 }
 
 func (h fluoHandler) page(w http.ResponseWriter, r *http.Request, parentID *string) {
@@ -205,22 +197,6 @@ func (h fluoHandler) get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, post)
 }
 
-func decodeBody(w http.ResponseWriter, r *http.Request, destination any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(destination); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body or body exceeds 64 KiB.")
-		return false
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, "Request body must contain one JSON object.")
-		return false
-	}
-	return true
-}
-
 func (h fluoHandler) create(w http.ResponseWriter, r *http.Request) {
 	actor, ok := h.actor(w, r)
 	if !ok {
@@ -230,71 +206,13 @@ func (h fluoHandler) create(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &input) {
 		return
 	}
-	if input.Visibility == "" {
-		input.Visibility = "public"
-	}
-	if input.Visibility != "public" && input.Visibility != "private" {
-		writeError(w, http.StatusBadRequest, "Visibility must be public or private.")
+	text, ok := validatePostInput(w, &input)
+	if !ok {
 		return
 	}
-	if input.ParentID != nil && input.QuoteID != nil {
-		writeError(w, http.StatusBadRequest, "A comment cannot quote another post.")
+	media, ok := h.validatePostMedia(w, r, input)
+	if !ok {
 		return
-	}
-	for _, reference := range []*string{input.ParentID, input.QuoteID} {
-		if reference != nil && !fluo.ValidID(*reference) {
-			writeError(w, http.StatusBadRequest, "Invalid referenced post ID.")
-			return
-		}
-	}
-	maximum := 5000
-	if input.ParentID != nil {
-		maximum = 2000
-	}
-	content, text, err := fluo.ValidateContent(input.Content, maximum)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	input.Content = content
-	if len(input.AttachmentIDs) > 4 {
-		writeError(w, http.StatusBadRequest, "A post can have at most four attachments.")
-		return
-	}
-	if text == "" && len(input.AttachmentIDs) == 0 && input.QuoteID == nil {
-		writeError(w, http.StatusBadRequest, "Write something or attach media before publishing.")
-		return
-	}
-	media := make([]fluo.Media, 0, len(input.AttachmentIDs))
-	seen := make(map[string]bool, len(input.AttachmentIDs))
-	for _, id := range input.AttachmentIDs {
-		if !fluo.ValidID(id) || seen[id] {
-			writeError(w, http.StatusBadRequest, "Attachment IDs must be unique UUIDs.")
-			return
-		}
-		seen[id] = true
-		altText := strings.TrimSpace(input.AltTexts[id])
-		if utf8.RuneCountInString(altText) > 500 || strings.ContainsRune(altText, 0) {
-			writeError(w, http.StatusBadRequest, "Alt text must be 500 characters or fewer.")
-			return
-		}
-		if h.deps.Media == nil {
-			writeError(w, http.StatusServiceUnavailable, "Media storage is unavailable.")
-			return
-		}
-		item, err := h.deps.Media.Validate(r.Context(), r.Header.Get("Authorization"), id)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "An attachment is unavailable or not yours.")
-			return
-		}
-		item.AltText = altText
-		media = append(media, item)
-	}
-	for id := range input.AltTexts {
-		if !seen[id] {
-			writeError(w, http.StatusBadRequest, "Alt text must belong to an attached file.")
-			return
-		}
 	}
 	createCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -309,6 +227,99 @@ func (h fluoHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Location", "/v1/fluo/posts/"+post.ID)
 	writeJSON(w, http.StatusCreated, post)
+}
+
+func validatePostInput(w http.ResponseWriter, input *fluo.NewPost) (string, bool) {
+	if !validatePostReferences(w, input) {
+		return "", false
+	}
+	maximum := 5000
+	if input.ParentID != nil {
+		maximum = 2000
+	}
+	content, text, err := fluo.ValidateContent(input.Content, maximum)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return "", false
+	}
+	input.Content = content
+	if len(input.AttachmentIDs) > maxPostAttachments {
+		writeError(w, http.StatusBadRequest, "A post can have at most four attachments.")
+		return "", false
+	}
+	if text == "" && len(input.AttachmentIDs) == 0 && input.QuoteID == nil {
+		writeError(w, http.StatusBadRequest, "Write something or attach media before publishing.")
+		return "", false
+	}
+	return text, true
+}
+
+func validatePostReferences(w http.ResponseWriter, input *fluo.NewPost) bool {
+	if input.Visibility == "" {
+		input.Visibility = "public"
+	}
+	if input.Visibility != "public" && input.Visibility != "private" {
+		writeError(w, http.StatusBadRequest, "Visibility must be public or private.")
+		return false
+	}
+	if input.ParentID != nil && input.QuoteID != nil {
+		writeError(w, http.StatusBadRequest, "A comment cannot quote another post.")
+		return false
+	}
+	for _, reference := range []*string{input.ParentID, input.QuoteID} {
+		if reference != nil && !fluo.ValidID(*reference) {
+			writeError(w, http.StatusBadRequest, "Invalid referenced post ID.")
+			return false
+		}
+	}
+	return true
+}
+
+func (h fluoHandler) validatePostMedia(w http.ResponseWriter, r *http.Request, input fluo.NewPost) ([]fluo.Media, bool) {
+	media := make([]fluo.Media, 0, len(input.AttachmentIDs))
+	seen := make(map[string]struct{}, len(input.AttachmentIDs))
+	for _, id := range input.AttachmentIDs {
+		item, ok := h.validatePostAttachment(w, r, id, input.AltTexts[id], seen)
+		if !ok {
+			return nil, false
+		}
+		media = append(media, item)
+	}
+	for id := range input.AltTexts {
+		if _, attached := seen[id]; !attached {
+			writeError(w, http.StatusBadRequest, "Alt text must belong to an attached file.")
+			return nil, false
+		}
+	}
+	return media, true
+}
+
+func (h fluoHandler) validatePostAttachment(w http.ResponseWriter, r *http.Request, id, altText string, seen map[string]struct{}) (fluo.Media, bool) {
+	if !fluo.ValidID(id) {
+		writeError(w, http.StatusBadRequest, "Attachment IDs must be unique UUIDs.")
+		return fluo.Media{}, false
+	}
+	if _, duplicate := seen[id]; duplicate {
+		writeError(w, http.StatusBadRequest, "Attachment IDs must be unique UUIDs.")
+		return fluo.Media{}, false
+	}
+	seen[id] = struct{}{}
+	altText = strings.TrimSpace(altText)
+	if utf8.RuneCountInString(altText) > 500 || strings.ContainsRune(altText, 0) {
+		writeError(w, http.StatusBadRequest, "Alt text must be 500 characters or fewer.")
+		return fluo.Media{}, false
+	}
+	if h.deps.Media == nil {
+		writeError(w, http.StatusServiceUnavailable, "Media storage is unavailable.")
+		return fluo.Media{}, false
+	}
+	item, err := h.deps.Media.Validate(r.Context(), r.Header.Get("Authorization"), id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "An attachment is unavailable or not yours.")
+		return fluo.Media{}, false
+	}
+	item.AltText = altText
+	return item, true
 }
 
 func (h fluoHandler) delete(w http.ResponseWriter, r *http.Request) {

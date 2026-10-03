@@ -4,8 +4,16 @@
   "version": "0.0.1",
   "type": "module",
   "exports": {
-    ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
-    "./sounds": { "types": "./src/sounds.ts", "default": "./src/sounds.ts" }
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./sounds": {
+      "types": "./src/sounds.ts",
+      "default": "./src/sounds.ts"
+    }
   },
-  "dependencies": { "livekit-client": "^2.22.3" }
+  "dependencies": {
+    "livekit-client": "^2.22.3"
+  }
 }

@@ -1,5 +1,6 @@
 package httpapi
 
+// Calls Nodo to validate uploads and purge retired media
 import (
 	"context"
 	"encoding/json"
@@ -21,6 +22,8 @@ type NodoClient struct {
 	InternalKey []byte
 }
 
+const maxUploadSize = 100 * 1024 * 1024
+
 func (client NodoClient) Purge(ctx context.Context, id string) error {
 	if !fluo.ValidID(id) || len(client.InternalKey) != 32 {
 		return errors.New("invalid media cleanup request")
@@ -31,11 +34,7 @@ func (client NodoClient) Purge(ctx context.Context, id string) error {
 		return err
 	}
 	request.Header.Set("X-Kaordo-Internal-Token", mediaauth.InternalToken(client.InternalKey))
-	httpClient := client.Client
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 2 * time.Second}
-	}
-	response, err := httpClient.Do(request)
+	response, err := client.httpClient(2 * time.Second).Do(request)
 	if err != nil {
 		return err
 	}
@@ -56,11 +55,7 @@ func (client NodoClient) ValidateLigo(ctx context.Context, bearer, id string) (l
 		return ligo.Media{}, err
 	}
 	request.Header.Set("Authorization", bearer)
-	httpClient := client.Client
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 5 * time.Second}
-	}
-	response, err := httpClient.Do(request)
+	response, err := client.httpClient(5 * time.Second).Do(request)
 	if err != nil {
 		return ligo.Media{}, err
 	}
@@ -76,13 +71,35 @@ func (client NodoClient) ValidateLigo(ctx context.Context, bearer, id string) (l
 		return ligo.Media{}, err
 	}
 	item := result.Media
-	if !result.Complete || item.ID != id || item.Size <= 0 || item.Size > 104857600 ||
-		(item.Kind != "file" && item.Kind != "image" && item.Kind != "video") ||
-		(item.Kind == "file" && (item.Width != 0 || item.Height != 0 || item.Filename == "" || item.MimeType != "application/octet-stream")) ||
-		(item.Kind != "file" && (item.Width < 1 || item.Width > 8192 || item.Height < 1 || item.Height > 8192)) {
+	if !validUploadMetadata(id, item, result.Complete) {
 		return ligo.Media{}, errors.New("upload is incomplete or invalid")
 	}
 	return item, nil
+}
+
+func (client NodoClient) httpClient(timeout time.Duration) *http.Client {
+	if client.Client != nil {
+		return client.Client
+	}
+	return &http.Client{Timeout: timeout}
+}
+
+func validUploadMetadata(id string, item ligo.Media, complete bool) bool {
+	if !complete || item.ID != id || item.Size <= 0 || item.Size > maxUploadSize {
+		return false
+	}
+	switch item.Kind {
+	case "file":
+		return item.Width == 0 && item.Height == 0 && item.Filename != "" && item.MimeType == "application/octet-stream"
+	case "image", "video":
+		return validMediaDimensions(item.Width, item.Height)
+	default:
+		return false
+	}
+}
+
+func validMediaDimensions(width, height int) bool {
+	return width >= 1 && width <= 8192 && height >= 1 && height <= 8192
 }
 
 func (client NodoClient) Validate(ctx context.Context, bearer, id string) (fluo.Media, error) {

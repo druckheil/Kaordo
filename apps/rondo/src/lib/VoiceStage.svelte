@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Presents voice controls and a responsive stage for connected video streams
+
   import { onMount } from 'svelte';
   import type { ScreenQuality, VoiceConnection, VoiceSnapshot } from '@kaordo/voice-client';
   import {
@@ -35,49 +37,64 @@
   let fullscreenVideoId = $state<string | null>(null);
   let fullscreenError = $state('');
   let fullscreenRevision = 0;
-  const previewVideos = $derived.by(() => {
-    const sorted = [...voice.videos].sort((a, b) => Number(b.source === 'screen') - Number(a.source === 'screen'));
-    const preview = sorted.slice(0, 4);
-    if (fullscreenVideoId && !preview.some((video) => video.id === fullscreenVideoId)) {
-      const fullscreenVideo = sorted.find((video) => video.id === fullscreenVideoId);
-      if (fullscreenVideo) preview.splice(3, 1, fullscreenVideo);
-    }
-    return preview;
-  });
+  const previewVideos = $derived.by(() => selectPreviewVideos(voice.videos, fullscreenVideoId));
 
   onMount(() => {
-    const syncFullscreen = () => {
-      fullscreenRevision++;
-      stageFullscreen = document.fullscreenElement === stage;
-      fullscreenVideoId = document.fullscreenElement?.getAttribute('data-voice-video-id') ?? null;
-      if (stageFullscreen) fullscreenError = '';
-    };
-    document.addEventListener('fullscreenchange', syncFullscreen);
-    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
   });
+
+  function selectPreviewVideos(videos: VoiceSnapshot['videos'], fullscreenId: string | null) {
+    const sorted = [...videos].sort((a, b) => Number(b.source === 'screen') - Number(a.source === 'screen'));
+    const preview = sorted.slice(0, 4);
+    if (!fullscreenId || preview.some((video) => video.id === fullscreenId)) return preview;
+
+    const fullscreenVideo = sorted.find((video) => video.id === fullscreenId);
+    return fullscreenVideo ? [...sorted.slice(0, 3), fullscreenVideo] : preview;
+  }
+
+  function syncFullscreenState(): void {
+    const activeElement = document.fullscreenElement;
+    fullscreenRevision++;
+    stageFullscreen = activeElement === stage;
+    fullscreenVideoId = activeElement?.getAttribute('data-voice-video-id') ?? null;
+    if (stageFullscreen) fullscreenError = '';
+  }
 
   function explain(error: unknown) {
     onError(error instanceof Error ? error.message : 'Could not change the voice setting.');
   }
 
-  async function change(action: () => Promise<void>) {
-    if (mediaBusy || !voice.connected) return;
+  async function performMediaAction(action: () => Promise<void>, ignorePermissionDenial = false): Promise<boolean> {
+    if (mediaBusy || !voice.connected) return false;
+
     mediaBusy = true;
-    try { await action(); onError(''); }
-    catch (error) { explain(error); }
-    finally { mediaBusy = false; }
+    try {
+      await action();
+      onError('');
+      return true;
+    } catch (error) {
+      if (!ignorePermissionDenial || !isPermissionDenial(error)) explain(error);
+      return false;
+    } finally {
+      mediaBusy = false;
+    }
+  }
+
+  function change(action: () => Promise<void>): Promise<boolean> {
+    return performMediaAction(action);
+  }
+
+  function isPermissionDenial(error: unknown): boolean {
+    return error instanceof DOMException && error.name === 'NotAllowedError';
   }
 
   async function startShare() {
-    if (mediaBusy || !voice.connected) return;
-    mediaBusy = true;
-    try {
-      await connection.toggleScreenShare(quality, includeAudio);
-      shareDialog = false;
-      onError('');
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'NotAllowedError')) explain(error);
-    } finally { mediaBusy = false; }
+    const started = await performMediaAction(
+      () => connection.toggleScreenShare(quality, includeAudio),
+      true
+    );
+    if (started) shareDialog = false;
   }
 
   async function toggleFullscreen() {

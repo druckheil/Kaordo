@@ -1,9 +1,17 @@
 <script lang="ts">
+	// Manages a rich-text post draft and its publishing state
+
   import { onMount } from 'svelte';
   import type { Editor } from '@tiptap/core';
-  import type { FluoDocument, FluoPost } from '@kaordo/contracts';
+  import type { FluoPost } from '@kaordo/contracts';
   import type { FluoApi } from '@kaordo/api-client';
-  import { BoldIcon, Button, EllipsisIcon, ImagePlusIcon, ItalicIcon, StrikethroughIcon, XIcon } from '@kaordo/ui';
+  import { Button, EllipsisIcon, ImagePlusIcon } from '@kaordo/ui';
+  import ComposerAttachmentList from './ComposerAttachmentList.svelte';
+  import ComposerOptionsPanel from './ComposerOptionsPanel.svelte';
+  import { maxComposerAttachments, type ComposerAttachment } from './composer-model';
+  import { createComposerEditor } from './composer-editor';
+  import { publishComposerPost } from './composer-publishing';
+  import { errorMessage } from './fluo-model';
   import QuotePreview from './QuotePreview.svelte';
 
   let { api, replyTo, quoteTo, onPublished, onCancel }: {
@@ -19,7 +27,7 @@
   let editor = $state.raw<Editor | null>(null);
   let textLength = $state(0);
   let visibility = $state<'public' | 'private'>('public');
-  let files = $state.raw<{ file: File; preview: string; altText: string }[]>([]);
+  let files = $state.raw<ComposerAttachment[]>([]);
   let pending = $state(false);
   let progress = $state(0);
   let error = $state('');
@@ -30,25 +38,15 @@
   onMount(() => {
     let active = true;
     let instance: Editor | undefined;
-    void Promise.all([import('@tiptap/core'), import('@tiptap/starter-kit'), import('@tiptap/extension-placeholder')])
-      .then(([{ Editor: EditorConstructor }, { default: StarterKit }, { Placeholder }]) => {
-        if (!active) return;
-        instance = new EditorConstructor({
-          element,
-          extensions: [
-            StarterKit.configure({
-              blockquote: false, bulletList: false, code: false, codeBlock: false,
-              heading: false, horizontalRule: false, link: false, orderedList: false,
-              listItem: false, listKeymap: false, underline: false
-            }),
-            Placeholder.configure({ placeholder: replyTo ? 'Write a reply…' : 'What would you like to share?' })
-          ],
-          content: { type: 'doc', content: [{ type: 'paragraph' }] },
-          editorProps: { attributes: { 'aria-label': replyTo ? 'Reply text' : 'Post text', class: 'outline-none' } },
-          onUpdate: ({ editor: current }) => { textLength = current.getText().trim().length; }
-        });
-        editor = instance;
-        instance.commands.focus('end');
+    void createComposerEditor(element, replyTo, (length) => (textLength = length))
+      .then((createdEditor) => {
+        if (!active) {
+          createdEditor.destroy();
+          return;
+        }
+        instance = createdEditor;
+        editor = createdEditor;
+        createdEditor.commands.focus('end');
       })
       .catch(() => {
         if (active) {
@@ -62,30 +60,26 @@
     };
   });
 
-  function chooseFiles() {
-    const selected = [...(fileInput?.files ?? [])];
-    if (selected.length + files.length > 4) {
-      error = 'Add at most four files.';
-      if (fileInput) fileInput.value = '';
+  function chooseFiles(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement;
+    const selectedFiles = Array.from(input.files ?? []);
+    if (selectedFiles.length + files.length > maxComposerAttachments) {
+      error = `Add at most ${maxComposerAttachments} files.`;
+      input.value = '';
       return;
     }
-    files = [...files, ...selected.map((file) => ({ file, preview: URL.createObjectURL(file), altText: '' }))];
+
+    files = [
+      ...files,
+      ...selectedFiles.map((file) => ({ file, preview: URL.createObjectURL(file), altText: '' })),
+    ];
     error = '';
-    if (fileInput) fileInput.value = '';
+    input.value = '';
   }
 
-  function removeFile(index: number) {
-    URL.revokeObjectURL(files[index].preview);
-    files = files.filter((_, position) => position !== index);
-  }
-
-  function changeAltText(index: number, value: string) {
-    files = files.map((item, position) => position === index ? { ...item, altText: value } : item);
-  }
-
-  async function publish() {
+  async function publish(): Promise<void> {
     if (!editor || pending) return;
-    const maximum = replyTo ? 2000 : 5000;
+    const maximum = replyTo ? 2_000 : 5_000;
     if (textLength > maximum) {
       error = `Text must be ${maximum} characters or fewer.`;
       return;
@@ -98,20 +92,14 @@
     progress = 0;
     error = '';
     try {
-      const attachmentIds = files.length
-        ? await import('@kaordo/media-client').then(({ uploadMedia }) =>
-            uploadMedia(files.map((item) => item.file), import.meta.env.VITE_KAORDO_NODO_URL, api, (value) => { progress = value; }))
-        : [];
-      await api.create({
-        content: editor.getJSON() as FluoDocument,
-        visibility: replyTo?.visibility ?? visibility,
-        ...(replyTo ? { parentId: replyTo.id } : {}),
-        ...(quoteTo ? { quoteId: quoteTo.id } : {}),
-        attachmentIds,
-        altTexts: Object.fromEntries(attachmentIds.flatMap((id, index) => {
-          const description = files[index].altText.trim();
-          return description ? [[id, description]] : [];
-        }))
+      await publishComposerPost({
+        api,
+        editor,
+        replyTo,
+        quoteTo,
+        visibility,
+        attachments: files,
+        onProgress: (value) => (progress = value),
       });
       editor.commands.clearContent();
       editor.commands.blur();
@@ -122,7 +110,7 @@
       optionsOpen = false;
       onPublished();
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not publish your post.';
+      error = errorMessage(cause, 'Could not publish your post.');
     } finally {
       pending = false;
     }
@@ -141,30 +129,7 @@
     <div class="editor-surface min-h-24" bind:this={element}></div>
   </div>
   {#if files.length > 0}
-    <ul class="mt-4 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-4" aria-label="Attachments">
-      {#each files as item, index (item.preview)}
-        <li class="group relative grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] overflow-hidden rounded-xl border border-border bg-muted/50 min-[420px]:block">
-          <div class="flex h-24 items-center justify-center overflow-hidden bg-foreground min-[420px]:h-28">
-            {#if item.file.type.startsWith('image/')}
-              <img src={item.preview} alt="" class="h-full w-full object-cover" />
-            {:else}
-              <video src={item.preview} muted playsinline preload="metadata" class="h-full w-full object-contain" aria-hidden="true"></video>
-            {/if}
-          </div>
-          <span class="block truncate px-2 py-1.5 pr-9 text-xs text-muted-foreground min-[420px]:pr-2">{item.file.name}</span>
-          <details class="col-span-2 border-t border-border/70 px-2 py-2 text-xs">
-            <summary class="cursor-pointer font-medium text-primary underline-offset-4 hover:underline">{item.altText ? 'Edit description' : 'Add description'}</summary>
-            <label class="mt-2 block font-medium" for={'fluo-alt-' + index}>Description for {item.file.name}</label>
-            <textarea id={'fluo-alt-' + index} rows="2" maxlength="500" value={item.altText}
-              disabled={pending} oninput={(event) => changeAltText(index, event.currentTarget.value)}
-              class="mt-1 w-full resize-y rounded-lg border border-input bg-card px-2.5 py-2 text-sm leading-5 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25"
-              placeholder="Describe the media for people using a screen reader"></textarea>
-          </details>
-          <Button class="absolute right-1.5 top-1.5 rounded-full bg-card/95 shadow-sm" size="icon-xs" variant="outline"
-            aria-label={'Remove ' + item.file.name} disabled={pending} onclick={() => removeFile(index)}><XIcon class="size-3.5" /></Button>
-        </li>
-      {/each}
-    </ul>
+    <ComposerAttachmentList bind:files {pending} />
   {/if}
   {#if quoteTo}
     <section class="mt-5" aria-label="Quoted post">
@@ -175,25 +140,14 @@
       <QuotePreview quote={quoteTo} />
     </section>
   {/if}
-  <div id="fluo-post-options" hidden={!optionsOpen} class="mt-4 rounded-xl border border-border bg-muted/35 p-3">
-    <div class="flex items-center justify-between gap-2">
-      <p class="text-xs font-semibold text-muted-foreground">Post options</p>
-      <Button variant="ghost" size="icon-xs" aria-label="Close post options" disabled={pending} onclick={() => optionsOpen = false}><XIcon class="size-4" /></Button>
-    </div>
-    <div class="mt-2 flex flex-wrap items-center justify-between gap-3">
-      <div class="flex gap-1" aria-label="Text formatting">
-        <Button variant="ghost" size="icon-sm" aria-label="Bold" aria-pressed={editor?.isActive('bold') ?? false} disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleBold().run()}><BoldIcon class="size-4" /></Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Italic" aria-pressed={editor?.isActive('italic') ?? false} disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleItalic().run()}><ItalicIcon class="size-4" /></Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Strike through" aria-pressed={editor?.isActive('strike') ?? false} disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleStrike().run()}><StrikethroughIcon class="size-4" /></Button>
-      </div>
-      <select aria-label="Post visibility" bind:value={visibility} disabled={pending || !!replyTo}
-        class="h-9 rounded-xl border border-input bg-card px-3 text-xs font-medium focus-visible:outline-3 focus-visible:outline-ring">
-        <option value="public">Public</option>
-        <option value="private">Only me</option>
-      </select>
-    </div>
-    {#if replyTo}<p class="mt-2 text-xs text-muted-foreground">Replies use the original post's visibility.</p>{/if}
-  </div>
+  <ComposerOptionsPanel
+    {editor}
+    bind:visibility
+    {pending}
+    replying={!!replyTo}
+    open={optionsOpen}
+    onClose={() => (optionsOpen = false)}
+  />
   {#if pending && files.length > 0}
     <p class="mt-3 text-xs text-muted-foreground" role="status">{progress < 100 ? `Uploading media: ${progress}%` : 'Processing media…'}</p>
   {/if}

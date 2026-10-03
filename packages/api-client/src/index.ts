@@ -1,6 +1,14 @@
+// Exposes the service clients and creates the initial authenticated account session
+
 import { authorizedFetch, refreshAccessToken } from '@kaordo/auth';
 import type { UserIdentity, paths } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
+import { apiErrorDetail } from './http.ts';
+
+export { appendSentMessage, replaceCachedMessage } from './message-cache.ts';
+export { adminSummaryOptions, adminSystemOptions, adminMetricsOptions, adminUsersOptions,
+  adminAuditOptions, adminLogsOptions, adminCaseContentOptions } from './admin-queries.ts';
+
 export { createFluoApi, feedOptions, commentsOptions, type Feed, type FluoApi } from './fluo.ts';
 export { createLigoApi, ligoConversationOptions, ligoConversationDetailOptions, ligoUserSearchOptions, ligoMessageOptions, type LigoApi } from './ligo.ts';
 export { createRondoApi, rondoServersOptions, rondoDiscoverOptions, rondoServerOptions, type RondoApi } from './rondo.ts';
@@ -12,17 +20,21 @@ export async function bootstrapIdentity(
     { fetch: authorizedFetch, refresh: refreshAccessToken }
 ): Promise<UserIdentity> {
   const client = createClient<paths>({ baseUrl: apiBaseUrl, fetch: auth.fetch });
-  const createSession = () => client.POST('/v1/session', { headers: { Accept: 'application/json' } });
-  let { data, error, response } = await createSession();
-  if (response.status === 401) {
+  const requestSession = () => client.POST('/v1/session', { headers: { Accept: 'application/json' } });
+  let result = await requestSession();
+
+  if (result.response.status === 401) {
     await auth.refresh();
-    ({ data, error, response } = await createSession());
+    result = await requestSession();
   }
-  if (!data) {
-    const detail = error && typeof error === 'object' && 'error' in error && typeof error.error === 'string'
-      ? ` ${error.error}`
-      : '';
-    throw new Error(`Account setup failed (${response.status}).${detail}`);
-  }
-  return data;
+
+  return requireIdentity(result.data, result.error, result.response.status);
+}
+
+function requireIdentity(data: UserIdentity | undefined, error: unknown, status: number): UserIdentity {
+  if (data) return data;
+
+  const detail = apiErrorDetail(error);
+  const message = `Account setup failed (${status}).${detail ? ` ${detail}` : ''}`;
+  throw new Error(message);
 }

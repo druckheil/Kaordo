@@ -1,5 +1,6 @@
 package postgres
 
+// Stores application user records in PostgreSQL
 import (
 	"context"
 	"errors"
@@ -20,12 +21,28 @@ type User struct {
 	DisabledAt  *time.Time `json:"-"`
 }
 
-type Users struct{ pool *pgxpool.Pool }
+type Users struct {
+	pool *pgxpool.Pool
+}
 
-func NewUsers(pool *pgxpool.Pool) *Users { return &Users{pool: pool} }
+func NewUsers(pool *pgxpool.Pool) *Users {
+	return &Users{pool: pool}
+}
+
+func scanUser(row pgx.Row) (User, error) {
+	var user User
+	err := row.Scan(
+		&user.ID,
+		&user.Username,
+		&user.DisplayName,
+		&user.CreatedAt,
+		&user.IsAdmin,
+		&user.DisabledAt,
+	)
+	return user, err
+}
 
 func (store *Users) Upsert(ctx context.Context, subject, username, displayName string) (User, error) {
-	var user User
 	query := table.Users.INSERT(table.Users.KeycloakSub, table.Users.Username, table.Users.DisplayName).
 		VALUES(postgres.String(subject), postgres.String(username), postgres.String(displayName)).
 		ON_CONFLICT(table.Users.KeycloakSub).
@@ -42,12 +59,10 @@ func (store *Users) Upsert(ctx context.Context, subject, username, displayName s
 			postgres.RawBool("EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin')"),
 			table.Users.DisabledAt,
 		)
-	err := jetQueryRow(ctx, store.pool, query).Scan(&user.ID, &user.Username, &user.DisplayName, &user.CreatedAt, &user.IsAdmin, &user.DisabledAt)
-	return user, err
+	return scanUser(jetQueryRow(ctx, store.pool, query))
 }
 
 func (store *Users) BySubject(ctx context.Context, subject string) (User, error) {
-	var user User
 	users := table.Users.AS("u")
 	query := postgres.SELECT(
 		postgres.RawString("u.id::text"),
@@ -57,8 +72,7 @@ func (store *Users) BySubject(ctx context.Context, subject string) (User, error)
 		postgres.RawBool("EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role = 'admin')"),
 		users.DisabledAt,
 	).FROM(users).WHERE(users.KeycloakSub.EQ(postgres.String(subject)))
-	err := jetQueryRow(ctx, store.pool, query).Scan(&user.ID, &user.Username, &user.DisplayName, &user.CreatedAt, &user.IsAdmin, &user.DisabledAt)
-	return user, err
+	return scanUser(jetQueryRow(ctx, store.pool, query))
 }
 
 func IsNotFound(err error) bool { return errors.Is(err, pgx.ErrNoRows) }

@@ -1,5 +1,6 @@
 package httpapi
 
+// Handles Ligo conversation, message, media, receipt, and event requests
 import (
 	"context"
 	"encoding/json"
@@ -7,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +44,8 @@ type ligoHandler struct {
 	deps   LigoDependencies
 }
 
+const maxLigoAttachments = 8
+
 func mountLigo(router chi.Router, verify VerifyFunc, users UserStore, deps LigoDependencies) {
 	h := ligoHandler{verify: verify, users: users, deps: deps}
 	router.Route("/v1/ligo", func(r chi.Router) {
@@ -62,24 +66,7 @@ func mountLigo(router chi.Router, verify VerifyFunc, users UserStore, deps LigoD
 }
 
 func (h ligoHandler) actor(w http.ResponseWriter, r *http.Request) (postgres.User, bool) {
-	claims, ok := authenticate(w, r, h.verify)
-	if !ok {
-		return postgres.User{}, false
-	}
-	actor, err := h.users.BySubject(r.Context(), claims.Subject)
-	if postgres.IsNotFound(err) {
-		writeError(w, http.StatusConflict, "Start a Kaordo account session before using Ligo.")
-		return postgres.User{}, false
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load your account.")
-		return postgres.User{}, false
-	}
-	if actor.DisabledAt != nil {
-		writeError(w, http.StatusForbidden, "This account is disabled.")
-		return postgres.User{}, false
-	}
-	return actor, true
+	return authenticatedActor(w, r, h.verify, h.users, "Start a Kaordo account session before using Ligo.")
 }
 
 func ligoError(w http.ResponseWriter, err error) {
@@ -106,12 +93,15 @@ func validIDs(ids []string, maximum int) bool {
 	if len(ids) == 0 || len(ids) > maximum {
 		return false
 	}
-	seen := make(map[string]bool, len(ids))
+	seen := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
-		if !ligoID(id) || seen[id] {
+		if !ligoID(id) {
 			return false
 		}
-		seen[id] = true
+		if _, duplicate := seen[id]; duplicate {
+			return false
+		}
+		seen[id] = struct{}{}
 	}
 	return true
 }
@@ -156,14 +146,9 @@ func (h ligoHandler) listConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid conversation cursor.")
 		return
 	}
-	limit := 30
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		value, parseErr := strconv.Atoi(raw)
-		if parseErr != nil || value < 1 || value > 50 {
-			writeError(w, http.StatusBadRequest, "Limit must be between 1 and 50.")
-			return
-		}
-		limit = value
+	limit, ok := parseLigoPageLimit(w, r.URL.Query().Get("limit"))
+	if !ok {
+		return
 	}
 	page, err := h.deps.Store.ListConversations(r.Context(), actor.ID, cursor, limit)
 	if err != nil {
@@ -171,6 +156,18 @@ func (h ligoHandler) listConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+func parseLigoPageLimit(w http.ResponseWriter, raw string) (int, bool) {
+	if raw == "" {
+		return 30, true
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 || limit > 50 {
+		writeError(w, http.StatusBadRequest, "Limit must be between 1 and 50.")
+		return 0, false
+	}
+	return limit, true
 }
 
 func (h ligoHandler) getConversation(w http.ResponseWriter, r *http.Request) {
@@ -201,19 +198,13 @@ func (h ligoHandler) createConversation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	input.Title = strings.TrimSpace(input.Title)
-	if (input.Kind != "self" && !validIDs(input.ParticipantIDs, 24)) ||
-		(input.Kind == "self" && (len(input.ParticipantIDs) != 0 || input.Title != "")) ||
-		(input.Kind == "duo" && (len(input.ParticipantIDs) != 1 || input.Title != "")) ||
-		(input.Kind == "group" && (utf8.RuneCountInString(input.Title) < 1 || utf8.RuneCountInString(input.Title) > 100)) ||
-		(input.Kind != "duo" && input.Kind != "group" && input.Kind != "self") {
+	if !validNewConversation(input) {
 		writeError(w, http.StatusBadRequest, "Choose a private note, one person for a direct chat, or a title and up to 24 people for a group.")
 		return
 	}
-	for _, id := range input.ParticipantIDs {
-		if id == actor.ID {
-			writeError(w, http.StatusBadRequest, "You are already a participant.")
-			return
-		}
+	if slices.Contains(input.ParticipantIDs, actor.ID) {
+		writeError(w, http.StatusBadRequest, "You are already a participant.")
+		return
 	}
 	item, err := h.deps.Store.CreateConversation(r.Context(), actor.ID, input)
 	if err != nil {
@@ -222,6 +213,31 @@ func (h ligoHandler) createConversation(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Location", "/v1/ligo/conversations/"+item.ID)
 	writeJSON(w, http.StatusCreated, item)
+}
+
+func validNewConversation(input ligo.NewConversation) bool {
+	return validConversationKind(input) && validConversationParticipants(input)
+}
+
+func validConversationKind(input ligo.NewConversation) bool {
+	switch input.Kind {
+	case "self":
+		return len(input.ParticipantIDs) == 0 && input.Title == ""
+	case "duo":
+		return len(input.ParticipantIDs) == 1 && input.Title == ""
+	case "group":
+		titleLength := utf8.RuneCountInString(input.Title)
+		return titleLength >= 1 && titleLength <= 100
+	default:
+		return false
+	}
+}
+
+func validConversationParticipants(input ligo.NewConversation) bool {
+	if input.Kind == "self" {
+		return true
+	}
+	return validIDs(input.ParticipantIDs, 24)
 }
 
 func (h ligoHandler) addMembers(w http.ResponseWriter, r *http.Request) {
@@ -267,14 +283,9 @@ func (h ligoHandler) listMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid message cursor.")
 		return
 	}
-	limit := 30
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		number, err := strconv.Atoi(raw)
-		if err != nil || number < 1 || number > 50 {
-			writeError(w, http.StatusBadRequest, "Limit must be between 1 and 50.")
-			return
-		}
-		limit = number
+	limit, ok := parseLigoPageLimit(w, r.URL.Query().Get("limit"))
+	if !ok {
+		return
 	}
 	page, err := h.deps.Store.ListMessages(r.Context(), actor.ID, id, before, limit)
 	if err != nil {
@@ -305,42 +316,13 @@ func (h ligoHandler) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Text = strings.TrimSpace(input.Text)
-	if !ligoID(input.ClientID) || utf8.RuneCountInString(input.Text) > 4000 ||
-		strings.ContainsRune(input.Text, 0) || len(input.AttachmentIDs) > 8 ||
-		(input.Text == "" && len(input.AttachmentIDs) == 0) {
+	if !validNewMessage(input) {
 		writeError(w, http.StatusBadRequest, "Write up to 4,000 characters or attach up to eight files.")
 		return
 	}
-	seen := make(map[string]bool, len(input.AttachmentIDs))
-	media := make([]ligo.Media, 0, len(input.AttachmentIDs))
-	for _, uploadID := range input.AttachmentIDs {
-		if !ligoID(uploadID) || seen[uploadID] {
-			writeError(w, http.StatusBadRequest, "Attachment IDs must be unique UUIDs.")
-			return
-		}
-		seen[uploadID] = true
-		alt := strings.TrimSpace(input.AltTexts[uploadID])
-		if utf8.RuneCountInString(alt) > 500 || strings.ContainsRune(alt, 0) {
-			writeError(w, http.StatusBadRequest, "Alt text must be 500 characters or fewer.")
-			return
-		}
-		if h.deps.Media == nil {
-			writeError(w, http.StatusServiceUnavailable, "Media storage is unavailable.")
-			return
-		}
-		item, err := h.deps.Media.ValidateLigo(r.Context(), r.Header.Get("Authorization"), uploadID)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "An attachment is unavailable or not yours.")
-			return
-		}
-		item.AltText = alt
-		media = append(media, item)
-	}
-	for uploadID := range input.AltTexts {
-		if !seen[uploadID] {
-			writeError(w, http.StatusBadRequest, "Alt text must belong to an attached file.")
-			return
-		}
+	media, ok := h.validateMessageMedia(w, r, input)
+	if !ok {
+		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -354,6 +336,61 @@ func (h ligoHandler) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, message)
+}
+
+func validNewMessage(input ligo.NewMessage) bool {
+	return ligoID(input.ClientID) &&
+		utf8.RuneCountInString(input.Text) <= 4000 &&
+		!strings.ContainsRune(input.Text, 0) &&
+		len(input.AttachmentIDs) <= maxLigoAttachments &&
+		(input.Text != "" || len(input.AttachmentIDs) != 0)
+}
+
+func (h ligoHandler) validateMessageMedia(w http.ResponseWriter, r *http.Request, input ligo.NewMessage) ([]ligo.Media, bool) {
+	seen := make(map[string]struct{}, len(input.AttachmentIDs))
+	media := make([]ligo.Media, 0, len(input.AttachmentIDs))
+	for _, uploadID := range input.AttachmentIDs {
+		item, ok := h.validateMessageAttachment(w, r, uploadID, input.AltTexts[uploadID], seen)
+		if !ok {
+			return nil, false
+		}
+		media = append(media, item)
+	}
+	for uploadID := range input.AltTexts {
+		if _, attached := seen[uploadID]; !attached {
+			writeError(w, http.StatusBadRequest, "Alt text must belong to an attached file.")
+			return nil, false
+		}
+	}
+	return media, true
+}
+
+func (h ligoHandler) validateMessageAttachment(w http.ResponseWriter, r *http.Request, uploadID, altText string, seen map[string]struct{}) (ligo.Media, bool) {
+	if !ligoID(uploadID) {
+		writeError(w, http.StatusBadRequest, "Attachment IDs must be unique UUIDs.")
+		return ligo.Media{}, false
+	}
+	if _, duplicate := seen[uploadID]; duplicate {
+		writeError(w, http.StatusBadRequest, "Attachment IDs must be unique UUIDs.")
+		return ligo.Media{}, false
+	}
+	seen[uploadID] = struct{}{}
+	altText = strings.TrimSpace(altText)
+	if utf8.RuneCountInString(altText) > 500 || strings.ContainsRune(altText, 0) {
+		writeError(w, http.StatusBadRequest, "Alt text must be 500 characters or fewer.")
+		return ligo.Media{}, false
+	}
+	if h.deps.Media == nil {
+		writeError(w, http.StatusServiceUnavailable, "Media storage is unavailable.")
+		return ligo.Media{}, false
+	}
+	item, err := h.deps.Media.ValidateLigo(r.Context(), r.Header.Get("Authorization"), uploadID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "An attachment is unavailable or not yours.")
+		return ligo.Media{}, false
+	}
+	item.AltText = altText
+	return item, true
 }
 
 func (h ligoHandler) editMessage(w http.ResponseWriter, r *http.Request) {
@@ -498,14 +535,19 @@ func (h ligoHandler) events(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "Live updates are unavailable.")
 		return
 	}
+	h.serveEvents(w, r, actor.ID)
+}
+
+func (h ligoHandler) serveEvents(w http.ResponseWriter, r *http.Request, userID string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.Header().Set("Connection", "keep-alive")
-	ch, unsubscribe := h.deps.Events.Subscribe(actor.ID)
+	ch, unsubscribe := h.deps.Events.Subscribe(userID)
 	defer unsubscribe()
 	_, _ = fmt.Fprint(w, "event: ready\ndata: {}\n\n")
-	if err := http.NewResponseController(w).Flush(); err != nil {
+	controller := http.NewResponseController(w)
+	if controller.Flush() != nil {
 		return
 	}
 	heartbeat := time.NewTicker(15 * time.Second)
@@ -524,15 +566,19 @@ func (h ligoHandler) events(w http.ResponseWriter, r *http.Request) {
 			if !open {
 				return
 			}
-			if id == "" {
-				_, _ = fmt.Fprint(w, "event: resync\ndata: {}\n\n")
-			} else {
-				data, _ := json.Marshal(map[string]string{"conversationId": id})
-				_, _ = fmt.Fprintf(w, "event: update\ndata: %s\n\n", data)
-			}
+			writeLigoActivityEvent(w, id)
 		}
-		if err := http.NewResponseController(w).Flush(); err != nil {
+		if controller.Flush() != nil {
 			return
 		}
 	}
+}
+
+func writeLigoActivityEvent(w http.ResponseWriter, conversationID string) {
+	if conversationID == "" {
+		_, _ = fmt.Fprint(w, "event: resync\ndata: {}\n\n")
+		return
+	}
+	data, _ := json.Marshal(map[string]string{"conversationId": conversationID})
+	_, _ = fmt.Fprintf(w, "event: update\ndata: %s\n\n", data)
 }

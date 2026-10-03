@@ -53,9 +53,11 @@ func TestFluoPostFlow(t *testing.T) {
 	if err != nil || len(latest.Items) != 1 || latest.Items[0].ID != public.ID {
 		t.Fatalf("public feed = %+v, %v", latest, err)
 	}
-	search, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Search: "hello", Limit: 20})
-	if err != nil || len(search.Items) != 1 || search.Items[0].ID != public.ID {
-		t.Fatalf("search exposed an inaccessible post: %+v, %v", search, err)
+	for _, query := range []string{"hello", "HELLO", " HeLlO "} {
+		search, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Search: query, Limit: 20})
+		if err != nil || len(search.Items) != 1 || search.Items[0].ID != public.ID {
+			t.Fatalf("search %q missed the public post or exposed private data: %+v, %v", query, search, err)
+		}
 	}
 	if err := store.SetSaved(ctx, b.ID, public.ID, true); err != nil {
 		t.Fatal(err)

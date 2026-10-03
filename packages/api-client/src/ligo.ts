@@ -1,10 +1,12 @@
+// Provides typed Ligo chat requests, live updates, and query pagination options
+
 import { fetchEventSource, EventStreamContentType } from '@microsoft/fetch-event-source';
 import type {
   LigoConversation, LigoConversationPage, LigoMessage, LigoMessagePage,
   LigoNewConversation, LigoNewMessage, LigoUserPage, NodoUpload, paths
 } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
-import { apiError, sessionFetch } from './http.ts';
+import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
 
 class FatalStreamError extends Error {}
 
@@ -17,88 +19,78 @@ export function createLigoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { data, error, response } = await client.GET('/v1/ligo/users', {
         params: { query: { q: search } }, signal
       });
-      if (!data) throw apiError(error, response.status);
-      return data;
+      return requireResponseData(data, error, response.status);
     },
     async listConversations(cursor?: string, signal?: AbortSignal): Promise<LigoConversationPage> {
       const { data, error, response } = await client.GET('/v1/ligo/conversations', {
         params: { query: { cursor, limit: 30 } }, signal
       });
-      if (!data) throw apiError(error, response.status);
-      return data;
+      return requireResponseData(data, error, response.status);
     },
-    async getConversation(id: string): Promise<LigoConversation> {
+    async getConversation(id: string, signal?: AbortSignal): Promise<LigoConversation> {
       const { data, error, response } = await client.GET('/v1/ligo/conversations/{id}', {
-        params: { path: { id } }
+        params: { path: { id } }, signal
       });
-      if (!data) throw apiError(error, response.status);
-      return data;
+      return requireResponseData(data, error, response.status);
     },
     async createConversation(input: LigoNewConversation): Promise<LigoConversation> {
       const { data, error, response } = await client.POST('/v1/ligo/conversations', { body: input });
-      if (!data) throw apiError(error, response.status);
-      return data;
+      return requireResponseData(data, error, response.status);
     },
     async addMembers(id: string, participantIds: string[]): Promise<LigoConversation> {
       const { data, error, response } = await client.POST('/v1/ligo/conversations/{id}/members', {
         params: { path: { id } }, body: { participantIds }
       });
-      if (!data) throw apiError(error, response.status);
-      return data;
+      return requireResponseData(data, error, response.status);
     },
     async listMessages(id: string, before?: string, signal?: AbortSignal): Promise<LigoMessagePage> {
       const { data, error, response } = await client.GET('/v1/ligo/conversations/{id}/messages', {
         params: { path: { id }, query: { before, limit: 30 } }, signal
       });
-      if (!data) throw apiError(error, response.status);
-      return data;
+      return requireResponseData(data, error, response.status);
     },
     async send(id: string, input: LigoNewMessage): Promise<LigoMessage> {
       const { data, error, response } = await client.POST('/v1/ligo/conversations/{id}/messages', {
         params: { path: { id } }, body: input
       });
-      if (!data) throw apiError(error, response.status);
-      return data;
+      return requireResponseData(data, error, response.status);
     },
     async editMessage(id: string, messageId: string, text: string): Promise<LigoMessage> {
       const { data, error, response } = await client.PATCH('/v1/ligo/conversations/{id}/messages/{messageId}', {
         params: { path: { id, messageId } }, body: { text }
       });
-      if (!data) throw apiError(error, response.status);
-      return data;
+      return requireResponseData(data, error, response.status);
     },
     async deleteMessage(id: string, messageId: string): Promise<void> {
       const { error, response } = await client.DELETE('/v1/ligo/conversations/{id}/messages/{messageId}', {
         params: { path: { id, messageId } }
       });
-      if (!response.ok) throw apiError(error, response.status);
+      requireResponseOk(response, error);
     },
     async setReaction(id: string, messageId: string, emoji: '❤️' | '👍' | '👎', active: boolean): Promise<LigoMessage> {
       const { data, error, response } = await client.PUT('/v1/ligo/conversations/{id}/messages/{messageId}/reaction', {
         params: { path: { id, messageId } }, body: { emoji, active }
       });
-      if (!data) throw apiError(error, response.status);
-      return data;
+      return requireResponseData(data, error, response.status);
     },
     async markDelivered(id: string, messageId: string): Promise<void> {
       const { error, response } = await client.PUT('/v1/ligo/conversations/{id}/delivered', {
         params: { path: { id } }, body: { messageId }
       });
-      if (!response.ok) throw apiError(error, response.status);
+      requireResponseOk(response, error);
     },
     async markRead(id: string, messageId: string): Promise<void> {
       const { error, response } = await client.PUT('/v1/ligo/conversations/{id}/read', {
         params: { path: { id } }, body: { messageId }
       });
-      if (!response.ok) throw apiError(error, response.status);
+      requireResponseOk(response, error);
     },
     async uploadMetadata(id: string): Promise<NodoUpload | null> {
       const { data, error, response } = await nodo.GET('/v1/uploads/{id}/meta', {
         params: { path: { id } }
       });
       if (response.status === 202) return null;
-      if (!data) throw apiError(error, response.status);
-      return data;
+      return requireResponseData(data, error, response.status);
     },
     async subscribe(
       signal: AbortSignal,
@@ -110,23 +102,12 @@ export function createLigoApi(apiBaseUrl: string, nodoBaseUrl: string) {
         fetch: sessionFetch,
         openWhenHidden: false,
         async onopen(response) {
-          if (!response.ok || !response.headers.get('content-type')?.startsWith(EventStreamContentType)) {
-            if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-              throw new FatalStreamError(`Live updates rejected (${response.status}).`);
-            }
-            throw new Error('Live updates disconnected.');
-          }
+          assertEventStreamResponse(response);
           onConnection?.(true);
           onHint(null); // catch writes between the initial list and subscription
         },
         onmessage(event) {
-          if (event.event === 'resync') onHint(null);
-          if (event.event === 'update') {
-            const data: unknown = JSON.parse(event.data);
-            if (data && typeof data === 'object' && 'conversationId' in data && typeof data.conversationId === 'string') {
-              onHint(data.conversationId);
-            }
-          }
+          handleStreamEvent(event.event, event.data, onHint);
         },
         onclose() {
           onConnection?.(false);
@@ -140,6 +121,32 @@ export function createLigoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       });
     }
   };
+}
+
+function assertEventStreamResponse(response: Response): void {
+  const isEventStream = response.headers.get('content-type')?.startsWith(EventStreamContentType);
+  if (response.ok && isEventStream) return;
+
+  if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+    throw new FatalStreamError(`Live updates rejected (${response.status}).`);
+  }
+  throw new Error('Live updates disconnected.');
+}
+
+function handleStreamEvent(event: string, payload: string, onHint: (conversationId: string | null) => void): void {
+  if (event === 'resync') {
+    onHint(null);
+    return;
+  }
+  if (event !== 'update') return;
+
+  const data: unknown = JSON.parse(payload);
+  if (isConversationHint(data)) onHint(data.conversationId);
+}
+
+function isConversationHint(value: unknown): value is { conversationId: string } {
+  return typeof value === 'object' && value !== null &&
+    'conversationId' in value && typeof value.conversationId === 'string';
 }
 
 export type LigoApi = ReturnType<typeof createLigoApi>;
@@ -169,7 +176,10 @@ export function ligoUserSearchOptions(api: LigoApi, search: string, enabled: boo
 export function ligoConversationDetailOptions(api: LigoApi, id: string | null) {
   return {
     queryKey: ['ligo', 'conversation', id] as const,
-    queryFn: () => api.getConversation(id!),
+    queryFn: ({ signal }: { signal: AbortSignal }) => {
+      if (!id) throw new Error('A conversation must be selected.');
+      return api.getConversation(id, signal);
+    },
     enabled: !!id,
     staleTime: 15_000
   };

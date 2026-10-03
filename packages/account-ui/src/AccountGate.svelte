@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Gates an app on the account session and presents loading or recovery states
+
   import { onMount, type Snippet } from 'svelte';
   import type { UserIdentity } from '@kaordo/contracts';
   import { Button, ShieldCheckIcon } from '@kaordo/ui';
@@ -25,13 +27,19 @@
   let snapshot = $state(initialAccountSnapshot);
   let accountPreview = $state<AccountPreview | null>(null);
   const accountDisabled = $derived(snapshot.error?.includes('This account is disabled.') ?? false);
+  const accessHeading = $derived(
+    accountDisabled ? 'Account disabled' :
+      snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`
+  );
 
   function refresh() {
     controller ??= createAccountSessionController(environment);
-    void controller.refresh((next) => {
-      snapshot = next;
-      if (!next.loading) accountPreview = readAccountPreview();
-    });
+    void controller.refresh(publishSnapshot);
+  }
+
+  function publishSnapshot(next: typeof snapshot) {
+    snapshot = next;
+    if (!next.loading) accountPreview = readAccountPreview();
   }
 
   onMount(() => {
@@ -47,11 +55,9 @@
     <div class="grid size-14 place-items-center rounded-2xl bg-accent text-primary shadow-sm" aria-hidden="true">
       <ShieldCheckIcon class="size-7" />
     </div>
-    {#if compact}
-      <h2 class="mt-5 text-xl font-bold tracking-tight">Opening {appName}</h2>
-    {:else}
-      <h1 class="mt-5 text-xl font-bold tracking-tight">Opening {appName}</h1>
-    {/if}
+    <svelte:element this={compact ? 'h2' : 'h1'} class="mt-5 text-xl font-bold tracking-tight">
+      Opening {appName}
+    </svelte:element>
     {#if accountPreview && preview}
       <div data-kaordo-preview class="mt-2 w-full text-sm text-muted-foreground">{@render preview(accountPreview)}</div>
     {:else}
@@ -67,11 +73,9 @@
   <section class="mx-auto mt-12 max-w-lg rounded-[1.75rem] border border-border bg-card p-7 shadow-[0_24px_80px_-48px_rgba(21,75,43,.45)] sm:p-9"
     aria-label={`${appName} account access`}>
     <div class="grid size-12 place-items-center rounded-2xl bg-accent"><ShieldCheckIcon class="size-6 text-primary" /></div>
-    {#if compact}
-      <h2 class="mt-6 text-2xl font-bold tracking-[-0.04em]">{accountDisabled ? 'Account disabled' : snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h2>
-    {:else}
-      <h1 class="mt-6 text-2xl font-bold tracking-[-0.04em]">{accountDisabled ? 'Account disabled' : snapshot.authenticated ? 'Account service unavailable' : `Sign in to ${appName}`}</h1>
-    {/if}
+    <svelte:element this={compact ? 'h2' : 'h1'} class="mt-6 text-2xl font-bold tracking-[-0.04em]">
+      {accessHeading}
+    </svelte:element>
     {#if snapshot.error}<p class="mt-4 rounded-xl bg-destructive/10 p-3 text-sm text-destructive" role="alert">{snapshot.error}</p>{/if}
     {#if accountDisabled}
       <p class="mt-3 text-sm leading-6 text-muted-foreground">Access to this Kaordo account has been disabled. Contact an administrator if you believe this is an error.</p>

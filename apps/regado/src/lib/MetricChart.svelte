@@ -1,4 +1,6 @@
 <script lang="ts">
+	// Renders one responsive metric series and reflects the active color theme
+
 	import { onMount } from "svelte";
 	import "uplot/dist/uPlot.min.css";
 	import type uPlot from "uplot";
@@ -23,55 +25,16 @@
 
 	onMount(() => {
 		let disposed = false;
-		const color = (token: string) =>
-			getComputedStyle(host).getPropertyValue(token).trim();
-		const themeObserver = new MutationObserver(() => chart?.redraw());
-		themeObserver.observe(document.documentElement, {
-			attributes: true,
-			attributeFilter: ["class", "data-theme"],
-		});
-		const observer = new ResizeObserver(() => {
-			if (chart && host.clientWidth > 0)
-				chart.setSize({ width: host.clientWidth, height: 176 });
-		});
-		observer.observe(host);
+		const themeObserver = observeTheme();
+		const sizeObserver = observeSize();
+
 		void import("uplot").then(({ default: Plot }) => {
-			if (disposed || !host.clientWidth) return;
-			chart = new Plot(
-				{
-					width: host.clientWidth,
-					height: 176,
-					padding: [12, 8, 2, 8],
-					cursor: { drag: { x: false, y: false } },
-					scales: { x: { time: true } },
-					axes: [
-						{
-							stroke: () => color("--muted-foreground"),
-							grid: { stroke: () => color("--border") },
-						},
-						{
-							stroke: () => color("--muted-foreground"),
-							grid: { stroke: () => color("--border") },
-							size: 40,
-						},
-					],
-					series: [
-						{},
-						{
-							label: title,
-							stroke: () => color("--primary"),
-							width: 2,
-							points: { show: false },
-						},
-					],
-				},
-				data,
-				host,
-			);
+			if (!disposed) createChart(Plot);
 		});
+
 		return () => {
 			disposed = true;
-			observer.disconnect();
+			sizeObserver.disconnect();
 			themeObserver.disconnect();
 			chart?.destroy();
 			chart = undefined;
@@ -81,6 +44,65 @@
 	$effect(() => {
 		if (chart) chart.setData(data);
 	});
+
+	function observeTheme(): MutationObserver {
+		const observer = new MutationObserver(() => chart?.redraw());
+		observer.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ["class", "data-theme"],
+		});
+		return observer;
+	}
+
+	function observeSize(): ResizeObserver {
+		const observer = new ResizeObserver(() => {
+			if (chart && host.clientWidth > 0) {
+				chart.setSize({ width: host.clientWidth, height: 176 });
+			}
+		});
+		observer.observe(host);
+		return observer;
+	}
+
+	function createChart(Plot: typeof uPlot): void {
+		if (!host.clientWidth) return;
+
+		chart = new Plot(createOptions(), data, host);
+	}
+
+	function createOptions() {
+		return {
+			width: host.clientWidth,
+			height: 176,
+			padding: [12, 8, 2, 8] as [number, number, number, number],
+			cursor: { drag: { x: false, y: false } },
+			scales: { x: { time: true } },
+			axes: [
+				{
+					stroke: () => themeColor("--muted-foreground"),
+					grid: { stroke: () => themeColor("--border") },
+				},
+				{
+					stroke: () => themeColor("--muted-foreground"),
+					grid: { stroke: () => themeColor("--border") },
+					size: 40,
+				},
+			],
+			series: [
+				{},
+				{
+					label: title,
+					stroke: () => themeColor("--primary"),
+					width: 2,
+					points: { show: false },
+				},
+			],
+		};
+	}
+
+	function themeColor(token: string): string {
+		return getComputedStyle(host).getPropertyValue(token).trim();
+	}
 </script>
 
 <section

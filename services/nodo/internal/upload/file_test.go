@@ -39,7 +39,7 @@ func TestGenericFileIsServedOnlyAsDownload(t *testing.T) {
 	}
 	key := []byte(strings.Repeat("k", 32))
 	server := &Server{config: Config{Directory: directory, MediaKey: key}, store: filestore.New(directory)}
-	if err := server.process(id); err != nil {
+	if err := server.process(t.Context(), id); err != nil {
 		t.Fatal(err)
 	}
 	ready, err := server.readReady(id)

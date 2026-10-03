@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Attaches a participant video stream and controls its fullscreen view
+
   import { onMount } from 'svelte';
   import type { VoiceConnection, VoiceVideo } from '@kaordo/voice-client';
   import { Button, Maximize2Icon, Minimize2Icon, MonitorUpIcon, VideoIcon } from '@kaordo/ui';
@@ -16,17 +18,18 @@
 
   onMount(() => {
     const detach = connection.attachVideo(video, element);
-    const syncFullscreen = () => {
-      fullscreenRevision++;
-      isFullscreen = document.fullscreenElement === frame;
-      if (isFullscreen) fullscreenError = '';
-    };
-    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('fullscreenchange', syncFullscreenState);
     return () => {
-      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('fullscreenchange', syncFullscreenState);
       detach();
     };
   });
+
+  function syncFullscreenState(): void {
+    fullscreenRevision++;
+    isFullscreen = document.fullscreenElement === frame;
+    if (isFullscreen) fullscreenError = '';
+  }
 
   async function toggleFullscreen() {
     fullscreenError = '';

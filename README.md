@@ -1,6 +1,6 @@
 # Kaordo
 
-Kaordo is being rebuilt as independent applications in one repository. Local account registration and sign-in use Keycloak, TOTP, and a shared Kerno identity API. Fluo has a social feed with posts, interactions, and photo/video uploads through Nodo. Ligo has direct and group chats, message reactions and file attachments. Rondo has community servers, text channels and local LiveKit rooms for voice, camera and screen sharing. Administration remains a scaffold.
+Kaordo is being rebuilt as independent applications in one repository. Local account registration and sign-in use Keycloak, TOTP, and a shared Kerno identity API. Fluo has a social feed with posts, interactions, and photo/video uploads through Nodo. Ligo has direct and group chats, message reactions and file attachments. Rondo has community servers, text channels and local LiveKit rooms for voice, camera and screen sharing. Regado provides administrator-only account, audit, storage, service-log and system views.
 
 ## Layout
 
@@ -12,10 +12,12 @@ Kaordo is being rebuilt as independent applications in one repository. Local acc
 | `apps/rondo` | Community frontend |
 | `apps/regado` | Administration frontend |
 | `packages/ui` | Shared STaSBLR components with the Rhea style |
-| `packages/auth`, `api-client`, `account-ui`, `chat-ui`, `contracts`, `crypto`, `links`, `media-client`, `voice-client` | Shared authentication, typed API, account and chat UI, contracts, links, media upload, and LiveKit client |
+| `packages/auth`, `api-client`, `account-ui`, `chat-ui`, `contracts`, `crypto`, `links`, `media-client`, `media-ui`, `voice-client` | Shared authentication, typed API, account and chat UI, contracts, links, media upload, and LiveKit client |
 | `services/kerno` | Go API and metadata coordinator |
 | `services/nodo` | Go file storage and tus uploads |
-| `deploy` | Local Keycloak, PostgreSQL and LiveKit configuration |
+| `services/mediaauth` | Shared media URL signing and verification |
+| `services/regado-agent` | Restricted Linux monitoring and maintenance over a Unix socket |
+| `deploy` | Local Compose and production NixOS profiles |
 
 Every frontend is a separate SvelteKit static build. `build:pages` assembles them under one Pages artifact: `/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. The UI package owns shadcn-svelte components, Bits UI primitives, Lucide icons, and the official Rhea preset.
 
@@ -38,27 +40,35 @@ The [technical specification](docs/kaordo-technical-spec.txt) defines the identi
 ## Checks
 
 ```sh
-pnpm install
-pnpm dev
-pnpm build:pages
+pnpm check:front
+pnpm --filter @kaordo/contracts generate
 pnpm test:pages
 pnpm test:auth
 pnpm test:dev
 pnpm test:media
 pnpm test:dependencies
 pnpm test:ui-layout
-pnpm test:ui-public
-pnpm test:auth:live # while pnpm dev runs in another terminal
-pnpm test:product:db # with the local application database running; covers Fluo and Ligo
+pnpm test:product:ui
+pnpm test:regado:ui
+node --test scripts/ui-public.test.mjs
+pnpm test:product:db # disposable database; covers Fluo, Ligo, Rondo and Regado
+pnpm test:auth:live # pnpm dev running in another terminal
 pnpm test:backup
-pnpm test:backup:live # with the local database containers running
-go test ./services/kerno/...
-go test ./services/nodo/... ./services/mediaauth/...
-go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/...
+pnpm test:backup:live # both local database containers running
+pnpm audit --audit-level=low
+go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
+go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
+go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
 ```
 
-Regado remains a scaffold. The current stack is local and has not been deployed as a public service. Rondo voice uses self-hosted LiveKit; the development profile has no public TURN/TLS or UDP ingress, so remote voice is not yet available through Cloudflare Tunnel alone. Rondo messages and voice are not end-to-end encrypted. Nodo removes unreferenced uploads after 24 hours and Kerno requests immediate cleanup when Fluo posts or Ligo/Rondo messages are deleted. Stored media still has no disk mirror or private-at-rest encryption; see the local storage and backup notes before relying on it for durable files.
+Headless fixture tests cover product interaction without manual site browsing. Live tests add real identity, persistence, media processing and call integration. The [refactor review](docs/refactoring.md) records current module ownership, fixes and verification; [scripts](scripts/README.md) documents tooling.
+
+## Deployment and remaining boundaries
+
+The [NixOS production profile](deploy/nixos/README.md) uses Caddy HTTPS at `kaordo.link`, Namecheap DDNS, LiveKit, Prometheus/Node Exporter and the restricted Regado agent. Production Data1 mirrors data and metadata across two physical disks; NisOS has one separate 64 GiB root. The local Compose profile has no public TURN/TLS, Linux agent or Prometheus. Regado remains accessible only by direct route and database administrator role; it is absent from the public app directory.
+
+Messages/posts and media are not end-to-end encrypted, and user/system escrow keys do not exist. Regado's audited time-limited content access is not key recovery. RAID1 does not replace independent backups; an external restic destination, recoverable key copy and schedule remain operator requirements. Notifications and complete account settings are unfinished. Cloudflare and Synapse integrations are reserved rather than active in the NixOS profile.
 
 The complete previous codebase and Git history are preserved outside this repository at `/Users/druckheil/Projects/Archive/Kaordo-before-0.0.1`.
 
-The [current ISO/IEC 25010:2023 audit](docs/audits/iso-iec-25010-2023-current.md) scores every characteristic and subcharacteristic for the implemented account, Fluo, Ligo and Nodo slice, with reproducible evidence and remaining release blockers. The [original scaffold audit](docs/audits/iso-iec-25010-2023-scope-0.0.1.md) remains available for historical comparison.
+The [dated ISO/IEC 25010:2023 audit](docs/audits/iso-iec-25010-2023-current.md) records the account, Fluo, Ligo and Nodo assessment from 1 October 2026. Its scores and scope are historical; they do not certify subsequent Rondo/Regado or refactor changes. The [original scaffold audit](docs/audits/iso-iec-25010-2023-scope-0.0.1.md) remains available for historical comparison.

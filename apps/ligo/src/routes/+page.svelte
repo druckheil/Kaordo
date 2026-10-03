@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { AccountGate } from '@kaordo/account-ui';
+	// Gates Ligo behind the shared account session and mounts the chat workspace
+
+	import { AccountGate } from '@kaordo/account-ui';
   import { appPaths } from '@kaordo/links';
   import LigoApp from '$lib/LigoApp.svelte';
 </script>

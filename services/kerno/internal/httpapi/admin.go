@@ -1,5 +1,6 @@
 package httpapi
 
+// Handles administrator account, audit, system, and access-case requests
 import (
 	"context"
 	"encoding/json"
@@ -55,20 +56,7 @@ type adminHandler struct{ deps AdminDependencies }
 func mountAdmin(router chi.Router, verify VerifyFunc, users UserStore, deps AdminDependencies) {
 	h := adminHandler{deps: deps}
 	router.Route("/v1/admin", func(r chi.Router) {
-		r.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-				claims, ok := authenticate(w, request, verify)
-				if !ok {
-					return
-				}
-				actor, err := users.BySubject(request.Context(), claims.Subject)
-				if err != nil || actor.DisabledAt != nil || !actor.IsAdmin {
-					writeError(w, http.StatusForbidden, "Administrator access is required.")
-					return
-				}
-				next.ServeHTTP(w, request.WithContext(context.WithValue(request.Context(), adminActorKey{}, actor)))
-			})
-		})
+		r.Use(adminMiddleware(verify, users))
 		r.Get("/summary", h.summary)
 		r.Get("/users", h.users)
 		r.Patch("/users/{id}/status", h.setStatus)
@@ -84,16 +72,35 @@ func mountAdmin(router chi.Router, verify VerifyFunc, users UserStore, deps Admi
 	})
 }
 
+func adminMiddleware(verify VerifyFunc, users UserStore) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := authenticate(w, r, verify)
+			if !ok {
+				return
+			}
+			actor, err := users.BySubject(r.Context(), claims.Subject)
+			if err != nil || actor.DisabledAt != nil || !actor.IsAdmin {
+				writeError(w, http.StatusForbidden, "Administrator access is required.")
+				return
+			}
+			ctx := context.WithValue(r.Context(), adminActorKey{}, actor)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 func adminActor(r *http.Request) postgres.User {
 	return r.Context().Value(adminActorKey{}).(postgres.User)
 }
 
 func adminFailure(w http.ResponseWriter, err error) {
-	if errors.Is(err, postgres.ErrAdminTarget) || postgres.IsNotFound(err) {
+	switch {
+	case errors.Is(err, postgres.ErrAdminTarget), postgres.IsNotFound(err):
 		writeError(w, http.StatusNotFound, "The requested account or access case is unavailable.")
-	} else if errors.Is(err, postgres.ErrAccessLimit) {
+	case errors.Is(err, postgres.ErrAccessLimit):
 		writeError(w, http.StatusTooManyRequests, "The access case limit is three per hour.")
-	} else {
+	default:
 		log.Printf("Regado request failed: %v", err)
 		writeError(w, http.StatusInternalServerError, "Regado could not complete this request.")
 	}
@@ -151,7 +158,7 @@ func (h adminHandler) setStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if body.Disabled == nil || utf8.RuneCountInString(body.Reason) < 10 || utf8.RuneCountInString(body.Reason) > 500 {
+	if body.Disabled == nil || !validAdminReason(body.Reason, 10, 500) {
 		writeError(w, http.StatusBadRequest, "A reason of 10 to 500 characters is required.")
 		return
 	}
@@ -182,7 +189,7 @@ func (h adminHandler) setRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if !fluo.ValidID(id) || body.IsAdmin == nil || utf8.RuneCountInString(body.Reason) < 10 || utf8.RuneCountInString(body.Reason) > 500 {
+	if !fluo.ValidID(id) || body.IsAdmin == nil || !validAdminReason(body.Reason, 10, 500) {
 		writeError(w, http.StatusBadRequest, "Select an account, a role and a reason of 10 to 500 characters.")
 		return
 	}
@@ -216,7 +223,7 @@ func (h adminHandler) createCase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if !fluo.ValidID(body.TargetUserID) || utf8.RuneCountInString(body.Reason) < 20 || utf8.RuneCountInString(body.Reason) > 500 {
+	if !fluo.ValidID(body.TargetUserID) || !validAdminReason(body.Reason, 20, 500) {
 		writeError(w, http.StatusBadRequest, "Select an account and provide a reason of 20 to 500 characters.")
 		return
 	}
@@ -228,9 +235,14 @@ func (h adminHandler) createCase(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, item)
 }
 
+func validAdminReason(reason string, minimum, maximum int) bool {
+	length := utf8.RuneCountInString(reason)
+	return length >= minimum && length <= maximum
+}
+
 func (h adminHandler) caseContent(w http.ResponseWriter, r *http.Request) {
-	caseID, kind, before := chi.URLParam(r, "id"), r.URL.Query().Get("kind"), r.URL.Query().Get("before")
-	if !fluo.ValidID(caseID) || (kind != "posts" && kind != "messages") || (before != "" && !fluo.ValidID(before)) {
+	caseID, kind, before, valid := adminCaseContentQuery(r)
+	if !valid {
 		writeError(w, http.StatusBadRequest, "Invalid access case query.")
 		return
 	}
@@ -250,23 +262,37 @@ func (h adminHandler) caseContent(w http.ResponseWriter, r *http.Request) {
 		adminFailure(w, err)
 		return
 	}
-	for i := range page.Items {
-		for j := range page.Items[i].Media {
-			url, err := mediaauth.SignedURL(h.deps.MediaBaseURL, page.Items[i].Media[j].ID,
-				time.Now().Add(time.Minute), h.deps.MediaSignKey)
-			if err != nil {
-				adminFailure(w, err)
-				return
-			}
-			page.Items[i].Media[j].URL = url
-		}
+	if err := h.signCaseMedia(&page); err != nil {
+		adminFailure(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, page)
 }
 
+func adminCaseContentQuery(r *http.Request) (caseID, kind, before string, valid bool) {
+	caseID = chi.URLParam(r, "id")
+	kind = r.URL.Query().Get("kind")
+	before = r.URL.Query().Get("before")
+	valid = fluo.ValidID(caseID) && (kind == "posts" || kind == "messages") && (before == "" || fluo.ValidID(before))
+	return caseID, kind, before, valid
+}
+
+func (h adminHandler) signCaseMedia(page *postgres.AdminContentPage) error {
+	for itemIndex := range page.Items {
+		for mediaIndex := range page.Items[itemIndex].Media {
+			media := &page.Items[itemIndex].Media[mediaIndex]
+			url, err := mediaauth.SignedURL(h.deps.MediaBaseURL, media.ID, time.Now().Add(time.Minute), h.deps.MediaSignKey)
+			if err != nil {
+				return err
+			}
+			media.URL = url
+		}
+	}
+	return nil
+}
+
 func (h adminHandler) system(w http.ResponseWriter, r *http.Request) {
-	if h.deps.System == nil {
-		writeError(w, http.StatusServiceUnavailable, "System agent is unavailable.")
+	if !h.requireSystem(w) {
 		return
 	}
 	item, err := h.deps.System.Snapshot(r.Context())
@@ -296,8 +322,7 @@ func (h adminHandler) metrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h adminHandler) logs(w http.ResponseWriter, r *http.Request) {
-	if h.deps.System == nil {
-		writeError(w, http.StatusServiceUnavailable, "System agent is unavailable.")
+	if !h.requireSystem(w) {
 		return
 	}
 	service := r.URL.Query().Get("service")
@@ -317,6 +342,14 @@ func (h adminHandler) logs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (h adminHandler) requireSystem(w http.ResponseWriter) bool {
+	if h.deps.System != nil {
+		return true
+	}
+	writeError(w, http.StatusServiceUnavailable, "System agent is unavailable.")
+	return false
+}
+
 func validAdminService(service string) bool {
 	switch service {
 	case "kerno", "nodo", "keycloak", "postgresql", "caddy", "livekit", "ddclient", "prometheus", "prometheus-node-exporter", "regado-agent":
@@ -326,14 +359,11 @@ func validAdminService(service string) bool {
 }
 
 func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
-	if h.deps.System == nil {
-		writeError(w, http.StatusServiceUnavailable, "System agent is unavailable.")
+	if !h.requireSystem(w) {
 		return
 	}
 	action := chi.URLParam(r, "action")
-	switch action {
-	case "restart-nodo", "restart-livekit", "restart-ddclient", "scrub-data":
-	default:
+	if !validSystemAction(action) {
 		writeError(w, http.StatusBadRequest, "Unsupported system action.")
 		return
 	}
@@ -344,24 +374,40 @@ func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if utf8.RuneCountInString(body.Reason) < 10 || utf8.RuneCountInString(body.Reason) > 500 {
+	if !validAdminReason(body.Reason, 10, 500) {
 		writeError(w, http.StatusBadRequest, "A reason of 10 to 500 characters is required.")
 		return
 	}
-	if err := h.deps.Store.Record(r.Context(), adminActor(r).ID, "", "system."+action, body.Reason,
-		map[string]string{"status": "requested"}); err != nil {
+	actorID := adminActor(r).ID
+	if err := h.recordSystemAction(r.Context(), actorID, action, "", body.Reason, "requested"); err != nil {
 		adminFailure(w, err)
 		return
 	}
 	result, err := h.deps.System.Action(r.Context(), action)
 	if err != nil {
-		_ = h.deps.Store.Record(r.Context(), adminActor(r).ID, "", "system."+action+".failed", body.Reason, map[string]string{"status": "failed"})
+		_ = h.recordSystemAction(r.Context(), actorID, action, "failed", body.Reason, "failed")
 		adminFailure(w, err)
 		return
 	}
-	if err := h.deps.Store.Record(r.Context(), adminActor(r).ID, "", "system."+action+".completed", body.Reason,
-		map[string]string{"status": "accepted"}); err != nil {
+	if err := h.recordSystemAction(r.Context(), actorID, action, "completed", body.Reason, "accepted"); err != nil {
 		log.Printf("Regado outcome audit failed: %v", err)
 	}
 	writeJSON(w, http.StatusAccepted, result)
+}
+
+func validSystemAction(action string) bool {
+	switch action {
+	case "restart-nodo", "restart-livekit", "restart-ddclient", "scrub-data":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h adminHandler) recordSystemAction(ctx context.Context, actorID, action, stage, reason, status string) error {
+	event := "system." + action
+	if stage != "" {
+		event += "." + stage
+	}
+	return h.deps.Store.Record(ctx, actorID, "", event, reason, map[string]string{"status": status})
 }

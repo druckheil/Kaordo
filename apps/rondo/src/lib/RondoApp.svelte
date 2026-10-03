@@ -1,27 +1,56 @@
 <script lang="ts">
+  // Coordinates Rondo server navigation, chat activity, and voice sessions
+
   import { onDestroy, onMount, tick } from 'svelte';
   import { createInfiniteQuery, createQuery, QueryClient, type InfiniteData } from '@tanstack/svelte-query';
   import {
-    createLigoApi, createRondoApi, ligoMessageOptions, ligoUserSearchOptions,
+    appendSentMessage, replaceCachedMessage, createLigoApi, createRondoApi, ligoMessageOptions, ligoUserSearchOptions,
     rondoDiscoverOptions, rondoServerOptions, rondoServersOptions
   } from '@kaordo/api-client';
   import type {
-    LigoMessage, LigoMessagePage, LigoReaction, RondoChannel, RondoDetail,
+    LigoMessage, LigoMessagePage, LigoReaction, RondoChannel,
     RondoServer, UserIdentity
   } from '@kaordo/contracts';
   import type { PendingMessage } from '@kaordo/chat-ui';
-  import DraftAttachment from '@kaordo/chat-ui/draft-attachment';
+  import MessageComposer from '@kaordo/chat-ui/message-composer';
   import type MessageListComponent from '@kaordo/chat-ui/message-list';
   import { uploadMedia } from '@kaordo/media-client';
   import { appPaths } from '@kaordo/links';
   import type { VoiceConnection, VoiceSnapshot } from '@kaordo/voice-client';
   import { VoiceSounds } from '@kaordo/voice-client/sounds';
   import {
-    AlertDialog, AppHeader, Button, ChevronLeftIcon, ChevronRightIcon, CompassIcon, Dialog, HashIcon,
-    Input, LayoutGridIcon, MicIcon, PanelLeftIcon, PanelRightIcon, PaperclipIcon,
-    PlusIcon, SearchIcon, SendIcon, Textarea, UsersIcon, UserPlusIcon
+    formatRondoRoute, getInitials as initials, parseLayoutPreferences,
+    parseRondoRoute
+  } from './rondo-state';
+  import {
+    AlertDialog, AppHeader, Button, ChevronLeftIcon, CompassIcon, Dialog, HashIcon,
+    Input, LayoutGridIcon, MicIcon, PanelLeftIcon, PanelRightIcon,
+    PlusIcon, SearchIcon, Textarea, UsersIcon, UserPlusIcon
   } from '@kaordo/ui';
+  import MemberPanel from './MemberPanel.svelte';
   import VoiceStage from './VoiceStage.svelte';
+
+  type DialogMode = 'create' | 'discover' | 'channel' | 'invite';
+
+  const maxMessageFiles = 8;
+  const dialogCopy: Record<DialogMode, { title: string; description: string }> = {
+    create: {
+      title: 'Create a server',
+      description: 'Start with a general channel and invite people when you are ready.'
+    },
+    discover: {
+      title: 'Explore servers',
+      description: 'Join a public community.'
+    },
+    channel: {
+      title: 'Create a channel',
+      description: 'Every channel has messages and its own voice room.'
+    },
+    invite: {
+      title: 'Invite a member',
+      description: 'Find a Kaordo account by username.'
+    }
+  };
 
   let { user }: { user: UserIdentity } = $props();
   const rondo = createRondoApi(import.meta.env.VITE_KAORDO_API_URL);
@@ -30,8 +59,8 @@
   const serversQuery = createQuery(() => rondoServersOptions(rondo), () => queryClient);
   let serverId = $state<string | null>(null);
   let channelId = $state<string | null>(null);
-  let dialog = $state<'create' | 'discover' | 'channel' | 'invite' | null>(null);
-  let dialogContentMode = $state<'create' | 'discover' | 'channel' | 'invite'>('create');
+  let dialog = $state<DialogMode | null>(null);
+  let dialogContentMode = $state<DialogMode>('create');
   let dialogBusy = $state(false);
   let dialogError = $state('');
   let actionError = $state('');
@@ -46,7 +75,6 @@
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let draft = $state('');
   let files = $state<File[]>([]);
-  let fileInput = $state<HTMLInputElement>();
   let pending = $state<PendingMessage[]>([]);
   let LoadedMessageList = $state<typeof MessageListComponent | null>(null);
   let messageViewError = $state(false);
@@ -97,57 +125,98 @@
   });
   $effect(() => {
     if (!channel || LoadedMessageList || messageViewError) return;
-    void import('@kaordo/chat-ui/message-list').then(({ default: MessageList }) => { LoadedMessageList = MessageList; })
+    void import('@kaordo/chat-ui/message-list').then(({ default: MessageList }) => {
+      LoadedMessageList = MessageList;
+    })
       .catch(() => { messageViewError = true; });
   });
 
   onMount(() => {
-    const memberBreakpoint = window.matchMedia('(min-width: 1280px)');
-    const channelBreakpoint = window.matchMedia('(max-width: 639px)');
-    wideMembers = memberBreakpoint.matches;
-    narrowChannels = channelBreakpoint.matches;
-    const updateBreakpoint = () => { wideMembers = memberBreakpoint.matches; mobileMembersOpen = false; };
-    const updateChannelBreakpoint = () => { narrowChannels = channelBreakpoint.matches; };
-    memberBreakpoint.addEventListener('change', updateBreakpoint);
-    channelBreakpoint.addEventListener('change', updateChannelBreakpoint);
-    try {
-      const saved = JSON.parse(localStorage.getItem('kaordo-rondo-layout') ?? '{}');
-      if (typeof saved.servers === 'boolean') serversOpen = saved.servers;
-      if (typeof saved.channels === 'boolean') channelsOpen = saved.channels;
-      if (typeof saved.members === 'boolean') membersOpen = saved.members;
-      soundsEnabled = localStorage.getItem('kaordo-rondo-sounds') !== 'off';
-    } catch { /* Invalid preferences fall back to the default layout. */ }
-    const syncHash = () => {
-      const match = /^#s\/([0-9a-f-]{36})(?:\/c\/([0-9a-f-]{36}))?$/i.exec(window.location.hash);
-      if (match) { serverId = match[1]; channelId = match[2] ?? null; }
-    };
-    syncHash();
-    window.addEventListener('hashchange', syncHash);
-    const controller = new AbortController();
-    void ligo.subscribe(controller.signal, (id) => {
-      if (!id || id === channel?.conversationId) {
-        void queryClient.invalidateQueries({ queryKey: ['ligo', 'messages', channel?.conversationId] });
-      }
-    }).catch(() => { /* Polling remains available. */ });
+    const removeBreakpointListeners = watchBreakpoints();
+    restorePreferences();
+    const removeRouteListener = watchRouteHash();
+    const stopLiveUpdates = subscribeToMessageUpdates();
+
     return () => {
-      controller.abort();
-      window.removeEventListener('hashchange', syncHash);
-      memberBreakpoint.removeEventListener('change', updateBreakpoint);
-      channelBreakpoint.removeEventListener('change', updateChannelBreakpoint);
+      removeBreakpointListeners();
+      removeRouteListener();
+      stopLiveUpdates();
     };
   });
   onDestroy(() => {
+    queryClient.clear();
     if (searchTimer) clearTimeout(searchTimer);
     void stopVoice();
   });
 
-  function initials(name: string): string {
-    return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'R';
+  function watchBreakpoints(): () => void {
+    const memberBreakpoint = window.matchMedia('(min-width: 1280px)');
+    const channelBreakpoint = window.matchMedia('(max-width: 639px)');
+    const updateMembers = () => {
+      wideMembers = memberBreakpoint.matches;
+      mobileMembersOpen = false;
+    };
+    const updateChannels = () => {
+      narrowChannels = channelBreakpoint.matches;
+    };
+
+    updateMembers();
+    updateChannels();
+    memberBreakpoint.addEventListener('change', updateMembers);
+    channelBreakpoint.addEventListener('change', updateChannels);
+
+    return () => {
+      memberBreakpoint.removeEventListener('change', updateMembers);
+      channelBreakpoint.removeEventListener('change', updateChannels);
+    };
   }
+
+  function restorePreferences(): void {
+    try {
+      const saved = parseLayoutPreferences(localStorage.getItem('kaordo-rondo-layout'));
+      if (saved.servers !== undefined) serversOpen = saved.servers;
+      if (saved.channels !== undefined) channelsOpen = saved.channels;
+      if (saved.members !== undefined) membersOpen = saved.members;
+      soundsEnabled = localStorage.getItem('kaordo-rondo-sounds') !== 'off';
+    } catch {
+      // Invalid preferences fall back to the default layout.
+    }
+  }
+
+  function watchRouteHash(): () => void {
+    const syncRoute = () => {
+      const route = parseRondoRoute(window.location.hash);
+      if (!route) return;
+      serverId = route.serverId;
+      channelId = route.channelId;
+    };
+
+    syncRoute();
+    window.addEventListener('hashchange', syncRoute);
+    return () => window.removeEventListener('hashchange', syncRoute);
+  }
+
+  function subscribeToMessageUpdates(): () => void {
+    const controller = new AbortController();
+    void ligo.subscribe(controller.signal, (conversationId) => {
+      if (!conversationId || conversationId === channel?.conversationId) {
+        void queryClient.invalidateQueries({ queryKey: ['ligo', 'messages', channel?.conversationId] });
+      }
+    }).catch(() => {
+      // Polling remains available when live updates disconnect.
+    });
+
+    return () => controller.abort();
+  }
+
   function saveLayout() {
-    localStorage.setItem('kaordo-rondo-layout', JSON.stringify({
-      servers: serversOpen, channels: channelsOpen, members: membersOpen
-    }));
+    try {
+      localStorage.setItem('kaordo-rondo-layout', JSON.stringify({
+        servers: serversOpen, channels: channelsOpen, members: membersOpen
+      }));
+    } catch {
+      // The current layout remains usable when browser storage is unavailable.
+    }
   }
   async function toggleServers() {
     serversOpen = !serversOpen;
@@ -181,20 +250,20 @@
     if (serverId !== id && (voiceConnection || voiceBusy)) void stopVoice();
     serverId = id;
     channelId = null;
-    window.location.hash = `s/${id}`;
+    window.location.hash = formatRondoRoute(id, null);
     actionError = '';
     voiceError = '';
     mobileMembersOpen = false;
   }
   function selectChannel(id: string | null) {
     channelId = id;
-    if (serverId) window.location.hash = `s/${serverId}${id ? `/c/${id}` : ''}`;
+    if (serverId) window.location.hash = formatRondoRoute(serverId, id);
     draft = '';
     files = [];
     actionError = '';
     mobileMembersOpen = false;
   }
-  function openDialog(mode: typeof dialog) {
+  function openDialog(mode: DialogMode | null) {
     mobileMembersOpen = false;
     dialog = mode;
     if (mode) dialogContentMode = mode;
@@ -214,93 +283,135 @@
     }, 220);
   }
   async function createServer() {
-    if (dialogBusy || !serverName.trim()) return;
-    dialogBusy = true; dialogError = '';
-    try {
-      const created = await rondo.create({ name: serverName.trim(), description: serverDescription.trim(), access: serverAccess });
+    const name = serverName.trim();
+    if (!name) return;
+    const input = { name, description: serverDescription.trim(), access: serverAccess };
+
+    await runDialogAction(async () => {
+      const created = await rondo.create(input);
       queryClient.setQueryData(['rondo', 'server', created.server.id], created);
       await queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] });
-      dialog = null; serverName = ''; serverDescription = '';
+      dialog = null;
+      serverName = '';
+      serverDescription = '';
       selectServer(created.server.id);
       selectChannel(created.channels[0]?.id ?? null);
-    } catch (error) { dialogError = errorMessage(error); }
-    finally { dialogBusy = false; }
+    });
   }
+
   async function joinServer(item: RondoServer) {
-    dialogBusy = true; dialogError = '';
-    try {
+    await runDialogAction(async () => {
       const joined = await rondo.join(item.id);
       queryClient.setQueryData(['rondo', 'server', item.id], joined);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] }),
         queryClient.invalidateQueries({ queryKey: ['rondo', 'discover'] })
       ]);
-      dialog = null; selectServer(item.id); selectChannel(joined.channels[0]?.id ?? null);
-    } catch (error) { dialogError = errorMessage(error); }
-    finally { dialogBusy = false; }
-  }
-  async function createChannel() {
-    if (!serverId || dialogBusy || !channelName.trim()) return;
-    dialogBusy = true; dialogError = '';
-    try {
-      const created = await rondo.createChannel(serverId, channelName.trim());
-      await queryClient.invalidateQueries({ queryKey: ['rondo', 'server', serverId] });
-      dialog = null; channelName = ''; selectChannel(created.id);
-    } catch (error) { dialogError = errorMessage(error); }
-    finally { dialogBusy = false; }
-  }
-  async function invite(userId: string) {
-    if (!serverId || dialogBusy) return;
-    dialogBusy = true; dialogError = '';
-    try {
-      const updated = await rondo.invite(serverId, userId);
-      queryClient.setQueryData(['rondo', 'server', serverId], updated);
       dialog = null;
-    } catch (error) { dialogError = errorMessage(error); }
-    finally { dialogBusy = false; }
+      selectServer(item.id);
+      selectChannel(joined.channels[0]?.id ?? null);
+    });
   }
+
+  async function createChannel() {
+    const selectedServerId = serverId;
+    const name = channelName.trim();
+    if (!selectedServerId || !name) return;
+
+    await runDialogAction(async () => {
+      const created = await rondo.createChannel(selectedServerId, name);
+      await queryClient.invalidateQueries({ queryKey: ['rondo', 'server', selectedServerId] });
+      dialog = null;
+      channelName = '';
+      selectChannel(created.id);
+    });
+  }
+
+  async function invite(userId: string) {
+    const selectedServerId = serverId;
+    if (!selectedServerId) return;
+
+    await runDialogAction(async () => {
+      const updated = await rondo.invite(selectedServerId, userId);
+      queryClient.setQueryData(['rondo', 'server', selectedServerId], updated);
+      dialog = null;
+    });
+  }
+
+  async function runDialogAction(action: () => Promise<void>): Promise<void> {
+    if (dialogBusy) return;
+
+    dialogBusy = true;
+    dialogError = '';
+    try {
+      await action();
+    } catch (error) {
+      dialogError = errorMessage(error);
+    } finally {
+      dialogBusy = false;
+    }
+  }
+
   async function leaveServer() {
-    if (!serverId || dialogBusy) return;
+    const serverToLeave = serverId;
+    if (!serverToLeave || dialogBusy) return;
+
     dialogBusy = true;
     try {
-      if (voiceChannelId && detail?.server.id === serverId) await stopVoice();
-      await rondo.leave(serverId);
-      queryClient.removeQueries({ queryKey: ['rondo', 'server', serverId] });
+      if (voiceChannelId && detail?.server.id === serverToLeave) await stopVoice();
+      await rondo.leave(serverToLeave);
+      queryClient.removeQueries({ queryKey: ['rondo', 'server', serverToLeave] });
       await queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] });
-      serverId = null; channelId = null; window.location.hash = '';
+      serverId = null;
+      channelId = null;
+      window.location.hash = '';
       leaveOpen = false;
-    } catch (error) { actionError = errorMessage(error); }
-    finally { dialogBusy = false; }
+    } catch (error) {
+      actionError = errorMessage(error);
+    } finally {
+      dialogBusy = false;
+    }
   }
+
   function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Please try again.';
   }
-  function addFiles(event: Event) {
-    const input = event.currentTarget as HTMLInputElement;
-    const next = Array.from(input.files ?? []);
-    if (files.length + next.length > 8) actionError = 'Attach at most eight files.';
-    else { files = [...files, ...next]; actionError = ''; }
-    input.value = '';
-  }
   function updatePending(item: PendingMessage, changes: Partial<PendingMessage>) {
     Object.assign(item, changes);
-    pending = pending.map((entry) => entry.clientId === item.clientId ? { ...item } : entry);
+    pending = pending.map((entry) => {
+      return entry.clientId === item.clientId ? { ...item } : entry;
+    });
   }
+
+  async function uploadPendingAttachments(item: PendingMessage): Promise<void> {
+    if (item.attachmentIds || !item.files.length) return;
+
+    item.attachmentIds = await uploadMedia(
+      item.files,
+      import.meta.env.VITE_KAORDO_NODO_URL,
+      ligo,
+      (progress) => updatePending(item, { progress }),
+      { allowFiles: true, maxFiles: maxMessageFiles }
+    );
+  }
+
+  function cacheSentMessage(message: LigoMessage): void {
+    queryClient.setQueryData<InfiniteData<LigoMessagePage>>(
+      ['ligo', 'messages', message.conversationId],
+      (existing) => appendSentMessage(existing, message)
+    );
+  }
+
   async function deliver(item: PendingMessage) {
-    updatePending(item, { status: item.attachmentIds ? 'sending' : item.files.length ? 'uploading' : 'sending', error: undefined });
+    const initialStatus = item.files.length && !item.attachmentIds ? 'uploading' : 'sending';
+    updatePending(item, { status: initialStatus, error: undefined });
     try {
-      if (!item.attachmentIds && item.files.length) {
-        item.attachmentIds = await uploadMedia(item.files, import.meta.env.VITE_KAORDO_NODO_URL, ligo,
-          (progress) => updatePending(item, { progress }), { allowFiles: true, maxFiles: 8 });
-      }
+      await uploadPendingAttachments(item);
       updatePending(item, { status: 'sending' });
       const sent = await ligo.send(item.conversationId, {
         clientId: item.clientId, text: item.text, attachmentIds: item.attachmentIds ?? []
       });
-      queryClient.setQueryData<InfiniteData<LigoMessagePage>>(['ligo', 'messages', item.conversationId], (old) => {
-        if (!old?.pages.length || old.pages.some((page) => page.items.some((entry) => entry.clientId === sent.clientId))) return old;
-        return { ...old, pages: [{ ...old.pages[0], items: [sent, ...old.pages[0].items] }, ...old.pages.slice(1)] };
-      });
+      cacheSentMessage(sent);
       pending = pending.filter((entry) => entry.clientId !== item.clientId);
     } catch (error) {
       updatePending(item, { status: 'failed', error: errorMessage(error) });
@@ -309,22 +420,26 @@
   function send() {
     if (!channel || (!draft.trim() && !files.length)) return;
     const item: PendingMessage = {
-      clientId: crypto.randomUUID(), conversationId: channel.conversationId, text: draft.trim(),
-      files: [...files], progress: 0, status: files.length ? 'uploading' : 'sending',
-      createdAt: new Date().toISOString(), error: undefined
+      clientId: crypto.randomUUID(),
+      conversationId: channel.conversationId,
+      text: draft.trim(),
+      files: [...files],
+      progress: 0,
+      status: files.length ? 'uploading' : 'sending',
+      createdAt: new Date().toISOString()
     };
-    pending = [...pending, item]; draft = ''; files = []; actionError = '';
+    pending = [...pending, item];
+    draft = '';
+    files = [];
+    actionError = '';
     void deliver(item);
   }
-  function composerKey(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-      event.preventDefault(); send();
-    }
-  }
+
   function replaceMessage(message: LigoMessage) {
-    queryClient.setQueryData<InfiniteData<LigoMessagePage>>(['ligo', 'messages', message.conversationId], (old) =>
-      old ? { ...old, pages: old.pages.map((page) => ({ ...page, items: page.items.map((item) =>
-        item.id === message.id ? message : item) })) } : old);
+    queryClient.setQueryData<InfiniteData<LigoMessagePage>>(
+      ['ligo', 'messages', message.conversationId],
+      (existing) => replaceCachedMessage(existing, message)
+    );
   }
   async function react(message: LigoMessage, emoji: LigoReaction['emoji']) {
     const current = message.reactions.find((item) => item.emoji === emoji);
@@ -337,9 +452,31 @@
     await ligo.deleteMessage(message.conversationId, message.id);
     await queryClient.invalidateQueries({ queryKey: ['ligo', 'messages', message.conversationId] });
   }
+
+  function isVoiceAttemptCurrent(generation: number, target: RondoChannel): boolean {
+    return generation === voiceGeneration && target.serverId === serverId;
+  }
+
+  function subscribeToVoiceConnection(connection: VoiceConnection): void {
+    let connectedBefore = false;
+    connection.subscribe((state) => {
+      const disconnectedUnexpectedly = connectedBefore && !state.connected && !state.reconnecting &&
+        voiceConnection === connection;
+      if (disconnectedUnexpectedly) {
+        voiceError = 'Voice disconnected. Join again to reconnect.';
+        void stopVoice();
+        return;
+      }
+
+      voice = state;
+      if (state.connected) connectedBefore = true;
+    });
+  }
+
   async function startVoice(target: RondoChannel) {
     if (voiceBusy) return;
-    voiceBusy = true; voiceError = '';
+    voiceBusy = true;
+    voiceError = '';
     const disconnecting = stopVoice(true);
     const generation = voiceGeneration;
     const sounds = new VoiceSounds();
@@ -348,28 +485,22 @@
     let connectedToSounds = false;
     try {
       await disconnecting;
-      if (generation !== voiceGeneration || target.serverId !== serverId) return;
+      if (!isVoiceAttemptCurrent(generation, target)) return;
+
       const ticket = await rondo.voiceToken(target.id);
-      if (generation !== voiceGeneration || target.serverId !== serverId) return;
+      if (!isVoiceAttemptCurrent(generation, target)) return;
+
       const { VoiceConnection } = await import('@kaordo/voice-client');
-      if (generation !== voiceGeneration || target.serverId !== serverId) return;
+      if (!isVoiceAttemptCurrent(generation, target)) return;
+
       const connection = new VoiceConnection(sounds);
       connectedToSounds = true;
       connection.setSoundEnabled(soundsEnabled);
       voiceConnection = connection;
       voiceChannelId = target.id;
-      let hadConnected = false;
-      connection.subscribe((state) => {
-        if (hadConnected && !state.connected && !state.reconnecting && voiceConnection === connection) {
-          voiceError = 'Voice disconnected. Join again to reconnect.';
-          void stopVoice();
-          return;
-        }
-        voice = state;
-        if (state.connected) hadConnected = true;
-      });
+      subscribeToVoiceConnection(connection);
       await connection.connect(ticket.serverUrl, ticket.participantToken);
-      if (generation !== voiceGeneration || target.serverId !== serverId) await connection.disconnect();
+      if (!isVoiceAttemptCurrent(generation, target)) await connection.disconnect();
     } catch (error) {
       if (generation === voiceGeneration) {
         voiceError = errorMessage(error);
@@ -389,29 +520,16 @@
     voice = emptyVoice();
     await connection?.disconnect();
   }
-</script>
 
-{#snippet memberContents(current: RondoDetail)}
-  <div class="flex min-h-16 items-center gap-2 border-b border-border/70 px-4">
-    <div class="min-w-0 flex-1"><h2 class="text-sm font-bold">Members</h2><p class="text-xs text-muted-foreground">{current.server.memberCount} in this server</p></div>
-    {#if current.server.ownerId === user.id}
-      <Button size="icon-xs" variant="ghost" aria-label="Invite member" title="Invite member" onclick={() => openDialog('invite')}><UserPlusIcon class="size-4" /></Button>
-    {/if}
-    <Button bind:ref={hideMembersButton} size="icon-xs" variant="ghost" aria-label="Hide members" title="Hide members" onclick={toggleMembers}><ChevronRightIcon class="size-4" /></Button>
-  </div>
-  <div class="kaordo-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
-    {#each current.members as member (member.id)}
-      <div class="flex items-center gap-2.5 rounded-xl px-2 py-2">
-        <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-xs font-bold text-primary">{initials(member.displayName)}</span>
-        <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">{member.displayName}</span><span class="block truncate text-xs text-muted-foreground">@{member.username}</span></span>
-        {#if member.id === current.server.ownerId}<span class="text-[10px] font-semibold text-primary" title="Server owner">Owner</span>{/if}
-      </div>
-    {/each}
-    {#if current.server.memberCount > current.members.length}
-      <p class="px-2 py-3 text-xs text-muted-foreground">Showing the first {current.members.length} members.</p>
-    {/if}
-  </div>
-{/snippet}
+  function closeMembersDialog(): void {
+    mobileMembersOpen = false;
+    void tick().then(() => showMembersButton?.focus());
+  }
+
+  function handleDialogOpenChange(open: boolean): void {
+    if (!open && !dialogBusy) dialog = null;
+  }
+</script>
 
 <div class="flex h-[100dvh] flex-col bg-background">
   <AppHeader name="Rondo" homeHref={appPaths.portal} wide />
@@ -528,46 +646,44 @@
               loadOlder={async () => { await messagesQuery.fetchNextPage(); }} retry={(item) => { void deliver(item); }} {react} {edit} {remove} />
           {/key}
         {/if}
-        <div class="shrink-0 border-t border-border/75 bg-card/90 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5 backdrop-blur-xl sm:px-6">
-          {#if files.length}
-            <div class={`kaordo-scrollbar mb-3 grid max-h-52 gap-2 overflow-y-auto ${files.length === 1 ? 'max-w-60 grid-cols-1' : 'grid-cols-2 sm:grid-cols-4'}`} aria-label="Selected attachments">
-              {#each files as file, index (file)}<DraftAttachment {file} remove={() => { files = files.filter((_, i) => i !== index); }} />{/each}
-            </div>
-          {/if}
-          <div class="flex items-end gap-2 rounded-[1.25rem] border border-border/80 bg-background p-2 shadow-sm focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-ring/20">
-            <input bind:this={fileInput} type="file" multiple class="sr-only" aria-label="Choose files" onchange={addFiles} />
-            <Button variant="ghost" size="icon-sm" aria-label="Attach files" disabled={files.length >= 8} onclick={() => fileInput?.click()}><PaperclipIcon class="size-5" /></Button>
-            <Textarea bind:value={draft} onkeydown={composerKey} maxlength={4000} rows={1} placeholder={`Message #${channel.name}`}
-              aria-label="Write a message" class="kaordo-scrollbar min-h-9 max-h-36 min-w-0 flex-1 overflow-y-auto border-0 bg-transparent px-1 py-2 text-sm leading-5 shadow-none focus-visible:ring-0" />
-            <Button size="icon-sm" aria-label="Send message" disabled={!draft.trim() && !files.length} onclick={send}><SendIcon class="size-4" /></Button>
-          </div>
-        </div>
+        <MessageComposer
+          bind:draft
+          bind:files
+          bind:actionError
+          maxAttachments={maxMessageFiles}
+          maxCharacters={4000}
+          placeholder={`Message #${channel.name}`}
+          showHint={false}
+          onSend={send}
+        />
       {:else}
         <div class="flex flex-1 flex-col items-center justify-center px-6 text-center"><span class="grid size-20 place-items-center rounded-[1.75rem] bg-accent"><HashIcon class="size-10 text-primary" /></span><h2 class="mt-6 text-2xl font-bold tracking-tight">Choose a channel</h2><p class="mt-2 max-w-sm text-sm text-muted-foreground">Share messages, files and a voice room with your community.</p></div>
       {/if}
     </section>
     {#if detail && membersVisible && wideMembers}
       <aside aria-label="Server members" class="flex min-h-0 w-60 shrink-0 flex-col border-l border-border/75 bg-card">
-        {@render memberContents(detail)}
+        <MemberPanel current={detail} userId={user.id} onInvite={() => openDialog('invite')}
+          onHide={toggleMembers} bind:hideButton={hideMembersButton} />
       </aside>
     {/if}
   </main>
 </div>
 
-<Dialog.Root open={!!detail && !wideMembers && membersVisible} onOpenChange={(open) => {
-  if (!open) { mobileMembersOpen = false; void tick().then(() => showMembersButton?.focus()); }
-}}>
+<Dialog.Root open={!!detail && !wideMembers && membersVisible} onOpenChange={(open) => { if (!open) closeMembersDialog(); }}>
   <Dialog.Content class="rondo-members-sheet" showCloseButton={false}>
     <Dialog.Header class="sr-only"><Dialog.Title>Server members</Dialog.Title><Dialog.Description>People in this server.</Dialog.Description></Dialog.Header>
-    {#if detail}{@render memberContents(detail)}{/if}
+    {#if detail}
+      <MemberPanel current={detail} userId={user.id} onInvite={() => openDialog('invite')}
+        onHide={toggleMembers} bind:hideButton={hideMembersButton} />
+    {/if}
   </Dialog.Content>
 </Dialog.Root>
 
-<Dialog.Root open={!!dialog} onOpenChange={(open) => { if (!open && !dialogBusy) dialog = null; }}>
+<Dialog.Root open={!!dialog} onOpenChange={handleDialogOpenChange}>
   <Dialog.Content class="max-h-[90dvh] overflow-hidden p-2 sm:max-w-lg">
     <div class="kaordo-scrollbar max-h-[calc(90dvh-1rem)] space-y-4 overflow-y-auto p-3 sm:p-5">
-      <Dialog.Header class="pr-8"><Dialog.Title class="text-xl font-bold">{dialogContentMode === 'create' ? 'Create a server' : dialogContentMode === 'discover' ? 'Explore servers' : dialogContentMode === 'channel' ? 'Create a channel' : 'Invite a member'}</Dialog.Title>
-        <Dialog.Description>{dialogContentMode === 'create' ? 'Start with a general channel and invite people when you are ready.' : dialogContentMode === 'discover' ? 'Join a public community.' : dialogContentMode === 'channel' ? 'Every channel has messages and its own voice room.' : 'Find a Kaordo account by username.'}</Dialog.Description></Dialog.Header>
+      <Dialog.Header class="pr-8"><Dialog.Title class="text-xl font-bold">{dialogCopy[dialogContentMode].title}</Dialog.Title>
+        <Dialog.Description>{dialogCopy[dialogContentMode].description}</Dialog.Description></Dialog.Header>
       {#if dialogContentMode === 'create'}
         <label class="block text-sm font-semibold" for="rondo-name">Server name</label>
         <Input id="rondo-name" bind:value={serverName} maxlength={100} placeholder="Your community" />

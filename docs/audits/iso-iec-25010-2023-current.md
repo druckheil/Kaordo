@@ -1,5 +1,7 @@
 # Kaordo implemented-scope audit — ISO/IEC 25010:2023
 
+> Historical assessment of the tree and scope at the stated date. Scores, paths and deployment gaps describe that assessment, not the current refactored tree. See [the 3 October 2026 refactor review](../refactoring.md) and [current architecture](../architecture.md) for updated ownership, capabilities and verification.
+
 **Date:** 2026-10-01. **Quality Score: 89.0/100. Lowest characteristic: Security, 81.2/100.** The requested ≥99 overall, ≥95 in every characteristic and no Critical/High findings is **not met**. No Critical code defect or known published dependency vulnerability was confirmed. The absence of an independent, recoverable copy of local account and media data remains a **High operational release blocker**.
 
 ## Scope and scoring method

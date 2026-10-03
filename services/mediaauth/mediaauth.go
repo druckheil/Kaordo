@@ -1,5 +1,6 @@
 package mediaauth
 
+// Signs media URLs and validates internal Nodo requests
 import (
 	"crypto/hmac"
 	"crypto/sha256"
@@ -12,41 +13,47 @@ import (
 	"time"
 )
 
+const (
+	keySize             = 32
+	internalTokenDomain = "kaordo-nodo-internal-v1"
+	maximumSignatureAge = 10 * time.Minute
+)
+
 func ParseKey(encoded string) ([]byte, error) {
 	key, err := hex.DecodeString(encoded)
-	if err != nil || len(key) != 32 {
+	if err != nil || len(key) != keySize {
 		return nil, errors.New("NODO_MEDIA_SIGNING_KEY must contain 32 random bytes as hex")
 	}
 	return key, nil
 }
 
 func signature(id string, expiry int64, key []byte) string {
+	return base64.RawURLEncoding.EncodeToString(signatureBytes(id, expiry, key))
+}
+
+func hmacSHA256(key, payload []byte) []byte {
 	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte(id))
-	mac.Write([]byte{'\n'})
-	mac.Write([]byte(strconv.FormatInt(expiry, 10)))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	_, _ = mac.Write(payload)
+	return mac.Sum(nil)
 }
 
 func InternalToken(key []byte) string {
-	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte("kaordo-nodo-internal-v1"))
-	return hex.EncodeToString(mac.Sum(nil))
+	return hex.EncodeToString(internalTokenSignature(key))
+}
+
+func internalTokenSignature(key []byte) []byte {
+	return hmacSHA256(key, []byte(internalTokenDomain))
 }
 
 func VerifyInternalToken(provided string, key []byte) bool {
 	actual, err := hex.DecodeString(provided)
-	if err != nil {
-		return false
-	}
-	expected, err := hex.DecodeString(InternalToken(key))
-	return err == nil && hmac.Equal(actual, expected)
+	return err == nil && hmac.Equal(actual, internalTokenSignature(key))
 }
 
 func SignedURL(baseURL, id string, expiry time.Time, key []byte) (string, error) {
-	base, err := url.Parse(strings.TrimRight(baseURL, "/"))
-	if err != nil || base.Scheme == "" || base.Host == "" || base.User != nil || base.RawQuery != "" {
-		return "", errors.New("invalid Nodo public URL")
+	base, err := parsePublicBaseURL(baseURL)
+	if err != nil {
+		return "", err
 	}
 	base.Path = strings.TrimRight(base.Path, "/") + "/v1/media/" + id
 	query := base.Query()
@@ -56,15 +63,32 @@ func SignedURL(baseURL, id string, expiry time.Time, key []byte) (string, error)
 	return base.String(), nil
 }
 
-func Verify(id, expiryRaw, provided string, key []byte, now time.Time) bool {
-	expiry, err := strconv.ParseInt(expiryRaw, 10, 64)
-	if err != nil || expiry <= now.Unix() || expiry > now.Add(10*time.Minute).Unix() {
-		return false
+func parsePublicBaseURL(raw string) (*url.URL, error) {
+	base, err := url.Parse(strings.TrimRight(raw, "/"))
+	if err != nil || base.Scheme == "" || base.Host == "" || base.User != nil || base.RawQuery != "" {
+		return nil, errors.New("invalid Nodo public URL")
 	}
-	expected, err := base64.RawURLEncoding.DecodeString(signature(id, expiry, key))
-	if err != nil {
+	return base, nil
+}
+
+func Verify(id, expiryRaw, provided string, key []byte, now time.Time) bool {
+	expiry, valid := validExpiry(expiryRaw, now)
+	if !valid {
 		return false
 	}
 	actual, err := base64.RawURLEncoding.DecodeString(provided)
-	return err == nil && hmac.Equal(actual, expected)
+	return err == nil && hmac.Equal(actual, signatureBytes(id, expiry, key))
+}
+
+func validExpiry(raw string, now time.Time) (int64, bool) {
+	expiry, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || expiry <= now.Unix() || expiry > now.Add(maximumSignatureAge).Unix() {
+		return 0, false
+	}
+	return expiry, true
+}
+
+func signatureBytes(id string, expiry int64, key []byte) []byte {
+	payload := id + "\n" + strconv.FormatInt(expiry, 10)
+	return hmacSHA256(key, []byte(payload))
 }

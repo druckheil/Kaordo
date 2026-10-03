@@ -1,12 +1,15 @@
-import type { components } from "./openapi.js";
+// Exports Regado administration response types
+import type { components } from './openapi.js';
 
-export type AdminSummary = components["schemas"]["RegadoSummary"];
-export type AdminUser = components["schemas"]["RegadoUser"];
-export type AdminAuditEntry = components["schemas"]["RegadoAuditEntry"];
-export type AdminAccessCase = components["schemas"]["RegadoCase"];
-export type AdminContent = components["schemas"]["RegadoContent"];
-export type AdminContentPage = components["schemas"]["RegadoContentPage"];
-export type AdminDisk = components["schemas"]["RegadoDisk"];
-export type AdminSystem = components["schemas"]["RegadoSystem"];
-export type AdminMetrics = components["schemas"]["RegadoMetrics"];
-export type AdminLogs = components["schemas"]["RegadoLogs"];
+type Schemas = components['schemas'];
+
+export type AdminSummary = Schemas['RegadoSummary'];
+export type AdminUser = Schemas['RegadoUser'];
+export type AdminAuditEntry = Schemas['RegadoAuditEntry'];
+export type AdminAccessCase = Schemas['RegadoCase'];
+export type AdminContent = Schemas['RegadoContent'];
+export type AdminContentPage = Schemas['RegadoContentPage'];
+export type AdminDisk = Schemas['RegadoDisk'];
+export type AdminSystem = Schemas['RegadoSystem'];
+export type AdminMetrics = Schemas['RegadoMetrics'];
+export type AdminLogs = Schemas['RegadoLogs'];

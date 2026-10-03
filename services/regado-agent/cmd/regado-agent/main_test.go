@@ -1,5 +1,6 @@
 package main
 
+// Checks mirror parsing and the HTTP action allowlist
 import (
 	"context"
 	"net/http"

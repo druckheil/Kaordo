@@ -1,37 +1,58 @@
+// Validates and normalizes persisted tus upload URLs before resuming them
 import { defaultOptions } from 'tus-js-client';
 
-// tus-js-client persists the Location returned by Nodo. Older deployments
-// returned HTTP URLs behind HTTPS, so normalize those before resuming.
+const uploadPathPattern = /^\/v1\/uploads\/[0-9a-f-]{36}$/i;
+
 export function uploadStorage(baseUrl: string, storage = defaultOptions.urlStorage) {
   const origin = new URL(baseUrl);
-  const uploadPath = /^\/v1\/uploads\/[0-9a-f-]{36}$/i;
+
+  async function findUploadsByFingerprint(fingerprint: string) {
+    const previous = await storage.findUploadsByFingerprint(fingerprint);
+    const usable: typeof previous = [];
+
+    for (const upload of previous) {
+      const uploadUrl = normalizeUploadUrl(upload.uploadUrl, origin);
+      if (!uploadUrl) {
+        await storage.removeUpload(upload.urlStorageKey);
+        continue;
+      }
+
+      usable.push({ ...upload, uploadUrl });
+    }
+
+    return usable;
+  }
 
   return {
     findAllUploads: () => storage.findAllUploads(),
-    async findUploadsByFingerprint(fingerprint: string) {
-      const previous = await storage.findUploadsByFingerprint(fingerprint);
-      const usable: typeof previous = [];
-      for (const upload of previous) {
-        let url: URL;
-        try {
-          url = new URL(upload.uploadUrl ?? '');
-        } catch {
-          await storage.removeUpload(upload.urlStorageKey);
-          continue;
-        }
-        if (origin.protocol === 'https:' && url.protocol === 'http:' && url.host === origin.host) {
-          url.protocol = 'https:';
-        }
-        if (url.origin !== origin.origin || !uploadPath.test(url.pathname) || url.search || url.hash) {
-          await storage.removeUpload(upload.urlStorageKey);
-          continue;
-        }
-        usable.push({ ...upload, uploadUrl: url.href });
-      }
-      return usable;
-    },
+    findUploadsByFingerprint,
     removeUpload: (key: string) => storage.removeUpload(key),
     addUpload: (fingerprint: string, upload: Parameters<typeof storage.addUpload>[1]) =>
       storage.addUpload(fingerprint, upload)
   };
+}
+
+function normalizeUploadUrl(uploadUrl: string | null | undefined, origin: URL): string | null {
+  let url: URL;
+  try {
+    url = new URL(uploadUrl ?? '');
+  } catch {
+    return null;
+  }
+
+  upgradeLegacyProtocol(url, origin);
+  if (!isNodoUploadUrl(url, origin)) return null;
+  return url.href;
+}
+
+function upgradeLegacyProtocol(url: URL, origin: URL): void {
+  const isLegacySecureHost = origin.protocol === 'https:' && url.protocol === 'http:' && url.host === origin.host;
+  if (isLegacySecureHost) url.protocol = 'https:';
+}
+
+function isNodoUploadUrl(url: URL, origin: URL): boolean {
+  return url.origin === origin.origin
+    && uploadPathPattern.test(url.pathname)
+    && !url.search
+    && !url.hash;
 }

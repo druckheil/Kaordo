@@ -1,5 +1,14 @@
 # Nodo
 
-Go media service. tusd v2 stores resumable uploads in `NODO_DATA_DIR`; Kerno's `/v1/me` verifies the bearer token for every upload request, and upload ownership gates HEAD, PATCH and metadata reads. New uploads accept JPEG/PNG/WebP (20 MiB) or MP4/WebM/MOV (100 MiB), up to 200 uploads and 2 GiB of source bytes per account. Images are identified by their decoded bytes and re-encoded to JPEG or PNG, so mislabeled image MIME metadata does not break a valid upload. FFmpeg/ffprobe process video to H.264/AAC MP4 (maximum 120 seconds). A processed file is served only with a short-lived Kerno-signed URL. Media bytes remain on the local disk, so private-at-rest encryption and disk mirroring are still future requirements.
+Independent Go upload and byte-storage service. tusd v2 implements tus protocol 1.0; upload, metadata and quota handlers verify the owner through Kerno. Defaults allow 200 source uploads and 2 GiB of source bytes per account. JPEG/PNG/WebP images have a 20 MiB source limit; video and generic files have a 100 MiB limit. Valid images are identified by decoded bytes even if their submitted image MIME type is mislabeled, then re-encoded to JPEG/PNG. FFprobe/FFmpeg validate and produce H.264/AAC MP4 up to 120 seconds. Generic files are staged unchanged and served as downloads.
 
-`pnpm dev` starts Nodo at `127.0.0.1:8082`; `ffmpeg` and `ffprobe` must be installed for videos. Back up `deploy/local/media` together with both PostgreSQL databases. The source file and processed display file both occupy disk. Kerno requests immediate purge after a Fluo post is deleted; Nodo checks Kerno for active references before deleting bytes. A six-hour scan removes unreferenced uploads older than 24 hours, including files orphaned by interrupted uploads or account deletion. If Kerno is unavailable or its reference response is invalid, Nodo keeps the files and retries later.
+`cmd/nodo` wires configuration and drains HTTP before closing the upload server. `internal/upload/handler.go` assembles routing and owns the server lifecycle; upload/media handlers, quota/identity, processing queue, image/video/file processors and cleanup/GC are separate files. `Server.Close` cancels and waits for background processing/GC; FFmpeg follows the processing context. Cancelled work remains resumable rather than being marked a permanent processing failure.
+
+Kerno links processed metadata (dimensions, MIME and size) and signs media access URLs; these reserve image/video geometry before download. Files are mode 0600. Active references protect bytes from purge, including references shared across Fluo, Ligo and Rondo. Final-reference deletion requests immediate purge; a six-hour scan removes unreferenced uploads older than 24 hours. Failed reference checks keep bytes for retry.
+
+`pnpm dev` runs Nodo on `127.0.0.1:8082`. Install `ffmpeg`/`ffprobe` for videos. Local media is ignored under `deploy/local/media`; production uses mirrored Data1. Source and processed files both consume disk. Product content encryption is absent. See [storage and backup boundaries](../../deploy/storage/README.md).
+
+```sh
+go test -race ./services/nodo/... ./services/mediaauth/...
+go build ./services/nodo/...
+```

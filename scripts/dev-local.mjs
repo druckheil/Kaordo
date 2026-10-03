@@ -1,3 +1,4 @@
+// Starts the local Kaordo services and prepares their development configuration
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmod, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
@@ -28,7 +29,20 @@ async function exists(path) {
   }
 }
 
-async function ensureConfiguration() {
+function createPrivateConfiguration() {
+  const password = () => randomBytes(24).toString('hex');
+  return [
+    `KAORDO_DB_PASSWORD=${password()}`,
+    `KEYCLOAK_DB_PASSWORD=${password()}`,
+    'KEYCLOAK_ADMIN_USERNAME=admin',
+    `KEYCLOAK_ADMIN_PASSWORD=${password()}`,
+    `KAORDO_SITE_ORIGIN=${siteOrigin}`,
+    `NODO_MEDIA_SIGNING_KEY=${randomBytes(32).toString('hex')}`,
+    ''
+  ].join('\n');
+}
+
+async function ensurePublicConfiguration() {
   const publicEnv = resolve(root, '.env');
   if (!(await exists(publicEnv))) {
     await copyFile(resolve(root, '.env.example'), publicEnv);
@@ -38,20 +52,12 @@ async function ensureConfiguration() {
   if (!publicConfig.VITE_KAORDO_NODO_URL) {
     await writeFile(publicEnv, '\nVITE_KAORDO_NODO_URL=http://127.0.0.1:8082\n', { flag: 'a' });
   }
+}
 
+async function ensurePrivateConfiguration() {
   const privateEnv = resolve(root, 'deploy/local/.env');
   if (!(await exists(privateEnv))) {
-    const password = () => randomBytes(24).toString('hex');
-    const values = [
-      `KAORDO_DB_PASSWORD=${password()}`,
-      `KEYCLOAK_DB_PASSWORD=${password()}`,
-      'KEYCLOAK_ADMIN_USERNAME=admin',
-      `KEYCLOAK_ADMIN_PASSWORD=${password()}`,
-      `KAORDO_SITE_ORIGIN=${siteOrigin}`,
-      `NODO_MEDIA_SIGNING_KEY=${randomBytes(32).toString('hex')}`,
-      ''
-    ].join('\n');
-    await writeFile(privateEnv, values, { mode: 0o600, flag: 'wx' });
+    await writeFile(privateEnv, createPrivateConfiguration(), { mode: 0o600, flag: 'wx' });
     console.log('Created ignored local credentials: deploy/local/.env');
   }
   await chmod(privateEnv, 0o600);
@@ -61,12 +67,21 @@ async function ensureConfiguration() {
     privateConfig.NODO_MEDIA_SIGNING_KEY = randomBytes(32).toString('hex');
     await writeFile(privateEnv, `\nNODO_MEDIA_SIGNING_KEY=${privateConfig.NODO_MEDIA_SIGNING_KEY}\n`, { flag: 'a' });
   }
+  await ensureLiveKitCredentials(privateEnv, privateConfig);
+  validatePrivateConfiguration(privateConfig);
+  return privateConfig;
+}
+
+async function ensureLiveKitCredentials(privateEnv, privateConfig) {
   for (const name of ['LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET']) {
     if (!privateConfig[name] || privateConfig[name].startsWith('REPLACE_')) {
       privateConfig[name] = randomBytes(name === 'LIVEKIT_API_KEY' ? 16 : 32).toString('hex');
       await writeFile(privateEnv, `\n${name}=${privateConfig[name]}\n`, { flag: 'a' });
     }
   }
+}
+
+function validatePrivateConfiguration(privateConfig) {
   for (const name of ['KAORDO_DB_PASSWORD', 'KEYCLOAK_DB_PASSWORD', 'KEYCLOAK_ADMIN_PASSWORD']) {
     if (!privateConfig[name] || privateConfig[name].startsWith('REPLACE_')) {
       throw new Error(`${name} must be a real value in deploy/local/.env.`);
@@ -82,7 +97,11 @@ async function ensureConfiguration() {
       !/^[0-9a-f]{64}$/.test(privateConfig.LIVEKIT_API_SECRET)) {
     throw new Error('LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be generated hexadecimal credentials.');
   }
-  return privateConfig;
+}
+
+async function ensureConfiguration() {
+  await ensurePublicConfiguration();
+  return ensurePrivateConfiguration();
 }
 
 function start(command, args, environment = process.env) {
@@ -154,36 +173,28 @@ async function waitForChildren() {
   for (const child of children) child.kill('SIGKILL');
 }
 
-process.once('SIGINT', stop);
-process.once('SIGTERM', stop);
-
-try {
-  await assertAvailablePorts([
-    { name: 'Kerno', port: 8081 },
-    { name: 'Nodo', port: 8082 },
-    { name: 'Kaordo site', port: 8765 }
-  ]);
-  closeSession = await startLocalSession(stop);
-  const privateConfig = await ensureConfiguration();
+async function ensureDockerAvailable() {
   try {
     await run('docker', ['compose', 'version']);
   } catch {
     throw new Error('Docker Compose is required for sign-in. Install/start Docker, then run pnpm dev. For the UI only, run pnpm dev:web.');
   }
+}
 
-  const localEnv = { ...process.env, ...privateConfig, KAORDO_SITE_ORIGIN: siteOrigin };
-  console.log('Starting PostgreSQL, Keycloak and LiveKit…');
-  await run('docker', [...compose, 'up', '-d', '--wait'], localEnv);
+async function applyProductMigrations(environment) {
   for (const migration of productMigrations) {
-    await run('docker', [...compose, 'exec', '-T', 'app-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', 'kaordo', '-f', `/migrations/${migration}`], localEnv);
+    await run('docker', [
+      ...compose, 'exec', '-T', 'app-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
+      '-U', 'kaordo', '-d', 'kaordo', '-f', `/migrations/${migration}`
+    ], environment);
   }
-  await waitFor('http://127.0.0.1:8080/realms/kaordo/.well-known/openid-configuration', 180_000);
-  await syncKeycloak(privateConfig);
+}
 
+async function buildAndStartKerno(privateConfig) {
   console.log('Building Kerno…');
   await mkdir(resolve(root, 'dist/local'), { recursive: true });
   await run('go', ['build', '-o', 'dist/local/kerno', './services/kerno/cmd/kerno']);
-  const kernoEnv = {
+  const environment = {
     ...process.env,
     DATABASE_URL: `postgres://kaordo:${encodeURIComponent(privateConfig.KAORDO_DB_PASSWORD)}@127.0.0.1:5432/kaordo?sslmode=disable`,
     OIDC_ISSUER: 'http://localhost:8080/realms/kaordo',
@@ -197,56 +208,103 @@ try {
     LIVEKIT_API_KEY: privateConfig.LIVEKIT_API_KEY,
     LIVEKIT_API_SECRET: privateConfig.LIVEKIT_API_SECRET
   };
-  const kerno = start(resolve(root, 'dist/local/kerno'), [], kernoEnv);
-  await waitFor('http://127.0.0.1:8081/healthz', 30_000, kerno);
+  const child = start(resolve(root, 'dist/local/kerno'), [], environment);
+  await waitFor('http://127.0.0.1:8081/healthz', 30_000, child);
+  return child;
+}
 
+async function buildAndStartNodo(privateConfig) {
   console.log('Building Nodo…');
   await mkdir(resolve(root, 'deploy/local/media'), { recursive: true });
   await run('go', ['build', '-o', 'dist/local/nodo', './services/nodo/cmd/nodo']);
-  const nodo = start(resolve(root, 'dist/local/nodo'), [], {
+  const environment = {
     ...process.env,
     KERNO_INTERNAL_URL: 'http://127.0.0.1:8081',
     NODO_DATA_DIR: resolve(root, 'deploy/local/media'),
     NODO_ALLOWED_ORIGINS: `${siteOrigin},http://localhost:5173,http://localhost:5175`,
     NODO_MEDIA_SIGNING_KEY: privateConfig.NODO_MEDIA_SIGNING_KEY
-  });
-  await waitFor('http://127.0.0.1:8082/healthz', 30_000, nodo);
+  };
+  const child = start(resolve(root, 'dist/local/nodo'), [], environment);
+  await waitFor('http://127.0.0.1:8082/healthz', 30_000, child);
+  return child;
+}
 
+async function buildAndStartWebsite() {
   console.log('Building the five application routes…');
   await run('pnpm', ['build:pages']);
-  const web = start(process.execPath, ['scripts/serve-pages.mjs']);
-  await waitFor('http://127.0.0.1:8765/login/', 10_000, web);
-  console.log('Ready: http://localhost:8765/login/');
-  console.log('Press Ctrl+C to stop local processes, or run pnpm dev:stop to stop them and Docker services.');
+  const child = start(process.execPath, ['scripts/serve-pages.mjs']);
+  await waitFor('http://127.0.0.1:8765/login/', 10_000, child);
+  return child;
+}
 
+async function waitForApplicationExit(services) {
   await new Promise((resolveDone, rejectDone) => {
-    const onExit = (name) => (code, signal) => {
-      if (stopping) resolveDone();
-      else rejectDone(new Error(`${name} exited unexpectedly (${code ?? signal}).`));
-    };
-    if (kerno.exitCode !== null || kerno.signalCode !== null) {
-      rejectDone(new Error(`Kerno exited unexpectedly (${kerno.exitCode ?? kerno.signalCode}).`));
-      return;
+    for (const [name, child] of services) {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        rejectDone(new Error(`${name} exited unexpectedly (${child.exitCode ?? child.signalCode}).`));
+        return;
+      }
     }
-    if (web.exitCode !== null || web.signalCode !== null) {
-      rejectDone(new Error(`Kaordo site exited unexpectedly (${web.exitCode ?? web.signalCode}).`));
-      return;
+
+    for (const [name, child] of services) {
+      child.once('exit', (code, signal) => {
+        if (stopping) resolveDone();
+        else rejectDone(new Error(`${name} exited unexpectedly (${code ?? signal}).`));
+      });
     }
     void stopRequested.then(resolveDone);
-    kerno.once('exit', onExit('Kerno'));
-    nodo.once('exit', onExit('Nodo'));
-    web.once('exit', onExit('Kaordo site'));
   });
-  stop();
-} catch (error) {
-  const wasStopping = stopping;
-  stop();
-  if (!wasStopping) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  }
-} finally {
-  stop();
-  await waitForChildren();
-  await closeSession?.();
 }
+
+async function startApplicationServices(privateConfig) {
+  const services = [
+    ['Kerno', await buildAndStartKerno(privateConfig)],
+    ['Nodo', await buildAndStartNodo(privateConfig)],
+    ['Kaordo site', await buildAndStartWebsite()]
+  ];
+  console.log('Ready: http://localhost:8765/login/');
+  console.log('Press Ctrl+C to stop local processes, or run pnpm dev:stop to stop them and Docker services.');
+  await waitForApplicationExit(services);
+}
+
+async function startLocalDevelopment() {
+  await assertAvailablePorts([
+    { name: 'Kerno', port: 8081 },
+    { name: 'Nodo', port: 8082 },
+    { name: 'Kaordo site', port: 8765 }
+  ]);
+  closeSession = await startLocalSession(stop);
+  const privateConfig = await ensureConfiguration();
+  await ensureDockerAvailable();
+
+  const localEnv = { ...process.env, ...privateConfig, KAORDO_SITE_ORIGIN: siteOrigin };
+  console.log('Starting PostgreSQL, Keycloak and LiveKit…');
+  await run('docker', [...compose, 'up', '-d', '--wait'], localEnv);
+  await applyProductMigrations(localEnv);
+  await waitFor('http://127.0.0.1:8080/realms/kaordo/.well-known/openid-configuration', 180_000);
+  await syncKeycloak(privateConfig);
+  await startApplicationServices(privateConfig);
+}
+
+process.once('SIGINT', stop);
+process.once('SIGTERM', stop);
+
+async function main() {
+  try {
+    await startLocalDevelopment();
+    stop();
+  } catch (error) {
+    const wasStopping = stopping;
+    stop();
+    if (!wasStopping) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    }
+  } finally {
+    stop();
+    await waitForChildren();
+    await closeSession?.();
+  }
+}
+
+await main();

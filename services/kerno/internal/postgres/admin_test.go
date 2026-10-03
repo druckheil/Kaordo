@@ -46,9 +46,11 @@ func TestAdminAccessFlow(t *testing.T) {
 	if _, err := store.Summary(ctx); err != nil {
 		t.Fatal(err)
 	}
-	listed, err := store.Users(ctx, "regadotarget")
-	if err != nil || len(listed) != 1 || listed[0].ID != target.ID {
-		t.Fatalf("users = %+v, %v", listed, err)
+	for _, query := range []string{"regadotarget", "REGADOTARGET", " ReGaDoTaRgEt "} {
+		listed, err := store.Users(ctx, query)
+		if err != nil || len(listed) != 1 || listed[0].ID != target.ID {
+			t.Fatalf("users for %q = %+v, %v", query, listed, err)
+		}
 	}
 	if _, err := store.SetDisabled(ctx, admin.ID, admin.ID, true, "self lockout attempt"); !errors.Is(err, ErrAdminTarget) {
 		t.Fatalf("self disable = %v", err)

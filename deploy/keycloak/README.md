@@ -7,3 +7,5 @@ The local Compose profile imports `kaordo-realm.json` into Keycloak 26.7.4. Regi
 The `kaordo` login theme inherits Keycloak's supported form templates and applies Kaordo colors and spacing. Passwords and OTP secrets remain with Keycloak. Keycloak shows recovery codes once after TOTP setup; users must save them. Each recovery code works once. The local profile has no public abuse controls. Startup import skips a realm that already exists; run `pnpm auth:configure` after changing the JSON policy.
 
 The local headless authentication test checks the entry, registration, TOTP, recovery, and login states for automatically detectable WCAG A/AA violations with axe-core. This check does not replace keyboard or screen-reader testing.
+
+The sync script now separates policy loading, realm/client reconciliation and effective-token checks. This is a code organization change, not an identity schema or password-policy reset. The browser auth/account packages share initialization and snapshot control. `pnpm test:auth` checks policy and failure cases; `pnpm test:auth:live` checks the real hosted forms and SSO. See [current verification](../../docs/refactoring.md).

@@ -1,5 +1,15 @@
-export type VoiceCue = 'connect' | 'disconnect' | 'mute' | 'unmute' | 'deafen' | 'undeafen' |
-  'cameraOn' | 'cameraOff' | 'screenOn' | 'screenOff';
+// Generates short local audio cues for voice and media control changes
+export type VoiceCue =
+  | 'connect'
+  | 'disconnect'
+  | 'mute'
+  | 'unmute'
+  | 'deafen'
+  | 'undeafen'
+  | 'cameraOn'
+  | 'cameraOff'
+  | 'screenOn'
+  | 'screenOff';
 
 const notes: Record<VoiceCue, readonly [number, number][]> = {
   connect: [[523, 0], [784, 0.09]],
@@ -14,6 +24,19 @@ const notes: Record<VoiceCue, readonly [number, number][]> = {
   screenOff: [[880, 0], [659, 0.08], [440, 0.16]]
 };
 
+function scheduleTone(context: AudioContext, frequency: number, startAt: number): void {
+  const oscillator = context.createOscillator();
+  const envelope = context.createGain();
+  oscillator.type = 'sine';
+  oscillator.frequency.value = frequency;
+  envelope.gain.setValueAtTime(0.0001, startAt);
+  envelope.gain.exponentialRampToValueAtTime(0.022, startAt + 0.012);
+  envelope.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.12);
+  oscillator.connect(envelope).connect(context.destination);
+  oscillator.start(startAt);
+  oscillator.stop(startAt + 0.13);
+}
+
 export class VoiceSounds {
   private context: AudioContext | null = null;
   enabled = true;
@@ -22,8 +45,16 @@ export class VoiceSounds {
     if (!this.enabled || typeof AudioContext === 'undefined') return;
     try {
       this.context ??= new AudioContext();
-      if (this.context.state === 'suspended') void this.context.resume().catch(() => {});
+      if (this.context.state === 'suspended') void this.resumeContext(this.context);
     } catch { /* Voice remains available when interface audio cannot start. */ }
+  }
+
+  private async resumeContext(context: AudioContext): Promise<void> {
+    try {
+      await context.resume();
+    } catch {
+      // Audio cues are optional and must not interrupt voice controls.
+    }
   }
 
   play(cue: VoiceCue): void {
@@ -31,18 +62,9 @@ export class VoiceSounds {
     this.unlock();
     const context = this.context;
     if (!context || context.state !== 'running') return;
-    const start = context.currentTime;
+    const cueStart = context.currentTime;
     for (const [frequency, offset] of notes[cue]) {
-      const oscillator = context.createOscillator();
-      const envelope = context.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = frequency;
-      envelope.gain.setValueAtTime(0.0001, start + offset);
-      envelope.gain.exponentialRampToValueAtTime(0.022, start + offset + 0.012);
-      envelope.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.12);
-      oscillator.connect(envelope).connect(context.destination);
-      oscillator.start(start + offset);
-      oscillator.stop(start + offset + 0.13);
+      scheduleTone(context, frequency, cueStart + offset);
     }
   }
 

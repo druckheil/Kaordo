@@ -1,16 +1,16 @@
 <script lang="ts">
+	// Restricts the Regado dashboard to authenticated administrator accounts
+
 	import { AccountGate } from "@kaordo/account-ui";
 	import { appPaths } from "@kaordo/links";
 	import { ShieldCheckIcon } from "@kaordo/ui";
 	import RegadoDashboard from "$lib/RegadoDashboard.svelte";
 </script>
 
-<svelte:head
-	><title>Regado · Kaordo</title><meta
-		name="robots"
-		content="noindex,nofollow"
-	/></svelte:head
->
+<svelte:head>
+	<title>Regado · Kaordo</title>
+	<meta name="robots" content="noindex,nofollow" />
+</svelte:head>
 
 <AccountGate
 	appName="Regado"

@@ -1,5 +1,7 @@
 <script lang="ts">
-  import './layout.css';
+	// Loads shared design tokens for every Ligo route
+
+	import './layout.css';
   let { children } = $props();
 </script>
 

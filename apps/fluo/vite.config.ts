@@ -1,7 +1,13 @@
+// Configures Fluo's SvelteKit build, shared workspace dependencies, and Pages base path
+
 import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
+
+function runesModeForFile(filename: string): boolean | undefined {
+	return filename.split(/[/\\]/).includes('node_modules') ? undefined : true;
+}
 
 export default defineConfig({
 	envDir: '../..',
@@ -9,8 +15,8 @@ export default defineConfig({
 		tailwindcss(),
 		sveltekit({
 			compilerOptions: {
-				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
-				runes: ({ filename }) => filename.split(/[/\\]/).includes('node_modules') ? undefined : true
+				// Force runes mode for project files while preserving library defaults
+				runes: ({ filename }) => runesModeForFile(filename)
 			},
 			adapter: adapter(),
 			paths: { base: '/fluo' }

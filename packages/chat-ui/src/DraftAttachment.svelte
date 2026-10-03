@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  // Previews a local attachment and releases its temporary browser URL
+
   import { Attachment, FileIcon, PlayIcon, XIcon } from '@kaordo/ui';
+  import { formatFileSize } from './message-formatting';
 
   let {
     file, remove, status, progress = 0
@@ -15,21 +17,41 @@
   const image = $derived(file.type.startsWith('image/'));
   const video = $derived(file.type.startsWith('video/'));
   const kind = $derived(image ? 'Photo' : video ? 'Video' : 'File');
-  const size = $derived(file.size < 1024 * 1024
-    ? `${Math.max(1, Math.ceil(file.size / 1024))} KB`
-    : `${(file.size / (1024 * 1024)).toFixed(1)} MB`);
-  const detail = $derived(status === 'uploading' ? `Uploading ${progress}%` :
-    status === 'sending' ? 'Sending…' : status === 'failed' ? 'Not sent' : `${kind} · ${size}`);
+  const size = $derived(formatFileSize(file.size));
+  const detail = $derived(statusDetail());
+  const attachmentState = $derived(getAttachmentState());
 
-  onMount(() => {
-    if (!image && !video) return;
+  function statusDetail(): string {
+    switch (status) {
+      case 'uploading': return `Uploading ${progress}%`;
+      case 'sending': return 'Sending…';
+      case 'failed': return 'Not sent';
+      default: return `${kind} · ${size}`;
+    }
+  }
+
+  function getAttachmentState(): 'error' | 'uploading' | 'processing' | 'idle' {
+    switch (status) {
+      case 'failed': return 'error';
+      case 'uploading': return 'uploading';
+      case 'sending': return 'processing';
+      default: return 'idle';
+    }
+  }
+
+  $effect(() => {
+    if (!image && !video) {
+      preview = null;
+      return;
+    }
+
     const url = URL.createObjectURL(file);
     preview = url;
     return () => URL.revokeObjectURL(url);
   });
 </script>
 
-<Attachment.Root state={status === 'failed' ? 'error' : status === 'uploading' ? 'uploading' : status === 'sending' ? 'processing' : 'idle'}
+<Attachment.Root state={attachmentState}
   size="sm" class="w-full min-w-0 flex-col flex-nowrap gap-0! overflow-hidden rounded-xl border-border/80 bg-card p-0! shadow-xs transition-[border-color,box-shadow] hover:border-primary/35 hover:shadow-sm">
   <div class="relative aspect-[16/9] w-full overflow-hidden bg-gradient-to-br from-accent via-muted to-secondary">
     {#if preview && image}

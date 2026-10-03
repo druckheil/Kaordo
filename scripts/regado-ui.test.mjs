@@ -1,17 +1,8 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { createServer } from "node:net";
-import { resolve } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import AxeBuilder from "@axe-core/playwright";
-import { chromium } from "playwright-core";
+import { startAppFixture } from "./ui-fixture.mjs";
 
-const root = resolve(import.meta.dirname, "..");
-const chrome =
-	process.env.CHROME_BIN ||
-	"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const actor = {
 	id: "01999111-2222-7333-8444-555555555551",
 	username: "operator",
@@ -44,14 +35,6 @@ const services = [
 	"regado-agent",
 ];
 
-async function unusedPort() {
-	const socket = createServer();
-	await new Promise((resolve) => socket.listen(0, "127.0.0.1", resolve));
-	const port = socket.address().port;
-	await new Promise((resolve) => socket.close(resolve));
-	return port;
-}
-
 async function accessibility(page, section) {
 	const { violations } = await new AxeBuilder({ page })
 		.withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
@@ -70,69 +53,15 @@ test(
 	"Regado renders all sections, admin controls and responsive charts",
 	{ timeout: 90000 },
 	async (t) => {
-		assert.ok(existsSync(chrome), "Set CHROME_BIN to a Chromium executable");
-		const port = await unusedPort();
-		const origin = `http://127.0.0.1:${port}`;
-		const server = spawn(
-			process.execPath,
-			[
-				resolve(root, "apps/regado/node_modules/vite/bin/vite.js"),
-				"--host",
-				"127.0.0.1",
-				"--port",
-				String(port),
-				"--strictPort",
-			],
-			{
-				cwd: resolve(root, "apps/regado"),
-				env: {
-					...process.env,
-					VITE_KAORDO_AUTH_URL: origin,
-					VITE_KAORDO_AUTH_REALM: "fixture",
-					VITE_KAORDO_AUTH_CLIENT_ID: "fixture",
-					VITE_KAORDO_API_URL: origin,
-				},
-				stdio: ["ignore", "pipe", "pipe"],
-			},
-		);
-		let output = "";
-		server.stdout.on("data", (chunk) => {
-			output += chunk;
-		});
-		server.stderr.on("data", (chunk) => {
-			output += chunk;
-		});
-		t.after(() => server.kill("SIGTERM"));
-		let ready = false;
-		for (let attempt = 0; attempt < 100; attempt++) {
-			try {
-				ready = (await fetch(origin + "/regado/")).status === 200;
-			} catch {}
-			if (ready || server.exitCode !== null) break;
-			await delay(100);
-		}
-		assert.ok(ready, `Regado test server starts: ${output}`);
-		const browser = await chromium.launch({
-			executablePath: chrome,
-			headless: true,
-		});
-		t.after(() => browser.close());
-		const context = await browser.newContext({
-			viewport: { width: 1440, height: 900 },
-			reducedMotion: "reduce",
-		});
-		const page = await context.newPage();
-		const errors = [];
-		page.on("pageerror", (error) => errors.push(error.message));
-		await page.route("**/*keycloak-js*", (route) =>
-			route.fulfill({
-				contentType: "text/javascript",
-				body: `export default class { authenticated=true; token='fixture'; tokenParsed={sub:'fixture'}; async init() {return true} async updateToken(){return false} }`,
-			}),
-		);
+		const { page, origin, errors } = await startAppFixture(t, "regado");
 		const mutations = [];
 		let failFirstRoleChange = true;
 		let closed = false;
+		let releaseStaleLogs;
+		const staleLogGate = new Promise((resolve) => (releaseStaleLogs = resolve));
+		let staleLogsStarted;
+		const staleLogStarted = new Promise((resolve) => (staleLogsStarted = resolve));
+		const contentReads = [];
 		const now = new Date().toISOString();
 		const health = {
 			state: "passed",
@@ -235,7 +164,15 @@ test(
 					),
 				};
 			} else if (url.pathname.endsWith("/users")) body = { items: [target] };
-			else if (url.pathname.endsWith("/logs"))
+			else if (url.pathname.endsWith("/logs")) {
+				if (url.searchParams.get("service") === "nodo") {
+					staleLogsStarted();
+					await staleLogGate;
+					try {
+						await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Stale log failure" }) });
+					} catch { /* The obsolete request was cancelled. */ }
+					return;
+				}
 				body = {
 					service: url.searchParams.get("service"),
 					items: [
@@ -246,7 +183,7 @@ test(
 						},
 					],
 				};
-			else if (url.pathname.endsWith("/audit"))
+			} else if (url.pathname.endsWith("/audit"))
 				body = {
 					items: [
 						{
@@ -285,7 +222,8 @@ test(
 					createdAt: now,
 					expiresAt: new Date(Date.now() + 900000).toISOString(),
 				};
-			else if (url.pathname.endsWith("/content"))
+			else if (url.pathname.endsWith("/content")) {
+				contentReads.push(url.searchParams.get("kind"));
 				body = {
 					items: [
 						{
@@ -298,7 +236,7 @@ test(
 					],
 					nextCursor: null,
 				};
-			else if (url.pathname.endsWith("/close")) {
+			} else if (url.pathname.endsWith("/close")) {
 				closed = true;
 				await route.fulfill({ status: 204 });
 				return;
@@ -333,7 +271,14 @@ test(
 			);
 			await page.setViewportSize({ width: 1440, height: 900 });
 		}
+		await page.getByRole("button", { name: "Logs", exact: true }).click();
+		await page.getByLabel("Service", { exact: true }).selectOption("nodo");
+		await staleLogStarted;
 		await page.getByRole("button", { name: "Users", exact: true }).click();
+		releaseStaleLogs();
+		await page.getByRole("heading", { name: "Accounts", exact: true }).waitFor();
+		await page.waitForTimeout(100);
+		assert.equal(await page.getByText("Stale log failure", { exact: true }).count(), 0, "A late log failure cannot affect Users");
 		await page
 			.getByRole("button", { name: "Grant admin", exact: true })
 			.click();
@@ -362,6 +307,7 @@ test(
 			.fill("Investigating a documented policy violation");
 		await page.getByRole("button", { name: "Confirm", exact: true }).click();
 		await page.getByText("Audited fixture content", { exact: true }).waitFor();
+		assert.deepEqual(contentReads, ["posts"], "Opening a case fetches one audited page");
 		await page
 			.getByRole("button", { name: "Close access case", exact: true })
 			.click();

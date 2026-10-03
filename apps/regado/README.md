@@ -36,3 +36,9 @@ The production static build is assembled by `pnpm build:pages`.
 identity and API responses: all sections, charts, role and access dialogs,
 320px reflow, and automated light/dark accessibility. Backend authorization
 and database effects are covered separately by Go and PostgreSQL tests.
+
+## Code organization
+
+`RegadoDashboard` coordinates independent TanStack Query resources and mutations; feature panels render overview, storage, users, system and audit. Account actions and intent/access dialogs are separate components. Typed API/query options live in `api-client`; log/user/case parameters belong to cache keys and reads accept cancellation signals. A stale request cannot overwrite another tab or filter. Private case caches are removed on closure and all app caches clear on teardown. Polling applies to relevant operational views, not every tab indiscriminately.
+
+`pnpm test:regado:ui` also checks stale-request isolation and one content-read request per selected access case. `pnpm test:product:db` verifies authorization, audit, notifications and transactional role changes. See [refactor evidence](../../docs/refactoring.md).

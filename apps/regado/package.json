@@ -28,6 +28,7 @@
     "@kaordo/contracts": "workspace:*",
     "@kaordo/links": "workspace:*",
     "@kaordo/ui": "workspace:*",
+    "@tanstack/svelte-query": "^6.3.0",
     "uplot": "^1.6.32"
   }
 }

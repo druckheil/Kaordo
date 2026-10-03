@@ -5,7 +5,7 @@ import { promisify, parseEnv } from 'node:util';
 import { productMigrations } from './product-migrations.mjs';
 
 const run = promisify(execFile);
-const database = `fluo_test_${randomBytes(4).toString('hex')}`;
+const database = `kaordo_test_${randomBytes(4).toString('hex')}`;
 const container = 'local-app-db-1';
 
 async function migrate(file) {
@@ -31,7 +31,7 @@ try {
     await migrate(`../deploy/postgres/${migration}`);
   }
   const dsn = `postgres://kaordo:${encodeURIComponent(config.KAORDO_DB_PASSWORD)}@127.0.0.1:5432/${database}?sslmode=disable`;
-  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-cover', '-run', 'Test(Fluo|Ligo|Admin)', '-count=1', '-v'], {
+  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-race', '-cover', '-run', 'Test(Fluo|Ligo|Rondo|Admin)', '-count=1', '-v'], {
     env: { ...process.env, KAORDO_TEST_DATABASE_URL: dsn }
   });
   process.stdout.write(stdout);

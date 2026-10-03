@@ -1,8 +1,24 @@
-import { ConnectionState, Room, RoomEvent, ScreenSharePresets, Track, VideoPresets,
-  type Participant, type RemoteTrack } from 'livekit-client';
+// Manages LiveKit connections, participant state, tracks and local voice controls
+import {
+  ConnectionState,
+  Room,
+  RoomEvent,
+  ScreenSharePresets,
+  Track,
+  VideoPresets,
+  type Participant,
+  type RemoteTrack
+} from 'livekit-client';
 import { VoiceSounds } from './sounds.js';
 
-export type ScreenQuality = '360p15' | '720p5' | '720p15' | '720p30' | '1080p15' | '1080p30' | 'original';
+export type ScreenQuality =
+  | '360p15'
+  | '720p5'
+  | '720p15'
+  | '720p30'
+  | '1080p15'
+  | '1080p30'
+  | 'original';
 export type VideoSource = 'camera' | 'screen';
 
 const screenPresets = {
@@ -14,6 +30,17 @@ const screenPresets = {
   '1080p30': ScreenSharePresets.h1080fps30,
   original: ScreenSharePresets.original
 } as const;
+
+const videoSources = [
+  ['camera', Track.Source.Camera],
+  ['screen', Track.Source.ScreenShare]
+] as const;
+
+const controlSoundCues = [
+  ['microphoneEnabled', 'unmute', 'mute'],
+  ['cameraEnabled', 'cameraOn', 'cameraOff'],
+  ['screenShareEnabled', 'screenOn', 'screenOff']
+] as const;
 
 export interface VoiceParticipant {
   id: string;
@@ -50,8 +77,16 @@ export interface VoiceSnapshot {
 type LocalControls = Pick<VoiceSnapshot, 'microphoneEnabled' | 'cameraEnabled' | 'screenShareEnabled'>;
 
 export const emptyVoiceSnapshot = (): VoiceSnapshot => ({
-  connected: false, reconnecting: false, microphoneEnabled: false, cameraEnabled: false, screenShareEnabled: false,
-  deafened: false, canPlaybackAudio: true, canPlaybackVideo: true, participants: [], videos: []
+  connected: false,
+  reconnecting: false,
+  microphoneEnabled: false,
+  cameraEnabled: false,
+  screenShareEnabled: false,
+  deafened: false,
+  canPlaybackAudio: true,
+  canPlaybackVideo: true,
+  participants: [],
+  videos: []
 });
 
 export class VoiceConnection {
@@ -68,36 +103,51 @@ export class VoiceConnection {
 
   constructor(sounds = new VoiceSounds()) {
     this.sounds = sounds;
+    this.bindRoomEvents();
+  }
+
+  private bindRoomEvents(): void {
     const update = () => this.emit();
-    for (const event of [
+    const stateEvents = [
       RoomEvent.ActiveSpeakersChanged, RoomEvent.TrackPublished, RoomEvent.TrackUnpublished,
       RoomEvent.TrackMuted, RoomEvent.TrackUnmuted, RoomEvent.AudioPlaybackStatusChanged,
       RoomEvent.VideoPlaybackStatusChanged, RoomEvent.LocalTrackPublished,
       RoomEvent.LocalTrackUnpublished, RoomEvent.ConnectionStateChanged,
       RoomEvent.ParticipantNameChanged
-    ]) this.room.on(event, update);
-    this.room.on(RoomEvent.ParticipantConnected, () => {
-      if (this.room.state === 'connected' && this.connected) this.sounds.play('connect');
-      this.emit();
-    });
-    this.room.on(RoomEvent.ParticipantDisconnected, () => {
-      if (this.room.state === 'connected' && this.connected) this.sounds.play('disconnect');
-      this.emit();
-    });
-    this.room.on(RoomEvent.TrackSubscribed, (track) => {
-      if (track.kind === Track.Kind.Audio) {
-        const element = track.attach();
-        element.className = 'sr-only';
-        element.muted = this.deafened;
-        document.body.append(element);
-        this.audioElements.add(element);
-      }
-      this.emit();
-    });
-    this.room.on(RoomEvent.TrackUnsubscribed, (track) => {
-      if (track.kind === Track.Kind.Audio) this.detachAudio(track);
-      this.emit();
-    });
+    ];
+    for (const event of stateEvents) this.room.on(event, update);
+    this.room.on(RoomEvent.ParticipantConnected, this.onParticipantConnected);
+    this.room.on(RoomEvent.ParticipantDisconnected, this.onParticipantDisconnected);
+    this.room.on(RoomEvent.TrackSubscribed, this.onTrackSubscribed);
+    this.room.on(RoomEvent.TrackUnsubscribed, this.onTrackUnsubscribed);
+  }
+
+  private onParticipantConnected = (): void => {
+    if (this.room.state === 'connected' && this.connected) this.sounds.play('connect');
+    this.emit();
+  };
+
+  private onParticipantDisconnected = (): void => {
+    if (this.room.state === 'connected' && this.connected) this.sounds.play('disconnect');
+    this.emit();
+  };
+
+  private onTrackSubscribed = (track: RemoteTrack): void => {
+    if (track.kind === Track.Kind.Audio) this.attachAudio(track);
+    this.emit();
+  };
+
+  private onTrackUnsubscribed = (track: RemoteTrack): void => {
+    if (track.kind === Track.Kind.Audio) this.detachAudio(track);
+    this.emit();
+  };
+
+  private attachAudio(track: RemoteTrack): void {
+    const element = track.attach();
+    element.className = 'sr-only';
+    element.muted = this.deafened;
+    document.body.append(element);
+    this.audioElements.add(element);
   }
 
   setSoundEnabled(enabled: boolean): void {
@@ -124,62 +174,119 @@ export class VoiceConnection {
     const reconnecting = this.room.state === ConnectionState.Reconnecting ||
       this.room.state === ConnectionState.SignalReconnecting;
     const controls = this.controls();
+    this.playConnectionCue(connected);
+    this.playControlCues(connected, controls);
+    this.rememberConnectionState(connected, controls);
+
+    const { participants, videos } = this.participantSnapshots(connected || reconnecting);
+    this.listener?.({
+      connected,
+      reconnecting,
+      ...controls,
+      deafened: this.deafened,
+      canPlaybackAudio: this.room.canPlaybackAudio,
+      canPlaybackVideo: this.room.canPlaybackVideo,
+      participants,
+      videos
+    });
+  }
+
+  private playConnectionCue(connected: boolean): void {
     if (connected && !this.connected) this.sounds.play('connect');
     else if (this.room.state === ConnectionState.Disconnected && this.connected) this.sounds.play('disconnect');
-    if (connected && !this.initializing && !this.suppressControlCues && this.lastControls) {
-      for (const [key, on, off] of [
-        ['microphoneEnabled', 'unmute', 'mute'],
-        ['cameraEnabled', 'cameraOn', 'cameraOff'],
-        ['screenShareEnabled', 'screenOn', 'screenOff']
-      ] as const) {
-        if (controls[key] !== this.lastControls[key]) this.sounds.play(controls[key] ? on : off);
+  }
+
+  private playControlCues(connected: boolean, controls: LocalControls): void {
+    if (!connected || this.initializing || this.suppressControlCues || !this.lastControls) return;
+    for (const [key, enabledCue, disabledCue] of controlSoundCues) {
+      if (controls[key] !== this.lastControls[key]) {
+        this.sounds.play(controls[key] ? enabledCue : disabledCue);
       }
     }
+  }
+
+  private rememberConnectionState(connected: boolean, controls: LocalControls): void {
     if (connected || this.room.state === ConnectionState.Disconnected) this.connected = connected;
     this.lastControls = connected ? controls : null;
+  }
+
+  private participantSnapshots(includeParticipants: boolean): {
+    participants: VoiceParticipant[];
+    videos: VoiceVideo[];
+  } {
     const participants: VoiceParticipant[] = [];
     const videos: VoiceVideo[] = [];
-    if (connected || reconnecting) {
-      const addParticipant = (participant: Participant, local: boolean) => {
-        participants.push({ id: participant.identity, name: participant.name || participant.identity,
-          speaking: participant.isSpeaking, microphoneEnabled: participant.isMicrophoneEnabled,
-          cameraEnabled: participant.isCameraEnabled, screenShareEnabled: participant.isScreenShareEnabled, local });
-        for (const [source, trackSource] of [
-          ['camera', Track.Source.Camera], ['screen', Track.Source.ScreenShare]
-        ] as const) {
-          const publication = participant.getTrackPublication(trackSource);
-          if (!publication?.videoTrack || publication.isMuted) continue;
-          videos.push({ id: `${participant.identity}:${source}:${publication.trackSid}`,
-            participantId: participant.identity, name: participant.name || participant.identity,
-            source, local, trackSid: publication.trackSid });
-        }
-      };
-      addParticipant(this.room.localParticipant, true);
-      for (const participant of this.room.remoteParticipants.values()) addParticipant(participant, false);
+    if (!includeParticipants) return { participants, videos };
+
+    this.appendParticipantSnapshot(this.room.localParticipant, true, participants, videos);
+    for (const participant of this.room.remoteParticipants.values()) {
+      this.appendParticipantSnapshot(participant, false, participants, videos);
     }
-    this.listener?.({ connected, reconnecting, ...controls, deafened: this.deafened,
-      canPlaybackAudio: this.room.canPlaybackAudio, canPlaybackVideo: this.room.canPlaybackVideo,
-      participants, videos });
+    return { participants, videos };
+  }
+
+  private appendParticipantSnapshot(
+    participant: Participant,
+    local: boolean,
+    participants: VoiceParticipant[],
+    videos: VoiceVideo[]
+  ): void {
+    const name = participant.name || participant.identity;
+    participants.push({
+      id: participant.identity,
+      name,
+      speaking: participant.isSpeaking,
+      microphoneEnabled: participant.isMicrophoneEnabled,
+      cameraEnabled: participant.isCameraEnabled,
+      screenShareEnabled: participant.isScreenShareEnabled,
+      local
+    });
+    this.appendParticipantVideos(participant, local, name, videos);
+  }
+
+  private appendParticipantVideos(
+    participant: Participant,
+    local: boolean,
+    name: string,
+    videos: VoiceVideo[]
+  ): void {
+    for (const [source, trackSource] of videoSources) {
+      const publication = participant.getTrackPublication(trackSource);
+      if (!publication?.videoTrack || publication.isMuted) continue;
+      videos.push({
+        id: `${participant.identity}:${source}:${publication.trackSid}`,
+        participantId: participant.identity,
+        name,
+        source,
+        local,
+        trackSid: publication.trackSid
+      });
+    }
   }
 
   attachVideo(video: VoiceVideo, element: HTMLVideoElement): () => void {
     const participant = video.local ? this.room.localParticipant : this.room.remoteParticipants.get(video.participantId);
-    const source = video.source === 'camera' ? Track.Source.Camera : Track.Source.ScreenShare;
-    const publication = participant?.getTrackPublication(source);
+    const trackSource = video.source === 'camera' ? Track.Source.Camera : Track.Source.ScreenShare;
+    const publication = participant?.getTrackPublication(trackSource);
     const track = publication?.trackSid === video.trackSid ? publication.videoTrack : undefined;
     if (!track) return () => {};
+
     element.autoplay = true;
     element.playsInline = true;
     element.muted = video.local;
     track.attach(element);
-    return () => { track.detach(element); };
+    return () => track.detach(element);
   }
 
   async connect(serverUrl: string, token: string): Promise<void> {
     this.sounds.unlock();
     await this.room.connect(serverUrl, token);
     this.emit();
-    try { await this.room.localParticipant.setMicrophoneEnabled(true); } catch { /* Listen only. */ }
+    try {
+      await this.room.localParticipant.setMicrophoneEnabled(true);
+    } catch {
+      // Keep the connection available in listen-only mode when microphone access is denied.
+    }
     this.initializing = false;
     this.lastControls = this.controls();
     this.emit();
@@ -197,17 +304,7 @@ export class VoiceConnection {
     this.suppressControlCues = true;
     const next = !this.deafened;
     try {
-      if (next) {
-        this.microphoneBeforeDeafen = this.room.localParticipant.isMicrophoneEnabled;
-        await this.room.localParticipant.setMicrophoneEnabled(false);
-      }
-      this.deafened = next;
-      for (const element of this.audioElements) element.muted = next;
-      if (!next && this.microphoneBeforeDeafen) {
-        this.microphoneBeforeDeafen = false;
-        await this.room.localParticipant.setMicrophoneEnabled(true);
-      }
-      this.sounds.play(next ? 'deafen' : 'undeafen');
+      await this.applyDeafenState(next);
     } finally {
       this.lastControls = this.controls();
       this.suppressControlCues = false;
@@ -215,12 +312,35 @@ export class VoiceConnection {
     }
   }
 
+  private async applyDeafenState(deafened: boolean): Promise<void> {
+    const microphone = this.room.localParticipant;
+    if (deafened) {
+      this.microphoneBeforeDeafen = microphone.isMicrophoneEnabled;
+      await microphone.setMicrophoneEnabled(false);
+    }
+
+    this.deafened = deafened;
+    this.setRemoteAudioMuted(deafened);
+    await this.restoreMicrophoneAfterDeafen(deafened);
+    this.sounds.play(deafened ? 'deafen' : 'undeafen');
+  }
+
+  private setRemoteAudioMuted(muted: boolean): void {
+    for (const element of this.audioElements) element.muted = muted;
+  }
+
+  private async restoreMicrophoneAfterDeafen(deafened: boolean): Promise<void> {
+    if (deafened || !this.microphoneBeforeDeafen) return;
+    this.microphoneBeforeDeafen = false;
+    await this.room.localParticipant.setMicrophoneEnabled(true);
+  }
+
   async toggleCamera(): Promise<void> {
     this.sounds.unlock();
     const enabled = !this.room.localParticipant.isCameraEnabled;
-    await this.room.localParticipant.setCameraEnabled(enabled,
-      enabled ? { resolution: VideoPresets.h720.resolution } : undefined,
-      enabled ? { videoEncoding: VideoPresets.h720.encoding } : undefined);
+    const captureOptions = enabled ? { resolution: VideoPresets.h720.resolution } : undefined;
+    const publishOptions = enabled ? { videoEncoding: VideoPresets.h720.encoding } : undefined;
+    await this.room.localParticipant.setCameraEnabled(enabled, captureOptions, publishOptions);
     this.emit();
   }
 
@@ -228,10 +348,13 @@ export class VoiceConnection {
     this.sounds.unlock();
     const enabled = !this.room.localParticipant.isScreenShareEnabled;
     const preset = screenPresets[quality];
-    await this.room.localParticipant.setScreenShareEnabled(enabled,
-      enabled ? { resolution: preset.resolution, audio: includeAudio,
-        contentHint: quality.endsWith('30') ? 'motion' : 'detail' } : undefined,
-      enabled ? { screenShareEncoding: preset.encoding } : undefined);
+    const captureOptions = enabled ? {
+      resolution: preset.resolution,
+      audio: includeAudio,
+      contentHint: quality.endsWith('30') ? 'motion' as const : 'detail' as const
+    } : undefined;
+    const publishOptions = enabled ? { screenShareEncoding: preset.encoding } : undefined;
+    await this.room.localParticipant.setScreenShareEnabled(enabled, captureOptions, publishOptions);
     this.emit();
   }
 
@@ -254,12 +377,21 @@ export class VoiceConnection {
 
   async disconnect(): Promise<void> {
     this.listener = undefined;
-    try { await this.room.disconnect(); }
-    finally {
+    try {
+      await this.room.disconnect();
+    } finally {
       this.emit();
-      for (const element of this.audioElements) element.remove();
-      this.audioElements.clear();
-      setTimeout(() => this.sounds.dispose(), 420);
+      this.removeAudioElements();
+      this.scheduleSoundDisposal();
     }
+  }
+
+  private removeAudioElements(): void {
+    for (const element of this.audioElements) element.remove();
+    this.audioElements.clear();
+  }
+
+  private scheduleSoundDisposal(): void {
+    setTimeout(() => this.sounds.dispose(), 420);
   }
 }

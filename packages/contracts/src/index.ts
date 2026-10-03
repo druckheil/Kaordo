@@ -1,33 +1,57 @@
+// Exports stable API schemas grouped by Kaordo service
 import type { components, paths } from './openapi.js';
 
-export type UserIdentity = components['schemas']['UserIdentity'];
-export type ApiError = components['schemas']['ApiError'];
-export type FluoPost = components['schemas']['FluoPost'];
-export type FluoQuote = components['schemas']['FluoQuote'];
-export type FluoPage = components['schemas']['FluoPage'];
-export type FluoNewPost = components['schemas']['FluoNewPost'];
-export type FluoDocument = components['schemas']['FluoDocument'];
-export type FluoMedia = components['schemas']['FluoMedia'];
-export type NodoUpload = components['schemas']['NodoUpload'];
-export type LigoUser = components['schemas']['LigoUser'];
-export type LigoMedia = components['schemas']['LigoMedia'];
-export type LigoReaction = components['schemas']['LigoReaction'];
-export type LigoMessage = components['schemas']['LigoMessage'];
-export type LigoMessagePage = components['schemas']['LigoMessagePage'];
-export type LigoMessagePreview = components['schemas']['LigoMessagePreview'];
-export type LigoConversation = components['schemas']['LigoConversation'];
-export type LigoConversationPage = components['schemas']['LigoConversationPage'];
-export type LigoUserPage = components['schemas']['LigoUserPage'];
-export type LigoNewConversation = components['schemas']['LigoNewConversation'];
-export type LigoNewMessage = components['schemas']['LigoNewMessage'];
-export type RondoServer = components['schemas']['RondoServer'];
-export type RondoChannel = components['schemas']['RondoChannel'];
-export type RondoDetail = components['schemas']['RondoDetail'];
-export type RondoServerPage = components['schemas']['RondoServerPage'];
-export type RondoNewServer = components['schemas']['RondoNewServer'];
-export type RondoVoiceTicket = components['schemas']['RondoVoiceTicket'];
+type Schemas = components['schemas'];
+
+// Identity and shared response types
+export type UserIdentity = Schemas['UserIdentity'];
+export type ApiError = Schemas['ApiError'];
+
+// Fluo posts and media
+export type FluoPost = Schemas['FluoPost'];
+export type FluoQuote = Schemas['FluoQuote'];
+export type FluoPage = Schemas['FluoPage'];
+export type FluoNewPost = Schemas['FluoNewPost'];
+export type FluoDocument = Schemas['FluoDocument'];
+export type FluoMedia = Schemas['FluoMedia'];
+
+// Nodo upload metadata
+export type NodoUpload = Schemas['NodoUpload'];
+
+// Ligo conversations and messages
+export type LigoUser = Schemas['LigoUser'];
+export type LigoMedia = Schemas['LigoMedia'];
+export type LigoReaction = Schemas['LigoReaction'];
+export type LigoMessage = Schemas['LigoMessage'];
+export type LigoMessagePage = Schemas['LigoMessagePage'];
+export type LigoMessagePreview = Schemas['LigoMessagePreview'];
+export type LigoConversation = Schemas['LigoConversation'];
+export type LigoConversationPage = Schemas['LigoConversationPage'];
+export type LigoUserPage = Schemas['LigoUserPage'];
+export type LigoNewConversation = Schemas['LigoNewConversation'];
+export type LigoNewMessage = Schemas['LigoNewMessage'];
+
+// Rondo servers, channels and voice access
+export type RondoServer = Schemas['RondoServer'];
+export type RondoChannel = Schemas['RondoChannel'];
+export type RondoDetail = Schemas['RondoDetail'];
+export type RondoServerPage = Schemas['RondoServerPage'];
+export type RondoNewServer = Schemas['RondoNewServer'];
+export type RondoVoiceTicket = Schemas['RondoVoiceTicket'];
+
+// Generated OpenAPI route map
 export type { paths };
+
+// Regado administration views
 export type {
-  AdminSummary, AdminUser, AdminAuditEntry, AdminAccessCase, AdminContent, AdminContentPage,
-  AdminDisk, AdminSystem, AdminMetrics, AdminLogs
+  AdminSummary,
+  AdminUser,
+  AdminAuditEntry,
+  AdminAccessCase,
+  AdminContent,
+  AdminContentPage,
+  AdminDisk,
+  AdminSystem,
+  AdminMetrics,
+  AdminLogs
 } from './admin.js';

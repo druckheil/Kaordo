@@ -1,10 +1,12 @@
+/* Defines shared Kaordo color, typography, radius and scrollbar tokens */
 @import 'tailwindcss';
-@import "tw-animate-css";
-@import "shadcn-svelte/tailwind.css";
-@import "@fontsource-variable/inter";
+@import 'tw-animate-css';
+@import 'shadcn-svelte/tailwind.css';
+@import '@fontsource-variable/inter';
 
 @custom-variant dark (&:is(.dark *));
 
+/* Light semantic tokens */
 :root {
 	color-scheme: light;
 	--background: #f5f7f3;
@@ -41,6 +43,7 @@
 	--sidebar-ring: #176247;
 }
 
+/* Dark semantic tokens */
 .dark {
 	color-scheme: dark;
 	--background: #111e18;
@@ -71,6 +74,7 @@
 	--sidebar-ring: #83d6a4;
 }
 
+/* Maps semantic tokens to Tailwind utility names */
 @theme inline {
 	--font-sans: 'Inter Variable', sans-serif;
 	--font-heading: 'Inter Variable', sans-serif;
@@ -114,6 +118,7 @@
 	--radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Shared element defaults */
 @layer base {
 	* {
 		@apply border-border outline-ring/50;
@@ -130,6 +135,7 @@
 	}
 }
 
+/* Reusable interaction utilities */
 @layer utilities {
 	.kaordo-scrollbar {
 		scrollbar-width: thin;
@@ -144,8 +150,11 @@
 	}
 }
 
+/* Keeps transitions and animations brief when reduced motion is requested */
 @media (prefers-reduced-motion: reduce) {
-	*, *::before, *::after {
+	*,
+	*::before,
+	*::after {
 		scroll-behavior: auto !important;
 		animation-duration: 0.01ms !important;
 		transition-duration: 0.01ms !important;

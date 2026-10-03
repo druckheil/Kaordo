@@ -1,11 +1,15 @@
 <script lang="ts">
+  // Renders conversation history and preserves the reader's position while it changes
+
   import { onMount, tick } from 'svelte';
   import type { LigoMessage, LigoReaction } from '@kaordo/contracts';
-  import { Button, ChevronLeftIcon, CircleIcon, MessageCircleIcon, ShieldCheckIcon } from '@kaordo/ui';
-  import DraftAttachment from './DraftAttachment.svelte';
+  import { Button, ChevronLeftIcon, MessageCircleIcon, ShieldCheckIcon } from '@kaordo/ui';
   import MessageBubble from './MessageBubble.svelte';
+  import PendingMessageBubble from './PendingMessageBubble.svelte';
   import { startsSenderRun } from './message-grouping';
   import type { PendingMessage } from './types';
+
+  type ScrollSize = { viewport: number; content: number };
 
   let {
     messages, pending, viewerId, personal, group, hasMore, loadingMore, loadOlder, retry,
@@ -31,8 +35,7 @@
   let ready = $state(false);
   let loadingPrevious = $state(false);
   let atBottom = true;
-  let viewportHeight = 0;
-  let contentHeight = 0;
+  let observedSize = { viewport: 0, content: 0 };
   const items = $derived([
     ...messages.map((message) => ({ kind: 'sent' as const, message, key: message.id })),
     ...pending.map((message) => ({ kind: 'pending' as const, message, key: message.clientId }))
@@ -42,26 +45,37 @@
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
   }
 
+  function measureScroller(): ScrollSize {
+    return {
+      viewport: scroller?.clientHeight ?? 0,
+      content: scroller?.scrollHeight ?? 0
+    };
+  }
+
+  function observeResize() {
+    if (!scroller) return;
+
+    const size = measureScroller();
+    const changed = size.viewport !== observedSize.viewport || size.content !== observedSize.content;
+    if (ready && atBottom && changed) scrollToBottom();
+    observedSize = size;
+  }
+
+  function updateBottomPin(distanceFromEnd: number, size: ScrollSize) {
+    if (distanceFromEnd <= 2) atBottom = true;
+    else if (size.viewport === observedSize.viewport && size.content === observedSize.content) atBottom = false;
+  }
+
   onMount(() => {
     let disposed = false;
-    viewportHeight = scroller?.clientHeight ?? 0;
-    contentHeight = scroller?.scrollHeight ?? 0;
-    const observer = new ResizeObserver(() => {
-      if (!scroller) return;
-      const height = scroller.clientHeight;
-      const scrollHeight = scroller.scrollHeight;
-      if (ready && atBottom && (height !== viewportHeight || scrollHeight !== contentHeight)) {
-        scrollToBottom();
-      }
-      viewportHeight = height;
-      contentHeight = scroller.scrollHeight;
-    });
+    observedSize = measureScroller();
+    const observer = new ResizeObserver(observeResize);
     if (scroller) observer.observe(scroller);
     if (content) observer.observe(content);
     void tick().then(() => {
       if (disposed) return;
       scrollToBottom();
-      contentHeight = scroller?.scrollHeight ?? 0;
+      observedSize = measureScroller();
       ready = true;
     });
     return () => {
@@ -91,10 +105,10 @@
 
   function onScroll() {
     if (!ready || !scroller || scroller.scrollTop < 0) return;
-    const distanceFromEnd = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+    const size = measureScroller();
+    const distanceFromEnd = size.content - size.viewport - scroller.scrollTop;
     // A resize can emit scroll before ResizeObserver runs; keep the previous pin in that case.
-    if (distanceFromEnd <= 2) atBottom = true;
-    else if (scroller.clientHeight === viewportHeight && scroller.scrollHeight === contentHeight) atBottom = false;
+    updateBottomPin(distanceFromEnd, size);
     if (scroller.scrollTop < 96 && distanceFromEnd > 96 && hasMore) void more();
   }
 </script>
@@ -119,8 +133,11 @@
     {:else}
       {#each items as item, index (item.key)}
         {@const previous = items[index - 1]}
-        {@const continuesRun = item.kind === 'sent' && previous?.kind === 'sent' &&
-          !startsSenderRun(previous.message, item.message)}
+        {@const previousMessage = previous?.kind === 'sent' ? previous.message : null}
+        {@const isSentMessage = item.kind === 'sent'}
+        {@const continuesRun = isSentMessage && previousMessage !== null && !startsSenderRun(previousMessage, item.message)}
+        {@const incomingGroupMessage = isSentMessage && group && item.message.sender.id !== viewerId}
+        {@const showSender = incomingGroupMessage && startsSenderRun(previousMessage, item.message)}
         <div data-index={index} class={`w-full ${continuesRun ? 'pb-1' : 'pb-2.5'}`}>
           {#if item.kind === 'sent' && item.message.systemNotice}
             <p class="mx-auto max-w-xl rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-center text-sm leading-6 text-foreground" role="status">
@@ -128,33 +145,11 @@
             </p>
           {:else if item.kind === 'sent'}
             <MessageBubble message={item.message} {viewerId} {personal} {showReceipt}
-              showSender={group && item.message.sender.id !== viewerId &&
-                startsSenderRun(previous?.kind === 'sent' ? previous.message : null, item.message)}
+              {showSender}
               showAvatarSlot={group && item.message.sender.id !== viewerId}
               {react} {edit} {remove} />
           {:else}
-            <div class="flex justify-end">
-              <article class="min-w-0 max-w-[min(86%,38rem)] rounded-[14px] border border-primary/20 bg-primary/8 p-[2px] shadow-xs sm:max-w-[76%]"
-                aria-label="Pending message">
-                {#if item.message.files.length}
-                  <div class="grid gap-0.5 sm:grid-cols-2">
-                    {#each item.message.files as file (file)}
-                      <DraftAttachment {file} status={item.message.status} progress={item.message.progress} />
-                    {/each}
-                  </div>
-                {/if}
-                {#if item.message.text}<p class={`whitespace-pre-wrap break-words px-2.5 text-sm leading-5 ${item.message.files.length ? 'pt-1' : 'pt-1.5'}`}>{item.message.text}</p>{/if}
-                <p class="flex items-center justify-end gap-1 px-2 pb-1.5 pt-0.5 text-[11px] text-muted-foreground" role="status">
-                  {#if item.message.status !== 'failed'}<CircleIcon class="size-3 stroke-[1.4] text-muted-foreground/55" aria-label="Sending" />{/if}
-                  {item.message.status === 'uploading' ? `Uploading ${item.message.progress}%` :
-                    item.message.status === 'sending' ? 'Sending…' : 'Could not send'}
-                </p>
-                {#if item.message.status === 'failed'}
-                  <p class="px-2 pb-1 text-xs text-destructive">{item.message.error}</p>
-                  <Button variant="outline" size="xs" class="mx-2 mb-2" onclick={() => retry(item.message)}>Retry</Button>
-                {/if}
-              </article>
-            </div>
+            <PendingMessageBubble message={item.message} {retry} />
           {/if}
         </div>
       {/each}

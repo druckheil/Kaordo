@@ -1,10 +1,25 @@
 <script lang="ts">
+  // Loads Vidstack on demand and releases media resources when unmounted
   import { onMount } from 'svelte';
-  import type { MediaAttachment } from './media-layout';
   import type { MediaPlayerElement } from 'vidstack/elements';
   import type { VideoMimeType, VideoSrc } from 'vidstack';
+  import type { MediaAttachment } from './media-layout';
 
-  let { media, compact = false }: { media: MediaAttachment; compact?: boolean } = $props();
+  interface Props {
+    media: MediaAttachment;
+    compact?: boolean;
+  }
+
+  const videoMimeTypeHints: Record<string, VideoMimeType> = {
+    'video/webm': 'video/webm',
+    'video/3gp': 'video/3gp',
+    'video/ogg': 'video/ogg',
+    'video/avi': 'video/avi',
+    'video/x-msvideo': 'video/avi',
+    'video/mpeg': 'video/mpeg'
+  };
+
+  let { media, compact = false }: Props = $props();
   let player = $state<MediaPlayerElement>();
   let registered = $state(false);
 
@@ -15,40 +30,48 @@
 
   onMount(() => {
     let active = true;
-    void Promise.all([
-      import('vidstack/player'),
-      import('vidstack/player/layouts/default'),
-      import('vidstack/player/ui'),
-      import('vidstack/player/styles/default/theme.css'),
-      import('vidstack/player/styles/default/layouts/video.css')
-    ]).then(() => {
+
+    void loadVidstack().then(() => {
       if (active) registered = true;
     });
 
     return () => {
       active = false;
-      const video = player?.querySelector('video');
-      if (!video) return;
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
+      releaseVideo(player);
     };
   });
 
   function normalizeMimeType(value: string): VideoMimeType {
-    const type = value.split(';', 1)[0]?.trim().toLowerCase();
-    if (type === 'video/webm') return 'video/webm';
-    if (type === 'video/3gp') return 'video/3gp';
-    if (type === 'video/ogg') return 'video/ogg';
-    if (type === 'video/avi' || type === 'video/x-msvideo') return 'video/avi';
-    if (type === 'video/mpeg') return 'video/mpeg';
-    // Vidstack's provider union has no QuickTime entry. The native decoder can
-    // still play the source; MP4 is used only as the provider selection hint.
-    return 'video/mp4';
+    const mimeType = value.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+    // MP4 is a provider selection hint for formats without a Vidstack provider entry
+    return videoMimeTypeHints[mimeType] ?? 'video/mp4';
+  }
+
+  function loadVidstack(): Promise<unknown[]> {
+    return Promise.all([
+      import('vidstack/player'),
+      import('vidstack/player/layouts/default'),
+      import('vidstack/player/ui'),
+      import('vidstack/player/styles/default/theme.css'),
+      import('vidstack/player/styles/default/layouts/video.css')
+    ]);
+  }
+
+  function releaseVideo(element: MediaPlayerElement | undefined): void {
+    const video = element?.querySelector('video');
+    if (!video) return;
+
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
   }
 </script>
 
-<div class="h-full w-full overflow-hidden bg-black" class:rounded-xl={!compact} style:aspect-ratio={`${media.width}/${media.height}`}>
+<div
+  class="h-full w-full overflow-hidden bg-black"
+  class:rounded-xl={!compact}
+  style:aspect-ratio={`${media.width}/${media.height}`}
+>
   {#if registered}
     <media-player
       bind:this={player}

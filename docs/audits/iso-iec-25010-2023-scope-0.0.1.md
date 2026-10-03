@@ -1,5 +1,7 @@
 # ISO/IEC 25010:2023 product quality audit — Kaordo 0.0.1
 
+> Historical assessment of the tree and scope at the stated date. Scores, paths and deployment gaps describe that assessment, not the current refactored tree. See [the 3 October 2026 refactor review](../refactoring.md) and [current architecture](../architecture.md) for updated ownership, capabilities and verification.
+
 **Date:** 2026-09-29
 
 **Baseline:** `146b0e5` on `scope-0.0.1`, plus the two Pages artifact tests added with this audit.

@@ -25,6 +25,7 @@ The manual setup below is only needed when customizing addresses or running serv
    docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/008_ligo_self.sql
    docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/009_ligo_message_actions.sql
    docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/010_rondo.sql
+   docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/011_regado.sql
    ```
 
    Start `./scripts/run-kerno-local.sh` and `./scripts/run-nodo-local.sh` in separate terminals. Both read the ignored signing key; Kerno also reads the LiveKit API credentials. Kerno listens on `127.0.0.1:8081`, Nodo on `127.0.0.1:8082`.
@@ -61,3 +62,9 @@ Never overwrite the password file for an existing repository. Save its password 
 With both database containers running, `pnpm backup:local` streams a custom-format `pg_dump` of the app and Keycloak databases into encrypted restic snapshots, then backs up `deploy/local/media` under the same run ID. `pnpm backup:verify` performs `restic check --read-data`, restores the latest complete set into temporary databases and a temporary media directory, verifies the app table, Kaordo realm and account references, then removes the temporary copies. Neither command writes plaintext database dumps to disk or replaces active databases. `pnpm test:backup:live` runs this workflow against an isolated temporary repository and key.
 
 The two database dumps and media snapshot are taken at different instants. Stop registration, posting and uploads during a backup that must be a coordinated recovery point. Backups are only independent when the restic repository, a recoverable copy of its password, and the local administrator credentials survive loss of the primary server. The commands do not schedule backups or replace an external restore drill.
+
+## Refactor verification
+
+`pnpm test:product:db` creates a disposable migrated database and runs Fluo, Ligo, Rondo and Regado tests with the Go race detector; `test:fluo:db`, `test:ligo:db` and `test:rondo:db` are aliases for this complete suite. It never recreates the active application database. `pnpm test:product:ui` and `pnpm test:regado:ui` run temporary Vite servers with fixture identity/API responses and require no running product services. Public UI tests use the built static artifact.
+
+The live journey also checks Rondo messages/calls/camera and Fluo reload/Escape/reopen, search and media. Local Regado system/metrics data can be unavailable because Compose does not start the Linux agent or Prometheus. This is different from the NixOS profile. See [current evidence and code map](../../docs/refactoring.md).

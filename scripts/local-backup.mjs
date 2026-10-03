@@ -1,3 +1,4 @@
+// Creates encrypted local backups and verifies disposable restores
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -75,6 +76,22 @@ export function latestPair(items) {
   return complete[0];
 }
 
+async function backupDatabase(database, runId) {
+  await run('restic', [
+    'backup', '--quiet', '--tag', 'kaordo-local', '--tag', `run:${runId}`, '--tag', database.name,
+    '--stdin-filename', `${database.name}.dump`, '--stdin-from-command', '--',
+    'docker', 'exec', database.container,
+    'pg_dump', '-U', database.role, '-Fc', database.database
+  ]);
+}
+
+async function backupMedia(runId) {
+  await run('restic', [
+    'backup', '--quiet', '--tag', 'kaordo-local', '--tag', `run:${runId}`, '--tag', media.name,
+    media.path
+  ]);
+}
+
 async function streamRestore(snapshot, database, temporaryName) {
   const source = spawn('restic', ['dump', snapshot.id, `/${database.name}.dump`], { stdio: ['ignore', 'pipe', 'ignore'] });
   const target = spawn('docker', [
@@ -90,22 +107,76 @@ async function streamRestore(snapshot, database, temporaryName) {
   }
 }
 
+async function verifyRestoredMedia(snapshot, destination) {
+  await run('restic', ['restore', snapshot.id, '--target', destination]);
+  const restoredMedia = join(destination, relative('/', media.path));
+  const files = await readdir(restoredMedia);
+  for (const file of files.filter((name) => name.endsWith('.ready.json'))) {
+    const id = file.slice(0, -'.ready.json'.length);
+    await stat(join(restoredMedia, `${id}.display`));
+    await stat(join(restoredMedia, `${id}.info`));
+  }
+}
+
+async function verifyRestoredDatabase(database, databaseName) {
+  const count = await run('docker', [
+    'exec', database.container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', database.role,
+    '-d', databaseName, '-tAc', `SELECT count(*) FROM ${database.table};`
+  ]);
+  assert.match(count.trim(), /^\d+$/);
+
+  if (database.name !== 'identity-db') return;
+  const realmCount = await run('docker', [
+    'exec', database.container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', database.role,
+    '-d', databaseName, '-tAc', "SELECT count(*) FROM realm WHERE name = 'kaordo';"
+  ]);
+  assert.equal(realmCount.trim(), '1', 'Restored Keycloak database must contain the Kaordo realm');
+}
+
+async function restoreDatabase(snapshot, database, temporaryNames) {
+  const temporaryName = `${database.database}_restore_${randomBytes(4).toString('hex')}`;
+  await run('docker', [
+    'exec', database.container, 'createdb', '-U', database.role, '-T', 'template0', temporaryName
+  ]);
+  temporaryNames.set(database.name, temporaryName);
+  await streamRestore(snapshot, database, temporaryName);
+  await verifyRestoredDatabase(database, temporaryName);
+}
+
+async function verifyRestoredAccountIdentities(temporaryNames) {
+  const appSubjects = await run('docker', [
+    'exec', 'local-app-db-1', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo',
+    '-d', temporaryNames.get('app-db'), '-tAc', 'SELECT keycloak_sub FROM users;'
+  ]);
+  const identitySubjects = await run('docker', [
+    'exec', 'local-identity-db-1', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'keycloak',
+    '-d', temporaryNames.get('identity-db'), '-tAc',
+    "SELECT id FROM user_entity WHERE realm_id = (SELECT id FROM realm WHERE name = 'kaordo');"
+  ]);
+  const identities = new Set(identitySubjects.trim().split('\n').filter(Boolean));
+  for (const subject of appSubjects.trim().split('\n').filter(Boolean)) {
+    assert.ok(identities.has(subject), 'A restored account has no matching Keycloak identity');
+  }
+}
+
+async function removeDisposableRestores(temporaryNames, mediaRestore) {
+  for (const database of databases) {
+    const temporaryName = temporaryNames.get(database.name);
+    if (temporaryName) {
+      await run('docker', ['exec', database.container, 'dropdb', '-U', database.role, temporaryName]);
+    }
+  }
+  await rm(mediaRestore, { recursive: true, force: true });
+}
+
 export async function backupLocal() {
   await preflight();
   await mkdir(media.path, { recursive: true, mode: 0o700 });
   const runId = `${new Date().toISOString().replace(/\D/g, '')}-${randomBytes(3).toString('hex')}`;
   for (const database of databases) {
-    await run('restic', [
-      'backup', '--quiet', '--tag', 'kaordo-local', '--tag', `run:${runId}`, '--tag', database.name,
-      '--stdin-filename', `${database.name}.dump`, '--stdin-from-command', '--',
-      'docker', 'exec', database.container,
-      'pg_dump', '-U', database.role, '-Fc', database.database
-    ]);
+    await backupDatabase(database, runId);
   }
-  await run('restic', [
-    'backup', '--quiet', '--tag', 'kaordo-local', '--tag', `run:${runId}`, '--tag', media.name,
-    media.path
-  ]);
+  await backupMedia(runId);
   const [completedRun] = latestPair(await snapshots());
   if (completedRun !== `run:${runId}`) throw new Error('The new backup pair is incomplete.');
   console.log(`Encrypted local backup complete: ${runId}`);
@@ -118,51 +189,13 @@ export async function verifyLocalBackup() {
   const temporaryNames = new Map();
   const mediaRestore = await mkdtemp(join(tmpdir(), 'kaordo-media-restore-'));
   try {
-    await run('restic', ['restore', pair[media.name].id, '--target', mediaRestore]);
-    const restoredMedia = join(mediaRestore, relative('/', media.path));
-    const mediaFiles = await readdir(restoredMedia);
-    for (const file of mediaFiles.filter((name) => name.endsWith('.ready.json'))) {
-      const id = file.slice(0, -'.ready.json'.length);
-      await stat(join(restoredMedia, `${id}.display`));
-      await stat(join(restoredMedia, `${id}.info`));
-    }
+    await verifyRestoredMedia(pair[media.name], mediaRestore);
     for (const database of databases) {
-      const temporaryName = `${database.database}_restore_${randomBytes(4).toString('hex')}`;
-      await run('docker', ['exec', database.container, 'createdb', '-U', database.role, '-T', 'template0', temporaryName]);
-      temporaryNames.set(database.name, temporaryName);
-      await streamRestore(pair[database.name], database, temporaryName);
-      const count = await run('docker', [
-        'exec', database.container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', database.role,
-        '-d', temporaryName, '-tAc', `SELECT count(*) FROM ${database.table};`
-      ]);
-      assert.match(count.trim(), /^\d+$/);
-      if (database.name === 'identity-db') {
-        const realmCount = await run('docker', [
-          'exec', database.container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', database.role,
-          '-d', temporaryName, '-tAc', "SELECT count(*) FROM realm WHERE name = 'kaordo';"
-        ]);
-        assert.equal(realmCount.trim(), '1', 'Restored Keycloak database must contain the Kaordo realm');
-      }
+      await restoreDatabase(pair[database.name], database, temporaryNames);
     }
-    const appSubjects = await run('docker', [
-      'exec', 'local-app-db-1', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo',
-      '-d', temporaryNames.get('app-db'), '-tAc', 'SELECT keycloak_sub FROM users;'
-    ]);
-    const identitySubjects = await run('docker', [
-      'exec', 'local-identity-db-1', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'keycloak',
-      '-d', temporaryNames.get('identity-db'), '-tAc',
-      "SELECT id FROM user_entity WHERE realm_id = (SELECT id FROM realm WHERE name = 'kaordo');"
-    ]);
-    const identities = new Set(identitySubjects.trim().split('\n').filter(Boolean));
-    for (const subject of appSubjects.trim().split('\n').filter(Boolean)) {
-      assert.ok(identities.has(subject), 'A restored account has no matching Keycloak identity');
-    }
+    await verifyRestoredAccountIdentities(temporaryNames);
   } finally {
-    for (const database of databases) {
-      const temporaryName = temporaryNames.get(database.name);
-      if (temporaryName) await run('docker', ['exec', database.container, 'dropdb', '-U', database.role, temporaryName]);
-    }
-    await rm(mediaRestore, { recursive: true, force: true });
+    await removeDisposableRestores(temporaryNames, mediaRestore);
   }
   console.log(`Encrypted backup and disposable restore verified: ${runTag.slice(4)}`);
 }

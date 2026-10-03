@@ -1,3 +1,4 @@
+// Shares class-name merging and prop types for wrapped UI components
 export { cn } from "cn";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

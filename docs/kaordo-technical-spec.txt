@@ -1,5 +1,5 @@
 KAORDO — TECHNICAL SPECIFICATION
-Version: scope-0.0.1, authentication, Fluo, Ligo and Rondo slices
+Updated: 2026-10-03; implemented accounts, Fluo, Ligo, Rondo and Regado
 
 Repository: independent SvelteKit applications in apps/, shared browser
 packages in packages/, Go services in services/, local service definitions in
@@ -105,14 +105,16 @@ The server rail, channel list and member list collapse independently. Local
 interface sounds signal connection and media-control changes and can be muted.
 The local Docker LiveKit SFU listens
 on 7880 for signaling, 7881/TCP and 7882/UDP for media. Its credentials live
-only in the ignored local environment. There is no public TURN/TLS ingress,
+only in the ignored local environment. The local profile has no public TURN/TLS ingress. NixOS separately configures
+Caddy signaling, TURN and router media ports. There is no
 E2EE, moderation or self-hosted token revocation; removal from a server stops
 new token issuance and asks LiveKit to disconnect the current participant.
 
-Nodo media: POST/HEAD/PATCH /v1/uploads/ are tusd 1.0 endpoints. Nodo asks
+Nodo media: POST/HEAD/PATCH /v1/uploads/ use tus protocol 1.0 implemented by tusd v2. Nodo asks
 Kerno /v1/me to verify the bearer token and gates each upload by owner. An
-account can store up to 200 source uploads and 2 GiB of source bytes. JPEG and
-PNG uploads are decoded and re-encoded; ffprobe validates video duration and
+account can store up to 200 source uploads and 2 GiB of source bytes. JPEG/PNG/WebP
+images are identified by decoded bytes (including mislabeled image MIME) and
+re-encoded to JPEG/PNG; generic files are staged unchanged for download; ffprobe validates video duration and
 dimensions before FFmpeg produces H.264/AAC MP4. GET /v1/uploads/{id}/meta
 returns processed dimensions and bytes only to the owner. Kerno checks that
 metadata before linking a file to a post or message, then issues a short-lived
@@ -154,3 +156,25 @@ All apps use the shared @kaordo/account-ui gate backed by @kaordo/auth and
 @kaordo/api-client. The production profile is deployed on NixOS at kaordo.link.
 Self-service password recovery, email verification, a scheduled independent
 backup destination and content encryption are not implemented.
+
+REFACTORED SOURCE OWNERSHIP
+
+App controllers coordinate selection, navigation and mutations; feature panels
+and dialogs render their own views. Shared auth/account snapshot controllers,
+typed requests/query options, message-cache updates, chat composer/scrolling,
+media processing/display and LiveKit lifecycle belong in packages. Fluo post
+windows use SvelteKit shallow history; closing after a fresh document without
+return context falls back to Feed. Ligo/Rondo use one native message list and
+composer, without wheel interception or row virtualization. Regado resources
+have independent keyed/cancellable queries and disposable access-case caches.
+
+Go entry points load configuration and wire services. Kerno/Nodo drain HTTP
+before closing dependencies; Nodo cancels and joins processing/GC workers.
+PostgreSQL reads, writes, interactions, membership, receipts and administrator
+operations are separated by responsibility. Jet builds queries; pgx owns pools
+and transactions. Schema types stay generated from OpenAPI/migrated PostgreSQL.
+No wire schema or content-encryption migration accompanies this refactor.
+
+Verification commands and observed results: docs/refactoring.md. Earlier audit
+scores apply only to their dated snapshots; this specification makes no
+certification, universal bug-free, full WCAG or 100/100 quality claim.
