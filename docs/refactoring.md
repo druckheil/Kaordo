@@ -129,6 +129,56 @@ A fresh read-only pool check completed at 15:27:11 UTC: 6,842 regular files,
 unreadable paths. This is filesystem/profile evidence, not an independent
 backup or per-file physical-extent inspection.
 
+## Regado operational clarity — 4 October 2026
+
+Overview graphs label local time and measurement units, explain each metric
+through the shared `ContextHelp` popover, display the latest sample and disable
+the empty uPlot cursor legend. `ServiceStatus` and `system-model` give Overview
+and System the same named, text/color health states and service explanations.
+Maintenance includes DNS schedule/outcome and timestamped storage-check results.
+
+The agent reads native process types, results, exit codes and timer schedules.
+The production ddclient oneshot was observed completing successfully with exit
+code zero and an active once-per-minute timer. `inactive/dead` between those
+runs is normal. The immediate-check action starts the timer and service without
+interrupting an existing run; the interface labels it **Update now**.
+
+Logs show allocated host-wide journal disk/RAM usage and offer audited retention
+changes. OpenAPI owns the wire schemas and the allowed-period TypeScript type.
+The agent serializes atomic private policy writes, verifies effective settings,
+rolls back failed restarts and uses native journalctl rotation/vacuum. Tests
+cover unknown usage, body validation, authorization/audit ordering, overridden
+configuration, restart failure and cleanup failure. A cleanup failure reports
+the saved policy separately from incomplete history removal.
+
+Verification passed: generated OpenAPI types, Svelte checks with zero errors or
+warnings, all four Go race suites and vet, Linux amd64 Kerno/agent builds,
+52 dependency checks, production bundle checks, and headless Regado navigation,
+graph help, service states, retention mutations, accessibility and 320px reflow.
+The NixOS module built as closure `sm7xg9l1gkpkgvfaxv40r48dc95wxgn2` in an
+isolated verification workspace. Its compiled drop-in points to the private
+persistent policy. A real tmpfiles fixture initialized 14 days, preserved a
+subsequent 7-day selection and retained root-owned mode 0600 on repeated runs.
+Those verification fixtures did not activate production or clean its journal.
+
+### Authorized deployment
+
+The subsequent requested deployment activated backend release
+`v0.0.2-9f5f85b2a97a-regado-20261004T171814Z-dirty`, the verified NixOS closure
+`sm7xg9l1gkpkgvfaxv40r48dc95wxgn2`, and frontend
+`v0.0.2-9f5f85b2a97a-pages-20261004T172337Z-dirty`. Previous binaries,
+configuration, closure and static target remain available for rollback.
+Kerno readiness was awaited after the identity-provider restart before the
+frontend switched. Production checks passed for Kerno/Nodo health, the protected
+agent socket, Keycloak discovery and SSO iframes, served static artifacts and
+public HTTPS Regado. No failed systemd units were reported.
+
+The live journal response reports 33,566,720 allocated bytes, a 256 MiB budget,
+14-day retention and managed policy integration. The live ddclient response
+reports a successful oneshot with exit code zero and an active waiting timer,
+including native last/next timestamps. This confirms real deployed telemetry;
+the earlier fixture tests cover administrator mutations and failure recovery.
+
 ## Remaining boundaries
 
 - No content E2EE, user-held decryption keys or system escrow lifecycle; Regado cases authorize existing plaintext data and notify/audit access.

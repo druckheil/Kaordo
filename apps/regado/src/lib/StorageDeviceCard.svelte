@@ -2,7 +2,7 @@
  // Keeps physical devices stable while presenting their partition roles and connection details
  import type { AdminDisk, AdminLayoutReport, AdminMount } from "@kaordo/contracts";
  import { Button, HardDriveIcon, UsbIcon } from "@kaordo/ui";
- import StorageHelp from "./StorageHelp.svelte";
+ import ContextHelp from "./ContextHelp.svelte";
  import OperationProgress from "./OperationProgress.svelte";
  import { connectionLabel, deviceIdentity, devicePartitions, partitionRole } from "./storage-layout";
  import { formatBytes as bytes, formatDateTime as time } from "./regado-model";
@@ -40,11 +40,11 @@
  <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
   <span class={`font-medium ${device.health?.state === "failed" || device.health?.state === "warning" ? "text-destructive" : "text-primary"}`}>{report?.state === "running" ? "Configuring" : device.storageState === "working" ? "Working" : device.storageState === "queued" ? "Setup pending" : "Ready to configure"}</span>
   <div class="flex items-center gap-1"><span>SMART {device.health?.state || "unavailable"}{device.health?.temperatureC !== null && device.health?.temperatureC !== undefined ? ` · ${device.health.temperatureC} °C` : ""}</span>
-   <StorageHelp label={`device ${device.path}`}>
+   <ContextHelp label={`device ${device.path}`}>
     <p>Serial: {device.serial || "Unavailable"}<br />WWN: {device.wwn || "Unavailable"}</p>
     <p>Connection: {connectionLabel(device)}. Bay numbers are shown only when supplied by hardware; a controller address is not a bay number.</p>
     {#if device.health}<p>{device.health.powerOnHours?.toLocaleString() ?? "—"} hours · reallocated {device.health.reallocatedSectors ?? "—"} · pending {device.health.pendingSectors ?? "—"} · uncorrectable {device.health.uncorrectableSectors ?? "—"}</p><p>Checked {time(device.health.checkedAt)}; refreshed every 5 minutes.</p>{/if}
-   </StorageHelp>
+   </ContextHelp>
   </div>
  </div>
  <ul class="mt-4 space-y-2" aria-label={`Partitions on ${device.path}`}>

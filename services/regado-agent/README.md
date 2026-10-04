@@ -61,9 +61,41 @@ are timestamped in memory, and privileged jobs are serialized with onboarding.
 Request cancellation does not cancel an accepted job; shutdown stops workers
 after HTTP requests drain. The sandbox permits `/var/lib/btrfs` for scrub state.
 
+2## Services and journal retention
+
+Service snapshots include process type, outcome, exit code and completion time.
+DNS updates also expose the native systemd timer schedule. The ddclient service
+is a oneshot and normally reports `inactive/dead` between checks. Its existing
+`restart-ddclient` action starts `ddclient.timer` and `ddclient.service`, leaving
+automatic scheduling active without interrupting a check already in progress.
+
+`GET /logs` returns the latest 80 entries for an allowlisted service and
+host-wide journal usage/policy. Allocated journal file blocks, including
+archived files, are measured separately on disk and in RAM. Missing or unreadable
+usage remains unknown; shared files do not provide reliable per-service sizes.
+
+`PATCH /logs/retention` accepts only `retentionDays` in 0, 1, 7, 14, 30 or 90.
+Kerno authorizes the administrator and audits the reason first. The agent
+atomically writes `/var/lib/regado-agent/journald-retention.conf`, verifies the
+effective configuration and restarts journald. An overridden policy or failed
+restart restores the previous file before cleanup. Native `journalctl` rotation
+and vacuum remove archived logs; cleanup failure is reported separately from
+a successfully saved policy. Zero disables age deletion while retaining the
+NixOS disk-space budget. Concurrent policy writes are serialized.
+
+The NixOS module supplies the fixed `/etc` policy symlink, initializes 14 days
+only when the private policy is absent, and allows journal cleanup through
+bounded writable paths. Other hosts cannot change policy through this endpoint
+without the explicit integration. Retention is host-wide, not service-specific;
+active journal files and file-granular rotation can temporarily exceed limits.
+
 ## Code organization
 
 `main.go` owns the Unix listener/server and worker lifetime. `api.go` defines fixed routes, service allowlists, mount validation and handlers; `command.go` bounds subprocess output and execution; `snapshot.go` reads host usage, physical devices, swap, mounted volumes and lifecycle state; `layout.go` discovers free regions and physical capacity; `filesystem.go` parses Btrfs profiles, membership and scrub status; `replication.go` owns detached copy checks and repairs; `partition_plan.go` generates declarations and validates native previews; `partition_apply.go` serializes/revalidates layout jobs and activates volumes; `partition_api.go` validates requests; `progress.go` polls measured tool counters; `storage.go` owns shared device/path guards; `smart.go` parses and caches device health without treating missing evidence as healthy. Filename-purpose comments appear before imports.
+
+`service_status.go` reads native process/timer telemetry and runs DNS checks;
+`journal.go` measures journal usage and owns retention validation, persistence,
+rollback and native cleanup.
 
 From the repository root run `go test -race ./services/regado-agent/...` and `go build ./services/regado-agent/...`. Linux commands require the NixOS profile; unit tests inject command responses and cover parsing/failures. See [refactor evidence](../../docs/refactoring.md).
 

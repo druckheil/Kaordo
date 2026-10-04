@@ -25,7 +25,7 @@ var services = []string{
 var actions = map[string][]string{
 	"restart-nodo":     {"systemctl", "restart", "nodo.service"},
 	"restart-livekit":  {"systemctl", "restart", "livekit.service"},
-	"restart-ddclient": {"systemctl", "restart", "ddclient.service"},
+	"restart-ddclient": {"systemctl", "start", "ddclient.service"},
 }
 
 type commandRunner func(context.Context, ...string) (string, error)

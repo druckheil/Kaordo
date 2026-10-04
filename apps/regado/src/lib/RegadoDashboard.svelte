@@ -70,7 +70,7 @@
 	const metricsQuery = createQuery(() => ({ ...adminMetricsOptions(api, timeWindow), ...overviewPolicy }), () => queryClient);
 	const usersQuery = createQuery(() => ({ ...adminUsersOptions(api, submittedSearch), enabled: tab === "Users" }), () => queryClient);
 	const auditQuery = createQuery(() => ({ ...adminAuditOptions(api), enabled: tab === "Audit" }), () => queryClient);
-	const logsQuery = createQuery(() => ({ ...adminLogsOptions(api, logService), enabled: tab === "Logs" }), () => queryClient);
+	const logsQuery = createQuery(() => ({ ...adminLogsOptions(api, logService), enabled: tab === "Logs", refetchInterval: tab === "Logs" ? 30_000 : false }), () => queryClient);
 	const contentQuery = createInfiniteQuery(() => ({
 		...adminCaseContentOptions(api, caseRecord?.id ?? null, contentKind),
 		enabled: !!caseRecord && tab === "Users",
@@ -182,7 +182,7 @@
 		openIntent({
 			type: "action",
 			id: "restart-ddclient",
-			name: "Restart dynamic DNS",
+			name: "Update DNS now",
 		});
 	}
 
@@ -190,7 +190,7 @@
 		openIntent({
 			type: "action",
 			id: restartActions[serviceId],
-			name: `Restart ${serviceId}`,
+			name: serviceId === "ddclient" ? "Update DNS now" : `Restart ${serviceId}`,
 		});
 	}
 
@@ -218,6 +218,12 @@
 
 	async function performIntent(selected: AdminIntent): Promise<void> {
 		switch (selected.type) {
+			case "log-retention": {
+				const result = await api.setLogRetention(selected.days, reason);
+				notice = result.warning || "Journal retention updated.";
+				await queryClient.invalidateQueries({ queryKey: ["regado", "logs"] });
+				return;
+			}
 			case "status":
 				await api.setStatus(selected.id, selected.disabled, reason);
 				notice = `${selected.name} ${selected.disabled ? "disabled" : "enabled"}.`;
@@ -360,6 +366,8 @@
 				bind:priority={logLevel}
 				bind:search={logSearch}
 				onRefresh={loadLogs}
+				{busy}
+				onRetentionChange={(days) => openIntent({ type: "log-retention", days, name: "Change journal retention" })}
 			/>
 		{:else if tab === "Users"}
 			<UsersPanel
@@ -385,6 +393,7 @@
 				{metrics}
 				onRestartDns={requestDnsRestart}
 				onRestartService={requestServiceRestart}
+				onOpenStorage={() => openTab("Storage")}
 			/>
 		{/if}
 	</main>

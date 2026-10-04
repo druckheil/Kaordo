@@ -78,6 +78,7 @@ func mountAdmin(router chi.Router, verify VerifyFunc, users UserStore, deps Admi
 		r.Post("/storage/apply", func(w http.ResponseWriter, r *http.Request) { h.storageLayout(w, r, true) })
 		r.Get("/metrics", h.metrics)
 		r.Get("/logs", h.logs)
+		r.Patch("/logs/retention", h.logRetention)
 		r.Post("/actions/{action}", h.action)
 	})
 }

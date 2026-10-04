@@ -1,6 +1,6 @@
 <script lang="ts">
 	// Shows the system partition, its physical disk, and compressed memory swap
-	import StorageHelp from "./StorageHelp.svelte";
+	import ContextHelp from "./ContextHelp.svelte";
  import type { AdminDisk, AdminSystem } from "@kaordo/contracts";
 	import { formatBytes as bytes } from "./regado-model";
 	let { system }: { system: AdminSystem | null } = $props();
@@ -21,7 +21,7 @@
 			<h2 class="text-lg font-bold">NixOS system</h2>
 			<p class="mt-1 text-sm text-muted-foreground">{system?.host.osName || "NixOS"} {system?.host.osVersion || ""} · system partition mounted at /</p>
 		</div>
-		<StorageHelp label="NixOS system"><p>The running root filesystem belongs to the physical device shown here. Its partition has the System role.</p><p>Compressed RAM swap uses memory, not a third physical disk. Existing application metadata currently remains in the mirrored application pool.</p></StorageHelp>
+		<ContextHelp label="NixOS system"><p>The running root filesystem belongs to the physical device shown here. Its partition has the System role.</p><p>Compressed RAM swap uses memory, not a third physical disk. Existing application metadata currently remains in the mirrored application pool.</p></ContextHelp>
 	</div>
 	<dl class="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 		<div><dt class="text-xs text-muted-foreground">Physical disk</dt><dd class="mt-1 font-semibold">{physical?.path || "Discovering…"}</dd><dd class="mt-1 break-words text-xs text-muted-foreground">{physical?.model || ""}{physical?.serial ? ` · ${physical.serial}` : ""}</dd></div>

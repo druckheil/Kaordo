@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Presents measured file-copy states and explains background checks and repairs
 	import type { AdminMount, AdminSystem } from "@kaordo/contracts";
-	import StorageHelp from "./StorageHelp.svelte";
+	import ContextHelp from "./ContextHelp.svelte";
  import OperationProgress from "./OperationProgress.svelte";
  import { Button } from "@kaordo/ui";
 	import { fileCopySummary, formatBytes as bytes, formatDateTime as time } from "./regado-model";
@@ -28,7 +28,7 @@
 
 <section class="mt-4 rounded-2xl border border-border bg-background p-5" aria-label={`File copies in ${pool.path}`}>
 	<div class="flex flex-wrap items-start justify-between gap-4">
-		<div class="flex items-center gap-1"><h4 class="font-semibold">File copies</h4><StorageHelp label="file copies"><p>Percentages count regular files in this pool, not disk capacity.</p><p>Check copies scans checksummed data and metadata on all disks, counts files and verifies expired upload references. It deletes nothing.</p><p>Repair restores two-copy placement, repairs corrupt blocks from valid copies and removes only unreferenced uploads older than 24 hours. Missing replicas never justify deleting surviving data.</p><p>Mixed profiles and unavailable evidence stay unverified. Files created without checksums cannot have their contents verified by scrub.</p><p>Progress percentages refer to the measured current phase. Later phases can have different totals.</p></StorageHelp></div>
+		<div class="flex items-center gap-1"><h4 class="font-semibold">File copies</h4><ContextHelp label="file copies"><p>Percentages count regular files in this pool, not disk capacity.</p><p>Check copies scans checksummed data and metadata on all disks, counts files and verifies expired upload references. It deletes nothing.</p><p>Repair restores two-copy placement, repairs corrupt blocks from valid copies and removes only unreferenced uploads older than 24 hours. Missing replicas never justify deleting surviving data.</p><p>Mixed profiles and unavailable evidence stay unverified. Files created without checksums cannot have their contents verified by scrub.</p><p>Progress percentages refer to the measured current phase. Later phases can have different totals.</p></ContextHelp></div>
 		<div class="flex flex-wrap gap-2">
 			<Button size="sm" variant="outline" disabled={busy || !system} onclick={() => onCheck(pool.path)}>Check copies</Button>
 			<Button size="sm" disabled={busy || !summary || !media || (pool.integrity?.devicesOnline ?? 0) < 2 || pool.integrity?.devicesOnline !== pool.integrity?.devicesExpected || pool.integrity?.balanceRunning} onclick={() => onRepair(pool.path)}>Repair and clean up</Button>

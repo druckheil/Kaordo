@@ -95,10 +95,15 @@ type swapDevice struct {
 }
 
 type service struct {
-	ID       string `json:"id"`
-	Active   string `json:"active"`
-	Substate string `json:"substate"`
-	Loaded   string `json:"loaded"`
+	ID         string        `json:"id"`
+	Active     string        `json:"active"`
+	Substate   string        `json:"substate"`
+	Loaded     string        `json:"loaded"`
+	Type       string        `json:"type,omitempty"`
+	Result     string        `json:"result,omitempty"`
+	ExitCode   *int          `json:"exitCode,omitempty"`
+	FinishedAt *string       `json:"finishedAt,omitempty"`
+	Timer      *serviceTimer `json:"timer,omitempty"`
 }
 
 type filesystemIntegrity struct {
@@ -465,34 +470,6 @@ func valueOrEmpty(value *string) string {
 		return ""
 	}
 	return *value
-}
-
-func readServiceStatuses(ctx context.Context, run commandRunner) []service {
-	statuses := make([]service, 0, len(services))
-	for _, id := range services {
-		raw, _ := run(ctx, "systemctl", "show", id+".service", "--property=ActiveState,SubState,LoadState", "--no-pager")
-		statuses = append(statuses, parseServiceStatus(id, raw))
-	}
-	return statuses
-}
-
-func parseServiceStatus(id, raw string) service {
-	status := service{ID: id}
-	for line := range strings.SplitSeq(raw, "\n") {
-		key, value, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		switch key {
-		case "ActiveState":
-			status.Active = value
-		case "SubState":
-			status.Substate = value
-		case "LoadState":
-			status.Loaded = value
-		}
-	}
-	return status
 }
 
 func readHostInfo() hostInfo {

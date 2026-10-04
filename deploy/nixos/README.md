@@ -81,8 +81,8 @@ existing DruckHeil account by verifying its exact Kaordo user ID and
 Keycloak subject in PostgreSQL, then inserting that ID into `user_roles`.
 Do not create an administrator merely because an account chooses the name
 `DruckHeil`. Admin operations and content access cases are written to
-`admin_audit`. Supported system actions include fixed restarts of Nodo, LiveKit
-or ddclient, reviewed Disko/systemd-repart layouts, and background check/repair of a
+`admin_audit`. Supported system actions include fixed restarts of Nodo and LiveKit,
+immediate scheduled DNS checks, journal retention changes, reviewed Disko/systemd-repart layouts, and background check/repair of a
 selected mounted Btrfs data pool. Check refreshes checksum and file inventory
 evidence; repair restores mirror placement and repairs from valid copies.
 Nodo independently audits upload references and only cleans expired unused
@@ -91,6 +91,31 @@ artifacts after a fresh reference/retention check. The agent needs writable
 SMART reads use smartmontools and are cached for five minutes. Standby disks
 are not deliberately awakened for a dashboard refresh. Unsupported health
 checks are shown as unavailable rather than being counted as healthy.
+
+### Host journal policy
+
+The module budgets persistent journald storage at 256 MiB with 16 MiB files
+and initializes a 14-day age limit. Regado offers 1, 7, 14, 30 or 90 days,
+or size-budget-only retention. The private policy file is
+`/var/lib/regado-agent/journald-retention.conf`; a fixed `/etc/systemd` drop-in
+symlink includes it. Tmpfiles copies the initial policy only when absent, so
+an administrator's choice survives reboot and subsequent rebuilds.
+
+Changing policy requires administrator authorization and an audit reason.
+The agent verifies effective settings before restarting journald, restores the
+previous policy on restart failure, then uses native rotation/vacuum for
+archived logs. Its sandbox allows only the specific journal paths needed for
+cleanup. The budget and lifetime apply to the host journal, not individual
+services. Active journal files and rotation can temporarily exceed the limits.
+This feature does not change the journal's current root-partition location.
+
+`ddclient.timer` runs the DNS updater once per minute. A successful
+`ddclient.service` normally becomes `inactive/dead` after completion; check its
+`Result`, exit code and timer before diagnosing that as a failure. Regado's
+**Update now** starts the timer and triggers one service run instead of
+restarting a potentially active check.
+
+### Operational checks
 
 Prometheus uses a bind mount from `/srv/kaordo/prometheus` into its standard
 state directory. When enabling it on an existing deployment, stop Prometheus,

@@ -30,6 +30,8 @@ in
   };
 
   systemd.tmpfiles.rules = [
+    "d /var/lib/regado-agent 0700 root regado-agent - -"
+    "C /var/lib/regado-agent/journald-retention.conf 0600 root root - ${pkgs.writeText "kaordo-journal-retention-default.conf" "[Journal]\nMaxRetentionSec=14day\n"}"
     "d /var/lib/btrfs 0755 root root - -"
     "d /var/lib/kaordo-volumes 0755 root root - -"
     "d ${dataRoot}/postgresql 0700 postgres postgres - -"
@@ -38,6 +40,15 @@ in
     "d ${dataRoot}/caddy 0700 caddy caddy - -"
     "d ${dataRoot}/prometheus 0700 prometheus prometheus - -"
   ];
+
+  services.journald.extraConfig = ''
+    SystemMaxUse=256M
+    SystemMaxFileSize=16M
+    MaxRetentionSec=14day
+  '';
+  # The immutable host integration points to a persistent, narrowly managed retention override
+  environment.etc."systemd/journald.conf.d/90-kaordo-retention.conf".source =
+    "/var/lib/regado-agent/journald-retention.conf";
 
   services.prometheus = {
     enable = true;
@@ -82,7 +93,7 @@ in
       PrivateTmp = true;
       ProtectHome = true;
       ProtectSystem = "strict";
-      ReadWritePaths = [ dataRoot "/run/regado-agent" "/var/lib/btrfs" "/var/lib/regado-agent" "/var/lib/kaordo-volumes" ];
+      ReadWritePaths = [ dataRoot "/run/regado-agent" "/var/lib/btrfs" "/var/lib/regado-agent" "/var/lib/kaordo-volumes" "-/var/log/journal" "-/run/log/journal" ];
       RestrictAddressFamilies = [ "AF_UNIX" ];
     };
   };

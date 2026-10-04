@@ -57,5 +57,5 @@ export type {
   AdminMediaMaintenance,
   AdminSystem,
   AdminMetrics,
-  AdminLogs
+  AdminLogs, AdminJournal, AdminService, AdminLogRetentionDays
 } from './admin.js';

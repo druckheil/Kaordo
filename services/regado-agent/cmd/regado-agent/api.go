@@ -23,6 +23,7 @@ func newHandler(run commandRunner, replication *replicationMonitor) http.Handler
 	router.HandleFunc("POST /actions/{action}", actionHandler(run, replication))
 	router.HandleFunc("POST /storage/plan", layoutHandler(run, replication, false))
 	router.HandleFunc("POST /storage/apply", layoutHandler(run, replication, true))
+	router.HandleFunc("PATCH /logs/retention", journalRetentionHandler(run))
 	return router
 }
 
@@ -98,7 +99,11 @@ func actionHandler(run commandRunner, replication *replicationMonitor) http.Hand
 				http.Error(w, "target is not supported for this action", http.StatusBadRequest)
 				return
 			}
-			output, err = run(ctx, args...)
+			if name == "restart-ddclient" {
+				output, err = updateDNS(ctx, run)
+			} else {
+				output, err = run(ctx, args...)
+			}
 		}
 		if len(output) > 2000 {
 			output = output[:2000]
@@ -178,7 +183,7 @@ func logs(ctx context.Context, run commandRunner, id string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"service": id, "items": entries}, nil
+	return map[string]any{"service": id, "items": entries, "journal": readJournalStatus(ctx, run)}, nil
 }
 
 func parseJournalEntries(raw string) ([]map[string]string, error) {

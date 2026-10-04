@@ -320,6 +320,19 @@ components:
         active: { type: string }
         substate: { type: string }
         loaded: { type: string }
+        type: { type: string }
+        result: { type: string }
+        exitCode: { type: integer }
+        finishedAt: { type: string, format: date-time }
+        timer:
+          type: object
+          required: [id, active, substate, lastRunAt, nextRunAt]
+          properties:
+            id: { type: string }
+            active: { type: string }
+            substate: { type: string }
+            lastRunAt: { type: [string, 'null'], format: date-time }
+            nextRunAt: { type: [string, 'null'], format: date-time }
     RegadoSystem:
       type: object
       required: [hostname, host, time, disks, mounts, swapDevices, services]
@@ -364,6 +377,7 @@ components:
       required: [service, items]
       properties:
         service: { type: string }
+        journal: { $ref: '#/components/schemas/RegadoJournal' }
         items:
           type: array
           items:
@@ -373,6 +387,17 @@ components:
               time: { type: string }
               priority: { type: string }
               message: { type: string }
+    RegadoJournal:
+      type: object
+      required: [totalBytes, diskBytes, runtimeBytes, maxUseBytes, retentionDays, managed]
+      properties:
+        totalBytes: { type: [integer, 'null'], minimum: 0 }
+        diskBytes: { type: [integer, 'null'], minimum: 0 }
+        runtimeBytes: { type: [integer, 'null'], minimum: 0 }
+        maxUseBytes: { type: [integer, 'null'], minimum: 0 }
+        retentionDays: { type: [integer, 'null'], minimum: 0 }
+        managed: { type: boolean }
+        warning: { type: string }
     LigoUser:
       type: object
       required: [id, username, displayName]
@@ -1461,6 +1486,24 @@ paths:
       parameters: [{ name: service, in: query, required: true, schema: { type: string } }]
       responses:
         '200': { description: Latest journal entries for an allowlisted service, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoLogs' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/logs/retention:
+    patch:
+      operationId: setRegadoLogRetention
+      security: [{ bearerAuth: [] }]
+      description: Audits and persists host-wide journal retention. Archived journals may be deleted by native rotation and vacuum.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [retentionDays, reason]
+              properties:
+                retentionDays: { type: integer, enum: [0, 1, 7, 14, 30, 90], description: Zero keeps history until the storage budget requires rotation }
+                reason: { type: string, minLength: 10, maxLength: 500 }
+      responses:
+        '200': { description: Applied journal policy and current host-wide usage, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoJournal' } } } }
         default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
   /v1/admin/actions/{action}:
     post:

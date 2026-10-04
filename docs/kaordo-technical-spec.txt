@@ -144,7 +144,7 @@ Regado: /regado/ is hidden from the portal and checks the current admin role.
 It shows CPU/RAM/load/network/disk history from local Prometheus + Node Exporter,
 host-discovered physical devices, partition roles and filesystem capacity, applicable Btrfs
 profiles and scrub results, disk SMART data, photo/video/file usage, per-service
-journal filters/downloads, user usage, disable/enable and administrator role
+journal filters/downloads, host-wide journal usage/retention, user usage, disable/enable and administrator role
 controls, and administrator audit records. A group-protected Unix agent
 supports fixed service restarts, reviewed role allocations, and background
 copy checks/repairs for a selected mounted Btrfs data pool. Storage follows
@@ -161,6 +161,19 @@ movement, removal and filesystem migration require offline maintenance.
 The adapter currently supports ext4 System and existing Btrfs pools, not
 every Disko backend or remote NAS provisioning. Native NixOS/systemd services
 remain in use; Podman/Quadlet is not a storage-layout implementation.
+Metric graphs label local time and their actual units, explain measurements
+in contextual popovers, show the latest sample and omit the empty cursor legend.
+Service health combines native process states, outcomes and timer schedules;
+successful idle ddclient runs show Scheduled while the timer remains active.
+Maintenance shows DNS schedule/outcome and timestamped storage-check evidence.
+Immediate DNS checks start the timer and oneshot without interrupting a run.
+Journal usage measures allocated host journal blocks on disk and in RAM;
+individual services share these files. NixOS budgets persistent logs at 256 MiB
+with 16 MiB files and initializes 14-day retention. Administrators may select
+1, 7, 14, 30 or 90 days, or size-only retention with an audited reason. The
+private persistent policy survives boots/rebuilds; effective-setting validation
+and restart rollback precede native journalctl rotation/vacuum. Older archived
+host logs can be deleted. Unsupported hosts expose usage without policy controls.
 The NixOS section
 identifies the root partition's physical disk, usage, OS version and RAM swap.
 Disk inventory exposes usable free regions; tiny GPT/alignment gaps and

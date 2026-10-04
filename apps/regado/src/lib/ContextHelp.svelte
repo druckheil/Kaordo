@@ -1,5 +1,5 @@
 <script lang="ts">
- // Presents contextual storage explanations through a keyboard and touch accessible Rhea popover
+ // Presents contextual dashboard explanations through a keyboard and touch accessible Rhea popover
  import type { Snippet } from "svelte";
  import { Button, InfoIcon, Popover } from "@kaordo/ui";
  let { label, children }: { label: string; children: Snippet } = $props();

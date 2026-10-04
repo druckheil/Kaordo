@@ -1,7 +1,7 @@
 // Provides typed administrative requests and cancellable Regado reads
 
 import type {
-  AdminAccessCase, AdminAuditEntry, AdminContentPage, AdminLogs, AdminMetrics,
+  AdminAccessCase, AdminAuditEntry, AdminContentPage, AdminLogs, AdminJournal, AdminLogRetentionDays, AdminMetrics,
   AdminSummary, AdminSystem, AdminUser, AdminStoragePlan, AdminLayoutRequest, paths,
 } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
@@ -68,6 +68,12 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
     async logs(service: string, signal?: AbortSignal): Promise<AdminLogs> {
       const { data, error, response } = await client.GET('/v1/admin/logs', {
         params: { query: { service } }, signal,
+      });
+      return requireResponseData(data, error, response.status);
+    },
+    async setLogRetention(retentionDays: AdminLogRetentionDays, reason: string): Promise<AdminJournal> {
+      const { data, error, response } = await client.PATCH('/v1/admin/logs/retention', {
+        body: { retentionDays, reason },
       });
       return requireResponseData(data, error, response.status);
     },

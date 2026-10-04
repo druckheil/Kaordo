@@ -59,8 +59,19 @@ server-side serialization boundary and the UI disables conflicting actions.
 Interrupted prepared Storage areas can be reviewed and activated safely.
 
 Performance history includes CPU, memory, load, network, disk reads/writes and
-aggregate filesystem utilization. The root agent accepts fixed system queries,
-allowlisted service restarts, background Btrfs checks/repairs, and reviewed declarative partition changes. It does not execute caller-provided commands.
+aggregate filesystem utilization. Graphs label local time horizontally and
+percentage, throughput or task count vertically. Each graph explains its
+measurement through the shared help popover and shows the latest sample above
+the plot. The unused native cursor legend is disabled.
+
+System shows named service responsibilities, text/color health badges and
+contextual help. Maintenance exposes DNS timer state, the last outcome, last
+and next check, and storage-check evidence. A successful idle DNS oneshot with
+an active timer is **Scheduled**, not a failed daemon. **Update now** starts the
+timer if necessary and runs a check; it does not interrupt an existing run.
+Nodo and LiveKit retain their fixed restart operations. Other service restarts
+remain reviewed host maintenance. The root agent never executes caller-provided
+commands.
 
 Account content access requires a written reason and opens a 15-minute case.
 Opening a case adds an immutable notification to the target's Ligo Saved
@@ -77,11 +88,18 @@ are rejected. Role changes are serialized to prevent concurrent revocations
 from removing every administrator. Closing an access case expires it on the
 server; previously signed media links remain valid for at most one minute.
 Service logs support service/priority/text filters and a JSON snapshot download.
+Journal storage shows host-wide allocated disk/RAM bytes and the configured
+disk-space budget. Services share journal files; these are not per-service
+sizes. Lifetime options are 1, 7, 14, 30 or 90 days, or the size limit alone.
+Changing retention requires an audited reason and can remove older archived
+host logs. The NixOS integration persists the selected policy across boots
+and rebuilds; unsupported hosts show read-only usage. Logs refresh every 30
+seconds while their view is active.
 
 The production static build is assembled by `pnpm build:pages:production`.
 `pnpm test:regado:ui` checks the dashboard in headless Chromium with fixture
 identity and API responses: all sections, charts, role and access dialogs,
-320px reflow, and automated light/dark accessibility. Backend authorization
+320px reflow, service/timer outcomes, retention controls, and automated light/dark accessibility. Backend authorization
 and database effects are covered separately by Go and PostgreSQL tests.
 
 ## Code organization

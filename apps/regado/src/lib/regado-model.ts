@@ -1,7 +1,7 @@
 // Defines Regado navigation, administrator intents, and display formatting
 
 import type { AdminApi } from '@kaordo/api-client';
-import type { AdminDisk, AdminLogs, AdminMount, AdminSystem } from '@kaordo/contracts';
+import type { AdminDisk, AdminLogs, AdminMount, AdminSystem, AdminLogRetentionDays } from '@kaordo/contracts';
 
 export const dashboardTabs = [
   'Overview',
@@ -33,6 +33,7 @@ export const restartActions = {
 export type RestartableService = keyof typeof restartActions;
 
 export type AdminIntent =
+  | { type: 'log-retention'; days: AdminLogRetentionDays; name: string }
   | { type: 'status'; id: string; name: string; disabled: boolean }
   | { type: 'role'; id: string; name: string; isAdmin: boolean }
   | { type: 'case'; id: string; name: string }
@@ -50,6 +51,15 @@ export const logServices = [
   'prometheus-node-exporter',
   'regado-agent'
 ] as const;
+
+export const logRetentionOptions = [
+  { days: 1, label: '1 day' },
+  { days: 7, label: '7 days' },
+  { days: 14, label: '14 days' },
+  { days: 30, label: '30 days' },
+  { days: 90, label: '90 days' },
+  { days: 0, label: 'Size limit only' }
+] as const satisfies readonly { days: AdminLogRetentionDays; label: string }[];
 
 export function isRefreshableTab(tab: DashboardTab): boolean {
   return tab === 'Overview' || tab === 'Storage' || tab === 'System';
@@ -127,6 +137,8 @@ export function minimumReasonLength(intent: AdminIntent | null): number {
 
 export function intentDescription(intent: AdminIntent | null): string {
   switch (intent?.type) {
+    case 'log-retention':
+      return 'This changes retention for the entire host journal. Older archived logs may be permanently removed. The disk-space budget still applies. Your reason is recorded before execution.';
     case 'case':
       return 'This opens a 15-minute access case, records the reason and notifies the account in Ligo Saved messages.';
     case 'status':
@@ -134,6 +146,9 @@ export function intentDescription(intent: AdminIntent | null): string {
     case 'role':
       return 'Administrators can inspect account content and control services. This role change is recorded with your reason.';
     case 'action':
+      if (intent.id === 'restart-ddclient') {
+        return 'This runs one DNS check and starts the automatic update timer if necessary. The updater exits after each check; a scheduled idle service is healthy.';
+      }
       if (intent.id === 'repair-storage') {
         return 'This restores two-copy Btrfs allocation on separate disks, repairs damaged blocks from valid copies, and removes only uploads older than 24 hours that Kerno confirms have no references. Fresh uploads, referenced files and surviving copies are retained. Progress appears in File copies.';
       }

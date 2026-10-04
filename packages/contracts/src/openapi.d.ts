@@ -658,6 +658,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/logs/retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Audits and persists host-wide journal retention. Archived journals may be deleted by native rotation and vacuum. */
+        patch: operations["setRegadoLogRetention"];
+        trace?: never;
+    };
     "/v1/admin/actions/{action}": {
         parameters: {
             query?: never;
@@ -1009,6 +1026,20 @@ export interface components {
             active: string;
             substate: string;
             loaded: string;
+            type?: string;
+            result?: string;
+            exitCode?: number;
+            /** Format: date-time */
+            finishedAt?: string;
+            timer?: {
+                id: string;
+                active: string;
+                substate: string;
+                /** Format: date-time */
+                lastRunAt: string | null;
+                /** Format: date-time */
+                nextRunAt: string | null;
+            };
         };
         RegadoSystem: {
             hostname: string;
@@ -1046,11 +1077,21 @@ export interface components {
         };
         RegadoLogs: {
             service: string;
+            journal?: components["schemas"]["RegadoJournal"];
             items: {
                 time: string;
                 priority: string;
                 message: string;
             }[];
+        };
+        RegadoJournal: {
+            totalBytes: number | null;
+            diskBytes: number | null;
+            runtimeBytes: number | null;
+            maxUseBytes: number | null;
+            retentionDays: number | null;
+            managed: boolean;
+            warning?: string;
         };
         LigoUser: {
             /** Format: uuid */
@@ -2916,6 +2957,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegadoLogs"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setRegadoLogRetention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Zero keeps history until the storage budget requires rotation
+                     * @enum {integer}
+                     */
+                    retentionDays: 0 | 1 | 7 | 14 | 30 | 90;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Applied journal policy and current host-wide usage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoJournal"];
                 };
             };
             /** @description Error */

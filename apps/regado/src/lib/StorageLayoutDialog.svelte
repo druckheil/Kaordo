@@ -3,7 +3,7 @@
  import { onDestroy } from "svelte";
  import type { AdminDisk, AdminLayoutRequest, AdminMount, AdminStoragePlan } from "@kaordo/contracts";
  import { Button, Dialog, Input, LoaderCircleIcon } from "@kaordo/ui";
- import StorageHelp from "./StorageHelp.svelte";
+ import ContextHelp from "./ContextHelp.svelte";
  import { allocation, deviceIdentity, GiB, MiB } from "./storage-layout";
  import { errorMessage, formatBytes as bytes } from "./regado-model";
  let { device, pools, bootMode = "bios", onClose, onPreview, onApply }: {
@@ -65,7 +65,7 @@
  <Dialog.Content class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl" onEscapeKeydown={(event) => { if (applying) event.preventDefault(); }}>
   <Dialog.Header><Dialog.Title>Manage partitions</Dialog.Title><Dialog.Description>{device.model || device.name} · {device.path} · {bytes(current.available)} allocatable</Dialog.Description></Dialog.Header>
   <div class="space-y-4">
-   <div class="flex flex-wrap items-center gap-2"><Button size="xs" variant="outline" disabled={busy || applying} onclick={() => preset("storage")}>Storage 100%</Button><Button size="xs" variant="outline" disabled={busy || applying} onclick={() => preset("system")}>System 100%</Button><StorageHelp label="partition allocation"><p>Roles belong to partitions, not disks. System holds operating-system or service data; Storage joins the selected file pool. All sizes here are GiB (1 GiB = 1.074 GB).</p><p>GPT and boot metadata are reserved separately. New System volumes are prepared for data; another NixOS installation requires its own installation workflow.</p><p>Live partition starts never move. An existing System filesystem or a partition containing data may require offline migration.</p></StorageHelp></div>
+   <div class="flex flex-wrap items-center gap-2"><Button size="xs" variant="outline" disabled={busy || applying} onclick={() => preset("storage")}>Storage 100%</Button><Button size="xs" variant="outline" disabled={busy || applying} onclick={() => preset("system")}>System 100%</Button><ContextHelp label="partition allocation"><p>Roles belong to partitions, not disks. System holds operating-system or service data; Storage joins the selected file pool. All sizes here are GiB (1 GiB = 1.074 GB).</p><p>GPT and boot metadata are reserved separately. New System volumes are prepared for data; another NixOS installation requires its own installation workflow.</p><p>Live partition starts never move. An existing System filesystem or a partition containing data may require offline migration.</p></ContextHelp></div>
    <div class="grid grid-cols-2 gap-3">
     <label class="space-y-2 text-sm font-medium">System · GiB<Input type="number" min="0" step="any" bind:value={systemSize} oninput={invalidate} disabled={applying} /></label>
     <label class="space-y-2 text-sm font-medium">Storage · GiB<Input type="number" min="0" step="any" bind:value={storageSize} oninput={invalidate} disabled={applying} /></label>

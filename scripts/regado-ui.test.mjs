@@ -58,6 +58,8 @@ test(
 		const mutations = [];
 		const systemActions = [];
 		const layoutActions = [];
+		const journalChanges = [];
+		let retentionDays = 14;
 		let layoutState = "idle";
 		let layoutReads = 0;
 		let failFirstRoleChange = true;
@@ -186,9 +188,14 @@ test(
 					swapDevices: [{ name: "zram0", path: "/dev/zram0", kind: "compressed RAM", size: 4294967296, used: 1048576, priority: 100 }],
 					services: services.map((id) => ({
 						id,
-						active: "active",
-						substate: "running",
+						active: id === "ddclient" ? "inactive" : id === "prometheus" ? "failed" : "active",
+						substate: id === "ddclient" ? "dead" : id === "prometheus" ? "failed" : "running",
 						loaded: "loaded",
+						type: id === "ddclient" ? "oneshot" : "simple",
+						result: id === "prometheus" ? "exit-code" : "success",
+						exitCode: id === "prometheus" ? 1 : 0,
+						finishedAt: now,
+						...(id === "ddclient" ? { timer: { id: "ddclient.timer", active: "active", substate: "waiting", lastRunAt: now, nextRunAt: new Date(Date.now() + 60000).toISOString() } } : {}),
 					})),
 				};
 			}
@@ -223,6 +230,7 @@ test(
 				}
 				body = {
 					service: url.searchParams.get("service"),
+					journal: { totalBytes: 33554432, diskBytes: 33554432, runtimeBytes: 0, maxUseBytes: 268435456, retentionDays, managed: true },
 					items: [
 						{
 							time: String(Date.now() * 1000),
@@ -254,6 +262,12 @@ test(
             } else if (url.pathname.endsWith("/storage/apply")) {
                 layoutActions.push(request.postDataJSON()); layoutState = "running"; layoutReads = 0;
                 body = { action: "apply-layout", target: "/dev/sdc", output: "Device layout queued.", accepted: true };
+            } else if (url.pathname.endsWith("/logs/retention") && request.method() === "PATCH") {
+                const change = request.postDataJSON(); journalChanges.push(change); retentionDays = change.retentionDays;
+                body = { totalBytes: 16777216, diskBytes: 16777216, runtimeBytes: 0, maxUseBytes: 268435456, retentionDays, managed: true };
+            } else if (url.pathname.endsWith("/actions/restart-ddclient")) {
+                systemActions.push({ path: url.pathname, change: request.postDataJSON() });
+                body = { action: "restart-ddclient", output: "DNS check completed. Automatic updates remain scheduled.", accepted: true };
             } else if (request.method() === "PATCH") {
 				const change = request.postDataJSON();
 				if (url.pathname.endsWith("/role") && failFirstRoleChange) {
@@ -313,6 +327,10 @@ test(
 			.getByRole("heading", { name: "System overview", exact: true })
 			.waitFor();
 		await page.locator(".uplot canvas").first().waitFor();
+		assert.equal(await page.locator(".u-legend:visible").count(), 0, "No empty cursor legend is shown");
+		await page.getByRole("button", { name: "About CPU", exact: true }).click();
+		await page.getByText(/horizontal axis is local time/).waitFor();
+		await page.keyboard.press("Escape");
 		await accessibility(page, "Overview");
 		for (const section of ["Storage", "Logs", "Users", "Audit", "System"]) {
 			await page.getByRole("button", { name: section, exact: true }).click();
@@ -333,6 +351,30 @@ test(
 			);
 			await page.setViewportSize({ width: 1440, height: 900 });
 		}
+		await page.getByRole("button", { name: "Logs", exact: true }).click();
+		await page.getByText("32.0 MiB", { exact: true }).waitFor();
+		await page.getByLabel("Log lifetime", { exact: true }).selectOption("7");
+		await page.getByRole("button", { name: "Apply retention", exact: true }).click();
+		await page.getByRole("dialog").getByText(/entire host journal/).waitFor();
+		await page.getByRole("textbox", { name: "Reason", exact: true }).fill("Limit journal retention to seven days");
+		await page.getByRole("button", { name: "Confirm", exact: true }).click();
+		await page.getByText("Journal retention updated.", { exact: true }).waitFor();
+		assert.deepEqual(journalChanges, [{ retentionDays: 7, reason: "Limit journal retention to seven days" }]);
+		assert.equal(await page.getByLabel("Log lifetime", { exact: true }).inputValue(), "7");
+		await page.getByRole("button", { name: "System", exact: true }).click();
+		await page.getByRole("region", { name: "DNS maintenance", exact: true }).getByText("Scheduled", { exact: true }).waitFor();
+		await page.getByRole("region", { name: "Prometheus service", exact: true }).getByText("Failed", { exact: true }).waitFor();
+		await page.getByRole("button", { name: "About Keycloak", exact: true }).click();
+		await page.getByText(/Handles registration, login, TOTP/).waitFor();
+		await page.keyboard.press("Escape");
+		await page.getByRole("region", { name: "DNS maintenance", exact: true }).getByRole("button", { name: "Update now", exact: true }).click();
+		await page.getByRole("textbox", { name: "Reason", exact: true }).fill("Verify the current public IP and DNS");
+		await page.getByRole("button", { name: "Confirm", exact: true }).click();
+		await page.getByText("DNS check completed. Automatic updates remain scheduled.", { exact: true }).waitFor();
+		assert.equal(systemActions.at(-1).path, "/v1/admin/actions/restart-ddclient");
+		await page.getByRole("region", { name: "Storage maintenance", exact: true }).getByRole("button", { name: "Open storage", exact: true }).click();
+		await page.getByRole("heading", { name: "NixOS system", exact: true }).waitFor();
+		systemActions.length = 0;
 		await page.getByRole("button", { name: "Storage", exact: true }).click();
 		await page.getByRole("heading", { name: "NixOS system", exact: true }).waitFor();
 		await page.getByRole("heading", { name: "Compressed RAM swap", exact: true }).waitFor();

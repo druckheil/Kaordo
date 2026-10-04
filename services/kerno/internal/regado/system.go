@@ -91,6 +91,14 @@ func (client *SystemClient) Logs(ctx context.Context, service string) (json.RawM
 	return client.request(ctx, http.MethodGet, path)
 }
 
+func (client *SystemClient) SetLogRetention(ctx context.Context, days int) (json.RawMessage, error) {
+	payload, err := json.Marshal(map[string]int{"retentionDays": days})
+	if err != nil {
+		return nil, err
+	}
+	return client.requestBody(ctx, http.MethodPatch, "/logs/retention", bytes.NewReader(payload))
+}
+
 func (client *SystemClient) Action(ctx context.Context, action string, request ActionRequest) (json.RawMessage, error) {
 	path := "/actions/" + url.PathEscape(action)
 	payload, err := json.Marshal(request)
