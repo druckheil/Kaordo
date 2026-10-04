@@ -5,6 +5,7 @@ Run scripts from the repository root through `package.json` where a command exis
 - `dev-local.mjs` orchestrates configuration, Docker services, migrations, Go builds and static apps. `local-session.mjs` records checkout-owned processes; `stop-local.mjs` stops those processes without killing unrelated port owners.
 - `sync-keycloak.mjs` reconciles realm/client/profile policy and validates token mapping. It preserves accounts and keeps admin credentials out of output.
 - `build-pages.mjs` assembles independently built apps; `serve-pages.mjs` serves the local combined artifact.
+- `deploy-pages.mjs` builds and verifies production frontend assets before uploading a checksummed release; `deploy/nixos/deploy-static.sh` performs preflight, atomic activation and rollback checks on the host.
 - `product-db.integration.mjs` creates, migrates, tests and removes a disposable PostgreSQL database, covering Fluo/Ligo/Rondo/Regado with Go race checks.
 - `ui-fixture.mjs` owns temporary Vite servers, fixture identity, browser contexts and teardown. `product-ui.test.mjs` checks Fluo history/composing/search and Ligo native scrolling/shared composer; `regado-ui.test.mjs` checks admin views, stale requests and access cases. Fixture identity is supplied only by the test server.
 - `auth-live.integration.mjs` checks real Keycloak registration, TOTP/recovery, application SSO, posts/media, messaging and calls, then removes its temporary account.

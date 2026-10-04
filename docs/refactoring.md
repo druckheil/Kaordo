@@ -45,6 +45,7 @@ Commands run from the repository root unless specified. Headless browser tests o
 | --- | --- |
 | `pnpm check:front` | Six Svelte projects: 0 errors, 0 warnings |
 | `pnpm build:pages` / `scripts/pages.test.mjs` | All apps build independently and assemble; static routes/assets and Fluo initial JavaScript budget checked |
+| `pnpm test:pages:production` | Production build overrides local `.env` service URLs and checks every emitted JavaScript bundle |
 | Fast Node suites | Account previews/session races, API retry/error/cancellation/cache, Keycloak policy, backup config, dependency imports, launcher, tus storage and media/chat geometry |
 | `pnpm test:product:db` | Disposable PostgreSQL; Fluo/Ligo/Rondo/Regado, migration replay, shared media claims and authorization; PostgreSQL package statement coverage 80.4% |
 | Go race / vet / build | Kerno, Nodo, mediaauth and regado-agent; no failure |
@@ -58,6 +59,77 @@ Commands run from the repository root unless specified. Headless browser tests o
 Final fast suites: 106/106 passed, with no skips after stopping the development server. Headless suites: 4/4 passed (public, Fluo, Ligo, Regado). The live product journey and isolated backup restore each passed. PostgreSQL capacity fixtures also exercised 20,000 posts/100 authors and 10,000 messages; these local measurements are not production-scale guarantees.
 
 ## Remaining product and evidence boundaries
+
+The 2026-10-04 Regado storage update adds explicit NixOS/root-disk attribution,
+partition gaps, physical versus unique capacity, detached copy-check/repair
+workers, and authenticated Nodo reference audits. New Go tests cover request
+cancellation, simultaneous operations, distinct physical members, mixed and
+degraded placement, every scrub member, preservation on unavailable/new
+references, freshness rechecks, and administrator audit ordering. The Regado
+fixture covers the new read-only and confirmed repair actions, copy ratios,
+free regions, 320px reflow, and automated accessibility. Commands and deployment
+evidence for this update are reported separately from the historical matrix.
+
+Verified for this storage update: `pnpm check:front`, generated OpenAPI types,
+`pnpm test:regado:ui`, `pnpm test:pages:production`, all four Go module race
+suites, `go vet`, Linux amd64 builds, and the NixOS configuration build passed.
+The explicitly authorized server update activated backend
+`v0.0.2-e79441b35147-storage-20261004T123754Z-dirty` and frontend
+`v0.0.2-e79441b35147-pages-20261004T124536Z-dirty`. Deployment initially rolled
+back when a health probe preceded listener readiness; retry waited for health
+endpoints and retained the previous binaries/configuration. On 2026-10-04 at
+12:54:15 UTC, a real read-only check inventoried 6,306 regular pool files with
+uniform redundant placement on two physical disks, passed checksums, and zero
+unreadable paths. Nodo audited 20 media artifact files, with zero surplus,
+unverified, or missing files. Root NixOS is `/dev/sdb2`; `/dev/sda` has a real
+64 GiB unallocated region. All four application/proxy services were active and
+unauthenticated public Regado API access returned 401. Repair and deletion
+failure cases were verified with isolated tests, not destructive production
+disk experiments.
+
+## Declarative storage update — 4 October 2026
+
+Regado now follows Host → physical device → partition → role, with stable
+hardware identity and connection details. It separates useful free regions
+from collapsed GPT/BIOS/EFI overhead. The role dialog previews sizes, exports
+a Disko declaration and requires an audited reason, exact device confirmation
+and a current geometry fingerprint. Obsolete previews are cancelled.
+
+Disko 1.13.0 initializes verified blank devices. systemd-repart 260.4 handles
+incremental allocation; btrfs-progs handles pool membership and online growth.
+Native definitions preserve all existing partition starts and filesystems.
+Existing System resizing, shrink, movement, deletion, OS installation and
+service-state migration remain explicit offline operations. System data
+volumes mount by UUID through host systemd; no second OS is silently installed.
+Podman/Quadlet was evaluated but is not needed for this storage workflow.
+
+Verification passed: all four Go race suites and vet, Linux amd64 builds,
+OpenAPI generation, Svelte checks (0 errors/warnings), dependency checks
+(52 passed), Regado headless UI/accessibility/reflow and production bundle
+tests. Additional agent tests cover unique hardware identities, Disko PARTUUID
+collisions, filesystem signatures, native geometry validation, stale approvals,
+activation recovery, audit ordering and measured progress. A real loop-image
+test under the production sandbox compiled and applied Disko, mounted a System
+volume through host systemd and grew its neighbour with repart, preserving
+System data, starts and UUIDs. The temporary loop device/image was removed.
+
+The authorized deployment activated backend
+`v0.0.2-e79441b35147-storage-20261004T151036Z-dirty`, NixOS closure
+`7m61qrdh5ys2mpb0xhbhg0p3pxfv3cwp`, and frontend
+`v0.0.2-e79441b35147-pages-20261004T152539Z-dirty`. Previous binaries, module,
+closure and frontend targets are retained for rollback. Production service,
+Keycloak iframe, HTTPS artifact and protected-socket checks passed; no failed
+systemd units were reported and unauthenticated Regado API access returned 401.
+The filesystem and GPT labels of the existing root were corrected to `NixOS`,
+without changing its UUID, size or boot-device lookup. A real native dry run
+confirmed that `/dev/sda` can allocate its 64 GiB gap to System while preserving
+the existing Storage partition. This physical layout was not applied.
+A fresh read-only pool check completed at 15:27:11 UTC: 6,842 regular files,
+579,152,273 bytes, two-disk redundant placement, passed checksums and zero
+unreadable paths. This is filesystem/profile evidence, not an independent
+backup or per-file physical-extent inspection.
+
+## Remaining boundaries
 
 - No content E2EE, user-held decryption keys or system escrow lifecycle; Regado cases authorize existing plaintext data and notify/audit access.
 - Data1 RAID1 mirrors two physical disks, but an independently recoverable backup destination/key copy/schedule still require configuration. Local development does not mirror disks.

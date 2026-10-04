@@ -2,6 +2,7 @@ package regado
 
 // Reads system-agent snapshots and Prometheus history
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,6 +29,12 @@ type SystemClient struct {
 	client *http.Client
 }
 
+type ActionRequest struct {
+	Target     string `json:"target,omitempty"`
+	Identity   string `json:"identity,omitempty"`
+	Filesystem string `json:"filesystem,omitempty"`
+}
+
 func NewSystemClient(socket string) *SystemClient {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -40,9 +47,16 @@ func NewSystemClient(socket string) *SystemClient {
 }
 
 func (client *SystemClient) request(ctx context.Context, method, path string) (json.RawMessage, error) {
-	request, err := http.NewRequestWithContext(ctx, method, "http://regado-agent"+path, nil)
+	return client.requestBody(ctx, method, path, nil)
+}
+
+func (client *SystemClient) requestBody(ctx context.Context, method, path string, body io.Reader) (json.RawMessage, error) {
+	request, err := http.NewRequestWithContext(ctx, method, "http://regado-agent"+path, body)
 	if err != nil {
 		return nil, err
+	}
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
 	}
 
 	response, err := client.client.Do(request)
@@ -77,9 +91,35 @@ func (client *SystemClient) Logs(ctx context.Context, service string) (json.RawM
 	return client.request(ctx, http.MethodGet, path)
 }
 
-func (client *SystemClient) Action(ctx context.Context, action string) (json.RawMessage, error) {
+func (client *SystemClient) Action(ctx context.Context, action string, request ActionRequest) (json.RawMessage, error) {
 	path := "/actions/" + url.PathEscape(action)
-	return client.request(ctx, http.MethodPost, path)
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	return client.requestBody(ctx, http.MethodPost, path, bytes.NewReader(payload))
+}
+
+type LayoutRequest struct {
+	Device       string `json:"device"`
+	Identity     string `json:"identity"`
+	Filesystem   string `json:"filesystem"`
+	SystemBytes  int64  `json:"systemBytes"`
+	StorageBytes int64  `json:"storageBytes"`
+	Fingerprint  string `json:"fingerprint,omitempty"`
+	Confirmation string `json:"confirmation,omitempty"`
+}
+
+func (client *SystemClient) StorageLayout(ctx context.Context, request LayoutRequest, apply bool) (json.RawMessage, error) {
+	path := "/storage/plan"
+	if apply {
+		path = "/storage/apply"
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	return client.requestBody(ctx, http.MethodPost, path, bytes.NewReader(payload))
 }
 
 // MetricsClient queries Prometheus for current and historical system metrics
@@ -208,7 +248,7 @@ func historyQueries() map[string]string {
 		"diskReadBytesPerSecond":  `sum(rate(node_disk_read_bytes_total{device!~"loop.*|ram.*"}[2m]))`,
 		"diskWriteBytesPerSecond": `sum(rate(node_disk_written_bytes_total{device!~"loop.*|ram.*"}[2m]))`,
 		"networkBytesPerSecond":   `sum(rate(node_network_receive_bytes_total{device!="lo"}[2m]) + rate(node_network_transmit_bytes_total{device!="lo"}[2m]))`,
-		"storagePercent":          `100 * (1 - node_filesystem_avail_bytes{mountpoint="/srv/kaordo",fstype="btrfs"} / node_filesystem_size_bytes{mountpoint="/srv/kaordo",fstype="btrfs"})`,
+		"storagePercent":          `100 * (1 - sum(max by (device) (node_filesystem_avail_bytes{device!="",fstype!~"rootfs|tmpfs|overlay|squashfs"})) / sum(max by (device) (node_filesystem_size_bytes{device!="",fstype!~"rootfs|tmpfs|overlay|squashfs"})))`,
 	}
 }
 

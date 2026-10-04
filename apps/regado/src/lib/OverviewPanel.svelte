@@ -3,7 +3,7 @@
 
 	import type { AdminMetrics, AdminSummary, AdminSystem } from "@kaordo/contracts";
 	import MetricChart from "./MetricChart.svelte";
-	import { formatBytes as bytes, type MetricsWindow, metricsWindows } from "./regado-model";
+	import { formatBytes as bytes, storageDevices, type MetricsWindow, metricsWindows } from "./regado-model";
 
 	let {
 		summary,
@@ -29,6 +29,16 @@
 		{ label: "Referenced media", value: bytes(summary?.mediaBytes) },
 		{ label: "Open access cases", value: summary?.openCases },
 	]);
+	const disks = $derived(storageDevices(system?.disks ?? []));
+	const poolMembers = $derived(
+		new Set((system?.mounts ?? []).flatMap((mount) => mount.integrity?.members ?? [])).size,
+	);
+	const diskHealthWarnings = $derived(
+		disks.filter((disk) => disk.health?.state === "warning" || disk.health?.state === "failed").length,
+	);
+	const unavailableSmart = $derived(
+		disks.filter((disk) => !disk.health || disk.health.state === "unavailable" || disk.health.state === "standby").length,
+	);
 
 	function toMiB(points: { time: number; value: number }[]) {
 		return points.map((point) => ({ ...point, value: point.value / 1048576 }));
@@ -88,16 +98,22 @@
 
 <div class="mt-7 grid gap-4 lg:grid-cols-2">
 	<section class="rounded-[1.4rem] border border-border bg-card p-6">
-		<h2 class="text-lg font-bold">Data1 mirror</h2>
+		<h2 class="text-lg font-bold">Storage</h2>
 		<p class="mt-2 text-sm text-muted-foreground">
-			{system?.mirror.healthy
-				? "Both devices online · RAID1 data and metadata · no recorded device errors"
-				: "Mirror health needs attention or is not yet available."}
+			{system
+				? `${disks.length} physical ${disks.length === 1 ? "disk" : "disks"} · ${poolMembers} data-pool ${poolMembers === 1 ? "member" : "members"} · ${system.swapDevices.length} swap device${system.swapDevices.length === 1 ? "" : "s"}`
+				: "Discovering host storage…"}
 		</p>
-		<div class="mt-5 text-4xl font-bold tracking-tight text-primary">
-			{system?.mirror.mirroredPercent ?? "—"}%
-		</div>
-		<p class="mt-1 text-xs text-muted-foreground">Used Data1 blocks stored in RAID1</p>
+		<div class="mt-5 text-4xl font-bold tracking-tight text-primary">{system ? disks.length : "—"}</div>
+		<p class="mt-1 text-xs text-muted-foreground">
+			{!system
+				? "SMART status loads in the background"
+				: diskHealthWarnings > 0
+					? `${diskHealthWarnings} ${diskHealthWarnings === 1 ? "device needs" : "devices need"} attention`
+				: unavailableSmart > 0
+						? `No warnings reported · SMART unavailable or in standby on ${unavailableSmart} ${unavailableSmart === 1 ? "device" : "devices"}`
+						: "No SMART warnings reported"}
+		</p>
 	</section>
 	<section class="rounded-[1.4rem] border border-border bg-card p-6">
 		<h2 class="text-lg font-bold">Services</h2>

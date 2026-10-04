@@ -125,16 +125,40 @@ components:
         nextCursor: { type: [string, 'null'], format: uuid }
     RegadoDisk:
       type: object
-      required: [name, path, label, fsType, size, type, model, mountpoints]
+      required: [name, path, label, partitionLabel, fsType, size, type, model, serial, wwn, mountpoints, systemDisk]
       properties:
         name: { type: string }
         path: { type: string }
         label: { type: [string, 'null'] }
+        partitionLabel: { type: [string, 'null'] }
         fsType: { type: [string, 'null'] }
         size: { type: integer }
         type: { type: string }
         model: { type: [string, 'null'] }
+        serial: { type: [string, 'null'] }
+        wwn: { type: [string, 'null'] }
         mountpoints: { type: array, items: { type: [string, 'null'] } }
+        systemDisk: { type: boolean, description: Whether this device contains the filesystem mounted at / }
+        storageState: { type: string, enum: [unconfigured, queued, working], description: Operational state of this physical device in the managed storage pool }
+        configureEligible: { type: boolean, description: Whether the host agent's current preflight considers this device safe to onboard }
+        configureReason: { type: string, description: A concise explanation of the current storage state or onboarding eligibility }
+        transport: { type: [string, 'null'], description: Discovered physical connection such as SATA, USB, NVMe or iSCSI }
+        address: { type: [string, 'null'], description: Discovered controller address; no enclosure bay is inferred }
+        partitionType: { type: [string, 'null'] }
+        start: { type: integer }
+        number: { type: integer }
+        role: { type: string, enum: ['', system, storage, unassigned] }
+        bootKind: { type: string }
+        overheadBytes: { type: integer, description: Partition-table and alignment slack excluded from allocatable regions }
+        layoutAvailable: { type: boolean }
+        unallocated:
+          type: array
+          items:
+            type: object
+            required: [start, size]
+            properties:
+              start: { type: integer, description: Byte offset from the start of the physical disk }
+              size: { type: integer }
         children: { type: array, items: { $ref: '#/components/schemas/RegadoDisk' } }
         health: { $ref: '#/components/schemas/RegadoDiskHealth' }
     RegadoDiskHealth:
@@ -151,24 +175,143 @@ components:
         checkedAt: { type: string, format: date-time }
     RegadoMount:
       type: object
-      required: [path, total, used, free]
+      required: [path, source, fsType, total, used, free, available, integrity]
       properties:
         path: { type: string }
+        source: { type: string }
+        fsType: { type: string }
         total: { type: integer }
         used: { type: integer }
         free: { type: integer }
-    RegadoMirror:
+        available: { type: boolean }
+        integrity: { oneOf: [{ $ref: '#/components/schemas/RegadoFilesystemIntegrity' }, { type: 'null' }] }
+    RegadoFilesystemIntegrity:
       type: object
-      required: [dataProfile, metadataProfile, systemProfile, mirroredPercent, deviceErrors, devicesOnline, healthy, scrub]
+      required: [uuid, members, dataProfile, metadataProfile, systemProfile, mirroredPercent, deviceErrors, devicesOnline, devicesExpected, healthy, balanceRunning, scrubState, scrubErrors]
       properties:
+        uuid: { type: string }
+        members: { type: array, items: { type: string }, description: Physical block device paths participating in this Btrfs filesystem }
         dataProfile: { type: string }
         metadataProfile: { type: string }
         systemProfile: { type: string }
         mirroredPercent: { type: integer }
         deviceErrors: { type: integer }
         devicesOnline: { type: integer }
+        devicesExpected: { type: integer }
         healthy: { type: boolean }
-        scrub: { type: string }
+        balanceRunning: { type: boolean }
+        scrubState: { type: string, enum: [not-run, running, complete, errors, unknown] }
+        scrubErrors: { type: integer }
+        physicalTotal: { type: integer, description: Sum of physical pool capacity before RAID replication }
+        physicalUsed: { type: integer, description: Physical space used including replicas and metadata }
+    RegadoReplicationReport:
+      type: object
+      required: [path, state, stage, startedAt, checkedAt, files, bytes, unreadable, duplication, checksumState, error]
+      properties:
+        path: { type: string }
+        state: { type: string, enum: [checking, repairing, complete, failed] }
+        stage: { type: string, enum: [replication, checksums, inventory, complete] }
+        startedAt: { type: [string, 'null'], format: date-time }
+        checkedAt: { type: [string, 'null'], format: date-time }
+        files: { type: integer }
+        bytes: { type: integer, description: Logical size of regular files, not physical block usage }
+        unreadable: { type: integer }
+        duplication: { type: string, enum: ['', duplicated, single, unverified] }
+        progress: { oneOf: [{ $ref: '#/components/schemas/RegadoOperationProgress' }, { type: 'null' }] }
+        checksumState: { type: string, enum: ['', passed, errors] }
+        error: { type: string }
+    RegadoOperationProgress:
+      type: object
+      required: [completed, total, unit]
+      properties:
+        completed: { type: integer, minimum: 0 }
+        total: { type: [integer, 'null'], minimum: 0, description: Null when no measured denominator is available }
+        unit: { type: string, enum: [bytes, chunks, files, uploads, steps] }
+    RegadoLayoutRequest:
+      type: object
+      required: [device, identity, filesystem, systemBytes, storageBytes]
+      properties:
+        device: { type: string, maxLength: 256 }
+        identity: { type: string, maxLength: 256 }
+        filesystem: { type: string, maxLength: 1024 }
+        systemBytes: { type: integer, minimum: 0 }
+        storageBytes: { type: integer, minimum: 0 }
+        fingerprint: { type: string, maxLength: 64 }
+        confirmation: { type: string, maxLength: 256 }
+    RegadoLayoutStep:
+      type: object
+      required: [kind, role, number, start, size, previousSize, source]
+      properties:
+        kind: { type: string, enum: [keep, boot, create, resize, activate] }
+        role: { type: string, enum: [system, storage] }
+        number: { type: integer }
+        start: { type: integer }
+        size: { type: integer }
+        previousSize: { type: integer }
+        source: { type: string }
+    RegadoStoragePlan:
+      type: object
+      required: [device, identity, fingerprint, supported, backend, declaration, issues, warnings, systemBytes, storageBytes, availableBytes, steps]
+      properties:
+        device: { type: string }
+        identity: { type: string }
+        fingerprint: { type: string }
+        supported: { type: boolean }
+        backend: { type: string, enum: [disko, systemd-repart] }
+        declaration: { type: string, description: Exportable Disko role declaration; applying it to existing disks requires operator review }
+        issues: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string } }
+        systemBytes: { type: integer }
+        storageBytes: { type: integer }
+        availableBytes: { type: integer }
+        steps: { type: array, items: { $ref: '#/components/schemas/RegadoLayoutStep' } }
+    RegadoLayoutReport:
+      type: object
+      required: [device, state, stage, startedAt, error, progress]
+      properties:
+        device: { type: string }
+        state: { type: string, enum: [running, complete, failed] }
+        stage: { type: string }
+        startedAt: { type: string, format: date-time }
+        error: { type: string }
+        progress: { oneOf: [{ $ref: '#/components/schemas/RegadoOperationProgress' }, { type: 'null' }] }
+    RegadoMediaMaintenance:
+      type: object
+      required: [directory, state, startedAt, checkedAt, files, bytes, surplusFiles, surplusBytes, unverifiedFiles, missingFiles, removedFiles, removedBytes, error]
+      properties:
+        directory: { type: string }
+        state: { type: string, enum: [idle, checking, repairing, complete, failed] }
+        startedAt: { type: [string, 'null'], format: date-time }
+        checkedAt: { type: [string, 'null'], format: date-time }
+        files: { type: integer }
+        bytes: { type: integer }
+        surplusFiles: { type: integer, description: Actual expired upload artifact files with no database references }
+        surplusBytes: { type: integer }
+        unverifiedFiles: { type: integer }
+        missingFiles: { type: integer }
+        removedFiles: { type: integer }
+        removedBytes: { type: integer }
+        error: { type: string }
+        stage: { type: string, enum: ['', inventory, references, complete] }
+        progress: { oneOf: [{ $ref: '#/components/schemas/RegadoOperationProgress' }, { type: 'null' }] }
+    RegadoSwapDevice:
+      type: object
+      required: [name, path, kind, size, used, priority]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        kind: { type: string, enum: ["compressed RAM", "disk swap", "swap file"] }
+        size: { type: integer }
+        used: { type: integer }
+        priority: { type: integer }
+    RegadoActionResult:
+      type: object
+      required: [action, target, output, accepted]
+      properties:
+        action: { type: string }
+        target: { type: string }
+        output: { type: string }
+        accepted: { type: boolean }
     RegadoService:
       type: object
       required: [id, active, substate, loaded]
@@ -179,7 +322,7 @@ components:
         loaded: { type: string }
     RegadoSystem:
       type: object
-      required: [hostname, host, time, disks, mounts, mirror, services]
+      required: [hostname, host, time, disks, mounts, swapDevices, services]
       properties:
         hostname: { type: string }
         host:
@@ -191,11 +334,17 @@ components:
             memoryTotalBytes: { type: integer }
             uptimeSeconds: { type: integer }
             kernel: { type: string }
+            osName: { type: string }
+            osVersion: { type: string }
+            bootMode: { type: string, enum: [bios, uefi] }
         time: { type: string, format: date-time }
         disks: { type: array, items: { $ref: '#/components/schemas/RegadoDisk' } }
         mounts: { type: array, items: { $ref: '#/components/schemas/RegadoMount' } }
-        mirror: { $ref: '#/components/schemas/RegadoMirror' }
+        swapDevices: { type: array, items: { $ref: '#/components/schemas/RegadoSwapDevice' } }
         services: { type: array, items: { $ref: '#/components/schemas/RegadoService' } }
+        layoutReports: { type: array, items: { $ref: '#/components/schemas/RegadoLayoutReport' } }
+        replicationReports: { type: array, items: { $ref: '#/components/schemas/RegadoReplicationReport' } }
+        mediaMaintenance: { oneOf: [{ $ref: '#/components/schemas/RegadoMediaMaintenance' }, { type: 'null' }] }
     RegadoSample:
       type: object
       required: [time, value]
@@ -1295,7 +1444,7 @@ paths:
       operationId: getRegadoSystem
       security: [{ bearerAuth: [] }]
       responses:
-        '200': { description: Local host, disks, Btrfs mirror, scrub and service status, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoSystem' } } } }
+        '200': { description: Local host, discovered block devices, per-device mount points and service status, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoSystem' } } } }
         default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
   /v1/admin/metrics:
     get:
@@ -1317,10 +1466,41 @@ paths:
     post:
       operationId: runRegadoAction
       security: [{ bearerAuth: [] }]
-      parameters: [{ name: action, in: path, required: true, schema: { type: string, enum: [restart-nodo, restart-livekit, restart-ddclient, scrub-data] } }]
+      parameters: [{ name: action, in: path, required: true, schema: { type: string, enum: [restart-nodo, restart-livekit, restart-ddclient, scrub-filesystem, configure-storage, check-storage, repair-storage] } }]
       requestBody:
         required: true
-        content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 10, maxLength: 500 } } } } }
+        content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 10, maxLength: 500 }, target: { type: string, maxLength: 1024, description: Device path for configure-storage or mounted Btrfs path for scrub-filesystem/check-storage/repair-storage }, identity: { type: string, maxLength: 256, description: Stable serial or WWN, revalidated by regado-agent before partitioning }, filesystem: { type: string, maxLength: 1024, description: Existing mounted Btrfs data-pool path for configure-storage } } } } }
       responses:
-        '202': { description: Audited system operation accepted, content: { application/json: { schema: { type: object } } } }
+        '202': { description: Audited system operation accepted, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoActionResult' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+
+  /v1/admin/storage/plan:
+    post:
+      operationId: previewRegadoStoragePlan
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RegadoLayoutRequest' } } }
+      responses:
+        '200': { description: Non-mutating layout preview with capability constraints, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoStoragePlan' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/admin/storage/apply:
+    post:
+      operationId: applyRegadoStoragePlan
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: '#/components/schemas/RegadoLayoutRequest' }
+                - type: object
+                  required: [reason, fingerprint, confirmation]
+                  properties:
+                    reason: { type: string, minLength: 10, maxLength: 500 }
+                    fingerprint: { type: string, minLength: 64, maxLength: 64 }
+                    confirmation: { type: string, maxLength: 256 }
+      responses:
+        '202': { description: Revalidated audited layout change queued, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoActionResult' } } } }
         default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }

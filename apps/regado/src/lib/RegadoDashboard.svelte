@@ -7,7 +7,7 @@
 		createAdminApi, adminSummaryOptions, adminSystemOptions, adminMetricsOptions,
 		adminUsersOptions, adminAuditOptions, adminLogsOptions, adminCaseContentOptions,
 	} from "@kaordo/api-client";
-	import type { AdminAccessCase, UserIdentity } from "@kaordo/contracts";
+	import type { AdminAccessCase, AdminDisk, AdminMount, AdminLayoutRequest, UserIdentity } from "@kaordo/contracts";
 	import { appPaths } from "@kaordo/links";
 	import { Button, ShieldCheckIcon } from "@kaordo/ui";
 	import AdminIntentDialog from "./AdminIntentDialog.svelte";
@@ -52,12 +52,21 @@
 	let busy = $state(false);
 	let intent = $state<AdminIntent | null>(null);
 	let reason = $state("");
+	let confirmation = $state("");
 
 	const queryClient = new QueryClient();
 	const refreshable = $derived(isRefreshableTab(tab));
 	const overviewPolicy = $derived({ enabled: refreshable, refetchInterval: refreshable ? 30_000 : false as const });
 	const summaryQuery = createQuery(() => ({ ...adminSummaryOptions(api), ...overviewPolicy }), () => queryClient);
-	const systemQuery = createQuery(() => ({ ...adminSystemOptions(api), ...overviewPolicy }), () => queryClient);
+	const systemQuery = createQuery(() => ({
+		...adminSystemOptions(api), enabled: refreshable,
+		refetchInterval: (query) => {
+			if (!refreshable) return false;
+			const data = query.state.data;
+			const running = data?.layoutReports?.some((report) => report.state === "running") || data?.replicationReports?.some((report) => report.state === "checking" || report.state === "repairing") || data?.mediaMaintenance?.state === "checking" || data?.mediaMaintenance?.state === "repairing";
+			return running ? 2_000 : 30_000;
+		},
+	}), () => queryClient);
 	const metricsQuery = createQuery(() => ({ ...adminMetricsOptions(api, timeWindow), ...overviewPolicy }), () => queryClient);
 	const usersQuery = createQuery(() => ({ ...adminUsersOptions(api, submittedSearch), enabled: tab === "Users" }), () => queryClient);
 	const auditQuery = createQuery(() => ({ ...adminAuditOptions(api), enabled: tab === "Audit" }), () => queryClient);
@@ -136,16 +145,37 @@
 	function openIntent(next: AdminIntent): void {
 		intent = next;
 		reason = "";
+		confirmation = "";
 		actionError = "";
 		notice = "";
 	}
 
-	function requestDataScrub(): void {
+	async function requestCopyCheck(path: string): Promise<void> {
+		if (busy) return;
+		busy = true;
+		operationError = "";
+		try {
+			const result = await api.action("check-storage", "Verify file copies, checksums and expired upload references", { target: path });
+			notice = result.output;
+			await refreshOverview();
+		} catch (cause) { operationError = errorMessage(cause); }
+		finally { busy = false; }
+	}
+
+ async function applyStorageLayout(body: AdminLayoutRequest & { fingerprint: string; confirmation: string; reason: string }): Promise<void> {
+  const result = await api.applyStorageLayout(body);
+  notice = result.output;
+  await refreshOverview();
+ }
+
+	function requestCopyRepair(path: string): void {
 		openIntent({
 			type: "action",
-			id: "scrub-data",
-			name: "Start Data1 scrub",
+			id: "repair-storage",
+			name: `Repair file copies in ${path}`,
+			target: path,
 		});
+		reason = "Restore two-copy storage and remove expired unreferenced uploads";
 	}
 
 	function requestDnsRestart(): void {
@@ -206,8 +236,12 @@
 				return;
 			}
 			case "action":
-				await api.action(selected.id, reason);
-				notice = `${selected.name} requested.`;
+				const result = await api.action(selected.id, reason, {
+					target: selected.target,
+					identity: selected.identity,
+					filesystem: selected.filesystem,
+				});
+				notice = result.output || `${selected.name} requested.`;
 				await refreshOverview();
 		}
 	}
@@ -261,7 +295,7 @@
 					System overview
 				</h1>
 				<p class="mt-2 text-sm text-muted-foreground">
-					Live service health, mirrored storage and accountable administration.
+					Live service health, dynamically discovered storage and accountable administration.
 				</p>
 			</div>
 			<Button
@@ -312,7 +346,11 @@
 				{system}
 				{summary}
 				{metrics}
-				onScrub={requestDataScrub}
+				actionBusy={busy}
+				onCheckCopies={(path) => void requestCopyCheck(path)}
+				onRepairCopies={requestCopyRepair}
+    onPreviewLayout={(body, signal) => api.previewStorageLayout(body, signal)}
+    onApplyLayout={applyStorageLayout}
 			/>
 		{:else if tab === "Logs"}
 			<LogsPanel
@@ -345,7 +383,6 @@
 			<SystemPanel
 				{system}
 				{metrics}
-				onScrub={requestDataScrub}
 				onRestartDns={requestDnsRestart}
 				onRestartService={requestServiceRestart}
 			/>
@@ -356,6 +393,7 @@
 <AdminIntentDialog
 	{intent}
 	bind:reason
+	bind:confirmation
 	{busy}
 	error={actionError}
 	onConfirm={() => void confirmIntent()}

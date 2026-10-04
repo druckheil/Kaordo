@@ -51,6 +51,10 @@ export type {
   AdminContent,
   AdminContentPage,
   AdminDisk,
+  AdminSwapDevice,
+  AdminMount,
+  AdminOperationProgress, AdminLayoutRequest, AdminStoragePlan, AdminLayoutReport, AdminReplicationReport,
+  AdminMediaMaintenance,
   AdminSystem,
   AdminMetrics,
   AdminLogs

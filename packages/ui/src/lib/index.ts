@@ -80,3 +80,11 @@ export { default as PencilIcon } from '@lucide/svelte/icons/pencil';
 export { default as LoaderCircleIcon } from '@lucide/svelte/icons/loader-circle';
 export { default as WifiOffIcon } from '@lucide/svelte/icons/wifi-off';
 export { default as FileIcon } from '@lucide/svelte/icons/file';
+
+export * as HoverCard from './components/ui/hover-card/index.js';
+export * as Popover from './components/ui/popover/index.js';
+export { Progress } from './components/ui/progress/index.js';
+export { default as InfoIcon } from '@lucide/svelte/icons/info';
+export { default as HardDriveIcon } from '@lucide/svelte/icons/hard-drive';
+export { default as UsbIcon } from '@lucide/svelte/icons/usb';
+export { default as ServerIcon } from '@lucide/svelte/icons/server';

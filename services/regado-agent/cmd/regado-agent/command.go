@@ -9,8 +9,6 @@ import (
 	"os/exec"
 )
 
-const dataRoot = "/srv/kaordo"
-
 var services = []string{
 	"kerno",
 	"nodo",
@@ -28,7 +26,6 @@ var actions = map[string][]string{
 	"restart-nodo":     {"systemctl", "restart", "nodo.service"},
 	"restart-livekit":  {"systemctl", "restart", "livekit.service"},
 	"restart-ddclient": {"systemctl", "restart", "ddclient.service"},
-	"scrub-data":       {"btrfs", "scrub", "start", dataRoot},
 }
 
 type commandRunner func(context.Context, ...string) (string, error)
@@ -40,8 +37,8 @@ func runCommand(ctx context.Context, args ...string) (string, error) {
 
 	command := exec.CommandContext(ctx, args[0], args[1:]...)
 	var output bytes.Buffer
-	command.Stdout = &limitWriter{writer: &output, remaining: 1 << 20}
-	command.Stderr = &limitWriter{writer: &output, remaining: 1 << 20}
+	writer := &limitWriter{writer: &output, remaining: 1 << 20}
+	command.Stdout, command.Stderr = writer, writer
 	if err := command.Run(); err != nil {
 		return output.String(), err
 	}

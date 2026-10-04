@@ -6,7 +6,7 @@ Kerno owns conversation and message metadata in PostgreSQL. Nodo owns uploaded b
 
 This implementation does not provide end-to-end encryption or push notifications. Do not describe it as a secure messenger. The documented Synapse instance is not part of this running slice.
 
-Run `pnpm dev` at the repository root. The static production frontend is assembled by `pnpm build:pages`.
+Run `pnpm dev` at the repository root. The static production frontend is assembled by `pnpm build:pages:production`.
 
 ## Code organization
 

@@ -13,13 +13,11 @@
 	let {
 		system,
 		metrics,
-		onScrub,
 		onRestartDns,
 		onRestartService,
 	}: {
 		system: AdminSystem | null;
 		metrics: AdminMetrics | null;
-		onScrub: () => void;
 		onRestartDns: () => void;
 		onRestartService: (service: RestartableService) => void;
 	} = $props();
@@ -39,7 +37,7 @@
 
 <section class="mt-6 grid gap-4 lg:grid-cols-2">
 	<div class="rounded-[1.4rem] border border-border bg-card p-6">
-		<p class="text-xs font-bold uppercase tracking-widest text-primary">NisOS host</p>
+		<p class="text-xs font-bold uppercase tracking-widest text-primary">Server</p>
 		<h2 class="mt-2 text-2xl font-bold">{system?.hostname || "Local server"}</h2>
 		<p class="mt-2 text-sm text-muted-foreground">Last sample {formatDateTime(system?.time)}</p>
 		<p class="mt-3 text-sm text-muted-foreground">
@@ -67,7 +65,6 @@
 			Actions run through a local allowlisted agent. Every request requires a reason and is written to the audit before execution.
 		</p>
 		<div class="mt-5 flex flex-wrap gap-2">
-			<Button variant="outline" onclick={onScrub}>Scrub Data1</Button>
 			<Button variant="outline" onclick={onRestartDns}>Restart DNS updater</Button>
 		</div>
 	</div>

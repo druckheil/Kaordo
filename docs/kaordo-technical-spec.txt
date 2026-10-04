@@ -1,5 +1,5 @@
 KAORDO — TECHNICAL SPECIFICATION
-Updated: 2026-10-03; implemented accounts, Fluo, Ligo, Rondo and Regado
+Updated: 2026-10-04; implemented accounts, Fluo, Ligo, Rondo and Regado
 
 Repository: independent SvelteKit applications in apps/, shared browser
 packages in packages/, Go services in services/, local service definitions in
@@ -142,10 +142,40 @@ independent key copy. The dumps and media are not transactionally atomic.
 
 Regado: /regado/ is hidden from the portal and checks the current admin role.
 It shows CPU/RAM/load/network/disk history from local Prometheus + Node Exporter,
-Data1 usage and RAID1 profiles, scrub results, physical disk SMART data,
-photo/video/file usage, per-service journal filters/downloads, user usage,
-disable/enable and administrator role controls, and administrator audit records.
-A group-protected Unix agent supports fixed service restarts and Btrfs scrub.
+host-discovered physical devices, partition roles and filesystem capacity, applicable Btrfs
+profiles and scrub results, disk SMART data, photo/video/file usage, per-service
+journal filters/downloads, user usage, disable/enable and administrator role
+controls, and administrator audit records. A group-protected Unix agent
+supports fixed service restarts, reviewed role allocations, and background
+copy checks/repairs for a selected mounted Btrfs data pool. Storage follows
+Host -> Physical device -> Partition -> Role. Hardware identity and SATA/USB
+connection remain independent of System/Storage roles. Disko initializes
+verified blank devices from generated declarations. Existing GPT layouts use
+systemd-repart dry runs and incremental changes, preserving partition starts
+and existing data. Requests require a current geometry fingerprint, the exact
+device path and an audit reason; privileged storage jobs are serialized.
+New ext4 System volumes mount by UUID for data. This does not install another
+NixOS or move current service state. Raw Storage partitions join the selected
+mounted Btrfs pool through btrfs-progs. Existing System resizing, shrink,
+movement, removal and filesystem migration require offline maintenance.
+The adapter currently supports ext4 System and existing Btrfs pools, not
+every Disko backend or remote NAS provisioning. Native NixOS/systemd services
+remain in use; Podman/Quadlet is not a storage-layout implementation.
+The NixOS section
+identifies the root partition's physical disk, usage, OS version and RAM swap.
+Disk inventory exposes usable free regions; tiny GPT/alignment gaps and
+BIOS/EFI support partitions remain in collapsed metadata details. Capacity distinguishes physical
+bytes including replicas from usable unique bytes after RAID1 duplication.
+File-copy percentages count regular files: duplicated, single-copy, surplus
+and unverified. Uniform redundant profiles and distinct online physical disks
+establish placement; mixed/unknown profiles remain unverified. Check uses a
+read-only checksum scan and inventories files. Repair restores nonredundant
+profiles, runs a repairing scan and asks Nodo to remove only uploads older
+than 24 hours with freshly confirmed absent references. Missing replicas are
+never surplus. Measured phase progress uses scrub bytes, balance chunks,
+inventory counts and layout steps; unknown totals show activity and counts
+instead of a simulated percentage. Checksums do not cover NOCOW contents;
+reports are timestamped in memory and require another check after restart.
 A reason is required for privileged operations. A 15-minute content access case
 notifies the target in Ligo Saved messages. Reads are audited; closure ends access
 on the server. Signed media URLs remain usable for at most one minute.

@@ -1,11 +1,12 @@
 # Kaordo on NixOS
 
-The host uses one 64 GiB ext4 root partition labeled `NisOS`. The remaining
+The host uses one 64 GiB ext4 root partition labeled `NixOS`. The remaining
 867.5 GiB on that drive and 867.5 GiB on the second drive form the Btrfs
 filesystem `Data1`, mounted at `/srv/kaordo` with RAID1 data and metadata.
-The first 64 GiB of the second drive is deliberately unallocated. `Data1`
+The first 64 GiB of the second drive is available for role allocation. `Data1`
 provides about 867 GiB of usable mirrored space, not 1.7 TiB. NixOS is
-installed only on the first drive.
+installed only on the root-owning drive (currently `/dev/sdb`). Device names are
+observations, not discovery rules.
 
 `kaordo.nix` is imported by `/etc/nixos/configuration.nix`. PostgreSQL,
 Keycloak, LiveKit, Kerno, Nodo, Caddy, ddclient, Prometheus, Node Exporter,
@@ -38,6 +39,24 @@ an SSH port forward when needed.
 
 ## Provisioning and updates
 
+Deploy only the static applications with:
+
+```sh
+KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:pages:production
+```
+
+The command requires a clean Git tree by default; `--allow-dirty` explicitly
+marks an intentional uncommitted release. It builds with the public HTTPS
+origin, scans every production JavaScript bundle for local service URLs, tests
+the static artifact, uploads a checksummed release, and asks the server to
+verify Kerno, Nodo, Keycloak and Caddy before switching `www/current`. The
+switch is atomic. It compares the served Portal and Regado HTML with the new
+release and rechecks the auth iframes and service health; any failed post-check
+restores the previous symlink. Old releases and rollback targets are retained.
+This command deploys frontend files only; it does not run migrations or replace
+backend binaries. SSH uses `KAORDO_DEPLOY_SSH_KEY` when set, otherwise the
+standard `~/.ssh/id_ed25519` key or OpenSSH configuration.
+
 Never put runtime secrets in Git or the Nix store. The idempotent
 `provision-secrets.sh` creates root-readable files in
 `/srv/kaordo/secrets`; provide the Namecheap password separately in
@@ -45,7 +64,7 @@ Never put runtime secrets in Git or the Nix store. The idempotent
 file must be named `kaordo-realm.json` so Keycloak imports it. The NixOS
 module recreates its import symlink whenever Keycloak starts.
 
-Build static apps with `pnpm build:pages` and cross-build Kerno, Nodo, and
+Build static apps with `pnpm build:pages:production` and cross-build Kerno, Nodo, and
 Regado Agent for Linux amd64 with `CGO_ENABLED=0`. Copy release files to
 `Data1`, run `apply-migrations.sh`, then run `nixos-rebuild switch`. Migrations
 must precede a Kerno restart because Kerno requires the Regado tables. It applies the SQL
@@ -62,8 +81,13 @@ existing DruckHeil account by verifying its exact Kaordo user ID and
 Keycloak subject in PostgreSQL, then inserting that ID into `user_roles`.
 Do not create an administrator merely because an account chooses the name
 `DruckHeil`. Admin operations and content access cases are written to
-`admin_audit`. The only supported system actions are restart of Nodo,
-LiveKit or ddclient, and starting a Data1 Btrfs scrub.
+`admin_audit`. Supported system actions include fixed restarts of Nodo, LiveKit
+or ddclient, reviewed Disko/systemd-repart layouts, and background check/repair of a
+selected mounted Btrfs data pool. Check refreshes checksum and file inventory
+evidence; repair restores mirror placement and repairs from valid copies.
+Nodo independently audits upload references and only cleans expired unused
+artifacts after a fresh reference/retention check. The agent needs writable
+`/var/lib/btrfs` for scrub history; the module supplies this sandbox path.
 SMART reads use smartmontools and are cached for five minutes. Standby disks
 are not deliberately awakened for a dashboard refresh. Unsupported health
 checks are shown as unavailable rather than being counted as healthy.
@@ -89,3 +113,24 @@ storage before treating the deployment as backed up.
 Service entry points now separate configuration/wiring from feature behavior. Kerno/Nodo drain HTTP before closing pools and background processing; service paths and environment contracts stay compatible with this module. The maintainability refactor does not itself rebuild or deploy the remote host. Run the [local verification matrix](../../docs/refactoring.md) before an explicitly authorized release and recheck host health afterward.
 
 The network observations above describe provisioning, not a fresh reachability check. Recheck router shares, DNS and TURN from an external network before making public call-availability claims.
+
+## Declarative role allocation
+
+The module installs Disko from the pinned NixOS package set, systemd-repart,
+btrfs-progs and filesystem tools. Regado's protected agent stages approvals in
+`/var/lib/regado-agent`; Nix uses its pinned `NIX_PATH` and a private writable
+`/tmp`. `kaordo-system-volumes.service` mounts prepared ext4 System partitions
+by UUID through host systemd. These are data volumes, not automatically installed
+operating systems. The current root is still the only NixOS installation.
+
+Blank-device initialization is explicit and reviewed. NixOS rebuilds never
+apply a pending Disko declaration. On existing devices systemd-repart is run
+with `--empty=refuse`, first as a dry run, and may only preserve/add or grow
+partitions. Offline shrink/move/OS installation is a separate operator workflow.
+Read the [tool selection and verification](../storage/README.md).
+
+Before enabling this agent version, install its new binary together with the
+module: the new mount oneshot requires `--mount-system-volumes`. Build the NixOS
+closure first, retain previous binaries/module/closure, switch once, and check
+the protected socket plus Kerno/Nodo/Keycloak/Caddy health before switching the
+static frontend. Existing disk sizes and boot UUIDs are preserved by deployment.

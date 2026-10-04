@@ -2,7 +2,7 @@
 
 Independent SvelteKit entry application with sign-in and registration routes. The credential and TOTP forms are hosted by Keycloak; the portal uses OIDC Authorization Code with PKCE through `@kaordo/auth`.
 
-The combined static build is assembled by the repository root `build:pages` command. Public browser settings come from the repository root `.env` during the build.
+The combined static development build is assembled by `pnpm build:pages` and reads browser settings from the repository root `.env`. Use `pnpm build:pages:production` for deployment; it forces the configured public HTTPS origin for Keycloak, Kerno, and Nodo.
 
 ## Code organization
 
