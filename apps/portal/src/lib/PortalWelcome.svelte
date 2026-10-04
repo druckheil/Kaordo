@@ -23,8 +23,7 @@
 	const messageState = $derived(portalWelcomeMessage(loading, user, accountPreview));
 </script>
 
-<section class="relative mt-8 overflow-hidden rounded-[2rem] border border-border bg-card px-6 py-8 shadow-xl sm:px-10 sm:py-10">
-	<div class="pointer-events-none absolute -right-24 -top-28 size-80 rounded-full bg-primary-soft blur-3xl" aria-hidden="true"></div>
+<section class="mt-8 rounded-[2rem] border border-border bg-card bg-radial-[at_top_right] from-primary-soft to-transparent to-70% px-6 py-8 shadow-xl sm:px-10 sm:py-10">
 	<div class="relative max-w-2xl">
 		<p class="text-xs font-semibold uppercase tracking-[0.2em] text-link">One space, many ways to connect</p>
 		<h1 class="mt-4 text-4xl font-bold leading-[1.08] tracking-[-0.055em] sm:text-5xl">Your connected space.</h1>
