@@ -7,6 +7,7 @@ import { parseEnv } from 'node:util';
 import { assertAvailablePorts } from './local-ports.mjs';
 import { productMigrations } from './product-migrations.mjs';
 import { startLocalSession } from './local-session.mjs';
+import { localDevelopmentPorts, localFrontendServers } from './local-vite.mjs';
 import { syncKeycloak } from './sync-keycloak.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -104,8 +105,8 @@ async function ensureConfiguration() {
   return ensurePrivateConfiguration();
 }
 
-function start(command, args, environment = process.env) {
-  const child = spawn(command, args, { cwd: root, env: environment, stdio: 'inherit' });
+function start(command, args, environment = process.env, cwd = root) {
+  const child = spawn(command, args, { cwd, env: environment, stdio: 'inherit' });
   children.add(child);
   child.once('error', (error) => startErrors.set(child, error));
   child.once('close', () => children.delete(child));
@@ -229,12 +230,21 @@ async function buildAndStartNodo(privateConfig) {
   return child;
 }
 
-async function buildAndStartWebsite() {
-  console.log('Building the five application routes…');
-  await run('pnpm', ['build:pages']);
-  const child = start(process.execPath, ['scripts/serve-pages.mjs']);
-  await waitFor('http://127.0.0.1:8765/login/', 10_000, child);
-  return child;
+async function startFrontendApplications() {
+  console.log('Starting five Vite development servers with HMR…');
+  const environment = { ...process.env, KAORDO_LOCAL_DEV: '1' };
+  const applications = localFrontendServers.map((application) => {
+    const appDirectory = resolve(root, 'apps', application.id);
+    const viteCli = resolve(appDirectory, 'node_modules/vite/bin/vite.js');
+    const child = start(process.execPath, [viteCli, 'dev'], environment, appDirectory);
+    return { application, child };
+  });
+
+  await Promise.all(applications.map(({ application, child }) =>
+    waitFor(`http://127.0.0.1:${application.port}${application.readyPath}`, 60_000, child)
+  ));
+
+  return applications.map(({ application, child }) => [`${application.name} Vite`, child]);
 }
 
 async function waitForApplicationExit(services) {
@@ -257,22 +267,17 @@ async function waitForApplicationExit(services) {
 }
 
 async function startApplicationServices(privateConfig) {
-  const services = [
-    ['Kerno', await buildAndStartKerno(privateConfig)],
-    ['Nodo', await buildAndStartNodo(privateConfig)],
-    ['Kaordo site', await buildAndStartWebsite()]
-  ];
+  const kerno = await buildAndStartKerno(privateConfig);
+  const nodo = await buildAndStartNodo(privateConfig);
+  const frontendServices = await startFrontendApplications();
+  const services = [['Kerno', kerno], ['Nodo', nodo], ...frontendServices];
   console.log('Ready: http://localhost:8765/login/');
   console.log('Press Ctrl+C to stop local processes, or run pnpm dev:stop to stop them and Docker services.');
   await waitForApplicationExit(services);
 }
 
 async function startLocalDevelopment() {
-  await assertAvailablePorts([
-    { name: 'Kerno', port: 8081 },
-    { name: 'Nodo', port: 8082 },
-    { name: 'Kaordo site', port: 8765 }
-  ]);
+  await assertAvailablePorts(localDevelopmentPorts);
   closeSession = await startLocalSession(stop);
   const privateConfig = await ensureConfiguration();
   await ensureDockerAvailable();

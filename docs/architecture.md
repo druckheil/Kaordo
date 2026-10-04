@@ -4,7 +4,7 @@ Scope 0.0.1 establishes package boundaries. Working slices include local registr
 
 ```mermaid
 flowchart LR
-  Browser --> Site[Local static apps]
+  Browser --> Site[Local Vite HMR proxy]
   Browser --> Kerno[Local Kerno: Go API]
   Browser --> Keycloak[Local Keycloak: identity]
   Browser --> Nodo[Local Nodo: tus upload and signed media]
@@ -15,7 +15,7 @@ flowchart LR
   Nodo --> Disks[Local media directory]
 ```
 
-The browser apps are separately built from one pnpm workspace and assembled as one static Pages site. Shared TypeScript packages hold UI, OIDC integration, account access, typed API and pagination policy, media upload, contracts, cryptography, and cross-app links.
+The browser apps are independent SvelteKit projects in one pnpm workspace. Local development runs one Vite server per app behind a same-origin proxy, preserving auth and API origins while supporting HMR. Release builds are still assembled as one static Pages site. Shared TypeScript packages hold UI, OIDC integration, account access, typed API and pagination policy, media upload, contracts, cryptography, and cross-app links.
 
 Kerno is a modular Go service for business data and authorization. It validates Keycloak access tokens, creates the local user record, and stores Fluo posts, Ligo messages and Rondo metadata. Nodo is an independent Go service for authenticated resumable uploads, image/video processing, and generic files. Kerno checks upload ownership before linking an attachment; authorized responses receive short-lived signed Nodo links. The Go workspace keeps Kerno, Nodo, Regado Agent and the signing module independently buildable. Local Keycloak, PostgreSQL and LiveKit are defined in `deploy/local/compose.yaml`; Synapse and observability are not deployed by the local Compose stack.
 
@@ -27,7 +27,7 @@ All apps use the shared STaSBRL stack (Svelte/SvelteKit, Tailwind CSS, shadcn-sv
 
 Regado is absent from the public app directory and is available at `/regado/` to accounts with the current database `admin` role. Kerno checks that role and the disabled-account flag on every admin request. The dashboard uses shared STaSBRL components and uPlot for Prometheus history. A root Regado agent reads Btrfs, SMART and service journals over a group-protected Unix socket; fixed maintenance actions require an audited reason. User status and role changes are transactional. A 15-minute content access case writes an immutable notification to the target's Ligo Saved messages, audits reads and can be closed early. Existing plaintext data has no user-held encryption key or system escrow key.
 
-The root Pages build has paths `/`, `/login/`, `/register/`, `/agordoj/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. The development profile serves those files locally. The NixOS production deployment uses Caddy HTTPS at `kaordo.link` with Namecheap dynamic DNS; Cloudflare Pages and Tunnel are not used by that profile. Fluo's initial discovery order is reverse chronological with a following filter; it works from one account onward without training data. Nodo processes uploaded media in its configured directory. Production PostgreSQL, media, metrics, static releases and secrets are stored on Data1, a two-device Btrfs RAID1 filesystem. NixOS has one separate 64 GiB root partition. Private-content encryption and an independent backup destination remain unconfigured. Deployment details are in `deploy/nixos/README.md`.
+The root Pages build has paths `/`, `/login/`, `/register/`, `/agordoj/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. The local development profile proxies each Vite server at those paths; production serves the static release. The NixOS production deployment uses Caddy HTTPS at `kaordo.link` with Namecheap dynamic DNS; Cloudflare Pages and Tunnel are not used by that profile. Fluo's initial discovery order is reverse chronological with a following filter; it works from one account onward without training data. Nodo processes uploaded media in its configured directory. Production PostgreSQL, media, metrics, static releases and secrets are stored on Data1, a two-device Btrfs RAID1 filesystem. NixOS has one separate 64 GiB root partition. Private-content encryption and an independent backup destination remain unconfigured. Deployment details are in `deploy/nixos/README.md`.
 
 ## Refactored ownership
 
