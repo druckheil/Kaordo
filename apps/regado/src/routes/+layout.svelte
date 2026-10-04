@@ -3,7 +3,10 @@
 
   import './layout.css';
 
+  import { ThemeProvider } from '@kaordo/ui';
+
   let { children } = $props();
 </script>
 
+<ThemeProvider />
 {@render children()}

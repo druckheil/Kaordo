@@ -3,6 +3,7 @@ import { cp, mkdir, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { createBuildEnvironment } from './build-pages-config.mjs';
+import './sync-theme.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const output = resolve(root, 'dist/pages');

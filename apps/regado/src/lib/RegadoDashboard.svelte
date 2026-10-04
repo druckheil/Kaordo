@@ -9,7 +9,7 @@
 	} from "@kaordo/api-client";
 	import type { AdminAccessCase, AdminDisk, AdminMount, AdminLayoutRequest, UserIdentity } from "@kaordo/contracts";
 	import { appPaths } from "@kaordo/links";
-	import { Button, ShieldCheckIcon } from "@kaordo/ui";
+	import { ArrowUpRightIcon, Button, ShieldCheckIcon, ThemeToggle } from "@kaordo/ui";
 	import AdminIntentDialog from "./AdminIntentDialog.svelte";
 	import AuditPanel from "./AuditPanel.svelte";
 	import LogsPanel from "./LogsPanel.svelte";
@@ -267,23 +267,24 @@
 		class="sticky top-0 z-20 border-b border-border bg-background/90 px-4 py-3 backdrop-blur-xl sm:px-8"
 	>
 		<div class="mx-auto flex max-w-7xl items-center justify-between gap-4">
-			<div class="flex items-center gap-3">
+			<div class="flex min-w-0 items-center gap-2 sm:gap-3">
 				<span
 					class="grid size-10 place-items-center rounded-[14px] bg-primary text-primary-foreground"
 					><ShieldCheckIcon class="size-5" /></span
 				>
 				<div>
 					<p class="text-sm font-bold tracking-tight">Regado</p>
-					<p class="text-xs text-muted-foreground">Kaordo administration</p>
+					<p class="hidden text-xs text-muted-foreground min-[400px]:block">Kaordo administration</p>
 				</div>
 			</div>
-			<div class="flex items-center gap-4 text-sm">
+			<div class="flex shrink-0 items-center gap-2 text-sm sm:gap-4">
 				<span class="hidden text-muted-foreground sm:inline"
 					>@{user.username}</span
-				><a
-					class="font-semibold text-primary hover:underline"
-					href={appPaths.portal}>All apps ↗</a
 				>
+				<Button href={appPaths.portal} variant="ghost" size="sm">
+					All apps <ArrowUpRightIcon class="size-4" />
+				</Button>
+				<ThemeToggle />
 			</div>
 		</div>
 	</header>

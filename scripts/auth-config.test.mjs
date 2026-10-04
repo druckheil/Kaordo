@@ -1,7 +1,9 @@
+// Checks Keycloak policy reconciliation, registration fields, and the shared identity theme
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { addPasswordConfirmation } from '../deploy/keycloak/themes/kaordo/login/resources/js/register.js';
 import { syncKeycloak, syncRealmSecurity } from './sync-keycloak.mjs';
 
@@ -10,6 +12,58 @@ const realm = JSON.parse(readFileSync(resolve(root, 'deploy/keycloak/kaordo-real
 const web = realm.clients.find((client) => client.clientId === 'kaordo-web');
 const registrationProfile = JSON.parse(readFileSync(resolve(root, 'deploy/keycloak/registration-profile.json'), 'utf8'));
 const adminBase = 'http://127.0.0.1:8080/admin/realms/kaordo';
+
+test('Keycloak serves the same Deep Purple tokens as the shared UI', () => {
+  const palette = readFileSync(resolve(root, 'packages/ui/src/lib/themes/deep-purple.css'), 'utf8');
+  const generated = readFileSync(resolve(root, 'deploy/keycloak/themes/kaordo/login/resources/css/deep-purple.css'), 'utf8');
+  assert.equal(generated.slice(generated.indexOf('\n') + 1), palette, 'Run node scripts/sync-theme.mjs after palette changes');
+  const properties = readFileSync(resolve(root, 'deploy/keycloak/themes/kaordo/login/theme.properties'), 'utf8');
+  assert.match(properties, /styles=.*css\/deep-purple\.css.*css\/kaordo\.css/);
+  assert.match(properties, /scripts=js\/theme\.js/);
+});
+
+test('identity forms apply stored mode immediately and track system and other tabs', () => {
+  const script = readFileSync(resolve(root, 'deploy/keycloak/themes/kaordo/login/resources/js/theme.js'), 'utf8');
+  for (const [preference, systemDark, expected] of [
+    ['light', true, false], ['dark', false, true], [null, true, true],
+    ['system', false, false], ['invalid', true, true],
+  ]) {
+    let saved = preference;
+    let dark;
+    const listeners = {};
+    const media = { matches: systemDark, addEventListener: (name, listener) => { listeners.system = listener; } };
+    const html = { classList: { toggle: (name, value) => { assert.equal(name, 'dark'); dark = value; } }, style: {}, dataset: {} };
+    runInNewContext(script, {
+      document: { documentElement: html },
+      localStorage: { getItem: (key) => { assert.equal(key, 'kaordo.color-mode'); return saved; } },
+      window: { matchMedia: () => media, addEventListener: (name, listener) => { listeners[name] = listener; } },
+    });
+    assert.equal(dark, expected);
+    assert.equal(html.style.colorScheme, expected ? 'dark' : 'light');
+    assert.equal(html.dataset.theme, 'deep-purple');
+    saved = 'dark';
+    listeners.storage({ key: 'kaordo.color-mode' });
+    assert.equal(dark, true);
+    saved = null;
+    media.matches = false;
+    listeners.system();
+    assert.equal(dark, false);
+    media.matches = true;
+    listeners.storage({ key: null });
+    assert.equal(dark, true, 'Clearing storage restores the system preference');
+  }
+});
+
+test('identity forms use the system mode when preference storage is unavailable', () => {
+  const script = readFileSync(resolve(root, 'deploy/keycloak/themes/kaordo/login/resources/js/theme.js'), 'utf8');
+  let dark;
+  runInNewContext(script, {
+    document: { documentElement: { classList: { toggle: (name, value) => { dark = value; } }, style: {}, dataset: {} } },
+    localStorage: { getItem: () => { throw new Error('Storage is unavailable'); } },
+    window: { matchMedia: () => ({ matches: true, addEventListener() {} }), addEventListener() {} },
+  });
+  assert.equal(dark, true);
+});
 
 // Existing client-mapper tests isolate that contract; realm policy has its own
 // stateful tests below instead of making every unrelated mock emulate Keycloak.

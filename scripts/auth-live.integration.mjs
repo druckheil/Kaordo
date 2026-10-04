@@ -1,3 +1,4 @@
+// Exercises native identity forms, account bootstrap, media workflows, and cross-app sessions
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
@@ -126,6 +127,39 @@ async function removeTemporaryUser(username) {
     ]);
   }
 }
+
+test('identity theme follows persisted color mode on native credential forms', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ headless: true, executablePath: chrome });
+  try {
+    for (const mode of ['light', 'dark']) {
+      const context = await browser.newContext({ colorScheme: mode === 'dark' ? 'light' : 'dark' });
+      await context.addInitScript((preference) => localStorage.setItem('kaordo.color-mode', preference), mode);
+      const page = await context.newPage();
+      const url = new URL(`${identity}/realms/kaordo/protocol/openid-connect/auth`);
+      url.search = new URLSearchParams({
+        client_id: 'kaordo-web', redirect_uri: `${site}/`, response_type: 'code', scope: 'openid',
+        code_challenge: randomBytes(32).toString('base64url'), code_challenge_method: 'S256',
+      });
+      await page.goto(url.href);
+      await page.locator('#kc-form-login').waitFor();
+      assert.equal(await page.evaluate(() => document.documentElement.classList.contains('dark')), mode === 'dark',
+        'Saved preference overrides the opposite system setting before the form is shown');
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'deep-purple');
+      for (const form of ['login', 'registration']) {
+        if (form === 'registration') await page.getByRole('link', { name: 'Register', exact: true }).click();
+        for (const width of [1280, 320]) {
+          await page.setViewportSize({ width, height: 800 });
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+            `${form} reflows at ${width}px in ${mode} mode`);
+          await checkAccessibility(page, `${form} ${mode} ${width}px`);
+        }
+      }
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});
 
 test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo and app SSO', { timeout: 210_000 }, async () => {
   const username = `test_${randomBytes(6).toString('hex')}`;

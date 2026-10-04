@@ -8,6 +8,8 @@ export { Textarea } from './components/ui/textarea/index.js';
 // Shared application shells
 export { default as ModuleLanding } from './ModuleLanding.svelte';
 export { default as AppHeader } from './AppHeader.svelte';
+export { default as ThemeProvider } from './ThemeProvider.svelte';
+export { default as ThemeToggle } from './ThemeToggle.svelte';
 
 // Composite interaction components
 export * as Dialog from './components/ui/dialog/index.js';

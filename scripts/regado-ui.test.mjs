@@ -43,7 +43,7 @@ async function accessibility(page, section) {
 	assert.deepEqual(
 		violations.map((item) => ({
 			id: item.id,
-			targets: item.nodes.map((node) => node.target),
+			targets: item.nodes.map(({ target, html, failureSummary }) => ({ target, html, failureSummary })),
 		})),
 		[],
 		`${section}: automated accessibility`,
@@ -332,10 +332,17 @@ test(
 		await page.getByText(/horizontal axis is local time/).waitFor();
 		await page.keyboard.press("Escape");
 		await accessibility(page, "Overview");
+		const theme = page.getByRole("button", { name: "Dark mode", exact: true });
+		await theme.click();
+		assert.equal(await theme.getAttribute("aria-pressed"), "true");
+		await accessibility(page, "Dark overview");
+		await theme.click();
 		for (const section of ["Storage", "Logs", "Users", "Audit", "System"]) {
 			await page.getByRole("button", { name: section, exact: true }).click();
 			await page.waitForTimeout(100);
 			await accessibility(page, section);
+			await theme.click();
+			await accessibility(page, `Dark ${section}`);
 			await page.setViewportSize({ width: 320, height: 700 });
 			await page.evaluate(
 				() =>
@@ -350,6 +357,7 @@ test(
 				`${section}: no page horizontal overflow at 320px`,
 			);
 			await page.setViewportSize({ width: 1440, height: 900 });
+			await theme.click();
 		}
 		await page.getByRole("button", { name: "Logs", exact: true }).click();
 		await page.getByText("32.0 MiB", { exact: true }).waitFor();

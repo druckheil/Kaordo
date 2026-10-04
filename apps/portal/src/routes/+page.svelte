@@ -12,7 +12,7 @@
 	import { signOut } from "@kaordo/auth";
 	import type { UserIdentity } from "@kaordo/contracts";
 	import { appPaths } from "@kaordo/links";
-	import { Button, LogOutIcon } from "@kaordo/ui";
+	import { Button, LogOutIcon, ThemeToggle } from "@kaordo/ui";
 	import PortalApps from "$lib/PortalApps.svelte";
 	import PortalWelcome from "$lib/PortalWelcome.svelte";
 
@@ -81,20 +81,23 @@
 			Kaordo
 		</a>
 
-		{#if authenticated === null}
-			{#if accountPreview}
+		<div class="ml-auto flex items-center gap-2">
+			{#if authenticated === null}
+				{#if accountPreview}
+					<Button variant="ghost" onclick={logOut}><LogOutIcon class="size-4" /> Sign out</Button>
+				{:else}
+					<div class="h-10 w-40 rounded-xl bg-muted/70" aria-hidden="true"></div>
+				{/if}
+			{:else if authenticated}
 				<Button variant="ghost" onclick={logOut}><LogOutIcon class="size-4" /> Sign out</Button>
 			{:else}
-				<div class="h-10 w-40 rounded-xl bg-muted/70" aria-hidden="true"></div>
+				<div class="flex gap-2">
+					<Button href="/login/" variant="outline">Sign in</Button>
+					<Button href="/register/">Create account</Button>
+				</div>
 			{/if}
-		{:else if authenticated}
-			<Button variant="ghost" onclick={logOut}><LogOutIcon class="size-4" /> Sign out</Button>
-		{:else}
-			<div class="flex gap-2">
-				<Button href="/login/" variant="outline">Sign in</Button>
-				<Button href="/register/">Create account</Button>
-			</div>
-		{/if}
+			<ThemeToggle />
+		</div>
 	</header>
 
 	<PortalWelcome

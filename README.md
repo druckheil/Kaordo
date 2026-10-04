@@ -11,7 +11,7 @@ Kaordo is being rebuilt as independent applications in one repository. Local acc
 | `apps/fluo` | Social frontend |
 | `apps/rondo` | Community frontend |
 | `apps/regado` | Administration frontend |
-| `packages/ui` | Shared STaSBLR components with the Rhea style |
+| `packages/ui` | Shared STaSBRL components with the Rhea style |
 | `packages/auth`, `api-client`, `account-ui`, `chat-ui`, `contracts`, `crypto`, `links`, `media-client`, `media-ui`, `voice-client` | Shared authentication, typed API, account and chat UI, contracts, links, media upload, and LiveKit client |
 | `services/kerno` | Go API and metadata coordinator |
 | `services/nodo` | Go file storage and tus uploads |
@@ -19,7 +19,7 @@ Kaordo is being rebuilt as independent applications in one repository. Local acc
 | `services/regado-agent` | Restricted Linux monitoring and maintenance over a Unix socket |
 | `deploy` | Local Compose and production NixOS profiles |
 
-Every frontend is a separate SvelteKit static build. `build:pages` assembles them under one Pages artifact: `/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. The UI package owns shadcn-svelte components, Bits UI primitives, Lucide icons, and the official Rhea preset.
+Every frontend is a separate SvelteKit static build. `build:pages` assembles them under one Pages artifact: `/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. The UI package owns shadcn-svelte components, Bits UI primitives, Lucide icons, and the official Rhea preset. Deep Purple is the shared light/dark theme; the top-right header toggle preserves its mode across navigation, reload and tabs, with the initial mode following the operating system.
 
 ## Run locally
 

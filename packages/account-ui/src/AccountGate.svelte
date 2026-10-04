@@ -70,7 +70,7 @@
 {:else if snapshot.user}
   {@render children(snapshot.user)}
 {:else}
-  <section class="mx-auto mt-12 max-w-lg rounded-[1.75rem] border border-border bg-card p-7 shadow-[0_24px_80px_-48px_rgba(21,75,43,.45)] sm:p-9"
+  <section class="mx-auto mt-12 max-w-lg rounded-[1.75rem] border border-border bg-card p-7 shadow-xl sm:p-9"
     aria-label={`${appName} account access`}>
     <div class="grid size-12 place-items-center rounded-2xl bg-accent"><ShieldCheckIcon class="size-6 text-primary" /></div>
     <svelte:element this={compact ? 'h2' : 'h1'} class="mt-6 text-2xl font-bold tracking-[-0.04em]">

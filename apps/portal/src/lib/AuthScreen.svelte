@@ -5,7 +5,7 @@
 	import { authConfigFromEnv, initializeAuth, signIn, signUp } from "@kaordo/auth";
 	import { clearAccountPreview } from "@kaordo/account-ui";
 	import { appPaths } from "@kaordo/links";
-	import { ArrowRightIcon, Button, ShieldCheckIcon } from "@kaordo/ui";
+	import { ArrowRightIcon, Button, ShieldCheckIcon, ThemeToggle } from "@kaordo/ui";
 	import {
 		authModeCopy,
 		hasStartedIdentityRedirect,
@@ -73,16 +73,19 @@
 	<div class="pointer-events-none absolute -left-24 -top-40 size-[30rem] rounded-full bg-accent/80 blur-3xl" aria-hidden="true"></div>
 	<div class="pointer-events-none absolute -bottom-48 -right-28 size-[32rem] rounded-full bg-secondary/80 blur-3xl" aria-hidden="true"></div>
 	<div class="relative w-full max-w-md">
-		<a
-			class="mb-8 inline-flex items-center gap-2 rounded-xl text-lg font-bold tracking-[-0.04em] text-primary focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring"
-			href={appPaths.portal}
-		>
-			<span class="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">K</span>
-			Kaordo
-		</a>
+		<header class="mb-8 flex items-center justify-between gap-3">
+			<a
+				class="inline-flex items-center gap-2 rounded-xl text-lg font-bold tracking-[-0.04em] text-primary focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring"
+				href={appPaths.portal}
+			>
+				<span class="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">K</span>
+				Kaordo
+			</a>
+			<ThemeToggle />
+		</header>
 
 		<section
-			class="rounded-[1.75rem] border border-border bg-card p-7 shadow-[0_24px_80px_-40px_rgba(21,75,43,.45)] sm:p-9"
+			class="rounded-[1.75rem] border border-border bg-card p-7 shadow-xl sm:p-9"
 			aria-label={copy.accessibleName}
 		>
 			<div class="grid size-12 place-items-center rounded-2xl bg-accent">

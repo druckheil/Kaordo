@@ -2,6 +2,7 @@
   // Provides the shared Kaordo header and accessible app navigation
   import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
   import { Button } from './components/ui/button/index.js';
+  import ThemeToggle from './ThemeToggle.svelte';
 
   interface Props {
     name: string;
@@ -43,9 +44,12 @@
       <span class="text-border" aria-hidden="true">/</span>
       <span class="truncate text-base font-bold tracking-tight">{name}</span>
     </div>
-    <Button href={homeHref} rel="external" variant="ghost" size="sm" class="shrink-0">
-      All apps
-      <ArrowUpRightIcon class="size-4" />
-    </Button>
+    <div class="flex shrink-0 items-center gap-1 sm:gap-2">
+      <Button href={homeHref} rel="external" variant="ghost" size="sm" class="shrink-0">
+        All apps
+        <ArrowUpRightIcon class="size-4" />
+      </Button>
+      <ThemeToggle />
+    </div>
   </div>
 </header>

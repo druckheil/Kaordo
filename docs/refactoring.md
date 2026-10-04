@@ -17,7 +17,7 @@ This is an engineering review with automated evidence, not a new ISO score or a 
 | Regado | Independent query resources and mutations; overview/storage/system/users/audit/log panels and action/access dialogs |
 | auth / account-ui | In-memory OIDC tokens; verified account bootstrap and nonauthorizing per-tab preview |
 | api-client / contracts | Typed requests, response/refresh policy, query keys, pagination, cancellation and immutable message-cache helpers; generated wire schemas |
-| ui / chat-ui | STaSBLR primitives and shared message/composer/native-scroll interaction |
+| ui / chat-ui | STaSBRL primitives and shared message/composer/native-scroll interaction |
 | media-client / media-ui / voice-client | Upload/resize workflow; metadata-based layout, PhotoSwipe/Vidstack; LiveKit room/track lifecycle and sounds |
 | Kerno | Configuration/wiring, HTTP authorization/orchestration, domain validation, Jet/pgx persistence split by operation |
 | Nodo | HTTP upload/media handlers, owner/quota validation, processing queue, image/video/file processing, purge/GC and worker lifecycle |
@@ -178,6 +178,31 @@ The live journal response reports 33,566,720 allocated bytes, a 256 MiB budget,
 reports a successful oneshot with exit code zero and an active waiting timer,
 including native last/next timestamps. This confirms real deployed telemetry;
 the earlier fixture tests cover administrator mutations and failure recovery.
+
+## Shared Deep Purple theme — 4 October 2026
+
+The STaSBRL design system now owns one Deep Purple palette for light and dark
+mode, including Fontsource typography, shadows and semantic Tailwind tokens.
+All five app root layouts mount `ThemeProvider`; headers compose the same Rhea
+Button/Lucide `ThemeToggle`. `mode-watcher` handles the pre-hydration head script,
+system preference, persisted choice and cross-tab synchronization. Hardcoded
+green decorative shadows were replaced with the theme tokens.
+
+Keycloak serves a generated copy of the canonical palette and a native head
+script using the same preference key. Its login footer and password visibility
+control now respect both modes; the footer no longer overflows a 320px viewport.
+Light muted/destructive and dark primary/accent tokens were adjusted for
+contrast on the existing tinted UI surfaces.
+
+Verification passed: Svelte checks with zero errors/warnings, 37 auth checks,
+52 dependency checks, nine static-build/config/asset/performance checks, five
+media/chat geometry checks, and headless public, Fluo, Ligo and Regado suites.
+Public checks exercise keyboard toggling, system-following behavior, explicit
+override, reload, cross-app tab synchronization and dark palette application
+with hydration scripts blocked. Regado accessibility checks cover every section
+in both modes. A read-only live Keycloak check passed for login/registration in
+light/dark mode at 1280px and 320px. It creates no account. This theme work did
+not change identity policy, wire schemas or backend behavior.
 
 ## Remaining boundaries
 
