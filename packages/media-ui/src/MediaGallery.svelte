@@ -32,6 +32,9 @@
 
   const firstAttachment = $derived(media[0]);
   const ratios = $derived(media.map(mediaFrameRatio));
+  const pairedPhotos = $derived(media.length === 2 && media.every(isImage));
+  const pairAspectRatio = $derived(pairedPhotos ? ratios.reduce((sum, ratio) => sum + ratio, 0) : 1);
+  const pairColumns = $derived(`${ratios[0] ?? 1}fr ${ratios[1] ?? 1}fr`);
   const widestRatio = $derived(Math.max(1, ...ratios));
   const stripMaxWidth = $derived(mediaStripMaxWidth(ratios));
   const positionLabel = $derived(mediaPositionLabel(visible, media.length));
@@ -136,6 +139,24 @@
         style:aspect-ratio={ratios[0]}
       >
         {@render attachment(firstAttachment, 0)}
+      </div>
+    {:else if pairedPhotos}
+      <div
+        role="group"
+        aria-label={label}
+        class="mx-auto grid w-full min-w-0 max-w-full gap-1 rounded-2xl bg-card"
+        style:width={`min(100%, ${maxMediaHeightRem * pairAspectRatio}rem)`}
+        style:aspect-ratio={pairAspectRatio}
+        style:max-height={`${maxMediaHeightRem}rem`}
+        style:grid-template-columns={pairColumns}
+      >
+        {#each media as item, index (item.id)}
+          <div
+            class="min-h-0 min-w-0 overflow-hidden rounded-xl border border-border bg-muted"
+          >
+            {@render attachment(item, index)}
+          </div>
+        {/each}
       </div>
     {:else}
       <div
