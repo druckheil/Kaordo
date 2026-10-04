@@ -204,6 +204,78 @@ in both modes. A read-only live Keycloak check passed for login/registration in
 light/dark mode at 1280px and 320px. It creates no account. This theme work did
 not change identity policy, wire schemas or backend behavior.
 
+## Agordoj appearance settings — 4 October 2026
+
+The public `/agordoj/` Portal route selects shared appearance without an account
+request. `AgordojLink` is the rightmost control in application headers.
+`ThemePicker` composes the official Rhea Radio Group with Bits UI keyboard and
+selection behavior. Preview cards consume each palette's actual scoped tokens.
+
+The shared catalog contains Deep Purple (default), Discord, Leadgen, Lara,
+Damon, Party Rock and Japan Blues. The additional supplied CSS files are scoped
+and imported as semantic palettes, with duplicate Tailwind declarations removed,
+the invalid Japan Blues color corrected and Fontsource family names normalized.
+Mode and theme preferences remain separate, persist across app navigation and
+reload, and synchronize across tabs through `mode-watcher`. Keycloak assets and
+its preference script are generated from the same catalog.
+
+Verification for this addition: `pnpm check:front` completed with zero errors
+and warnings, and `pnpm build:pages` built all five applications including the
+prerendered appearance page. These are compilation checks; browser interaction
+tests for the new picker were not run in this change.
+
+## Theme selection contrast — 4 October 2026
+
+Accent icons now use their matching foreground rather than the primary fill
+color. Fluo mobile navigation composes the same Rhea Button variants as desktop
+navigation, including its More menu trigger. Icons and labels inherit selected
+and hover colors. Lists containing secondary metadata use neutral hover surfaces;
+secondary panels and dialog controls use the matching semantic foreground.
+
+All seven palettes separate primary fills from readable link text and share a
+card-based primary tint. Chat bubbles, avatars, badges and decorative surfaces
+consume that tint rather than calculating unrelated colors. Imported foreground,
+muted and destructive colors are adjusted where their original contrast was too
+low. Primary hover effects retain the foreground/background pair. Keycloak
+palette assets are generated from the same canonical sources.
+
+Verification: `pnpm check:front` reported zero errors and warnings;
+`pnpm build:pages` built all five apps. Headless Chromium color inspection covered
+14 theme/mode combinations: solid semantic foreground/background pairs, link
+and muted text on neutral and tinted surfaces, destructive text on 10–30% alpha
+overlays, and secondary-button hover colors. The lowest measured contrast among
+those pairs was 4.55:1. This palette inspection is not a complete UI accessibility
+audit; browser interaction suites were not run for this change.
+
+## Direct identity entry and appearance handoff — 4 October 2026
+
+The login/registration route previously ran passive `check-sso` before interactive
+authentication and marked its browser history entry as already started. A full
+SSO fallback redirect could return to that entry and leave a second welcome
+screen. Interactive entry now uses Keycloak's supported login/register URL
+builders without a session probe and replaces the entry route. The history flag
+and confirmation screen are removed. Only loading and recoverable error states
+remain; completed work cannot navigate after the component is destroyed.
+
+Local apps and Keycloak use different ports, so their local storage is separate.
+`withIdentityAppearance` carries the actual selected theme and preferred mode
+to the hosted form. Storage keys and parameter names share one configuration.
+The generated native script accepts known palettes/modes, applies them before
+paint, persists them on the identity origin and removes the consumed parameters
+so reload cannot replay stale appearance. Registration, errors and later native
+steps read the identity origin's current preference. Nonce, state, return URI
+and PKCE generation remain owned by `keycloak-js`.
+
+Verification: Svelte checks reported zero errors/warnings and all five static
+apps built. A read-only headless inspection of real local entry routes used
+Lara/light on Portal against older Deep Purple/dark on the identity origin.
+Login and registration both opened with Lara/light and persisted it there. Each
+made one interactive authorization request with S256 and the correct return
+path, without a `prompt=none` request. Browser Back returned to Agordoj rather
+than a second login screen. Existing static and VM checks were adjusted for the
+new entry copy and browser URL dependency; those test suites were not run in
+this change.
+
 ## Remaining boundaries
 
 - No content E2EE, user-held decryption keys or system escrow lifecycle; Regado cases authorize existing plaintext data and notify/audit access.

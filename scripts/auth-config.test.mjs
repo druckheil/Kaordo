@@ -34,9 +34,13 @@ test('identity forms apply stored mode immediately and track system and other ta
     const media = { matches: systemDark, addEventListener: (name, listener) => { listeners.system = listener; } };
     const html = { classList: { toggle: (name, value) => { assert.equal(name, 'dark'); dark = value; } }, style: {}, dataset: {} };
     runInNewContext(script, {
+      URL,
       document: { documentElement: html },
-      localStorage: { getItem: (key) => { assert.equal(key, 'kaordo.color-mode'); return saved; } },
-      window: { matchMedia: () => media, addEventListener: (name, listener) => { listeners[name] = listener; } },
+      localStorage: { getItem: (key) => key === 'kaordo.color-mode' ? saved : null },
+      window: {
+        location: { href: 'http://localhost:8080/realms/kaordo/protocol/openid-connect/auth' },
+        matchMedia: () => media, addEventListener: (name, listener) => { listeners[name] = listener; },
+      },
     });
     assert.equal(dark, expected);
     assert.equal(html.style.colorScheme, expected ? 'dark' : 'light');
@@ -58,9 +62,13 @@ test('identity forms use the system mode when preference storage is unavailable'
   const script = readFileSync(resolve(root, 'deploy/keycloak/themes/kaordo/login/resources/js/theme.js'), 'utf8');
   let dark;
   runInNewContext(script, {
+    URL,
     document: { documentElement: { classList: { toggle: (name, value) => { dark = value; } }, style: {}, dataset: {} } },
     localStorage: { getItem: () => { throw new Error('Storage is unavailable'); } },
-    window: { matchMedia: () => ({ matches: true, addEventListener() {} }), addEventListener() {} },
+    window: {
+      location: { href: 'http://localhost:8080/realms/kaordo/protocol/openid-connect/auth' },
+      matchMedia: () => ({ matches: true, addEventListener() {} }), addEventListener() {},
+    },
   });
   assert.equal(dark, true);
 });
@@ -128,6 +136,11 @@ test('registration profile exposes only username to the user', () => {
 test('registration template has one visible password input and supplies Keycloak confirmation in the request', () => {
   const template = readFileSync(resolve(root, 'deploy/keycloak/themes/kaordo/login/register.ftl'), 'utf8');
   assert.match(template, /<input type="password"[^>]*name="password"/);
+  assert.match(template, /autocomplete="new-password"[\s\S]*?required \/>/,
+    'New credentials are required and advertise the right browser autofill intent');
+  assert.match(template, /aria-describedby="input-error-password"/,
+    'Password validation text is associated with the invalid input');
+  assert.match(template, /<label for="password"/, 'Password has an explicit label');
   assert.doesNotMatch(template, /<input[^>]*name="password-confirm"/);
   const payload = new FormData();
   addPasswordConfirmation(payload, 'example-password');

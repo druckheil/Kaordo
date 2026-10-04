@@ -547,13 +547,13 @@
   </div>
   <main id="main-content" tabindex="-1" class="relative mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 overflow-hidden border-x border-border/60">
     {#if serversOpen}
-      <nav id="rondo-servers" aria-label="Servers" class="flex w-14 shrink-0 flex-col items-center gap-1.5 overflow-hidden border-r border-border/75 bg-accent/35 px-1 py-2">
+      <nav id="rondo-servers" aria-label="Servers" class="flex w-14 shrink-0 flex-col items-center gap-1.5 overflow-hidden border-r border-border/75 bg-muted/35 px-1 py-2">
         <Button bind:ref={hideServersButton} variant="ghost" size="icon-xs" class="shrink-0" aria-label="Hide servers" title="Hide servers" onclick={toggleServers}><ChevronLeftIcon class="size-4" /></Button>
         <div class="rondo-server-scroll flex min-h-0 min-w-0 w-full flex-1 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto">
           {#each servers as item (item.id)}
             <button type="button" aria-label={`Open ${item.name}`} aria-current={serverId === item.id ? 'page' : undefined}
               title={item.name} onclick={() => selectServer(item.id)}
-              class={`grid size-9 shrink-0 place-items-center rounded-xl text-sm font-bold transition-[background-color,color,border-radius] focus-visible:outline-2 focus-visible:outline-ring ${serverId === item.id ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-card text-primary shadow-xs hover:bg-primary/15'}`}>
+              class={`grid size-9 shrink-0 place-items-center rounded-xl text-sm font-bold transition-[background-color,color,border-radius] focus-visible:outline-2 focus-visible:outline-ring ${serverId === item.id ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-card text-link shadow-xs hover:bg-primary-soft'}`}>
               {initials(item.name)}
             </button>
           {/each}
@@ -571,7 +571,7 @@
       </div>
       {#if detail}
         <div class="border-b border-border/70 px-4 py-4">
-          <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Community</p>
+          <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-link">Community</p>
           <h1 class="mt-1 truncate text-lg font-bold tracking-tight">{detail.server.name}</h1>
           <p class="mt-1 text-xs text-muted-foreground">{detail.server.access === 'private' ? 'Private' : 'Public'} · {detail.server.memberCount} members</p>
         </div>
@@ -586,7 +586,7 @@
           {#each detail.channels as item (item.id)}
             <button type="button" aria-current={channelId === item.id ? 'page' : undefined}
               onclick={() => selectChannel(item.id)}
-              class={`mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring ${channelId === item.id ? 'bg-primary/10 font-semibold text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+              class={`mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring ${channelId === item.id ? 'bg-primary-soft font-semibold text-primary-soft-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
               <HashIcon class="size-4 shrink-0" /><span class="truncate">{item.name}</span>
               {#if voiceChannelId === item.id}<span class="ml-auto size-2 rounded-full bg-emerald-500" aria-label="Voice connected"></span>{/if}
             </button>
@@ -595,7 +595,7 @@
         </div>
         {#if voiceChannelId}
           <div class="border-t border-border/70 bg-primary/5 p-3">
-            <p class="truncate text-xs font-bold text-primary">Voice · {voiceChannel?.name ?? 'Channel'}</p>
+            <p class="truncate text-xs font-bold text-link">Voice · {voiceChannel?.name ?? 'Channel'}</p>
             <p class="mt-0.5 text-xs text-muted-foreground">{voice.connected ? `${voice.participants.length} connected` : 'Connecting…'}</p>
             <Button variant="outline" size="xs" class="mt-2" onclick={() => { voiceError = ''; void stopVoice(); }}>Disconnect</Button>
           </div>
@@ -610,7 +610,7 @@
       {:else if serversQuery.error}
         <div class="p-4 text-sm text-destructive" role="alert">Could not load your servers.<Button variant="outline" size="sm" class="mt-3" onclick={() => void serversQuery.refetch()}>Retry</Button></div>
       {:else}
-        <div class="flex h-full flex-col items-center justify-center gap-3 px-4 text-center"><UsersIcon class="size-10 text-primary" /><p class="font-semibold">Your space starts here</p><p class="text-sm text-muted-foreground">Create a server or explore public communities.</p></div>
+        <div class="flex h-full flex-col items-center justify-center gap-3 px-4 text-center"><UsersIcon class="size-10 text-link" /><p class="font-semibold">Your space starts here</p><p class="text-sm text-muted-foreground">Create a server or explore public communities.</p></div>
       {/if}
     </aside>
     {/if}
@@ -624,10 +624,10 @@
       {#if channel}
         <header class="grid min-h-16 shrink-0 grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-x-2 gap-y-2 border-b border-border/70 bg-card/75 px-3 py-2 shadow-xs sm:flex sm:gap-3 sm:px-6 sm:py-0">
           <Button variant="ghost" size="icon-sm" class="sm:hidden" aria-label="Back to channels" onclick={() => selectChannel(null)}><ChevronLeftIcon class="size-5" /></Button>
-          <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><HashIcon class="size-5" /></span>
+          <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary-soft-foreground"><HashIcon class="size-5" /></span>
           <div class="min-w-0 flex-1"><h2 class="truncate text-sm font-bold">{channel.name}</h2><p class="truncate text-xs text-muted-foreground">{detail?.server.name} · text and voice</p></div>
           {#if voiceChannelId === channel.id}
-            <span class="col-span-3 inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary sm:w-auto"><span class="size-2 rounded-full bg-emerald-500"></span>Voice connected</span>
+            <span class="col-span-3 inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-primary-soft px-2.5 py-1.5 text-xs font-semibold text-primary-soft-foreground sm:w-auto"><span class="size-2 rounded-full bg-emerald-500"></span>Voice connected</span>
           {:else}
             <Button size="sm" class="col-span-3 w-full sm:w-auto" disabled={voiceBusy} onclick={() => void startVoice(channel)}><MicIcon class="size-4" /> {voiceBusy ? 'Connecting…' : voiceChannelId ? 'Switch voice' : 'Join voice'}</Button>
           {/if}
@@ -657,7 +657,7 @@
           onSend={send}
         />
       {:else}
-        <div class="flex flex-1 flex-col items-center justify-center px-6 text-center"><span class="grid size-20 place-items-center rounded-[1.75rem] bg-accent"><HashIcon class="size-10 text-primary" /></span><h2 class="mt-6 text-2xl font-bold tracking-tight">Choose a channel</h2><p class="mt-2 max-w-sm text-sm text-muted-foreground">Share messages, files and a voice room with your community.</p></div>
+        <div class="flex flex-1 flex-col items-center justify-center px-6 text-center"><span class="grid size-20 place-items-center rounded-[1.75rem] bg-accent"><HashIcon class="size-10 text-accent-foreground" /></span><h2 class="mt-6 text-2xl font-bold tracking-tight">Choose a channel</h2><p class="mt-2 max-w-sm text-sm text-muted-foreground">Share messages, files and a voice room with your community.</p></div>
       {/if}
     </section>
     {#if detail && membersVisible && wideMembers}
@@ -700,7 +700,7 @@
         {:else if discoverQuery.error}<p class="text-sm text-destructive" role="alert">Could not load public servers.</p>
         {:else if !discoverQuery.data?.items.length}<p class="py-5 text-center text-sm text-muted-foreground">No public servers found.</p>
         {:else}<div class="space-y-2">{#each discoverQuery.data.items as item (item.id)}
-          <div class="flex items-center gap-3 rounded-xl border border-border p-3"><span class="grid size-11 shrink-0 place-items-center rounded-xl bg-primary/10 font-bold text-primary">{initials(item.name)}</span><div class="min-w-0 flex-1"><p class="truncate text-sm font-bold">{item.name}</p><p class="truncate text-xs text-muted-foreground">{item.memberCount} members · {item.description || 'Public community'}</p></div><Button size="sm" disabled={dialogBusy} onclick={() => void joinServer(item)}>Join</Button></div>
+          <div class="flex items-center gap-3 rounded-xl border border-border p-3"><span class="grid size-11 shrink-0 place-items-center rounded-xl bg-primary-soft font-bold text-primary-soft-foreground">{initials(item.name)}</span><div class="min-w-0 flex-1"><p class="truncate text-sm font-bold">{item.name}</p><p class="truncate text-xs text-muted-foreground">{item.memberCount} members · {item.description || 'Public community'}</p></div><Button size="sm" disabled={dialogBusy} onclick={() => void joinServer(item)}>Join</Button></div>
         {/each}</div>{/if}
       {:else if dialogContentMode === 'channel'}
         <label class="block text-sm font-semibold" for="rondo-channel">Channel name</label><Input id="rondo-channel" bind:value={channelName} maxlength={80} placeholder="ideas" />
@@ -712,7 +712,7 @@
         {:else if inviteQuery.error}<p class="text-sm text-destructive" role="alert">Search is unavailable.</p>
         {:else if !inviteCandidates.length}<p class="text-sm text-muted-foreground">{inviteQuery.data?.items.length ? 'Everyone matching is already in this server.' : 'No accounts found.'}</p>
         {:else}<div class="space-y-1">{#each inviteCandidates as candidate (candidate.id)}
-          <button type="button" disabled={dialogBusy} onclick={() => void invite(candidate.id)} class="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"><span class="grid size-9 place-items-center rounded-xl bg-primary/10 text-xs font-bold text-primary">{initials(candidate.displayName)}</span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">{candidate.displayName}</span><span class="block truncate text-xs text-muted-foreground">@{candidate.username}</span></span><UserPlusIcon class="size-4 text-primary" /></button>
+          <button type="button" disabled={dialogBusy} onclick={() => void invite(candidate.id)} class="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"><span class="grid size-9 place-items-center rounded-xl bg-primary-soft text-xs font-bold text-primary-soft-foreground">{initials(candidate.displayName)}</span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">{candidate.displayName}</span><span class="block truncate text-xs text-muted-foreground">@{candidate.username}</span></span><UserPlusIcon class="size-4 text-link" /></button>
         {/each}</div>{/if}
       {/if}
       {#if dialogError}<p class="rounded-xl bg-destructive/10 p-3 text-sm text-destructive" role="alert">{dialogError}</p>{/if}

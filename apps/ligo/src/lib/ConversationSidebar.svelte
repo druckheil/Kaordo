@@ -68,7 +68,7 @@
 	<div class="border-b border-border/70 px-4 pb-4 pt-4">
 		<div class="mb-3 flex items-center justify-between">
 			<div>
-				<p class="text-xs font-semibold uppercase tracking-[0.15em] text-primary">Messages</p>
+				<p class="text-xs font-semibold uppercase tracking-[0.15em] text-link">Messages</p>
 				<h1 class="mt-0.5 text-xl font-bold tracking-tight">Chats</h1>
 			</div>
 			<Button
@@ -98,11 +98,11 @@
 				disabled={savedBusy}
 				onclick={onOpenSaved}
 				aria-current={selfConversation?.id === selectedId ? "page" : undefined}
-				class="mb-1 flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-[background-color,box-shadow] hover:bg-accent focus-visible:outline-3 focus-visible:outline-ring"
+				class="mb-1 flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-[background-color,box-shadow] hover:bg-muted focus-visible:outline-3 focus-visible:outline-ring"
 				class:shadow-sm={selfConversation?.id === selectedId}
-				class:bg-accent={selfConversation?.id === selectedId}
+				class:bg-muted={selfConversation?.id === selectedId}
 			>
-				<span class="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+				<span class="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary-soft text-primary-soft-foreground">
 					<BookmarkIcon class="size-5" />
 				</span>
 				<span class="min-w-0 flex-1">
@@ -134,7 +134,7 @@
 		{:else if visibleConversations.length === 0 && (filter || !selfConversation)}
 			<div class="px-5 py-12 text-center text-sm text-muted-foreground">
 				<div class="mx-auto mb-3 grid size-12 place-items-center rounded-2xl bg-accent">
-					<MessageCircleIcon class="size-6 text-primary" />
+					<MessageCircleIcon class="size-6 text-accent-foreground" />
 				</div>
 				<p class="font-semibold text-foreground">
 					{filter ? "No chats match your search" : "Start a conversation"}
@@ -153,11 +153,11 @@
 					type="button"
 					onclick={() => onSelect(conversation.id)}
 					aria-current={selectedId === conversation.id ? "page" : undefined}
-					class="mb-1 flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-[background-color,box-shadow] hover:bg-accent focus-visible:outline-3 focus-visible:outline-ring"
+					class="mb-1 flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-[background-color,box-shadow] hover:bg-muted focus-visible:outline-3 focus-visible:outline-ring"
 					class:shadow-sm={selectedId === conversation.id}
-					class:bg-accent={selectedId === conversation.id}
+					class:bg-muted={selectedId === conversation.id}
 				>
-					<span class="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-sm font-bold text-primary">
+					<span class="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary-soft text-sm font-bold text-primary-soft-foreground">
 						{conversation.kind === "group" ? "◌" : userInitials(title)}
 					</span>
 					<span class="min-w-0 flex-1">

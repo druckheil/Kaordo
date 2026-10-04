@@ -30,7 +30,7 @@
 		<div><dt class="text-xs text-muted-foreground">Kernel</dt><dd class="mt-1 break-words font-semibold">{system?.host.kernel || "—"}</dd><dd class="mt-1 text-xs text-muted-foreground">{system ? `${Math.floor(system.host.uptimeSeconds / 3600)} hours uptime` : "—"}</dd></div>
 	</dl>
 	{#if memorySwap.length}
-		<div class="mt-5 rounded-xl bg-secondary/50 p-4">
+		<div class="mt-5 rounded-xl bg-muted p-4">
 			<h3 class="text-sm font-semibold">Compressed RAM swap</h3>
 
 			{#each memorySwap as swap (swap.path)}<p class="mt-2 text-xs"><span class="font-mono">{swap.name}</span> · {bytes(swap.used)} of {bytes(swap.size)} in use</p>{/each}

@@ -3,15 +3,17 @@
   import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
   import { Button } from './components/ui/button/index.js';
   import ThemeToggle from './ThemeToggle.svelte';
+  import AgordojLink from './AgordojLink.svelte';
 
   interface Props {
     name: string;
     homeHref: string;
     sticky?: boolean;
     wide?: boolean;
+    settingsActive?: boolean;
   }
 
-  let { name, homeHref, sticky = false, wide = false }: Props = $props();
+  let { name, homeHref, sticky = false, wide = false, settingsActive = false }: Props = $props();
 
   const headerClass = $derived(
     `shrink-0 border-b border-border/80 bg-background/95 backdrop-blur-xl ${sticky ? 'sticky top-0 z-20' : ''}`
@@ -38,18 +40,19 @@
       >
         K
       </a>
-      <span class="hidden text-sm font-bold tracking-tight text-primary min-[390px]:inline">
+      <span class="hidden text-sm font-bold tracking-tight text-link min-[390px]:inline">
         Kaordo
       </span>
       <span class="text-border" aria-hidden="true">/</span>
       <span class="truncate text-base font-bold tracking-tight">{name}</span>
     </div>
     <div class="flex shrink-0 items-center gap-1 sm:gap-2">
-      <Button href={homeHref} rel="external" variant="ghost" size="sm" class="shrink-0">
-        All apps
+      <Button href={homeHref} rel="external" variant="ghost" size="sm" class="shrink-0" aria-label="All apps">
+        <span class="hidden min-[390px]:inline">All apps</span>
         <ArrowUpRightIcon class="size-4" />
       </Button>
       <ThemeToggle />
+      <AgordojLink current={settingsActive} />
     </div>
   </div>
 </header>

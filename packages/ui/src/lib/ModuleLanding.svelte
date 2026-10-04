@@ -23,7 +23,7 @@
     class="relative overflow-hidden rounded-[1.5rem] border border-border bg-card p-7 shadow-xl sm:p-12"
   >
     <div
-      class="pointer-events-none absolute -right-20 -top-32 size-80 rounded-full bg-accent blur-3xl"
+      class="pointer-events-none absolute -right-20 -top-32 size-80 rounded-full bg-primary-soft blur-3xl"
       aria-hidden="true"
     ></div>
     <div class="relative max-w-xl">

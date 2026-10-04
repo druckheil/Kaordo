@@ -236,7 +236,7 @@
 
     {#if view === 'notifications'}
       <div class="rounded-[1.5rem] border border-border bg-card px-6 py-16 text-center shadow-sm">
-        <div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent"><BellIcon class="size-6 text-primary" /></div>
+        <div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent"><BellIcon class="size-6 text-accent-foreground" /></div>
         <p class="mt-5 text-xl font-bold tracking-tight">Notifications are on their way</p>
         <p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">For now, keep up with conversations in your feed.</p>
         <Button class="mt-6" variant="secondary" onclick={() => navigate('feed')}>Explore the feed</Button>

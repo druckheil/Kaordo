@@ -9,7 +9,7 @@
 	} from "@kaordo/api-client";
 	import type { AdminAccessCase, AdminDisk, AdminMount, AdminLayoutRequest, UserIdentity } from "@kaordo/contracts";
 	import { appPaths } from "@kaordo/links";
-	import { ArrowUpRightIcon, Button, ShieldCheckIcon, ThemeToggle } from "@kaordo/ui";
+	import { AgordojLink, ArrowUpRightIcon, Button, ShieldCheckIcon, ThemeToggle } from "@kaordo/ui";
 	import AdminIntentDialog from "./AdminIntentDialog.svelte";
 	import AuditPanel from "./AuditPanel.svelte";
 	import LogsPanel from "./LogsPanel.svelte";
@@ -281,10 +281,11 @@
 				<span class="hidden text-muted-foreground sm:inline"
 					>@{user.username}</span
 				>
-				<Button href={appPaths.portal} variant="ghost" size="sm">
-					All apps <ArrowUpRightIcon class="size-4" />
+				<Button href={appPaths.portal} variant="ghost" size="sm" aria-label="All apps">
+					<span class="hidden min-[390px]:inline">All apps</span> <ArrowUpRightIcon class="size-4" />
 				</Button>
 				<ThemeToggle />
+				<AgordojLink />
 			</div>
 		</div>
 	</header>
@@ -295,7 +296,7 @@
 	>
 		<div class="flex flex-wrap items-end justify-between gap-4">
 			<div>
-				<p class="text-xs font-bold uppercase tracking-[0.2em] text-primary">
+				<p class="text-xs font-bold uppercase tracking-[0.2em] text-link">
 					Local operations
 				</p>
 				<h1 class="mt-1 text-3xl font-bold tracking-[-0.05em] sm:text-4xl">
@@ -320,7 +321,7 @@
 					type="button"
 					onclick={() => void openTab(item)}
 					aria-current={tab === item ? "page" : undefined}
-					class={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring ${tab === item ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+					class={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring ${tab === item ? "border-primary text-link" : "border-transparent text-muted-foreground hover:text-foreground"}`}
 					>{item}</button
 				>
 			{/each}

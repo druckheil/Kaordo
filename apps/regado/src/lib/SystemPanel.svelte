@@ -42,7 +42,7 @@
 
 <section class="mt-6 grid gap-4 lg:grid-cols-2">
 	<div class="rounded-[1.4rem] border border-border bg-card p-6">
-		<p class="text-xs font-bold uppercase tracking-widest text-primary">
+		<p class="text-xs font-bold uppercase tracking-widest text-link">
 			Server
 		</p>
 		<h2 class="mt-2 text-2xl font-bold">
@@ -63,13 +63,13 @@
 			{uptimeHours ?? "—"} hours
 		</p>
 		<div class="mt-5 grid grid-cols-2 gap-3">
-			<div class="rounded-xl bg-secondary/60 p-4">
+			<div class="rounded-xl bg-muted p-4">
 				<p class="text-xs text-muted-foreground">CPU usage</p>
 				<p class="mt-2 text-xl font-bold">
 					{latestCpu === undefined ? "—" : latestCpu.toFixed(1) + "%"}
 				</p>
 			</div>
-			<div class="rounded-xl bg-secondary/60 p-4">
+			<div class="rounded-xl bg-muted p-4">
 				<p class="text-xs text-muted-foreground">RAM usage</p>
 				<p class="mt-2 text-xl font-bold">
 					{latestMemory === undefined ? "—" : latestMemory.toFixed(1) + "%"}
@@ -227,7 +227,7 @@
 			{@const description = serviceDescription(service.id)}
 			{@const restartId = isRestartableService(service.id) ? service.id : null}
 			<section
-				class="min-w-0 rounded-xl bg-secondary/50 p-4"
+				class="min-w-0 rounded-xl bg-muted p-4"
 				aria-label={description.name + " service"}
 			>
 				<div class="flex flex-wrap items-center justify-between gap-2">

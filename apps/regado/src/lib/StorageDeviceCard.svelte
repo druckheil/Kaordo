@@ -29,7 +29,7 @@
 <article class="min-w-0 rounded-2xl border border-border bg-background p-4 sm:p-5" aria-label={`Device ${device.path}`}>
  <div class="flex items-start justify-between gap-3">
   <div class="flex min-w-0 items-center gap-3">
-   <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-secondary">{#if device.transport === "usb"}<UsbIcon class="size-5" />{:else}<HardDriveIcon class="size-5" />{/if}</span>
+   <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-secondary text-secondary-foreground">{#if device.transport === "usb"}<UsbIcon class="size-5" />{:else}<HardDriveIcon class="size-5" />{/if}</span>
    <div class="min-w-0"><h3 class="truncate text-sm font-bold">{device.model || device.name}</h3><p class="mt-1 text-xs text-muted-foreground">{device.path} · {connectionLabel(device)}</p></div>
   </div>
   <div class="text-right"><p class="whitespace-nowrap text-sm font-semibold">{(device.size / 1e12).toFixed(2)} TB</p><p class="text-xs text-muted-foreground">{bytes(device.size)}</p></div>
@@ -38,7 +38,7 @@
   {#each segments as segment (segment.key)}<span class={roleColor(segment.role)} style:width={`${100 * segment.size / device.size}%`}></span>{/each}
  </div>
  <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-  <span class={`font-medium ${device.health?.state === "failed" || device.health?.state === "warning" ? "text-destructive" : "text-primary"}`}>{report?.state === "running" ? "Configuring" : device.storageState === "working" ? "Working" : device.storageState === "queued" ? "Setup pending" : "Ready to configure"}</span>
+  <span class={`font-medium ${device.health?.state === "failed" || device.health?.state === "warning" ? "text-destructive" : "text-link"}`}>{report?.state === "running" ? "Configuring" : device.storageState === "working" ? "Working" : device.storageState === "queued" ? "Setup pending" : "Ready to configure"}</span>
   <div class="flex items-center gap-1"><span>SMART {device.health?.state || "unavailable"}{device.health?.temperatureC !== null && device.health?.temperatureC !== undefined ? ` · ${device.health.temperatureC} °C` : ""}</span>
    <ContextHelp label={`device ${device.path}`}>
     <p>Serial: {device.serial || "Unavailable"}<br />WWN: {device.wwn || "Unavailable"}</p>
@@ -50,7 +50,7 @@
  <ul class="mt-4 space-y-2" aria-label={`Partitions on ${device.path}`}>
   {#each areas as part (part.path)}
    {@const role = partitionRole(part, pools)}
-   <li class="flex min-w-0 items-center justify-between gap-3 rounded-xl bg-secondary/50 px-3 py-2.5">
+   <li class="flex min-w-0 items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2.5">
     <div class="min-w-0"><p class="flex items-center gap-2 text-sm font-semibold"><span class={`size-2 rounded-full ${roleColor(role)}`}></span>{role === "system" ? "System" : role === "storage" ? "Storage" : "Unassigned"}{part.mountpoints.includes("/") ? " · NixOS" : ""}</p><p class="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{part.path} · {part.fsType || "No filesystem"} · {volumeLocation(part)}</p></div>
     <span class="shrink-0 text-xs font-medium">{bytes(part.size)}</span>
    </li>

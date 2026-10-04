@@ -1,5 +1,5 @@
 /* Defines the shared Deep Purple light and dark semantic palette */
-:root {
+:root, [data-theme="deep-purple"] {
   color-scheme: light;
   --background: oklch(0.9838 0.0035 247.8583);
   --foreground: oklch(0.1284 0.0267 261.5937);
@@ -15,7 +15,7 @@
   --muted-foreground: oklch(0.5103 0.0235 264.3620);
   --accent: oklch(0.9546 0.0227 303.2883);
   --accent-foreground: oklch(0.4865 0.2423 291.8661);
-  --destructive: oklch(0.5200 0.2082 25.3782);
+  --destructive: oklch(0.3657 0.2082 25.3782);
   --destructive-foreground: oklch(0.9838 0.0035 247.8583);
   --border: oklch(0.9278 0.0058 264.5314);
   --input: oklch(0.9278 0.0058 264.5314);
@@ -53,9 +53,12 @@
   --shadow-2xl: 0px 8px 30px 0px hsl(263 70% 50% / 0.20);
   --tracking-normal: -0.02em;
   --spacing: 0.25rem;
+  --link: oklch(0.4865 0.2423 291.8661);
+  --primary-soft: color-mix(in oklch, var(--primary) 10%, var(--card));
+  --primary-soft-foreground: var(--link);
 }
 
-.dark {
+:root.dark, .dark [data-theme="deep-purple"] {
   color-scheme: dark;
   --background: oklch(0.1091 0.0091 301.6956);
   --foreground: oklch(0.9838 0.0035 247.8583);
@@ -71,8 +74,8 @@
   --muted-foreground: oklch(0.7497 0.0224 301.0128);
   --accent: oklch(0.2255 0.0836 296.7401);
   --accent-foreground: oklch(0.6500 0.2172 297.1153);
-  --destructive: oklch(0.6356 0.2082 25.3782);
-  --destructive-foreground: oklch(0.9838 0.0035 247.8583);
+  --destructive: oklch(0.8251 0.1261 25.3782);
+  --destructive-foreground: oklch(0.3022 0.0035 247.8583);
   --border: oklch(0.2505 0.0293 299.5707);
   --input: oklch(0.2505 0.0293 299.5707);
   --ring: oklch(0.6500 0.2172 297.1153);
@@ -107,4 +110,7 @@
   --shadow-lg: 0px 20px 40px -10px hsl(0 0% 0% / 0.60), 0px 4px 6px -11px hsl(0 0% 0% / 0.60);
   --shadow-xl: 0px 20px 40px -10px hsl(0 0% 0% / 0.60), 0px 8px 10px -11px hsl(0 0% 0% / 0.60);
   --shadow-2xl: 0px 20px 40px -10px hsl(0 0% 0% / 1);
+  --link: oklch(0.6500 0.2172 297.1153);
+  --primary-soft: color-mix(in oklch, var(--primary) 10%, var(--card));
+  --primary-soft-foreground: var(--link);
 }

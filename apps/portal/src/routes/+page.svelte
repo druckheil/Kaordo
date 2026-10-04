@@ -12,7 +12,7 @@
 	import { signOut } from "@kaordo/auth";
 	import type { UserIdentity } from "@kaordo/contracts";
 	import { appPaths } from "@kaordo/links";
-	import { Button, LogOutIcon, ThemeToggle } from "@kaordo/ui";
+	import { AgordojLink, Button, LogOutIcon, ThemeToggle } from "@kaordo/ui";
 	import PortalApps from "$lib/PortalApps.svelte";
 	import PortalWelcome from "$lib/PortalWelcome.svelte";
 
@@ -74,14 +74,14 @@
 <main id="main-content" tabindex="-1" class="mx-auto max-w-6xl px-5 pb-16 pt-7 sm:px-8 sm:pt-10">
 	<header class="flex flex-wrap items-center justify-between gap-4">
 		<a
-			class="inline-flex items-center gap-2 rounded-xl text-lg font-bold tracking-[-0.04em] text-primary focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring"
+			class="inline-flex items-center gap-2 rounded-xl text-lg font-bold tracking-[-0.04em] text-link focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring"
 			href={appPaths.portal}
 		>
 			<span class="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">K</span>
 			Kaordo
 		</a>
 
-		<div class="ml-auto flex items-center gap-2">
+		<div class="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1 sm:gap-2">
 			{#if authenticated === null}
 				{#if accountPreview}
 					<Button variant="ghost" onclick={logOut}><LogOutIcon class="size-4" /> Sign out</Button>
@@ -97,6 +97,7 @@
 				</div>
 			{/if}
 			<ThemeToggle />
+			<AgordojLink />
 		</div>
 	</header>
 

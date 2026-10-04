@@ -31,7 +31,7 @@
 
 <section class="mt-8" aria-label="Applications">
 	<div class="mb-5">
-		<p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Apps</p>
+		<p class="text-xs font-semibold uppercase tracking-[0.18em] text-link">Apps</p>
 		<h2 class="mt-1 text-2xl font-bold tracking-[-0.04em]">Choose an app</h2>
 	</div>
 	<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -43,7 +43,7 @@
 				class="group flex min-h-48 flex-col rounded-[1.5rem] border border-border bg-card p-6 shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring"
 			>
 				<div class="flex items-start justify-between gap-3">
-					<span class="grid size-12 place-items-center rounded-2xl bg-accent text-primary" aria-hidden="true">
+					<span class="grid size-12 place-items-center rounded-2xl bg-accent text-accent-foreground" aria-hidden="true">
 						<Icon class="size-6" />
 					</span>
 					<span class="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold text-secondary-foreground">
@@ -52,7 +52,7 @@
 				</div>
 				<h3 class="mt-4 text-2xl font-bold tracking-tight">{application.name}</h3>
 				<p class="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">{application.description}</p>
-				<span class="mt-auto inline-flex items-center gap-1.5 pt-3 text-sm font-semibold text-primary">
+				<span class="mt-auto inline-flex items-center gap-1.5 pt-3 text-sm font-semibold text-link">
 					Open {application.name}
 					<ArrowUpRightIcon class="size-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
 				</span>

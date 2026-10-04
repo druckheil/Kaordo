@@ -1,9 +1,9 @@
-/* Styles Keycloak forms with the shared Deep Purple semantic tokens */
+/* Styles Keycloak forms with the shared appearance tokens */
 body.login-pf,
 .login-pf body {
   min-height: 100vh;
-  background: radial-gradient(circle at 10% 8%, var(--accent) 0, transparent 38%),
-    radial-gradient(circle at 92% 92%, var(--secondary) 0, transparent 40%), var(--background);
+  background: radial-gradient(circle at 10% 8%, var(--primary-soft) 0, transparent 38%),
+    radial-gradient(circle at 92% 92%, var(--muted) 0, transparent 40%), var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
 }
@@ -17,7 +17,7 @@ body.login-pf,
 }
 
 .login-pf-page-header #kc-header-wrapper {
-  color: var(--primary);
+  color: var(--link);
   font-size: 25px;
   font-weight: 750;
   letter-spacing: -.055em;
@@ -59,28 +59,104 @@ body.login-pf,
   color: var(--foreground);
 }
 
-.pf-c-button.pf-m-control {
-  border-color: var(--input);
+.login-pf-page :is(.form-control, .pf-c-form-control, .pf-c-input-group) {
+  --kaordo-field-border: var(--input);
+  --kaordo-field-ring: transparent;
+  border: 1px solid var(--kaordo-field-border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--kaordo-field-ring);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+
+.login-pf-page :is(.form-control, .pf-c-form-control) {
+  min-height: 46px;
+  padding: 8px 14px;
+  font-size: 16px;
+}
+
+/* Match Rhea input states, with one border and one semantic focus/error ring */
+.login-pf-page :is(.form-control, .pf-c-form-control):focus-visible,
+.login-pf-page .pf-c-input-group:has(.pf-c-form-control:focus-visible) {
+  --kaordo-field-border: var(--ring);
+  --kaordo-field-ring: color-mix(in oklch, var(--ring) 30%, transparent);
+}
+
+.login-pf-page :is(.form-control, .pf-c-form-control)[aria-invalid="true"],
+.login-pf-page .pf-c-input-group:has(.pf-c-form-control[aria-invalid="true"]) {
+  --kaordo-field-border: var(--destructive);
+  --kaordo-field-ring: color-mix(in oklch, var(--destructive) 20%, transparent);
+  background-image: none;
+}
+
+.dark .login-pf-page :is(.form-control, .pf-c-form-control)[aria-invalid="true"],
+.dark .login-pf-page .pf-c-input-group:has(.pf-c-form-control[aria-invalid="true"]) {
+  --kaordo-field-border: color-mix(in oklch, var(--destructive) 50%, transparent);
+  --kaordo-field-ring: color-mix(in oklch, var(--destructive) 40%, transparent);
+}
+
+/* Keep Keycloak's password field and visibility control inside one input shell */
+.login-pf-page .pf-c-input-group {
+  display: flex;
+  align-items: stretch;
+  min-height: 46px;
+  overflow: hidden;
+}
+
+.login-pf-page .pf-c-input-group .pf-c-form-control,
+.login-pf-page .pf-c-input-group .pf-c-form-control[aria-invalid="true"] {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.login-pf-page .pf-c-button.pf-m-control {
+  display: inline-flex;
+  flex: 0 0 40px;
+  align-self: center;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  margin: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  box-shadow: none;
+  outline: none;
+  transition: background-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+.login-pf-page .pf-c-button.pf-m-control:hover {
   background: var(--muted);
   color: var(--foreground);
 }
 
-.form-control,
-.pf-c-form-control {
-  min-height: 46px;
-  border: 1px solid var(--input);
-  border-radius: 12px;
-  background: var(--card);
-  color: var(--foreground);
-  font-size: 16px;
-  box-shadow: none;
-  transition: border-color .18s ease, box-shadow .18s ease;
+.login-pf-page .pf-c-button.pf-m-control:focus-visible {
+  box-shadow: inset 0 0 0 3px color-mix(in oklch, var(--ring) 35%, transparent);
 }
 
-.form-control:focus,
-.pf-c-form-control:focus {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 25%, transparent);
+/* These buttons use real borders; PatternFly's extra pseudo border is redundant */
+.login-pf-page .pf-c-button:is(.pf-m-control, .pf-m-primary)::after {
+  content: none;
+  border: 0;
+}
+
+.pf-c-form__helper-text.pf-m-error,
+.kc-feedback-text {
+  margin-top: 6px;
+  color: var(--destructive);
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .btn-primary,
@@ -91,7 +167,7 @@ body.login-pf,
   background: var(--primary);
   color: var(--primary-foreground);
   font-weight: 700;
-  transition: background-color .18s ease, transform .18s ease;
+  transition: box-shadow .18s ease, transform .18s ease;
 }
 
 .btn-primary:hover,
@@ -99,7 +175,7 @@ body.login-pf,
 .btn-primary:focus,
 .pf-c-button.pf-m-primary:focus {
   background: var(--primary);
-  filter: brightness(1.1);
+  box-shadow: var(--shadow-md);
   color: var(--primary-foreground);
 }
 
@@ -108,11 +184,11 @@ body.login-pf,
   transform: translateY(1px);
 }
 
-a { color: var(--primary); }
-a:hover { color: var(--primary); text-decoration: underline; }
+a { color: var(--link); }
+a:hover { color: var(--link); text-decoration: underline; }
 a:focus-visible,
-button:focus-visible,
-input:focus-visible {
+button:not(.pf-c-button.pf-m-control):focus-visible,
+input[type="submit"]:focus-visible {
   outline: 3px solid var(--ring);
   outline-offset: 2px;
 }

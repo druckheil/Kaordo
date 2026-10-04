@@ -5,7 +5,17 @@
 @import '@fontsource-variable/inter';
 @import '@fontsource-variable/plus-jakarta-sans';
 @import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource-variable/google-sans-flex';
+@import '@fontsource-variable/source-code-pro';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
 @import './themes/deep-purple.css';
+@import './themes/discord.css';
+@import './themes/leadgen.css';
+@import './themes/lara.css';
+@import './themes/damon.css';
+@import './themes/party-rock.css';
+@import './themes/japan-blues.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -41,6 +51,9 @@
 	--color-secondary: var(--secondary);
 	--color-primary-foreground: var(--primary-foreground);
 	--color-primary: var(--primary);
+	--color-link: var(--link);
+	--color-primary-soft: var(--primary-soft);
+	--color-primary-soft-foreground: var(--primary-soft-foreground);
 	--color-popover-foreground: var(--popover-foreground);
 	--color-popover: var(--popover);
 	--color-card-foreground: var(--card-foreground);

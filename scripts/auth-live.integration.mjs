@@ -17,6 +17,15 @@ const identity = 'http://localhost:8080';
 const macChrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const chrome = process.env.CHROME_BIN || (existsSync(macChrome) ? macChrome : undefined);
 
+function identityEntryURL() {
+  const url = new URL(`${identity}/realms/kaordo/protocol/openid-connect/auth`);
+  url.search = new URLSearchParams({
+    client_id: 'kaordo-web', redirect_uri: `${site}/`, response_type: 'code', scope: 'openid',
+    code_challenge: randomBytes(32).toString('base64url'), code_challenge_method: 'S256',
+  });
+  return url.href;
+}
+
 async function capture(page, name) {
   if (process.env.KAORDO_UI_SNAPSHOTS !== '1') return;
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -44,6 +53,124 @@ async function checkAccessibility(page, stage) {
     targets: violation.nodes.map((node) => ({ target: node.target, data: node.any.map((check) => check.data) }))
   }));
   assert.deepEqual(summary, [], `${stage} must have no automated WCAG A/AA violations`);
+}
+
+async function checkCredentialInputs(page, form) {
+  const formSelector = form === 'login' ? '#kc-form-login' : '#kc-register-form';
+  const inputs = await page.locator(`${formSelector} input`).evaluateAll((elements) =>
+    elements
+      .filter((input) => ['username', 'password'].includes(input.name))
+      .map((input) => ({
+        name: input.name,
+        type: input.type,
+        autocomplete: input.autocomplete,
+        required: input.required,
+        label: [...(input.labels ?? [])].map((label) => label.textContent.trim()).join(' '),
+        describedBy: input.getAttribute('aria-describedby'),
+      }))
+  );
+  assert.deepEqual(inputs.map(({ name }) => name), ['username', 'password']);
+  assert.ok(inputs.every(({ label }) => label), `${form} fields have associated visible labels`);
+  assert.equal(inputs[0].type, 'text');
+  assert.equal(inputs[0].autocomplete, 'username');
+  assert.equal(inputs[1].type, 'password');
+  assert.equal(inputs[1].autocomplete, form === 'login' ? 'current-password' : 'new-password');
+  if (form !== 'login') assert.equal(inputs[1].required, true);
+  return inputs;
+}
+
+async function checkCredentialErrorStyles(page) {
+  await checkInvalidInputAppearance(page.locator('#kc-form-login [name="username"]'));
+  const styles = await page.evaluate(() => {
+    const username = document.querySelector('#kc-form-login [name="username"]');
+    const password = document.querySelector('#kc-form-login [name="password"]');
+    const group = password?.closest('.pf-c-input-group');
+    const visibility = group?.querySelector('[data-password-toggle]');
+    const error = document.querySelector('#kc-form-login .kc-feedback-text');
+    const expectedError = document.createElement('span');
+    expectedError.style.color = 'var(--destructive)';
+    document.body.append(expectedError);
+    const destructiveColor = getComputedStyle(expectedError).color;
+    expectedError.remove();
+    return {
+      usernameInvalid: username?.getAttribute('aria-invalid'),
+      usernameBackground: getComputedStyle(username).backgroundImage,
+      passwordInvalid: password?.getAttribute('aria-invalid'),
+      passwordBackground: getComputedStyle(password).backgroundImage,
+      groupRadius: getComputedStyle(group).borderRadius,
+      groupBorderWidth: getComputedStyle(group).borderTopWidth,
+      buttonBorderTopWidth: getComputedStyle(visibility).borderTopWidth,
+      buttonBorderLeftWidth: getComputedStyle(visibility).borderLeftWidth,
+      destructiveColor,
+      errorColor: getComputedStyle(error).color,
+      errorText: error?.textContent.trim(),
+    };
+  });
+  assert.equal(styles.usernameInvalid, 'true');
+  assert.equal(styles.passwordInvalid, 'true');
+  assert.equal(styles.usernameBackground, 'none', 'Invalid username has no repeating PatternFly icon');
+  assert.equal(styles.passwordBackground, 'none', 'Invalid password has no repeating PatternFly icon');
+  assert.equal(styles.groupRadius, '12px', 'Password and visibility button share a single rounded shell');
+  assert.equal(styles.groupBorderWidth, '1px');
+  assert.equal(styles.buttonBorderTopWidth, '0px', 'Visibility button has no second outer border');
+  assert.equal(styles.buttonBorderLeftWidth, '0px', 'The ghost visibility control has no separate frame');
+  assert.equal(styles.errorColor, styles.destructiveColor, 'Credential errors use the themed destructive color');
+  assert.equal(styles.errorText, 'Invalid username or password.');
+  await page.locator('#kc-form-login [name="password"]').focus();
+  const innerField = await page.locator('#kc-form-login [name="password"]').evaluate((input) => {
+    const style = getComputedStyle(input);
+    return { outline: style.outlineStyle, shadow: style.boxShadow, widths: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth] };
+  });
+  assert.equal(innerField.outline, 'none', 'The password group owns its focus indicator');
+  assert.equal(innerField.shadow, 'none', 'The inner password must not add a second error ring');
+  assert.deepEqual(innerField.widths, ['0px', '0px', '0px', '0px']);
+}
+
+async function checkInvalidInputAppearance(input) {
+  await input.blur();
+  const unfocusedShadow = await input.evaluate(async (element) => {
+    getComputedStyle(element).boxShadow;
+    await Promise.allSettled(element.getAnimations().map((animation) => animation.finished));
+    return getComputedStyle(element).boxShadow;
+  });
+  await input.focus();
+  const style = await input.evaluate((element) => {
+    const computed = getComputedStyle(element);
+    return {
+      invalid: element.getAttribute('aria-invalid'),
+      outline: computed.outlineStyle,
+      shadow: computed.boxShadow,
+      background: computed.backgroundImage,
+      widths: [computed.borderTopWidth, computed.borderRightWidth, computed.borderBottomWidth, computed.borderLeftWidth],
+    };
+  });
+  assert.equal(style.invalid, 'true', 'The server reports the field validation error');
+  assert.equal(style.outline, 'none', 'Invalid fields must not add a purple outline to their error ring');
+  assert.equal(style.shadow, unfocusedShadow, 'Focusing an invalid field preserves its single error indicator');
+  assert.equal(style.background, 'none', 'Validation must not paint a background icon over the text');
+  assert.deepEqual(style.widths, ['1px', '1px', '1px', '1px'], 'Validation must not thicken the bottom border');
+}
+
+async function checkPasswordAppearance(page) {
+  const toggle = page.locator('[data-password-toggle]');
+  for (const state of ['idle', 'hover', 'keyboard']) {
+    if (state === 'hover') await toggle.hover();
+    if (state === 'keyboard') {
+      await page.locator('#password').focus();
+      await page.keyboard.press('Tab');
+    }
+    const appearance = await toggle.evaluate((button) => {
+      const pseudo = getComputedStyle(button, '::after');
+      return {
+        after: pseudo.content,
+        outline: getComputedStyle(button).outlineStyle,
+        focused: document.activeElement === button && button.matches(':focus-visible'),
+      };
+    });
+    assert.equal(appearance.after, 'none', `Password visibility has no inherited white border while ${state}`);
+    assert.equal(appearance.outline, 'none', `Password visibility uses one themed focus indicator while ${state}`);
+    if (state === 'keyboard') assert.equal(appearance.focused, true, 'Visibility remains accessible with the keyboard');
+  }
 }
 
 async function checkCachedPreview(page, navigate, expectedText) {
@@ -111,7 +238,7 @@ async function administrator() {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function removeTemporaryUser(username) {
+async function removeTemporaryUser(username, { applicationData = true } = {}) {
   const headers = await administrator();
   const response = await fetch(`${identity}/admin/realms/kaordo/users?username=${encodeURIComponent(username)}&exact=true`, { headers });
   assert.equal(response.status, 200, 'Temporary identity lookup must succeed');
@@ -121,6 +248,7 @@ async function removeTemporaryUser(username) {
     assert.match(subject, /^[0-9a-f-]{36}$/i);
     const deletion = await fetch(`${identity}/admin/realms/kaordo/users/${subject}`, { method: 'DELETE', headers });
     assert.equal(deletion.status, 204, 'Temporary identity deletion must succeed');
+    if (!applicationData) continue;
     await run('docker', [
       'exec', 'local-app-db-1', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'kaordo', '-d', 'kaordo', '-tAc',
       `BEGIN; DELETE FROM rondo_channels WHERE server_id IN (SELECT id FROM rondo_servers WHERE owner_id IN (SELECT id FROM users WHERE keycloak_sub = '${subject}')); DELETE FROM rondo_servers WHERE owner_id IN (SELECT id FROM users WHERE keycloak_sub = '${subject}'); DELETE FROM ligo_conversations WHERE created_by IN (SELECT id FROM users WHERE keycloak_sub = '${subject}'); DELETE FROM users WHERE keycloak_sub = '${subject}' RETURNING id; COMMIT;`
@@ -135,18 +263,34 @@ test('identity theme follows persisted color mode on native credential forms', {
       const context = await browser.newContext({ colorScheme: mode === 'dark' ? 'light' : 'dark' });
       await context.addInitScript((preference) => localStorage.setItem('kaordo.color-mode', preference), mode);
       const page = await context.newPage();
-      const url = new URL(`${identity}/realms/kaordo/protocol/openid-connect/auth`);
-      url.search = new URLSearchParams({
-        client_id: 'kaordo-web', redirect_uri: `${site}/`, response_type: 'code', scope: 'openid',
-        code_challenge: randomBytes(32).toString('base64url'), code_challenge_method: 'S256',
-      });
-      await page.goto(url.href);
+      const url = identityEntryURL();
+      await page.goto(url);
       await page.locator('#kc-form-login').waitFor();
+      await checkCredentialInputs(page, 'login');
       assert.equal(await page.evaluate(() => document.documentElement.classList.contains('dark')), mode === 'dark',
         'Saved preference overrides the opposite system setting before the form is shown');
       assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'deep-purple');
       for (const form of ['login', 'registration']) {
-        if (form === 'registration') await page.getByRole('link', { name: 'Register', exact: true }).click();
+        if (form === 'registration') {
+          await page.getByRole('link', { name: 'Register', exact: true }).click();
+          await page.locator('#kc-register-form').waitFor();
+        }
+        const inputs = await checkCredentialInputs(page, form === 'login' ? 'login' : 'register');
+        if (form === 'registration') {
+          const passwordVisibility = page.locator('#kc-register-form [data-password-toggle]');
+          assert.equal(await passwordVisibility.getAttribute('aria-controls'), 'password');
+          const originalLabel = await passwordVisibility.getAttribute('aria-label');
+          await passwordVisibility.click();
+          assert.equal(await page.locator('#password').getAttribute('type'), 'text',
+            'Keycloak visibility control reveals the registration password');
+          assert.notEqual(await passwordVisibility.getAttribute('aria-label'), originalLabel,
+            'Password visibility exposes its changed action to assistive technology');
+          await passwordVisibility.click();
+          assert.equal(await page.locator('#password').getAttribute('type'), 'password');
+          assert.ok(inputs[1].autocomplete === 'new-password');
+        }
+        await checkPasswordAppearance(page);
+        await capture(page, `identity-${form}-${mode}`);
         for (const width of [1280, 320]) {
           await page.setViewportSize({ width, height: 800 });
           assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -154,10 +298,64 @@ test('identity theme follows persisted color mode on native credential forms', {
           await checkAccessibility(page, `${form} ${mode} ${width}px`);
         }
       }
+      await page.goto(url);
+      await page.locator('#kc-form-login').waitFor();
+      await page.locator('[name=username]').fill(`invalid_${randomBytes(5).toString('hex')}`);
+      await page.locator('[name=password]').fill('incorrect-password');
+      await page.locator('#kc-login').click();
+      await page.locator('#input-error').waitFor();
+      await checkCredentialErrorStyles(page);
       await context.close();
     }
   } finally {
     await browser.close();
+  }
+});
+
+test('identity OTP errors keep one input boundary in both color modes', { timeout: 60_000 }, async () => {
+  const username = `test_identity_${randomBytes(6).toString('hex')}`;
+  const password = `Qa!${randomBytes(18).toString('hex')}`;
+  const browser = await chromium.launch({ headless: true, executablePath: chrome });
+  try {
+    const context = await browser.newContext({ colorScheme: 'dark' });
+    const page = await context.newPage();
+    // Finish Keycloak's setup without bootstrapping an application account.
+    await page.route(`${site}/**`, (route) => route.fulfill({
+      contentType: 'text/html', body: '<!doctype html><title>Identity test callback</title>',
+    }));
+    await page.goto(identityEntryURL());
+    await page.getByRole('link', { name: 'Register', exact: true }).click();
+    await page.locator('#kc-register-form [name=username]').fill(username);
+    await page.locator('#kc-register-form [name=password]').fill(password);
+    await page.locator('#kc-register-form input[type=submit]').click();
+    await page.locator('[name=totpSecret]').waitFor({ state: 'attached' });
+    const secret = await page.locator('[name=totpSecret]').inputValue();
+    await page.locator('[name=totp]').fill(codeFor(secret));
+    await page.locator('#kc-totp-settings-form input[type=submit]').click();
+    await page.locator('#kc-recovery-codes-list li').first().waitFor();
+    await page.locator('[name=kcRecoveryCodesConfirmationCheck]').check();
+    await page.locator('#saveRecoveryAuthnCodesBtn').click();
+    await page.waitForURL(`${site}/**`);
+    await context.clearCookies();
+
+    await page.goto(identityEntryURL());
+    await page.locator('#kc-form-login [name=username]').fill(username);
+    await page.locator('#kc-form-login [name=password]').fill(password);
+    await page.locator('#kc-login').click();
+    await page.locator('[name=otp]').fill('not-a-code');
+    await page.locator('input[name=login]').click();
+    const otp = page.locator('[name=otp][aria-invalid=true]');
+    await otp.waitFor();
+    for (const mode of ['dark', 'light']) {
+      await page.emulateMedia({ colorScheme: mode });
+      await page.waitForFunction((dark) => document.documentElement.classList.contains('dark') === dark, mode === 'dark');
+      await checkInvalidInputAppearance(otp);
+      await checkAccessibility(page, `Invalid OTP ${mode}`);
+      await capture(page, `identity-invalid-otp-${mode}`);
+    }
+  } finally {
+    await browser.close();
+    await removeTemporaryUser(username, { applicationData: false });
   }
 });
 

@@ -85,7 +85,7 @@
 <div class="mt-7 flex items-center justify-between gap-3">
 	<h2 class="text-xl font-bold tracking-tight">Performance</h2>
 	<div
-		class="flex gap-1 rounded-xl bg-secondary p-1"
+		class="flex gap-1 rounded-xl bg-muted p-1"
 		aria-label="History window"
 	>
 		{#each metricsWindows as option (option)}
@@ -93,7 +93,7 @@
 				type="button"
 				aria-pressed={timeWindow === option}
 				onclick={() => onWindowChange(option)}
-				class={`rounded-lg px-3 py-1.5 text-xs font-bold ${timeWindow === option ? "bg-card text-primary shadow-sm" : "text-muted-foreground"}`}
+				class={`rounded-lg px-3 py-1.5 text-xs font-bold ${timeWindow === option ? "bg-card text-link shadow-sm" : "text-muted-foreground"}`}
 				>{option}</button
 			>
 		{/each}
@@ -151,7 +151,7 @@
 				? `${disks.length} physical ${disks.length === 1 ? "disk" : "disks"} · ${poolMembers} data-pool ${poolMembers === 1 ? "member" : "members"} · ${system.swapDevices.length} swap device${system.swapDevices.length === 1 ? "" : "s"}`
 				: "Discovering host storage…"}
 		</p>
-		<div class="mt-5 text-4xl font-bold tracking-tight text-primary">
+		<div class="mt-5 text-4xl font-bold tracking-tight text-link">
 			{system ? disks.length : "—"}
 		</div>
 		<p class="mt-1 text-xs text-muted-foreground">

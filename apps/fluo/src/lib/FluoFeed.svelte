@@ -151,7 +151,7 @@
 {:else if posts.length === 0}
 	<div class="rounded-[1.5rem] border border-border bg-card px-6 py-16 text-center shadow-sm">
 		<div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent">
-			<BookmarkIcon class="size-6 text-primary" />
+			<BookmarkIcon class="size-6 text-accent-foreground" />
 		</div>
 		<p class="mt-5 text-xl font-bold tracking-tight">{feedEmptyTitle(view, feed)}</p>
 		<p class="mt-2 text-sm text-muted-foreground">{feedEmptyDescription(view, feed)}</p>

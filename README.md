@@ -19,7 +19,7 @@ Kaordo is being rebuilt as independent applications in one repository. Local acc
 | `services/regado-agent` | Restricted Linux monitoring and maintenance over a Unix socket |
 | `deploy` | Local Compose and production NixOS profiles |
 
-Every frontend is a separate SvelteKit static build. `build:pages` assembles them under one Pages artifact: `/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. The UI package owns shadcn-svelte components, Bits UI primitives, Lucide icons, and the official Rhea preset. Deep Purple is the shared light/dark theme; the top-right header toggle preserves its mode across navigation, reload and tabs, with the initial mode following the operating system.
+Every frontend is a separate SvelteKit static build. `build:pages` assembles them under one Pages artifact: `/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. The UI package owns shadcn-svelte components, Bits UI primitives, Lucide icons, and the official Rhea preset. The rightmost header control opens `/agordoj/`, where users select Deep Purple (the default), Discord, Leadgen, Lara, Damon, Party Rock or Japan Blues. The shared theme and independent light/dark mode persist across navigation, reload and tabs; the initial mode follows the operating system.
 
 ## Run locally
 

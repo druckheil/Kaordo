@@ -14,10 +14,10 @@
 	const media = $derived(system?.mediaMaintenance);
 	const busy = $derived(actionBusy || report?.state === "checking" || report?.state === "repairing" || media?.state === "checking" || media?.state === "repairing");
 	const rows = $derived([
-		{ key: "duplicated", label: "Duplicated", count: summary?.duplicated, description: "Two copies on separate disks", classes: "bg-primary/10 text-primary" },
+		{ key: "duplicated", label: "Duplicated", count: summary?.duplicated, description: "Two copies on separate disks", classes: "bg-primary-soft text-primary-soft-foreground" },
 		{ key: "single", label: "Single copy", count: summary?.single, description: "Needs a second available copy", classes: "bg-amber-500/10 text-amber-800 dark:text-amber-300" },
 		{ key: "surplus", label: "Surplus", count: summary?.surplus, description: "Expired uploads with no references", classes: "bg-destructive/10 text-destructive" },
-		{ key: "unverified", label: "Unverified", count: summary?.unverified, description: "Insufficient evidence to classify", classes: "bg-secondary text-muted-foreground" },
+		{ key: "unverified", label: "Unverified", count: summary?.unverified, description: "Insufficient evidence to classify", classes: "bg-secondary text-secondary-foreground" },
 	]);
 	function percent(count: number | undefined): string {
 		if (!summary || count === undefined) return "—";

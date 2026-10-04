@@ -40,7 +40,7 @@ test('authentication entry points are prerendered without showing guest actions 
   const login = pageAt('/login/');
   const register = pageAt('/register/');
   assert.match(login, /Sign in/);
-  assert.match(register, /Join Kaordo/);
+  assert.match(register, /Opening your registration form/);
   assert.doesNotMatch(login, />Continue to sign in</);
   assert.doesNotMatch(register, />Continue to registration</);
 });

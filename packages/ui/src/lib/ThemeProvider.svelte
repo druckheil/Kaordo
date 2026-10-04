@@ -1,11 +1,19 @@
 <script lang="ts">
-  // Configures shared pre-paint color mode and preference persistence for every app
-  import { ModeWatcher } from 'mode-watcher';
+  // Configures pre-paint appearance and shared preference persistence for every app
+  import { ModeWatcher, setTheme, theme } from 'mode-watcher';
+  import { defaultTheme, resolveTheme } from './themes/index.js';
+  import preferences from './themes/preferences.json' with { type: 'json' };
+
+  $effect(() => {
+    if (theme.current && resolveTheme(theme.current).id !== theme.current) {
+      setTheme(defaultTheme.id);
+    }
+  });
 </script>
 
 <ModeWatcher
   defaultMode="system"
-  defaultTheme="deep-purple"
-  modeStorageKey="kaordo.color-mode"
-  themeStorageKey="kaordo.theme"
+  defaultTheme={defaultTheme.id}
+  modeStorageKey={preferences.modeStorageKey}
+  themeStorageKey={preferences.themeStorageKey}
 />

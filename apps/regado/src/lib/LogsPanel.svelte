@@ -200,7 +200,7 @@
 	{/if}
 
 	<div
-		class="kaordo-scrollbar mt-5 max-h-[60dvh] space-y-1 overflow-auto rounded-xl bg-secondary/40 p-3 font-mono text-xs"
+		class="kaordo-scrollbar mt-5 max-h-[60dvh] space-y-1 overflow-auto rounded-xl bg-muted p-3 font-mono text-xs"
 	>
 		{#each visibleLogs as entry}
 			<div

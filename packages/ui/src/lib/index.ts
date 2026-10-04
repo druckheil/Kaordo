@@ -10,6 +10,9 @@ export { default as ModuleLanding } from './ModuleLanding.svelte';
 export { default as AppHeader } from './AppHeader.svelte';
 export { default as ThemeProvider } from './ThemeProvider.svelte';
 export { default as ThemeToggle } from './ThemeToggle.svelte';
+export { default as AgordojLink } from './AgordojLink.svelte';
+export { default as ThemePicker } from './ThemePicker.svelte';
+export { withIdentityAppearance } from './themes/identity-appearance.js';
 
 // Composite interaction components
 export * as Dialog from './components/ui/dialog/index.js';
@@ -85,6 +88,7 @@ export { default as FileIcon } from '@lucide/svelte/icons/file';
 
 export * as HoverCard from './components/ui/hover-card/index.js';
 export * as Popover from './components/ui/popover/index.js';
+export * as RadioGroup from './components/ui/radio-group/index.js';
 export { Progress } from './components/ui/progress/index.js';
 export { default as InfoIcon } from '@lucide/svelte/icons/info';
 export { default as HardDriveIcon } from '@lucide/svelte/icons/hard-drive';

@@ -1,3 +1,4 @@
+<#-- Renders Keycloak's account registration fields using the shared identity theme -->
 <#import "template.ftl" as layout>
 <#import "user-profile-commons.ftl" as userProfileCommons>
 <#import "register-commons.ftl" as registerCommons>
@@ -17,7 +18,9 @@
                             <div class="${properties.kcInputGroup!}" dir="ltr">
                                 <input type="password" id="password" name="password" class="${properties.kcInputClass!}"
                                        autocomplete="new-password"
-                                       aria-invalid="<#if messagesPerField.existsError('password','password-confirm')>true</#if>" />
+                                       aria-invalid="<#if messagesPerField.existsError('password','password-confirm')>true<#else>false</#if>"
+                                       <#if messagesPerField.existsError('password','password-confirm')>aria-describedby="input-error-password"</#if>
+                                       required />
                                 <button class="${properties.kcFormPasswordVisibilityButtonClass!}" type="button"
                                         aria-label="${msg('showPassword')}" aria-controls="password" data-password-toggle
                                         data-icon-show="${properties.kcFormPasswordVisibilityIconShow!}"

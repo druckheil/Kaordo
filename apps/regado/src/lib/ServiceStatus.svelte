@@ -5,10 +5,10 @@
 	let { service }: { service: AdminService } = $props();
 	const status = $derived(servicePresentation(service));
 	const tones = {
-		success: "bg-primary/10 text-primary",
+		success: "bg-primary-soft text-primary-soft-foreground",
 		warning: "bg-amber-500/10 text-amber-800 dark:text-amber-300",
 		danger: "bg-destructive/10 text-destructive",
-		neutral: "bg-secondary text-muted-foreground",
+		neutral: "bg-secondary text-secondary-foreground",
 	};
 </script>
 

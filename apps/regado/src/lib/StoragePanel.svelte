@@ -40,7 +40,7 @@
 
 <section class="mt-6 rounded-[1.4rem] border border-border bg-card p-4 sm:p-6" aria-label="Host storage devices">
  <div class="flex flex-wrap items-start justify-between gap-3">
-  <div class="flex items-center gap-3"><ServerIcon class="size-6 text-primary" /><div><h2 class="text-lg font-bold">{system?.hostname || "Host"}</h2><p class="text-xs text-muted-foreground">Storage devices · {devices.length} detected</p></div></div>
+  <div class="flex items-center gap-3"><ServerIcon class="size-6 text-link" /><div><h2 class="text-lg font-bold">{system?.hostname || "Host"}</h2><p class="text-xs text-muted-foreground">Storage devices · {devices.length} detected</p></div></div>
   <div class="flex items-center gap-1"><p class="text-sm font-semibold">{(hardwareBytes / 1e12).toFixed(2)} TB physical</p><ContextHelp label="physical capacity"><p>Hardware capacity includes every physical disk, partition and replica. Decimal TB matches disk manufacturers; partition sizes are shown in GiB.</p><p>Device identity and its connection remain separate from partition roles. Only this connected host is discovered; remote NAS hosts require an agent or supported connection.</p></ContextHelp></div>
  </div>
  <div class="mt-5 grid gap-4 lg:grid-cols-2">
@@ -54,7 +54,7 @@
  <section class="mt-6 rounded-[1.4rem] border border-border bg-card p-4 sm:p-6" aria-label={`Storage pool ${pool.path}`}>
   <div class="flex flex-wrap items-start justify-between gap-3">
    <div><h2 class="text-lg font-bold">Storage pool</h2><p class="mt-1 font-mono text-xs text-muted-foreground">{pool.path}</p></div>
-   <div class="flex items-center gap-2"><span class={`text-xs font-semibold ${pool.integrity?.healthy ? "text-primary" : "text-muted-foreground"}`}>{poolStatus(pool)}</span><ContextHelp label="storage pool"><p>{pool.integrity?.devicesOnline ?? 0}/{pool.integrity?.devicesExpected ?? 0} devices online. Data: {pool.integrity?.dataProfile || "unknown"}; metadata: {pool.integrity?.metadataProfile || "unknown"}.</p><p>RAID1 places two copies on separate devices. This is protection against a disk failure, not an independent backup.</p><p>The unique capacity reflects duplication and filesystem overhead; it is not the sum of physical disk sizes.</p></ContextHelp></div>
+   <div class="flex items-center gap-2"><span class={`text-xs font-semibold ${pool.integrity?.healthy ? "text-link" : "text-muted-foreground"}`}>{poolStatus(pool)}</span><ContextHelp label="storage pool"><p>{pool.integrity?.devicesOnline ?? 0}/{pool.integrity?.devicesExpected ?? 0} devices online. Data: {pool.integrity?.dataProfile || "unknown"}; metadata: {pool.integrity?.metadataProfile || "unknown"}.</p><p>RAID1 places two copies on separate devices. This is protection against a disk failure, not an independent backup.</p><p>The unique capacity reflects duplication and filesystem overhead; it is not the sum of physical disk sizes.</p></ContextHelp></div>
   </div>
   <dl class="mt-4 grid gap-3 sm:grid-cols-3"><div><dt class="text-xs text-muted-foreground">Physical pool capacity</dt><dd class="mt-1 font-semibold">{bytes(pool.integrity?.physicalTotal)} · includes replicas</dd></div><div><dt class="text-xs text-muted-foreground">Unique usable capacity</dt><dd class="mt-1 font-semibold">{bytes(pool.total)}</dd></div><div><dt class="text-xs text-muted-foreground">Available for unique data</dt><dd class="mt-1 font-semibold">{bytes(pool.free)}</dd></div></dl>
   {#if pool.available}<div class="mt-4"><Progress value={pool.total > 0 ? 100 * pool.used / pool.total : 0} aria-label={`Used capacity in ${pool.path}`} /><p class="mt-2 text-xs text-muted-foreground">{bytes(pool.used)} used</p></div>{/if}
@@ -65,7 +65,7 @@
 <section class="mt-6 rounded-[1.4rem] border border-border bg-card p-4 sm:p-6">
  <div class="flex items-center gap-1"><h2 class="text-lg font-bold">Application data</h2><ContextHelp label="application data"><p>Counts come from PostgreSQL. Filesystem usage also includes indexes, logs and temporary artifacts, so it can exceed referenced content size.</p></ContextHelp></div>
  <p class="mt-2 text-sm text-muted-foreground">{summary?.posts ?? "—"} posts · {summary?.messages ?? "—"} messages · {summary?.uploads ?? "—"} media objects · database {bytes(summary?.databaseBytes)}</p>
- <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">{#each summary?.mediaByKind ?? [] as usage (usage.kind)}<div class="rounded-xl bg-secondary/50 p-3"><p class="text-xs font-medium capitalize">{usage.kind === "image" ? "Photos" : usage.kind === "video" ? "Videos" : "Files"}</p><p class="mt-1 font-semibold">{bytes(usage.bytes)}</p><p class="text-xs text-muted-foreground">{usage.objects} objects</p></div>{/each}</div>
+ <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">{#each summary?.mediaByKind ?? [] as usage (usage.kind)}<div class="rounded-xl bg-muted p-3"><p class="text-xs font-medium capitalize">{usage.kind === "image" ? "Photos" : usage.kind === "video" ? "Videos" : "Files"}</p><p class="mt-1 font-semibold">{bytes(usage.bytes)}</p><p class="text-xs text-muted-foreground">{usage.objects} objects</p></div>{/each}</div>
 </section>
 <div class="mt-6"><MetricChart title="Storage usage" points={metrics?.series.storagePercent ?? []} /></div>
 

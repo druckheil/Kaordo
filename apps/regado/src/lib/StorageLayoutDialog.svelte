@@ -74,7 +74,7 @@
    {#if Number(storageSize) > 0}<label class="block space-y-2 text-sm font-medium">Storage pool<select class="h-10 w-full rounded-xl border border-input bg-background px-3" bind:value={filesystem} onchange={invalidate} disabled={applying}>{#each pools as pool (pool.path)}<option value={pool.path}>{pool.path}</option>{/each}{#if !pools.length}<option value="">No managed pool available</option>{/if}</select></label>{/if}
    <Button variant="outline" disabled={!valid || busy || applying} onclick={() => void preview()}>{#if busy}<LoaderCircleIcon class="size-4 animate-spin" />{/if}Preview layout</Button>
    {#if plan}
-    <div class="space-y-3 rounded-xl border border-border bg-secondary/40 p-4" aria-label="Reviewed layout">
+    <div class="space-y-3 rounded-xl border border-border bg-muted p-4" aria-label="Reviewed layout">
      <p class="text-sm font-semibold">System {bytes(plan.systemBytes)} · Storage {bytes(plan.storageBytes)}</p>
      <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>Layout engine: {plan.backend}</span><Button variant="ghost" size="xs" onclick={downloadDeclaration}>Export Disko</Button></div>
      <ul class="space-y-1 text-xs text-muted-foreground">{#each plan.steps as step}<li class="capitalize">{step.kind === "boot" ? "Preserve boot support" : `${step.kind} ${step.role} · ${bytes(step.size)}`}</li>{/each}</ul>

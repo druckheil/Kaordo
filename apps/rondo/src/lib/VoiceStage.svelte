@@ -112,7 +112,7 @@
 <div bind:this={stage} class={`voice-stage min-w-0 shrink-0 border-b border-border/70 shadow-xs ${stageFullscreen ? 'flex h-dvh w-dvw flex-col overflow-hidden bg-background p-4' : 'bg-card/90 p-3 sm:px-6'}`}>
   <div class="flex min-w-0 flex-wrap items-center gap-2">
     <div class="mr-auto min-w-0">
-      <p class="truncate text-xs font-bold text-primary">Voice · #{channelName}</p>
+      <p class="truncate text-xs font-bold text-link">Voice · #{channelName}</p>
       <p class="text-xs text-muted-foreground">{voice.connected ? `${voice.participants.length} connected` : voice.reconnecting ? 'Reconnecting…' : 'Connecting…'}</p>
     </div>
     <div class="flex flex-wrap items-center gap-1" role="group" aria-label="Voice controls">
@@ -155,7 +155,7 @@
   {#if voice.connected}
     <div class="kaordo-scrollbar mt-2 flex min-w-0 gap-1.5 overflow-x-auto pb-0.5" aria-label="Voice participants">
       {#each voice.participants as participant (participant.id)}
-        <span class={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${participant.speaking ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border bg-background text-muted-foreground'}`}>
+        <span class={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${participant.speaking ? 'border-primary/40 bg-primary-soft text-primary-soft-foreground' : 'border-border bg-background text-muted-foreground'}`}>
           {#if participant.microphoneEnabled}<MicIcon class="size-3" />{:else}<MicOffIcon class="size-3" />{/if}
           <span>{participant.local ? 'You' : participant.name}</span>
           {#if participant.cameraEnabled}<VideoIcon class="size-3" aria-label="Camera on" />{/if}

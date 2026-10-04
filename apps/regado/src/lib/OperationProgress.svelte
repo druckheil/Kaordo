@@ -8,10 +8,10 @@
  function amount(value: number): string { return progress?.unit === "bytes" ? bytes(value) : value.toLocaleString(); }
 </script>
 
-<div class="space-y-2 rounded-xl bg-secondary/50 p-3" aria-label={label}>
+<div class="space-y-2 rounded-xl bg-muted p-3" aria-label={label}>
  <div class="flex items-center justify-between gap-3 text-xs">
   <span class="font-medium">{label}</span>
-  <span class="shrink-0 tabular-nums text-primary">{percent === null ? "In progress" : `${percent.toFixed(1)}%`}</span>
+  <span class="shrink-0 tabular-nums text-link">{percent === null ? "In progress" : `${percent.toFixed(1)}%`}</span>
  </div>
  {#if percent !== null}
   <Progress value={percent} aria-label={label} />
