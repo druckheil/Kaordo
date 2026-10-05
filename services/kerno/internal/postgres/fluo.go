@@ -183,8 +183,8 @@ func postFeedCondition(condition jetpg.BoolExpression, feed string, posts *table
 		return jetpg.AND(condition, jetpg.EXISTS(jetpg.SELECT(saved.PostID).FROM(saved).
 			WHERE(jetpg.AND(saved.UserID.EQ(viewer), saved.PostID.EQ(posts.ID)))))
 	case "following":
-		return jetpg.AND(condition, jetpg.OR(posts.AuthorID.EQ(viewer), jetpg.EXISTS(jetpg.SELECT(follows.FollowedID).
-			FROM(follows).WHERE(jetpg.AND(follows.FollowerID.EQ(viewer), follows.FollowedID.EQ(posts.AuthorID))))))
+		return jetpg.AND(condition, jetpg.EXISTS(jetpg.SELECT(follows.FollowedID).
+			FROM(follows).WHERE(jetpg.AND(follows.FollowerID.EQ(viewer), follows.FollowedID.EQ(posts.AuthorID)))))
 	default:
 		return jetpg.AND(condition, jetpg.Bool(false))
 	}
