@@ -103,6 +103,10 @@ type Page struct {
 	NextCursor *string `json:"nextCursor"`
 }
 
+type Thread struct {
+	Posts []Post `json:"posts"`
+}
+
 type ListOptions struct {
 	ViewerID string
 	Feed     string
@@ -153,6 +157,7 @@ func parseCursor(data []byte) (*Cursor, error) {
 type Store interface {
 	Create(context.Context, string, NewPost, string, []Media) (Post, error)
 	Get(context.Context, string, string) (Post, error)
+	Thread(context.Context, string, string) (Thread, error)
 	List(context.Context, ListOptions) (Page, error)
 	SetVisibility(context.Context, string, string, string) error
 	Delete(context.Context, string, string) ([]string, error)

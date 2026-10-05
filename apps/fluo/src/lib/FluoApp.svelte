@@ -61,9 +61,9 @@
     actionError = message;
   });
 
-  const selectedPost = createQuery(() => ({
-    queryKey: ['fluo', 'post', postId],
-    queryFn: ({ signal }) => api.get(postId!, signal),
+  const selectedThread = createQuery(() => ({
+    queryKey: ['fluo', 'thread', postId],
+    queryFn: ({ signal }) => api.thread(postId!, signal),
     enabled: !!postId,
     staleTime: 15_000
   }), () => queryClient);
@@ -202,7 +202,7 @@
       const invalidations = [
         queryClient.invalidateQueries({ queryKey: ['fluo', 'comments', repliedTo.id] }),
         queryClient.invalidateQueries({ queryKey: ['fluo', 'feed'] }),
-        queryClient.invalidateQueries({ queryKey: ['fluo', 'post', repliedTo.id] })
+        queryClient.invalidateQueries({ queryKey: ['fluo', 'thread', postId] })
       ];
       if (repliedTo.parentId) {
         invalidations.push(queryClient.invalidateQueries({ queryKey: ['fluo', 'comments', repliedTo.parentId] }));
@@ -229,7 +229,7 @@
       await api.remove(post.id);
       deleteTarget = null;
       removedIds = [...removedIds, post.id];
-      if (postId === post.id) backFromPost();
+      if (selectedThread.data?.posts.some((threadPost) => threadPost.id === post.id)) backFromPost();
       removePostFromCachedFeeds(queryClient, post.id);
       await queryClient.invalidateQueries({ queryKey: ['fluo'] });
     } catch (cause) {
@@ -246,13 +246,13 @@
   <section class="mx-auto min-w-0 w-full max-w-[46rem]" aria-label={postId ? 'Post' : pageTitle}>
     {#if postId}
       <PostFocusView
-        post={selectedPost.data}
-        pending={selectedPost.isPending}
-        error={selectedPost.error?.message ?? null}
+        thread={selectedThread.data?.posts ?? []}
+        pending={selectedThread.isPending}
+        error={selectedThread.error?.message ?? null}
         viewerId={user.id}
         {api}
         {queryClient}
-        onRetry={() => void selectedPost.refetch()}
+        onRetry={() => void selectedThread.refetch()}
         onReply={reply}
         onQuote={quote}
         onOpenPost={openPost}

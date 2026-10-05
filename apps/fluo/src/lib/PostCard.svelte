@@ -1,6 +1,7 @@
 <script lang="ts">
 	// Composes a post surface with its replies
 
+	import type { Snippet } from 'svelte';
 	import type { QueryClient } from '@tanstack/svelte-query';
 	import type { FluoApi } from '@kaordo/api-client';
 	import type { FluoPost } from '@kaordo/contracts';
@@ -13,6 +14,8 @@
 		api,
 		queryClient,
 		repliesAlwaysVisible = false,
+		focusTarget = false,
+		threadContext,
 		onReply,
 		onQuote,
 		onOpenPost,
@@ -27,6 +30,8 @@
 		api: FluoApi;
 		queryClient: QueryClient;
 		repliesAlwaysVisible?: boolean;
+		focusTarget?: boolean;
+		threadContext?: Snippet;
 		onReply: (post: FluoPost) => void;
 		onQuote: (post: FluoPost) => void;
 		onOpenPost: (id: string) => void;
@@ -41,6 +46,8 @@
 <PostItem
 	{post}
 	{viewerId}
+	{focusTarget}
+	{threadContext}
 	showReplyAction={!repliesAlwaysVisible}
 	{onReply}
 	{onQuote}
@@ -56,6 +63,7 @@
 		{viewerId}
 		{api}
 		{queryClient}
+		threadHasAncestors={threadContext !== undefined}
 		{onReply}
 		{onQuote}
 		{onOpenPost}

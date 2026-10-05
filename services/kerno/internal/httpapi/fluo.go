@@ -49,6 +49,7 @@ func mountFluo(router chi.Router, verify VerifyFunc, users UserStore, deps FluoD
 		r.Put("/posts/{id}/saved", h.savePost)
 		r.Delete("/posts/{id}/saved", h.unsavePost)
 		r.Get("/posts/{id}", h.get)
+		r.Get("/posts/{id}/thread", h.thread)
 		r.Patch("/posts/{id}", h.setVisibility)
 		r.Delete("/posts/{id}", h.delete)
 		r.Get("/posts/{id}/comments", h.comments)
@@ -107,8 +108,12 @@ func (h fluoHandler) signMedia(items []fluo.Media) error {
 }
 
 func (h fluoHandler) decoratePage(page *fluo.Page) error {
-	for index := range page.Items {
-		if err := h.decorate(&page.Items[index]); err != nil {
+	return h.decoratePosts(page.Items)
+}
+
+func (h fluoHandler) decoratePosts(posts []fluo.Post) error {
+	for index := range posts {
+		if err := h.decorate(&posts[index]); err != nil {
 			return err
 		}
 	}
@@ -203,6 +208,28 @@ func (h fluoHandler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, post)
+}
+
+func (h fluoHandler) thread(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !fluo.ValidID(id) {
+		writeError(w, http.StatusBadRequest, "Invalid post ID.")
+		return
+	}
+	thread, err := h.deps.Store.Thread(r.Context(), actor.ID, id)
+	if err != nil {
+		fluoError(w, err)
+		return
+	}
+	if err := h.decoratePosts(thread.Posts); err != nil {
+		fluoError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, thread)
 }
 
 func (h fluoHandler) create(w http.ResponseWriter, r *http.Request) {

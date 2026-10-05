@@ -1,6 +1,6 @@
 // Provides typed Fluo and Nodo requests plus their feed pagination options
 
-import type { FluoNewPost, FluoPage, FluoPost, NodoUpload, paths } from '@kaordo/contracts';
+import type { FluoNewPost, FluoPage, FluoPost, FluoPostThread, NodoUpload, paths } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
 import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
 
@@ -26,6 +26,12 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
     },
     async get(id: string, signal?: AbortSignal): Promise<FluoPost> {
       const { data, error, response } = await client.GET('/v1/fluo/posts/{id}', { params: { path: { id } }, signal });
+      return requireResponseData(data, error, response.status);
+    },
+    async thread(id: string, signal?: AbortSignal): Promise<FluoPostThread> {
+      const { data, error, response } = await client.GET('/v1/fluo/posts/{id}/thread', {
+        params: { path: { id } }, signal
+      });
       return requireResponseData(data, error, response.status);
     },
     async create(input: FluoNewPost): Promise<FluoPost> {

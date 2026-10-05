@@ -669,6 +669,14 @@ components:
         saved: { type: boolean, description: Whether the current user saved this post. }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    FluoPostThread:
+      type: object
+      required: [posts]
+      properties:
+        posts:
+          type: array
+          description: Accessible posts ordered from the thread root through the selected post.
+          items: { $ref: '#/components/schemas/FluoPost' }
     FluoPage:
       type: object
       required: [items, nextCursor]
@@ -891,6 +899,23 @@ paths:
         '204': { description: Updated post and descendant reply visibility. }
         default:
           description: Validation, access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/posts/{id}/thread:
+    get:
+      operationId: getFluoPostThread
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Accessible thread from its root through the selected post.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoPostThread' }
+        default:
+          description: Access or server error.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }

@@ -21,6 +21,7 @@
 		onVisibilityChange,
 		onDelete,
 		alwaysVisible = false,
+		threadHasAncestors = false,
 	}: {
 		post: FluoPost;
 		viewerId: string;
@@ -35,6 +36,7 @@
 		onVisibilityChange: (post: FluoPost, visibility: FluoPost['visibility']) => Promise<void>;
 		onDelete: (post: FluoPost) => void;
 		alwaysVisible?: boolean;
+		threadHasAncestors?: boolean;
 	} = $props();
 
 	let expanded = $state(false);
@@ -100,7 +102,7 @@
 		{:else if replies.data.pages.every((page) => page.items.length === 0)}
 			<p class="mt-5 text-sm text-muted-foreground">No replies yet. Start the conversation.</p>
 		{:else}
-			<ol class="mt-4 grid gap-4 border-s-2 border-border ps-3">
+			<ol class="reply-list mt-4 grid gap-4 border-s-2 border-border ps-3" class:reply-list-threaded={threadHasAncestors}>
 				{#each replies.data.pages as page (page.nextCursor ?? 'latest')}
 					{#each page.items as reply (reply.id)}
 						<li class="min-w-0">
@@ -146,6 +148,19 @@
 {/if}
 
 <style>
+	.reply-list-threaded {
+		position: relative;
+	}
+
+	.reply-list-threaded::before {
+		position: absolute;
+		inset-block: 0;
+		inset-inline-start: -0.5rem;
+		inline-size: 2px;
+		background-color: var(--border);
+		content: '';
+	}
+
 	@media (prefers-reduced-motion: no-preference) {
 		.comment-panel {
 			animation: comment-in 0.22s ease-out both;

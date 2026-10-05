@@ -9,6 +9,7 @@ export type ApiError = Schemas['ApiError'];
 
 // Fluo posts and media
 export type FluoPost = Schemas['FluoPost'];
+export type FluoPostThread = Schemas['FluoPostThread'];
 export type FluoQuote = Schemas['FluoQuote'];
 export type FluoPage = Schemas['FluoPage'];
 export type FluoNewPost = Schemas['FluoNewPost'];

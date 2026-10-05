@@ -9,7 +9,6 @@
 		ContextMenu,
 		DropdownMenu,
 		EllipsisIcon,
-		MessageCircleIcon,
 		Trash2Icon,
 	} from '@kaordo/ui';
 	import { MediaGallery } from '@kaordo/media-ui';
@@ -22,6 +21,8 @@
 		post,
 		viewerId,
 		compact = false,
+		focusTarget = false,
+		threadContext,
 		showReplyAction = true,
 		children,
 		onReply,
@@ -36,6 +37,8 @@
 		post: FluoPost;
 		viewerId: string;
 		compact?: boolean;
+		focusTarget?: boolean;
+		threadContext?: Snippet;
 		showReplyAction?: boolean;
 		children?: Snippet;
 		onReply: (post: FluoPost) => void;
@@ -109,18 +112,11 @@
 				aria-label={`Open post by @${post.author.username}`}
 				onclick={openPostFromCard}
 			></a>
-			{#if post.parentId && !compact}
-				<Button
-					class="relative z-10 -mb-2 w-fit justify-start text-muted-foreground"
-					variant="ghost"
-					size="xs"
-					onclick={() => onOpenPost(post.parentId!)}
-				>
-					<MessageCircleIcon class="size-3.5" />View parent post
-				</Button>
-			{/if}
-
-			<header class="flex items-start gap-3">
+			{@render threadContext?.()}
+			<header
+				id={focusTarget ? `fluo-focused-post-${post.id}` : undefined}
+				class="flex scroll-mt-24 items-start gap-3"
+			>
 				<div class="relative z-10 grid size-11 shrink-0 place-items-center rounded-2xl bg-accent text-sm font-bold text-accent-foreground" aria-hidden="true">{initials}</div>
 				<div class="min-w-0 flex-1">
 					<div class="flex flex-wrap items-baseline gap-x-2">

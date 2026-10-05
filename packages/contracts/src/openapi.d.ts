@@ -121,6 +121,22 @@ export interface paths {
         patch: operations["setFluoPostVisibility"];
         trace?: never;
     };
+    "/v1/fluo/posts/{id}/thread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getFluoPostThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/fluo/posts/{id}/comments": {
         parameters: {
             query?: never;
@@ -1344,6 +1360,10 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        FluoPostThread: {
+            /** @description Accessible posts ordered from the thread root through the selected post. */
+            posts: components["schemas"]["FluoPost"][];
+        };
         FluoPage: {
             items: components["schemas"]["FluoPost"][];
             nextCursor: string | null;
@@ -1718,6 +1738,37 @@ export interface operations {
                 content?: never;
             };
             /** @description Validation, access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getFluoPostThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accessible thread from its root through the selected post. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoPostThread"];
+                };
+            };
+            /** @description Access or server error. */
             default: {
                 headers: {
                     [name: string]: unknown;
