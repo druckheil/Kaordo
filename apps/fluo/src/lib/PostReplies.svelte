@@ -55,14 +55,14 @@
 </script>
 
 {#if !alwaysVisible && post.counts.comments > 0}
-	<Button class="mt-2" variant="ghost" size="sm" aria-expanded={expanded}
+	<Button class="relative z-10 mt-2" variant="ghost" size="sm" aria-expanded={expanded}
 		aria-controls={expanded ? `comments-${post.id}` : undefined} onclick={() => (expanded = !expanded)}>
 		{expanded ? "Hide replies" : `View ${post.counts.comments} ${post.counts.comments === 1 ? "reply" : "replies"}`}
 	</Button>
 {/if}
 
 {#if repliesVisible}
-	<section id={`comments-${post.id}`} class="comment-panel mt-4 border-t border-border/80 pt-4" aria-label="Replies">
+	<section id={`comments-${post.id}`} class="comment-panel relative z-10 mt-4 border-t border-border/80 pt-4" aria-label="Replies">
 		<div class="flex items-center justify-between gap-3">
 			<h3 class="text-sm font-bold">
 				Replies <span class="ml-1 font-medium text-muted-foreground">{post.counts.comments}</span>

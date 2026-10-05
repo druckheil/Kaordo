@@ -13,7 +13,14 @@
   import PostFocusView from './PostFocusView.svelte';
   import FluoNavigation from './FluoNavigation.svelte';
   import FluoPageHeader from './FluoPageHeader.svelte';
-  import { errorMessage, fluoViewFromHash, postIdFromHash, titleForView, type FluoView } from './fluo-model';
+  import {
+    errorMessage,
+    fluoViewFromHash,
+    postHashForId,
+    postIdFromHash,
+    titleForView,
+    type FluoView
+  } from './fluo-model';
   import { postBackDestination, viewFromPostHistory } from './post-navigation';
   import { createFluoPostActions, removePostFromCachedFeeds } from './post-actions';
 
@@ -89,9 +96,10 @@
   }
 
   function openPost(id: string): void {
+    if (postId === id) return;
     if (!postId) retainedFeedScroll = window.scrollY;
-    const hash = `#post/${id}`;
-    const returnHash = postId ? `#post/${postId}` : `#${view}`;
+    const hash = postHashForId(id);
+    const returnHash = postId ? postHashForId(postId) : `#${view}`;
     if (window.location.hash !== hash) {
       pushState(hash, {
         ...page.state,
@@ -137,7 +145,7 @@
   }
 
   function backFromPost(): void {
-    if (!postId && !window.location.hash.startsWith('#post/')) return;
+    if (!postId && !postIdFromHash(window.location.hash)) return;
     const destination = postBackDestination(page.state, view, historySession);
     if (destination.returnThroughHistory) {
       window.history.back();

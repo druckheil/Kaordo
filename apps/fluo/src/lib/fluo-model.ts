@@ -42,6 +42,10 @@ export function fluoViewFromHash(hash: string): FluoView | null {
 	return isFluoView(view) ? view : null;
 }
 
+export function postHashForId(id: string): string {
+	return `#post/${id}`;
+}
+
 export function postIdFromHash(hash: string): string | null {
 	const match = /^#post\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(hash);
 	return match?.[1] ?? null;
