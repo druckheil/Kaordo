@@ -1327,6 +1327,16 @@ export interface components {
              * @description Number of direct replies.
              */
             comments: number;
+            /**
+             * Format: int64
+             * @description Number of public posts quoting this post.
+             */
+            quotes: number;
+            /**
+             * Format: int64
+             * @description Number of accounts that saved this post.
+             */
+            saves: number;
         };
         FluoPost: {
             /** Format: uuid */

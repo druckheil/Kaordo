@@ -27,6 +27,7 @@ The manual setup below is only needed when customizing addresses or running serv
    docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/010_rondo.sql
    docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/011_regado.sql
    docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/012_fluo_quote_tombstones.sql
+   docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml exec -T app-db psql -X -v ON_ERROR_STOP=1 -U kaordo -d kaordo -f /migrations/013_fluo_saved_post_counts.sql
    ```
 
    Start `./scripts/run-kerno-local.sh` and `./scripts/run-nodo-local.sh` in separate terminals. Both read the ignored signing key; Kerno also reads the LiveKit API credentials. Kerno listens on `127.0.0.1:8081`, Nodo on `127.0.0.1:8082`.

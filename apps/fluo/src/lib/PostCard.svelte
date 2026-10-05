@@ -13,7 +13,7 @@
 		viewerId,
 		api,
 		queryClient,
-		repliesAlwaysVisible = false,
+		showReplies = false,
 		focusTarget = false,
 		threadContext,
 		onReply,
@@ -29,7 +29,7 @@
 		viewerId: string;
 		api: FluoApi;
 		queryClient: QueryClient;
-		repliesAlwaysVisible?: boolean;
+		showReplies?: boolean;
 		focusTarget?: boolean;
 		threadContext?: Snippet;
 		onReply: (post: FluoPost) => void;
@@ -48,7 +48,7 @@
 	{viewerId}
 	{focusTarget}
 	{threadContext}
-	showReplyAction={!repliesAlwaysVisible}
+	showReplyAction={!showReplies}
 	{onReply}
 	{onQuote}
 	{onOpenPost}
@@ -58,20 +58,21 @@
 	{onVisibilityChange}
 	{onDelete}
 >
-	<PostReplies
-		{post}
-		{viewerId}
-		{api}
-		{queryClient}
-		threadHasAncestors={threadContext !== undefined}
-		{onReply}
-		{onQuote}
-		{onOpenPost}
-		{onReact}
-		{onFollow}
-		{onSave}
-		{onVisibilityChange}
-		{onDelete}
-		alwaysVisible={repliesAlwaysVisible}
-	/>
+	{#if showReplies}
+		<PostReplies
+			{post}
+			{viewerId}
+			{api}
+			{queryClient}
+			threadHasAncestors={threadContext !== undefined}
+			{onReply}
+			{onQuote}
+			{onOpenPost}
+			{onReact}
+			{onFollow}
+			{onSave}
+			{onVisibilityChange}
+			{onDelete}
+		/>
+	{/if}
 </PostItem>

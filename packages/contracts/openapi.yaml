@@ -643,11 +643,13 @@ components:
           items: { $ref: '#/components/schemas/FluoMedia' }
     FluoCounts:
       type: object
-      required: [good, bad, comments]
+      required: [good, bad, comments, quotes, saves]
       properties:
         good: { type: integer, format: int64 }
         bad: { type: integer, format: int64 }
         comments: { type: integer, format: int64, description: Number of direct replies. }
+        quotes: { type: integer, format: int64, description: Number of public posts quoting this post. }
+        saves: { type: integer, format: int64, description: Number of accounts that saved this post. }
     FluoPost:
       type: object
       required: [id, author, content, text, visibility, parentId, quoteId, quoteDeleted, quote, media, counts, myReaction, saved, createdAt, updatedAt]

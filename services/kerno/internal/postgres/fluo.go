@@ -42,6 +42,8 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 	good := table.FluoReactions.AS("good")
 	bad := table.FluoReactions.AS("bad")
 	comments := table.FluoPosts.AS("comments")
+	quotes := table.FluoPosts.AS("quotes")
+	saves := table.FluoSavedPosts.AS("saves")
 	quotedMedia := jetpg.RawString(`COALESCE((SELECT jsonb_agg(jsonb_build_object(
 		'id', qm.upload_id::text, 'kind', qm.kind, 'mimeType', qm.mime_type,
 		'width', qm.width, 'height', qm.height, 'size', qm.size_bytes, 'altText', qm.alt_text
@@ -69,6 +71,10 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 				comments.AuthorID.EQ(viewer),
 			),
 		))),
+		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(quotes.ID)).FROM(quotes).WHERE(jetpg.AND(
+			quotes.QuoteID.EQ(p.ID), quotes.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)),
+		))),
+		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(saves.PostID)).FROM(saves).WHERE(saves.PostID.EQ(p.ID))),
 		jetpg.SELECT(reaction.Value).FROM(reaction).WHERE(jetpg.AND(reaction.PostID.EQ(p.ID), reaction.UserID.EQ(viewer))),
 		jetpg.EXISTS(jetpg.SELECT(saved.PostID).FROM(saved).
 			WHERE(jetpg.AND(saved.UserID.EQ(viewer), saved.PostID.EQ(p.ID)))),
@@ -115,7 +121,8 @@ func scanPost(row scanner) (fluo.Post, error) {
 		&post.ID, &post.Author.ID, &post.Author.Username, &post.Author.DisplayName, &post.Author.Following,
 		&post.Content, &post.Text, &post.Visibility, &parent, &quote, &post.QuoteDeleted,
 		&quotePreviewID, &quoteAuthorID, &quoteUsername, &quoteName, &quoteText, &quoteMediaJSON,
-		&post.Counts.Good, &post.Counts.Bad, &post.Counts.Comments, &reaction, &post.Saved,
+		&post.Counts.Good, &post.Counts.Bad, &post.Counts.Comments, &post.Counts.Quotes, &post.Counts.Saves,
+		&reaction, &post.Saved,
 		&mediaJSON, &post.CreatedAt, &post.UpdatedAt,
 	)
 	if err != nil {

@@ -91,7 +91,7 @@ export function feedOptions(api: FluoApi, feed: Feed, search?: string) {
   };
 }
 
-export function commentsOptions(api: FluoApi, postId: string, enabled: boolean) {
+export function commentsOptions(api: FluoApi, postId: string) {
   return {
     queryKey: ['fluo', 'comments', postId] as const,
     initialPageParam: undefined as string | undefined,
@@ -99,7 +99,6 @@ export function commentsOptions(api: FluoApi, postId: string, enabled: boolean) 
       api.comments(postId, pageParam, signal),
     getNextPageParam: (lastPage: FluoPage) => lastPage.nextCursor ?? undefined,
     staleTime: 15_000,
-    refetchInterval: 5 * 60_000,
-    enabled
+    refetchInterval: 5 * 60_000
   };
 }

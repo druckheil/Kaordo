@@ -69,6 +69,8 @@ type Counts struct {
 	Good     int64 `json:"good"`
 	Bad      int64 `json:"bad"`
 	Comments int64 `json:"comments"`
+	Quotes   int64 `json:"quotes"`
+	Saves    int64 `json:"saves"`
 }
 
 type Post struct {

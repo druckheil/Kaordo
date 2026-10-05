@@ -10,7 +10,7 @@ const actor = { id: id(1), username: 'writer', displayName: 'Writer', createdAt:
 const partner = { id: id(2), username: 'reader', displayName: 'Reader' };
 const image = { id: id(3), kind: 'image', mimeType: 'image/png', width: 640, height: 480, size: 200, altText: 'Fixture photo', url: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#b7d9c5"/></svg>') };
 const document = (text) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
-const post = (n, text, media = []) => ({ id: id(n), author: { ...partner, following: false }, content: document(text), text, visibility: 'public', parentId: null, quoteId: null, quoteDeleted: false, quote: null, media, counts: { good: 0, bad: 0, comments: 0 }, myReaction: null, saved: false, createdAt: now, updatedAt: now });
+const post = (n, text, media = []) => ({ id: id(n), author: { ...partner, following: false }, content: document(text), text, visibility: 'public', parentId: null, quoteId: null, quoteDeleted: false, quote: null, media, counts: { good: 0, bad: 0, comments: 0, quotes: 0, saves: 0 }, myReaction: null, saved: false, createdAt: now, updatedAt: now });
 
 test('Fluo preserves post history after reload and composes replies and quotes', { timeout: 60000 }, async (t) => {
   const { page, origin, errors } = await startAppFixture(t, 'fluo');

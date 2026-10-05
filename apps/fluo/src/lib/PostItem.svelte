@@ -102,7 +102,7 @@
 	>
 		<article
 			data-post-id={post.id}
-			class="fluo-post group/post-card relative isolate min-w-0 rounded-[1.5rem] border border-border bg-card p-[var(--media-gallery-edge-gutter)] shadow-[0_10px_32px_-25px_rgba(20,65,39,.5)]"
+			class="fluo-post group/post-card relative isolate min-w-0 rounded-[1.5rem] border border-border bg-card px-[var(--media-gallery-edge-gutter)] pt-[var(--media-gallery-edge-gutter)] pb-1.5 sm:pb-2 shadow-[0_10px_32px_-25px_rgba(20,65,39,.5)]"
 			class:fluo-reply={compact}
 			aria-label={'Post by ' + post.author.username}
 		>

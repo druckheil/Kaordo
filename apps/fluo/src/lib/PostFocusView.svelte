@@ -100,7 +100,7 @@
 				{viewerId}
 				{api}
 				{queryClient}
-				repliesAlwaysVisible
+				showReplies
 				focusTarget
 				threadContext={ancestors.length ? threadContext : undefined}
 				{onReply}

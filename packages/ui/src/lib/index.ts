@@ -40,6 +40,7 @@ export { default as MessageCircleIcon } from '@lucide/svelte/icons/message-circl
 export { default as ThumbsUpIcon } from '@lucide/svelte/icons/thumbs-up';
 export { default as ThumbsDownIcon } from '@lucide/svelte/icons/thumbs-down';
 export { default as Repeat2Icon } from '@lucide/svelte/icons/repeat-2';
+export { default as Share2Icon } from '@lucide/svelte/icons/share-2';
 export { default as ImagePlusIcon } from '@lucide/svelte/icons/image-plus';
 export { default as PlusIcon } from '@lucide/svelte/icons/plus';
 export { default as PlayIcon } from '@lucide/svelte/icons/play';

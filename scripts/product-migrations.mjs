@@ -10,5 +10,6 @@ export const productMigrations = [
   '009_ligo_message_actions.sql',
   '010_rondo.sql',
   '011_regado.sql',
-  '012_fluo_quote_tombstones.sql'
+  '012_fluo_quote_tombstones.sql',
+  '013_fluo_saved_post_counts.sql'
 ];
