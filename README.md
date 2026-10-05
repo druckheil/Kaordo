@@ -65,7 +65,7 @@ Headless fixture tests cover product interaction without manual site browsing. L
 
 ## Deployment and remaining boundaries
 
-The [NixOS production profile](deploy/nixos/README.md) uses Caddy HTTPS at `kaordo.link`, Namecheap DDNS, LiveKit, Prometheus/Node Exporter and the restricted Regado agent. Production Data1 mirrors data and metadata across two physical disks; NisOS has one separate 64 GiB root. The local Compose profile has no public TURN/TLS, Linux agent or Prometheus. Regado remains accessible only by direct route and database administrator role; it is absent from the public app directory.
+The [NixOS production profile](deploy/nixos/README.md) uses Caddy HTTPS at `kaordo.link`, Namecheap DDNS, LiveKit, Prometheus/Node Exporter and the restricted Regado agent. Production Data1 mirrors data and metadata across two physical disks; NixOS has one separate 64 GiB root. The local Compose profile has no public TURN/TLS, Linux agent or Prometheus. Regado remains accessible only by direct route and database administrator role; it is absent from the public app directory.
 
 Messages/posts and media are not end-to-end encrypted, and user/system escrow keys do not exist. Regado's audited time-limited content access is not key recovery. RAID1 does not replace independent backups; an external restic destination, recoverable key copy and schedule remain operator requirements. Notifications and complete account settings are unfinished. Cloudflare and Synapse integrations are reserved rather than active in the NixOS profile.
 

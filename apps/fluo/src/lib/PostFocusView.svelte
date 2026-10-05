@@ -22,6 +22,7 @@
 		onReact,
 		onFollow,
 		onSave,
+		onVisibilityChange,
 		onDelete,
 	}: {
 		post: FluoPost | undefined;
@@ -38,6 +39,7 @@
 		onReact: (post: FluoPost, value: 'good' | 'bad' | null) => Promise<void>;
 		onFollow: (post: FluoPost) => Promise<void>;
 		onSave: (post: FluoPost) => Promise<void>;
+		onVisibilityChange: (post: FluoPost, visibility: FluoPost['visibility']) => Promise<void>;
 		onDelete: (post: FluoPost) => void;
 	} = $props();
 </script>
@@ -68,6 +70,7 @@
 				onReact={(value) => onReact(post, value)}
 				onFollow={() => onFollow(post)}
 				onSave={() => onSave(post)}
+				onVisibilityChange={(visibility) => onVisibilityChange(post, visibility)}
 				onDelete={() => onDelete(post)}
 			/>
 		{/key}

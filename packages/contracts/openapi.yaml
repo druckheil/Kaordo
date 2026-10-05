@@ -692,6 +692,11 @@ components:
           type: object
           additionalProperties: { type: string, maxLength: 500 }
           description: Optional descriptions keyed by attached upload ID; stored per post.
+    FluoPostVisibility:
+      type: object
+      required: [visibility]
+      properties:
+        visibility: { type: string, enum: [public, private] }
     FluoReaction:
       type: object
       required: [value]
@@ -870,6 +875,21 @@ paths:
         '204': { description: Deleted own post and its comments. }
         default:
           description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    patch:
+      operationId: setFluoPostVisibility
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FluoPostVisibility' }
+      responses:
+        '204': { description: Updated post visibility. }
+        default:
+          description: Validation, access or server error.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }

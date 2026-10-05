@@ -60,7 +60,7 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 			WHERE(jetpg.AND(saved.UserID.EQ(viewer), saved.PostID.EQ(p.ID)))),
 		media, p.CreatedAt, p.UpdatedAt,
 	).FROM(p.INNER_JOIN(a, a.ID.EQ(p.AuthorID)).
-		LEFT_JOIN(q, jetpg.AND(q.ID.EQ(p.QuoteID), q.ParentID.IS_NULL(), q.Visibility.EQ(jetpg.String("public")))).
+		LEFT_JOIN(q, jetpg.AND(q.ID.EQ(p.QuoteID), q.ParentID.IS_NULL(), q.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)))).
 		LEFT_JOIN(qa, qa.ID.EQ(q.AuthorID)))
 }
 
@@ -111,9 +111,9 @@ func (store *Fluo) Get(ctx context.Context, viewerID, id string) (fluo.Post, err
 	p := table.FluoPosts.AS("p")
 	root := table.FluoPosts.AS("root")
 	viewer := jetUUID(viewerID)
-	condition := jetpg.AND(p.ID.EQ(jetUUID(id)), jetpg.OR(p.Visibility.EQ(jetpg.String("public")), p.AuthorID.EQ(viewer)))
+	condition := jetpg.AND(p.ID.EQ(jetUUID(id)), jetpg.OR(p.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)), p.AuthorID.EQ(viewer)))
 	rootVisible := jetpg.EXISTS(jetpg.SELECT(root.ID).FROM(root).WHERE(jetpg.AND(
-		root.ID.EQ(p.ParentID), jetpg.OR(root.Visibility.EQ(jetpg.String("public")), root.AuthorID.EQ(viewer)),
+		root.ID.EQ(p.ParentID), jetpg.OR(root.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)), root.AuthorID.EQ(viewer)),
 	)))
 	condition = jetpg.AND(condition, jetpg.OR(p.ParentID.IS_NULL(), rootVisible))
 	post, err := scanPost(jetQueryRow(ctx, store.pool, postQuery(viewerID).WHERE(condition)))
@@ -155,7 +155,7 @@ func validatePostParent(ctx context.Context, store *Fluo, options fluo.ListOptio
 
 func postListCondition(options fluo.ListOptions, posts *table.FluoPostsTable) jetpg.BoolExpression {
 	viewer := jetUUID(options.ViewerID)
-	condition := jetpg.OR(posts.Visibility.EQ(jetpg.String("public")), posts.AuthorID.EQ(viewer))
+	condition := jetpg.OR(posts.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)), posts.AuthorID.EQ(viewer))
 	if options.ParentID == nil {
 		condition = jetpg.AND(condition, posts.ParentID.IS_NULL())
 		condition = postFeedCondition(condition, options.Feed, posts, viewer)

@@ -32,6 +32,12 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { data, error, response } = await client.POST('/v1/fluo/posts', { body: input });
       return requireResponseData(data, error, response.status);
     },
+    async setVisibility(id: string, visibility: FluoPost['visibility']): Promise<void> {
+      const { error, response } = await client.PATCH('/v1/fluo/posts/{id}', {
+        params: { path: { id } }, body: { visibility }
+      });
+      requireResponseOk(response, error);
+    },
     async remove(id: string): Promise<void> {
       const { error, response } = await client.DELETE('/v1/fluo/posts/{id}', { params: { path: { id } } });
       requireResponseOk(response, error);

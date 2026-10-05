@@ -83,12 +83,12 @@ func resolvePostVisibility(ctx context.Context, tx pgx.Tx, actorID string, input
 	}
 
 	if input.ParentID != nil {
-		if referenceVisibility != "public" && referenceAuthor != actorID {
+		if referenceVisibility != fluo.VisibilityPublic && referenceAuthor != actorID {
 			return "", fluo.ErrInvalidRelation
 		}
 		return referenceVisibility, nil
 	}
-	if referenceVisibility != "public" {
+	if referenceVisibility != fluo.VisibilityPublic {
 		return "", fluo.ErrInvalidRelation
 	}
 	return visibility, nil

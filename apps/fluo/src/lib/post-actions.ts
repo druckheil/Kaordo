@@ -53,6 +53,13 @@ export function createFluoPostActions(
         },
       );
     },
+    setVisibility(post: FluoPost, visibility: FluoPost['visibility']): Promise<void> {
+      return run(
+        () => api.setVisibility(post.id, visibility),
+        'Could not change the post visibility.',
+        () => queryClient.invalidateQueries({ queryKey: ['fluo'] }),
+      );
+    },
   };
 }
 

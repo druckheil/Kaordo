@@ -118,7 +118,7 @@ export interface paths {
         delete: operations["deleteFluoPost"];
         options?: never;
         head?: never;
-        patch?: never;
+        patch: operations["setFluoPostVisibility"];
         trace?: never;
     };
     "/v1/fluo/posts/{id}/comments": {
@@ -1351,6 +1351,10 @@ export interface components {
                 [key: string]: string;
             };
         };
+        FluoPostVisibility: {
+            /** @enum {string} */
+            visibility: "public" | "private";
+        };
         FluoReaction: {
             /** @enum {string} */
             value: "good" | "bad";
@@ -1670,6 +1674,39 @@ export interface operations {
                 content?: never;
             };
             /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setFluoPostVisibility: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FluoPostVisibility"];
+            };
+        };
+        responses: {
+            /** @description Updated post visibility. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation, access or server error. */
             default: {
                 headers: {
                     [name: string]: unknown;

@@ -245,6 +245,7 @@
         onReact={postActions.react}
         onFollow={postActions.follow}
         onSave={postActions.save}
+        onVisibilityChange={postActions.setVisibility}
         onDelete={remove}
       />
     {:else}
@@ -282,6 +283,7 @@
           onReact={postActions.react}
           onFollow={postActions.follow}
           onSave={postActions.save}
+          onVisibilityChange={postActions.setVisibility}
           onDelete={remove}
         />
       {/if}
