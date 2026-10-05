@@ -1,7 +1,7 @@
 // Exercises native identity forms, account bootstrap, media workflows, and cross-app sessions
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -255,6 +255,146 @@ async function removeTemporaryUser(username, { applicationData = true } = {}) {
     ]);
   }
 }
+
+test('remembered OIDC sessions survive browser restart, rotate independently, and end on logout', { timeout: 60_000 }, async () => {
+  const username = `test_sessions_${randomBytes(6).toString('hex')}`;
+  const password = `Qa!${randomBytes(18).toString('hex')}`;
+  const headers = await administrator();
+  const browser = await chromium.launch({ headless: true, executablePath: chrome });
+  const tokenEndpoint = `${identity}/realms/kaordo/protocol/openid-connect/token`;
+  const claims = (token) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+
+  async function tokenRequest(parameters) {
+    return fetch(tokenEndpoint, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: 'kaordo-web', ...parameters }),
+      signal: AbortSignal.timeout(10_000)
+    });
+  }
+
+  async function authorize(context, app, interactive = false) {
+    const page = await context.newPage();
+    const verifier = randomBytes(32).toString('base64url');
+    const state = randomUUID();
+    const redirectUri = `${site}/${app}/`;
+    const url = new URL(`${identity}/realms/kaordo/protocol/openid-connect/auth`);
+    url.search = new URLSearchParams({
+      client_id: 'kaordo-web', redirect_uri: redirectUri, response_type: 'code', scope: 'openid profile',
+      code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+      code_challenge_method: 'S256', state, nonce: randomUUID()
+    });
+    await page.goto(url.href);
+    if (interactive) {
+      await page.locator('#kc-form-login').waitFor();
+      const remembered = page.getByRole('checkbox', { name: 'Stay signed in' });
+      assert.ok(await remembered.isChecked(), 'Persistent sign-in defaults on');
+      await page.locator('[name=username]').fill(username);
+      await page.locator('[name=password]').fill(password);
+      await page.locator('#kc-login').click();
+      await page.locator('[name=totpSecret]').waitFor({ state: 'attached' });
+      const secret = await page.locator('[name=totpSecret]').inputValue();
+      await page.locator('[name=totp]').fill(codeFor(secret));
+      await page.locator('#kc-totp-settings-form input[type=submit]').click();
+      await page.waitForLoadState('domcontentloaded');
+      if (await page.locator('#kc-recovery-codes-list').count()) {
+        await page.locator('[name=kcRecoveryCodesConfirmationCheck]').check();
+        await page.locator('#saveRecoveryAuthnCodesBtn').click();
+      }
+    }
+    try {
+      await page.waitForURL(`${redirectUri}**`);
+    } catch (cause) {
+      const heading = await page.locator('#kc-page-title').textContent();
+      throw new Error(`Session callback did not complete; identity form: ${heading?.trim()}`, { cause });
+    }
+    const callback = new URL(page.url());
+    assert.equal(callback.searchParams.get('state'), state);
+    const response = await tokenRequest({
+      grant_type: 'authorization_code', code: callback.searchParams.get('code'),
+      code_verifier: verifier, redirect_uri: redirectUri
+    });
+    assert.equal(response.status, 200, 'PKCE code exchange must succeed');
+    await page.close();
+    return response.json();
+  }
+
+  async function createContext(cookies = []) {
+    const context = await browser.newContext();
+    await context.addCookies(cookies);
+    await context.route(`${site}/**`, (route) => route.fulfill({
+      contentType: 'text/html', body: '<!doctype html><title>Session test callback</title>'
+    }));
+    return context;
+  }
+
+  try {
+    const creation = await fetch(`${identity}/admin/realms/kaordo/users`, {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username, enabled: true, requiredActions: [], credentials: [
+          { type: 'password', value: password, temporary: false }
+        ]
+      }),
+      signal: AbortSignal.timeout(10_000)
+    });
+    assert.equal(creation.status, 201, 'Temporary identity must be created for native TOTP setup');
+
+    const first = await createContext();
+    let fluo = await authorize(first, 'fluo', true);
+    const month = 30 * 24 * 60 * 60;
+    assert.ok(fluo.expires_in > 0 && fluo.expires_in <= 300, 'Access tokens stay short');
+    assert.ok(fluo.refresh_expires_in >= month - 5 && fluo.refresh_expires_in <= month,
+      'Refresh expiry must be governed by a month of inactivity');
+    assert.equal(claims(fluo.refresh_token).typ, 'Refresh', 'Sign-in must use ordinary revocable sessions');
+    const initialExpiry = claims(fluo.refresh_token).exp;
+    const cookies = (await first.cookies()).filter((cookie) => cookie.expires > 0);
+    const identityCookie = cookies.find((cookie) => cookie.name === 'KEYCLOAK_IDENTITY');
+    assert.ok(identityCookie?.httpOnly, 'The persistent identity credential must be HttpOnly');
+    assert.ok(identityCookie.expires > Date.now() / 1000 + month - 5, 'Sign-in survives browser closure');
+    await first.close();
+
+    const resumed = await createContext(cookies);
+    let ligo = await authorize(resumed, 'ligo');
+    assert.equal(claims(ligo.access_token).sid, claims(fluo.access_token).sid,
+      'Another app must resume the existing SSO session without credentials');
+    const usedRefresh = fluo.refresh_token;
+    const refreshed = await tokenRequest({ grant_type: 'refresh_token', refresh_token: usedRefresh });
+    assert.equal(refreshed.status, 200);
+    fluo = await refreshed.json();
+    assert.ok(fluo.refresh_token !== usedRefresh, 'Refresh tokens must rotate');
+
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    const responses = await Promise.all([fluo, ligo].map((tokens) =>
+      tokenRequest({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token })));
+    assert.ok(responses.every((response) => response.status === 200), 'Separate app token chains must not invalidate each other');
+    [fluo, ligo] = await Promise.all(responses.map((response) => response.json()));
+    assert.ok(claims(fluo.refresh_token).exp > initialExpiry, 'Using the app extends the idle expiry');
+
+    const replay = await tokenRequest({ grant_type: 'refresh_token', refresh_token: usedRefresh });
+    assert.equal(replay.status, 400, 'A consumed refresh token must not be reusable');
+    // Keycloak invalidates the client session after replay detection; a valid
+    // identity cookie can still obtain fresh app token chains through SSO.
+    fluo = await authorize(resumed, 'fluo');
+    ligo = await authorize(resumed, 'ligo');
+
+    const logout = await fetch(`${identity}/realms/kaordo/protocol/openid-connect/logout`, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: 'kaordo-web', refresh_token: fluo.refresh_token }),
+      signal: AbortSignal.timeout(10_000)
+    });
+    assert.equal(logout.status, 204, 'Ordinary Keycloak logout must still end the session');
+    const rejected = await Promise.all([fluo, ligo].map((tokens) =>
+      tokenRequest({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token })));
+    assert.ok(rejected.every((response) => response.status === 400), 'Logout must revoke every app token chain');
+    const page = await resumed.newPage();
+    await page.goto(identityEntryURL());
+    await page.locator('#kc-form-login').waitFor();
+    await resumed.close();
+  } finally {
+    await browser.close();
+    await removeTemporaryUser(username, { applicationData: false });
+  }
+});
 
 test('identity theme follows persisted color mode on native credential forms', { timeout: 60_000 }, async () => {
   const browser = await chromium.launch({ headless: true, executablePath: chrome });

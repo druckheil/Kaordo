@@ -7,10 +7,14 @@ import { parseEnv } from 'node:util';
 const root = resolve(import.meta.dirname, '..');
 
 const securityFields = [
+  'rememberMe', 'accessTokenLifespan', 'ssoSessionIdleTimeout', 'ssoSessionMaxLifespan',
+  'ssoSessionIdleTimeoutRememberMe', 'ssoSessionMaxLifespanRememberMe',
+  'clientSessionIdleTimeout', 'clientSessionMaxLifespan', 'revokeRefreshToken', 'refreshTokenMaxReuse',
   'registrationAllowed', 'registrationEmailAsUsername', 'loginWithEmailAllowed',
   'verifyEmail', 'resetPasswordAllowed', 'bruteForceProtected', 'failureFactor',
   'passwordPolicy', 'otpPolicyType', 'otpPolicyAlgorithm', 'otpPolicyDigits', 'otpPolicyPeriod'
 ];
+const inheritedTokenAttributes = ['access.token.lifespan', 'client.session.idle.timeout', 'client.session.max.lifespan'];
 const requiredFlowExecutions = ['OTP Form', 'Recovery Authentication Code Form'];
 
 async function requireJSON(fetcher, url, headers, label) {
@@ -131,6 +135,24 @@ async function findWebClient(fetcher, adminBase, authorization) {
   return clientId;
 }
 
+export async function syncWebClientSecurity(fetcher, adminBase, authorization, clientId, desiredClient) {
+  const clientUrl = `${adminBase}/clients/${encodeURIComponent(clientId)}`;
+  const current = await requireJSON(fetcher, clientUrl, authorization, 'web client policy lookup');
+  const attributes = { ...current.attributes, ...desiredClient.attributes };
+  for (const name of inheritedTokenAttributes) delete attributes[name];
+
+  const needsUpdate = inheritedTokenAttributes.some((name) => name in (current.attributes ?? {})) ||
+    differsFrom(current.attributes ?? {}, attributes);
+  if (!needsUpdate) return;
+
+  await requireUpdate(fetcher, clientUrl, authorization, 'PUT', { attributes }, 'web client policy update');
+  const actual = await requireJSON(fetcher, clientUrl, authorization, 'web client policy verification');
+  if (inheritedTokenAttributes.some((name) => name in (actual.attributes ?? {})) ||
+      differsFrom(actual.attributes ?? {}, attributes)) {
+    throw new Error('Keycloak did not apply the required web client security policy.');
+  }
+}
+
 async function ensureAudienceMapper(fetcher, adminBase, authorization, clientId, desiredMapper) {
   const mapperUrl = `${adminBase}/clients/${encodeURIComponent(clientId)}/protocol-mappers/models`;
   const mappers = await requireJSON(fetcher, mapperUrl, authorization, 'mapper lookup');
@@ -206,6 +228,7 @@ export async function syncKeycloak(privateConfig, fetcher = fetch, identityOrigi
   if (!desiredMapper) throw new Error('The Kerno audience mapper is missing from the realm configuration.');
   const adminBase = `${identityOrigin}/admin/realms/kaordo`;
   const clientId = await findWebClient(fetcher, adminBase, authorization);
+  await syncWebClientSecurity(fetcher, adminBase, authorization, clientId, webClient);
   await ensureAudienceMapper(fetcher, adminBase, authorization, clientId, desiredMapper);
   await ensureDefaultScopes(fetcher, adminBase, authorization, clientId);
   await verifyEffectiveAudienceMapper(fetcher, adminBase, authorization, clientId, desiredMapper);
@@ -217,7 +240,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     const privateConfig = parseEnv(await readFile(resolve(root, 'deploy/local/.env'), 'utf8'));
     await syncKeycloak(privateConfig);
-    console.log('Keycloak registration, TOTP/recovery, basic/profile scopes, and Kerno audience are configured.');
+    console.log('Keycloak session, registration, TOTP/recovery, basic/profile scopes, and Kerno audience policies are configured.');
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

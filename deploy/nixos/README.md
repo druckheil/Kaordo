@@ -72,7 +72,11 @@ files in numeric order as the `kaordo` database role. Running them as
 `postgres` leaves application tables inaccessible to Kerno. Run
 `sync-keycloak-production.mjs` with Node.js afterward. That script reads
 the bootstrap admin credential from the mirrored root-only secret file and
-synchronizes registration, TOTP, recovery codes, scopes, and the API audience.
+synchronizes the 30-day idle/five-year maximum session policy, five-minute access
+tokens, refresh-token rotation, registration, TOTP, recovery codes, scopes, and
+the API audience. It also removes stale token/session overrides on `kaordo-web`.
+Users select persistent sign-in through the native **Stay signed in** option;
+updated cookie behavior takes effect on their next password login.
 Kerno uses Keycloak's local backchannel for discovery and signing keys while
 still validating the public HTTPS issuer in tokens.
 

@@ -151,6 +151,23 @@ body.login-pf,
   border: 0;
 }
 
+.login-pf-page .checkbox > label {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  min-height: 24px;
+  padding-left: 0;
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.login-pf-page .checkbox input[type="checkbox"] {
+  position: static;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
 .pf-c-form__helper-text.pf-m-error,
 .kc-feedback-text {
   margin-top: 6px;

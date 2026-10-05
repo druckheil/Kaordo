@@ -276,6 +276,30 @@ than a second login screen. Existing static and VM checks were adjusted for the
 new entry copy and browser URL dependency; those test suites were not run in
 this change.
 
+## Remembered consumer sessions — 6 October 2026
+
+Both realm imports now declare a 30-day idle window and a five-year absolute
+session limit. Authentication and token refresh renew the idle window. Access
+tokens still last five minutes; refresh tokens rotate with no reuse. The native
+password form defaults **Stay signed in** on, preserving a device opt-out through
+validation errors. Only that preference is stored in local storage. Keycloak owns
+the HttpOnly identity cookie; the app's OIDC tokens remain in memory.
+
+The existing synchronizer repairs these values in populated realms and removes
+web-client lifetime overrides while preserving unrelated attributes. Realm and
+client updates are verified after writing and are idempotent. Cookie persistence
+takes effect on the next password login. Production rollout requires applying
+the updated realm policy and identity theme together.
+
+Verification: all 41 `pnpm test:auth` checks passed. Targeted headless checks
+against local Keycloak 26.7.4 passed for native identity themes and OTP errors,
+and for password/TOTP setup, persistent-cookie restoration in a new browser
+context, independent Fluo/Ligo token chains, sliding refresh expiry, replay
+rejection and logout invalidation. These were three targeted live tests; the
+full product integration suite was not rerun. Local policy reconciliation was
+applied. Read-only inspection of production Keycloak 26.7.5 confirmed its prior
+30-minute idle/10-hour maximum policy; production rollout was not performed.
+
 ## Remaining boundaries
 
 - No content E2EE, user-held decryption keys or system escrow lifecycle; Regado cases authorize existing plaintext data and notify/audit access.

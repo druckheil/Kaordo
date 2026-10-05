@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { addPasswordConfirmation } from '../deploy/keycloak/themes/kaordo/login/resources/js/register.js';
-import { syncKeycloak, syncRealmSecurity } from './sync-keycloak.mjs';
+import { syncKeycloak, syncRealmSecurity, syncWebClientSecurity } from './sync-keycloak.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const realm = JSON.parse(readFileSync(resolve(root, 'deploy/keycloak/kaordo-realm.json'), 'utf8'));
@@ -49,6 +49,7 @@ test('identity forms apply stored mode immediately and track system and other ta
     listeners.storage({ key: 'kaordo.color-mode' });
     assert.equal(dark, true);
     saved = null;
+    listeners.storage({ key: 'kaordo.color-mode' });
     media.matches = false;
     listeners.system();
     assert.equal(dark, false);
@@ -76,16 +77,12 @@ test('identity forms use the system mode when preference storage is unavailable'
 // Existing client-mapper tests isolate that contract; realm policy has its own
 // stateful tests below instead of making every unrelated mock emulate Keycloak.
 function syncClient(config, fetcher) {
-  const policy = Object.fromEntries([
-    'registrationAllowed', 'registrationEmailAsUsername', 'loginWithEmailAllowed',
-    'verifyEmail', 'resetPasswordAllowed', 'bruteForceProtected', 'failureFactor',
-    'passwordPolicy', 'otpPolicyType', 'otpPolicyAlgorithm', 'otpPolicyDigits', 'otpPolicyPeriod'
-  ].map((field) => [field, realm[field]]));
   const actions = realm.requiredActions.map((action) => ({ ...action }));
   const executions = ['OTP Form', 'Recovery Authentication Code Form'].map((displayName, index) =>
     ({ displayName, id: `execution-${index}`, requirement: 'ALTERNATIVE' }));
   return syncKeycloak(config, (url, options = {}) => {
-    if (url === adminBase && !options.method) return Response.json({ ...policy, browserFlow: 'browser' });
+    if (url === adminBase && !options.method) return Response.json({ ...realm, browserFlow: 'browser' });
+    if (url === `${adminBase}/clients/web-id` && !options.method) return Response.json(web);
     if (url === `${adminBase}/authentication/required-actions` && !options.method) return Response.json(actions);
     if (url.startsWith(`${adminBase}/authentication/required-actions/`) && !options.method) {
       return Response.json(actions.find((action) => url.endsWith(`/${action.alias}`)));
@@ -109,6 +106,78 @@ test('web client uses PKCE, an API audience, and no password grant', () => {
     mapper.config['id.token.claim'] === 'false'
   ));
   assert.ok(web.redirectUris.every((uri) => !uri.startsWith('*')));
+});
+
+test('local and production sessions renew for a month with short rotating tokens', () => {
+  const production = JSON.parse(readFileSync(resolve(root, 'deploy/nixos/kaordo-realm.json'), 'utf8'));
+  for (const policy of [realm, production]) {
+    const day = 24 * 60 * 60;
+    assert.equal(policy.rememberMe, true);
+    assert.equal(policy.accessTokenLifespan, 5 * 60);
+    assert.equal(policy.ssoSessionIdleTimeout, 30 * day);
+    assert.equal(policy.ssoSessionIdleTimeoutRememberMe, 30 * day);
+    assert.equal(policy.ssoSessionMaxLifespan, 5 * 365 * day);
+    assert.equal(policy.ssoSessionMaxLifespanRememberMe, 5 * 365 * day);
+    assert.equal(policy.clientSessionIdleTimeout, 0, 'Client idle inherits the realm policy');
+    assert.equal(policy.clientSessionMaxLifespan, 0, 'Client maximum inherits the realm policy');
+    assert.equal(policy.revokeRefreshToken, true);
+    assert.equal(policy.refreshTokenMaxReuse, 0, 'Used refresh tokens must be rejected');
+  }
+});
+
+test('native remembered sign-in defaults on and preserves opt-out through errors and unavailable storage', () => {
+  const script = readFileSync(resolve(root, 'deploy/keycloak/themes/kaordo/login/resources/js/session.js'), 'utf8');
+  for (const [preference, invalid, storageUnavailable, expected] of [
+    [null, false, false, true], ['true', false, false, true], ['false', false, false, false],
+    ['false', true, false, false], [null, true, true, false], [null, false, true, true]
+  ]) {
+    const listeners = {};
+    const checkbox = { checked: false, addEventListener: (event, listener) => { listeners[event] = listener; } };
+    const writes = [];
+    runInNewContext(script, {
+      document: {
+        addEventListener: (event, listener) => { listeners[event] = listener; },
+        querySelector: (selector) => selector.includes('aria-invalid') ? invalid : checkbox
+      },
+      localStorage: {
+        getItem: () => { if (storageUnavailable) throw new Error('Blocked'); return preference; },
+        setItem: (key, value) => { if (storageUnavailable) throw new Error('Blocked'); writes.push([key, value]); }
+      }
+    });
+    listeners.DOMContentLoaded();
+    assert.equal(checkbox.checked, expected);
+    checkbox.checked = false;
+    listeners.change();
+    assert.deepEqual(writes, storageUnavailable ? [] : [['kaordo.stay-signed-in', 'false']]);
+  }
+});
+
+test('web client security sync removes short session overrides and preserves unrelated attributes', async () => {
+  let attributes = {
+    ...web.attributes, 'pkce.code.challenge.method': 'plain', custom: 'keep',
+    'access.token.lifespan': '7200', 'client.session.idle.timeout': '1800', 'client.session.max.lifespan': '7200'
+  };
+  const writes = [];
+  const fetcher = async (url, options = {}) => {
+    assert.equal(url, `${adminBase}/clients/web-id`);
+    if (options.method === 'PUT') {
+      const update = JSON.parse(options.body);
+      writes.push(update);
+      attributes = update.attributes;
+      return new Response(null, { status: 204 });
+    }
+    return Response.json({ attributes });
+  };
+  await syncWebClientSecurity(fetcher, adminBase, {}, 'web-id', web);
+  assert.deepEqual(attributes, { ...web.attributes, custom: 'keep' });
+  await syncWebClientSecurity(fetcher, adminBase, {}, 'web-id', web);
+  assert.equal(writes.length, 1, 'An unchanged web client must not be rewritten');
+});
+
+test('web client security sync rejects an ignored policy update', async () => {
+  await assert.rejects(syncWebClientSecurity(async () => Response.json({
+    attributes: { ...web.attributes, 'client.session.max.lifespan': '7200' }
+  }), adminBase, {}, 'web-id', web), /did not apply the required web client security policy/);
 });
 
 test('new users must configure TOTP before login completes', () => {
@@ -295,12 +364,13 @@ test('identity sync rejects an effective token without a subject', async () => {
 });
 
 function securityMock({ missingRecoveryProvider = false, ignoreRealmUpdate = false } = {}) {
-  const desired = Object.fromEntries([
-    'registrationAllowed', 'registrationEmailAsUsername', 'loginWithEmailAllowed',
-    'verifyEmail', 'resetPasswordAllowed', 'bruteForceProtected', 'failureFactor',
-    'passwordPolicy', 'otpPolicyType', 'otpPolicyAlgorithm', 'otpPolicyDigits', 'otpPolicyPeriod'
-  ].map((field) => [field, realm[field]]));
-  let current = { ...desired, browserFlow: 'browser', unrelatedSetting: 'keep', bruteForceProtected: false, passwordPolicy: 'length(8)', otpPolicyType: 'hotp' };
+  let current = {
+    ...realm, browserFlow: 'browser', unrelatedSetting: 'keep', bruteForceProtected: false,
+    passwordPolicy: 'length(8)', otpPolicyType: 'hotp', rememberMe: false,
+    accessTokenLifespan: 7200, ssoSessionIdleTimeout: 1800, ssoSessionMaxLifespan: 7200,
+    ssoSessionIdleTimeoutRememberMe: 0, ssoSessionMaxLifespanRememberMe: 0,
+    clientSessionIdleTimeout: 1800, clientSessionMaxLifespan: 7200, revokeRefreshToken: false
+  };
   const actions = [{ ...realm.requiredActions[0], enabled: false, defaultAction: false }];
   const executions = ['OTP Form', 'Recovery Authentication Code Form'].map((displayName, index) =>
     ({ displayName, id: `execution-${index}`, requirement: 'DISABLED' }));
@@ -343,12 +413,21 @@ function securityMock({ missingRecoveryProvider = false, ignoreRealmUpdate = fal
   return { fetcher, writes, current: () => current, actions, executions };
 }
 
-test('realm security sync repairs existing TOTP and recovery settings once', async () => {
+test('realm security sync repairs short sessions, TOTP and recovery settings once', async () => {
   const mock = securityMock();
   await syncRealmSecurity(mock.fetcher, adminBase, { Authorization: 'Bearer test-token' }, realm);
   assert.equal(mock.current().bruteForceProtected, true);
   assert.equal(mock.current().passwordPolicy, 'length(12)');
   assert.equal(mock.current().otpPolicyType, 'totp');
+  assert.equal(mock.current().rememberMe, true);
+  assert.equal(mock.current().accessTokenLifespan, realm.accessTokenLifespan);
+  assert.equal(mock.current().ssoSessionIdleTimeout, realm.ssoSessionIdleTimeout);
+  assert.equal(mock.current().ssoSessionMaxLifespan, realm.ssoSessionMaxLifespan);
+  assert.equal(mock.current().ssoSessionIdleTimeoutRememberMe, realm.ssoSessionIdleTimeoutRememberMe);
+  assert.equal(mock.current().ssoSessionMaxLifespanRememberMe, realm.ssoSessionMaxLifespanRememberMe);
+  assert.equal(mock.current().clientSessionIdleTimeout, 0);
+  assert.equal(mock.current().clientSessionMaxLifespan, 0);
+  assert.equal(mock.current().revokeRefreshToken, true);
   assert.equal(mock.current().unrelatedSetting, 'keep');
   assert.equal('unrelatedSetting' in mock.writes.find((write) => write.url === adminBase).body, false);
   assert.deepEqual(mock.actions.map(({ alias, enabled, defaultAction }) => ({ alias, enabled, defaultAction })),
