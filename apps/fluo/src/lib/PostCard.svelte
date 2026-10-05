@@ -170,7 +170,18 @@
       </header>
 
       {#if post.text.trim()}<div class="relative z-10 mt-4 w-fit max-w-full"><RichText content={post.content} /></div>{/if}
-      <div class="relative z-10"><MediaGallery media={post.media} edgeBleed /></div>
+      <div
+        class:post-card-single-media={post.media.length === 1}
+        class:post-card-carousel-media={post.media.length > 2}
+        class:relative={post.media.length === 2}
+        class:z-10={post.media.length === 2}
+      >
+        <MediaGallery
+          media={post.media}
+          edgeBleed
+          showPositionLabel={post.media.length <= 2}
+        />
+      </div>
       {#if post.quote}
         <div class="relative z-10"><QuotePreview quote={post.quote} onOpen={onOpenPost} /></div>
       {:else if post.quoteDeleted || post.quoteId}
@@ -231,6 +242,22 @@
     transition: border-color .2s ease, box-shadow .2s ease;
   }
   .fluo-post:hover { border-color: var(--input); box-shadow: 0 16px 40px -30px rgba(20, 65, 39, .55); }
+
+  .post-card-single-media :global([data-pswp-item]),
+  .post-card-single-media :global(media-player) {
+    position: relative;
+    z-index: 10;
+  }
+
+  .post-card-carousel-media {
+    pointer-events: none;
+  }
+
+  .post-card-carousel-media :global([aria-roledescription="slide"]),
+  .post-card-carousel-media :global([data-slot="button"]) {
+    position: relative;
+    z-index: 10;
+  }
 
   @media (hover: none) {
     :global(.post-menu-trigger) { opacity: 1; pointer-events: auto; }

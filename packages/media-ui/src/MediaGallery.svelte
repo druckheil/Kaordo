@@ -23,9 +23,15 @@
     media: MediaAttachment[];
     label?: string;
     edgeBleed?: boolean;
+    showPositionLabel?: boolean;
   }
 
-  let { media, label = 'Post media', edgeBleed = false }: Props = $props();
+  let {
+    media,
+    label = 'Post media',
+    edgeBleed = false,
+    showPositionLabel = true
+  }: Props = $props();
   let gallery = $state<HTMLDivElement>();
   let carousel = $state.raw<EmblaCarouselType | null>(null);
   let visible = $state<number[]>([0]);
@@ -240,9 +246,11 @@
         {/if}
       </div>
 
-      <div class="mt-2 text-right text-xs font-medium text-muted-foreground" aria-live="polite">
-        {positionLabel}
-      </div>
+      {#if showPositionLabel}
+        <div class="mt-2 text-right text-xs font-medium text-muted-foreground" aria-live="polite">
+          {positionLabel}
+        </div>
+      {/if}
     {/if}
   </div>
 {/if}

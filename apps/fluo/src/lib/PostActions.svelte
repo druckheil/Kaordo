@@ -46,7 +46,7 @@
 </script>
 
 <div
-	class="post-actions relative z-10 mt-5 grid gap-1.5 border-t border-border/80 pt-3 sm:gap-3"
+	class="post-actions pointer-events-none relative z-10 mt-5 grid gap-1.5 border-t border-border/80 pt-3 sm:gap-3"
 	style={`--post-action-columns: ${actionColumns}; --post-action-columns-touch: ${actionColumns + 1}`}
 	aria-label="Post actions"
 >
@@ -106,6 +106,10 @@
 <style>
 	.post-actions {
 		grid-template-columns: repeat(var(--post-action-columns), minmax(0, 1fr));
+	}
+
+	.post-actions :global([data-slot="button"]:not(.dislike-choice)) {
+		pointer-events: auto;
 	}
 
 	:global(.dislike-choice) {
