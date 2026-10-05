@@ -173,8 +173,10 @@
       <div class="relative z-10"><MediaGallery media={post.media} edgeBleed /></div>
       {#if post.quote}
         <div class="relative z-10"><QuotePreview quote={post.quote} onOpen={onOpenPost} /></div>
-      {:else if post.quoteId}
-        <p class="relative z-10 mt-4 rounded-2xl border p-4 text-sm text-muted-foreground">Quoted post unavailable.</p>
+      {:else if post.quoteDeleted || post.quoteId}
+        <p class="relative z-10 mt-4 rounded-2xl border p-4 text-sm text-muted-foreground">
+          {post.quoteDeleted ? 'Quoted post was deleted.' : 'Quoted post unavailable.'}
+        </p>
       {/if}
 
       <PostActions

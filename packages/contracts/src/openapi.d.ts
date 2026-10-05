@@ -1321,6 +1321,8 @@ export interface components {
             parentId: string | null;
             /** Format: uuid */
             quoteId: string | null;
+            /** @description Whether the quoted post was deleted. */
+            quoteDeleted: boolean;
             quote: components["schemas"]["FluoQuote"] | null;
             media: components["schemas"]["FluoMedia"][];
             counts: components["schemas"]["FluoCounts"];

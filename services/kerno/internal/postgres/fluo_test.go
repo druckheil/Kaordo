@@ -123,8 +123,8 @@ func TestFluoPostFlow(t *testing.T) {
 		t.Fatalf("deleted media IDs = %v, %v", removedMedia, err)
 	}
 	withoutOriginal, err := store.Get(ctx, b.ID, mediaQuote.ID)
-	if err != nil || withoutOriginal.QuoteID != nil || withoutOriginal.Quote != nil {
-		t.Fatalf("deleted quoted post retained its preview: %+v, %v", withoutOriginal, err)
+	if err != nil || withoutOriginal.QuoteID != nil || !withoutOriginal.QuoteDeleted || withoutOriginal.Quote != nil {
+		t.Fatalf("deleted quote state = %+v, %v", withoutOriginal, err)
 	}
 	referenced, err = store.MediaReferenced(ctx, attachment.ID)
 	if err != nil || !referenced {
@@ -170,7 +170,7 @@ func TestFluoPostFlow(t *testing.T) {
 		t.Fatalf("deleted parent retained comment: %v", err)
 	}
 	remaining, err := store.Get(ctx, b.ID, quote.ID)
-	if err != nil || remaining.QuoteID != nil || remaining.Quote != nil {
+	if err != nil || remaining.QuoteID != nil || !remaining.QuoteDeleted || remaining.Quote != nil {
 		t.Fatalf("deleted quote reference = %+v, %v", remaining, err)
 	}
 	literal, err := store.Create(ctx, a.ID, fluo.NewPost{Content: content, Visibility: "public"}, `literal %_\ marker`, nil)

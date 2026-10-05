@@ -14,4 +14,6 @@ Migration 010 adds Rondo servers, memberships and channels. A channel refers to 
 
 Migration 011 adds current administrator roles, audit records, content access cases and immutable system notifications. Kerno checks these tables at startup. PostgreSQL queries are built with Jet and executed through pgx so transaction, cancellation and pooling remain explicit. Generated tables/models live under `services/kerno/internal/postgres/jetdb`; regenerate them against the migrated schema when changing tables. Never manually edit generated files or place a database URL in documentation/commits.
 
+Migration 012 records when a quoted Fluo post is deleted and indexes live quote references for efficient cleanup. The referencing post keeps a tombstone while `quote_id` is cleared by its foreign key, so the UI can distinguish a deleted quote from a private or otherwise unavailable one.
+
 Feature persistence files are split into reads, writes, interactions, membership, receipts and admin operations. Shared media-claim locking/retirement remains transactional across Fluo/Ligo/Rondo. Case-insensitive search lowers both the indexed column and search pattern; LIKE wildcard characters in user text are escaped literally. The disposable integration suite covers Fluo, Ligo, Rondo and Regado and replays every migration. See [refactor evidence](../../docs/refactoring.md).

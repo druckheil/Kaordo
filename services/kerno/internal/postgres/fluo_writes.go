@@ -151,6 +151,9 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 	if err := lockPostMediaClaims(ctx, tx, mediaIDs); err != nil {
 		return nil, err
 	}
+	if err := markQuotesReferencingDeletedPost(ctx, tx, id); err != nil {
+		return nil, err
+	}
 	if err := deletePostRecord(ctx, tx, id); err != nil {
 		return nil, err
 	}
@@ -162,6 +165,14 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 		return nil, err
 	}
 	return retiredIDs, nil
+}
+
+func markQuotesReferencingDeletedPost(ctx context.Context, tx pgx.Tx, postID string) error {
+	posts := table.FluoPosts
+	_, err := jetExec(ctx, tx, posts.UPDATE().SET(
+		posts.QuoteDeleted.SET(jetpg.Bool(true)),
+	).WHERE(posts.QuoteID.EQ(jetUUID(postID))))
+	return err
 }
 
 func lockOwnedPost(ctx context.Context, tx pgx.Tx, actorID, postID string) error {

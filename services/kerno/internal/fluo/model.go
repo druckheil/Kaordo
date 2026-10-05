@@ -71,20 +71,21 @@ type Counts struct {
 }
 
 type Post struct {
-	ID         string          `json:"id"`
-	Author     Author          `json:"author"`
-	Content    json.RawMessage `json:"content"`
-	Text       string          `json:"text"`
-	Visibility string          `json:"visibility"`
-	ParentID   *string         `json:"parentId"`
-	QuoteID    *string         `json:"quoteId"`
-	Quote      *Quote          `json:"quote"`
-	Media      []Media         `json:"media"`
-	Saved      bool            `json:"saved"`
-	Counts     Counts          `json:"counts"`
-	MyReaction *string         `json:"myReaction"`
-	CreatedAt  time.Time       `json:"createdAt"`
-	UpdatedAt  time.Time       `json:"updatedAt"`
+	ID           string          `json:"id"`
+	Author       Author          `json:"author"`
+	Content      json.RawMessage `json:"content"`
+	Text         string          `json:"text"`
+	Visibility   string          `json:"visibility"`
+	ParentID     *string         `json:"parentId"`
+	QuoteID      *string         `json:"quoteId"`
+	QuoteDeleted bool            `json:"quoteDeleted"`
+	Quote        *Quote          `json:"quote"`
+	Media        []Media         `json:"media"`
+	Saved        bool            `json:"saved"`
+	Counts       Counts          `json:"counts"`
+	MyReaction   *string         `json:"myReaction"`
+	CreatedAt    time.Time       `json:"createdAt"`
+	UpdatedAt    time.Time       `json:"updatedAt"`
 }
 
 type NewPost struct {

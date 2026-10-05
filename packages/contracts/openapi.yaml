@@ -650,7 +650,7 @@ components:
         comments: { type: integer, format: int64 }
     FluoPost:
       type: object
-      required: [id, author, content, text, visibility, parentId, quoteId, quote, media, counts, myReaction, saved, createdAt, updatedAt]
+      required: [id, author, content, text, visibility, parentId, quoteId, quoteDeleted, quote, media, counts, myReaction, saved, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         author: { $ref: '#/components/schemas/FluoAuthor' }
@@ -659,6 +659,7 @@ components:
         visibility: { type: string, enum: [public, private] }
         parentId: { type: [string, 'null'], format: uuid }
         quoteId: { type: [string, 'null'], format: uuid }
+        quoteDeleted: { type: boolean, description: Whether the quoted post was deleted. }
         quote: { anyOf: [{ $ref: '#/components/schemas/FluoQuote' }, { type: 'null' }] }
         media:
           type: array

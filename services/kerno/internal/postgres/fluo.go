@@ -49,6 +49,7 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 		jetpg.EXISTS(jetpg.SELECT(follows.FollowerID).FROM(follows).
 			WHERE(jetpg.AND(follows.FollowerID.EQ(viewer), follows.FollowedID.EQ(a.ID)))),
 		p.Content, p.PlainText, p.Visibility, jetpg.CAST(p.ParentID).AS_TEXT(), jetpg.CAST(p.QuoteID).AS_TEXT(),
+		p.QuoteDeleted,
 		jetpg.CAST(q.ID).AS_TEXT(), jetpg.CAST(qa.ID).AS_TEXT(), qa.Username, qa.DisplayName, q.PlainText, quotedMedia,
 		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(good.PostID)).FROM(good).
 			WHERE(jetpg.AND(good.PostID.EQ(p.ID), good.Value.EQ(jetpg.String("good"))))),
@@ -72,7 +73,7 @@ func scanPost(row scanner) (fluo.Post, error) {
 	var mediaJSON, quoteMediaJSON []byte
 	err := row.Scan(
 		&post.ID, &post.Author.ID, &post.Author.Username, &post.Author.DisplayName, &post.Author.Following,
-		&post.Content, &post.Text, &post.Visibility, &parent, &quote,
+		&post.Content, &post.Text, &post.Visibility, &parent, &quote, &post.QuoteDeleted,
 		&quotePreviewID, &quoteAuthorID, &quoteUsername, &quoteName, &quoteText, &quoteMediaJSON,
 		&post.Counts.Good, &post.Counts.Bad, &post.Counts.Comments, &reaction, &post.Saved,
 		&mediaJSON, &post.CreatedAt, &post.UpdatedAt,
