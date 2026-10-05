@@ -4,7 +4,7 @@
 	import type { QueryClient } from '@tanstack/svelte-query';
 	import type { FluoApi } from '@kaordo/api-client';
 	import type { FluoPost } from '@kaordo/contracts';
-	import { Button, ChevronLeftIcon } from '@kaordo/ui';
+	import { Button } from '@kaordo/ui';
 	import PostCard from './PostCard.svelte';
 
 	let {
@@ -14,7 +14,6 @@
 		viewerId,
 		api,
 		queryClient,
-		onBack,
 		onRetry,
 		onReply,
 		onQuote,
@@ -31,7 +30,6 @@
 		viewerId: string;
 		api: FluoApi;
 		queryClient: QueryClient;
-		onBack: () => void;
 		onRetry: () => void;
 		onReply: (post: FluoPost) => void;
 		onQuote: (post: FluoPost) => void;
@@ -45,10 +43,6 @@
 </script>
 
 <div class="grid gap-3">
-	<Button class="w-fit" variant="ghost" size="sm" onclick={onBack}>
-		<ChevronLeftIcon class="size-4" /> Back
-	</Button>
-
 	{#if pending && !post}
 		<p class="rounded-[1.5rem] border border-border bg-card p-6 text-sm text-muted-foreground" role="status">Loading post…</p>
 	{:else if !post && error}
@@ -64,14 +58,14 @@
 				{api}
 				{queryClient}
 				repliesAlwaysVisible
-				onReply={() => onReply(post)}
-				onQuote={() => onQuote(post)}
+				{onReply}
+				{onQuote}
 				{onOpenPost}
-				onReact={(value) => onReact(post, value)}
-				onFollow={() => onFollow(post)}
-				onSave={() => onSave(post)}
-				onVisibilityChange={(visibility) => onVisibilityChange(post, visibility)}
-				onDelete={() => onDelete(post)}
+				{onReact}
+				{onFollow}
+				{onSave}
+				{onVisibilityChange}
+				{onDelete}
 			/>
 		{/key}
 	{/if}

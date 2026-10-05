@@ -1,12 +1,10 @@
 package postgres
 
-// Updates Fluo post visibility and its direct replies atomically
+// Updates a Fluo post and its reply branch visibility atomically
 import (
 	"context"
-	"errors"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
-	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 )
@@ -21,8 +19,20 @@ func (store *Fluo) SetVisibility(ctx context.Context, actorID, postID, visibilit
 	}
 	defer tx.Rollback(ctx)
 
-	if err := lockOwnedRootPost(ctx, tx, actorID, postID); err != nil {
+	if err := lockPostThread(ctx, tx, postID); err != nil {
 		return err
+	}
+	if err := lockOwnedPost(ctx, tx, actorID, postID); err != nil {
+		return err
+	}
+	if visibility == fluo.VisibilityPublic {
+		hasPrivateParent, err := postHasPrivateParent(ctx, tx, postID)
+		if err != nil {
+			return err
+		}
+		if hasPrivateParent {
+			return fluo.ErrPrivateParent
+		}
 	}
 	if err := updatePostVisibility(ctx, tx, postID, visibility); err != nil {
 		return err
@@ -30,26 +40,27 @@ func (store *Fluo) SetVisibility(ctx context.Context, actorID, postID, visibilit
 	return tx.Commit(ctx)
 }
 
-func lockOwnedRootPost(ctx context.Context, tx pgx.Tx, actorID, postID string) error {
-	posts := table.FluoPosts
-	var lockedID string
-	err := jetQueryRow(ctx, tx, posts.SELECT(jetpg.CAST(posts.ID).AS_TEXT()).
-		WHERE(jetpg.AND(posts.ID.EQ(jetUUID(postID)), posts.AuthorID.EQ(jetUUID(actorID)), posts.ParentID.IS_NULL())).
-		FOR(jetpg.UPDATE())).Scan(&lockedID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return fluo.ErrNotFound
-	}
-	return err
+func postHasPrivateParent(ctx context.Context, tx pgx.Tx, postID string) (bool, error) {
+	var hasPrivateParent bool
+	err := jetQueryRow(ctx, tx, jetpg.SELECT(jetpg.RawBool(`EXISTS (
+		WITH RECURSIVE lineage AS (
+			SELECT parent.id, parent.parent_id, parent.visibility
+			FROM fluo_posts current JOIN fluo_posts parent ON parent.id = current.parent_id
+			WHERE current.id = #post::uuid
+			UNION ALL
+			SELECT parent.id, parent.parent_id, parent.visibility
+			FROM fluo_posts parent JOIN lineage child ON parent.id = child.parent_id
+		)
+		SELECT 1 FROM lineage WHERE visibility = 'private'
+	)`, jetpg.RawArgs{"#post": postID}))).Scan(&hasPrivateParent)
+	return hasPrivateParent, err
 }
 
 func updatePostVisibility(ctx context.Context, tx pgx.Tx, postID, visibility string) error {
-	posts := table.FluoPosts
-	_, err := jetExec(ctx, tx, posts.UPDATE().SET(
-		posts.Visibility.SET(jetpg.String(visibility)),
-		posts.UpdatedAt.SET(jetpg.RawTimestampz("clock_timestamp()")),
-	).WHERE(jetpg.OR(
-		posts.ID.EQ(jetUUID(postID)),
-		posts.ParentID.EQ(jetUUID(postID)),
-	)))
+	_, err := jetExec(ctx, tx, jetpg.RawStatement(postBranchCTE+`
+		UPDATE fluo_posts
+		SET visibility = #visibility, updated_at = clock_timestamp()
+		WHERE id IN (SELECT id FROM branch)
+	`, jetpg.RawArgs{"#post": postID, "#visibility": visibility}))
 	return err
 }

@@ -12,6 +12,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const postBranchCTE = `WITH RECURSIVE branch(id) AS (
+	SELECT #post::uuid
+	UNION ALL
+	SELECT child.id FROM fluo_posts child JOIN branch parent ON child.parent_id = parent.id
+)`
+
 func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPost, text string, media []fluo.Media) (fluo.Post, error) {
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
@@ -69,17 +75,30 @@ func resolvePostVisibility(ctx context.Context, tx pgx.Tx, actorID string, input
 	if referenceID == nil {
 		return visibility, nil
 	}
+	if err := lockPostThread(ctx, tx, *referenceID); err != nil {
+		if errors.Is(err, fluo.ErrNotFound) {
+			return "", fluo.ErrInvalidRelation
+		}
+		return "", err
+	}
 
 	reference := table.FluoPosts
 	var referenceVisibility, referenceAuthor string
 	err := jetQueryRow(ctx, tx, reference.SELECT(reference.Visibility, jetpg.CAST(reference.AuthorID).AS_TEXT()).
-		WHERE(jetpg.AND(reference.ID.EQ(jetUUID(*referenceID)), reference.ParentID.IS_NULL())).
+		WHERE(reference.ID.EQ(jetUUID(*referenceID))).
 		FOR(jetpg.SHARE())).Scan(&referenceVisibility, &referenceAuthor)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", fluo.ErrInvalidRelation
 	}
 	if err != nil {
 		return "", err
+	}
+	accessible, err := postTreeAccessibleByID(ctx, tx, actorID, *referenceID)
+	if err != nil {
+		return "", err
+	}
+	if !accessible {
+		return "", fluo.ErrInvalidRelation
 	}
 
 	if input.ParentID != nil {
@@ -92,6 +111,38 @@ func resolvePostVisibility(ctx context.Context, tx pgx.Tx, actorID string, input
 		return "", fluo.ErrInvalidRelation
 	}
 	return visibility, nil
+}
+
+func postTreeAccessibleByID(ctx context.Context, tx pgx.Tx, viewerID, postID string) (bool, error) {
+	posts := table.FluoPosts.AS("p")
+	var accessible bool
+	err := jetQueryRow(ctx, tx, jetpg.SELECT(postTreeAccessible(viewerID)).FROM(posts).
+		WHERE(posts.ID.EQ(jetUUID(postID)))).Scan(&accessible)
+	return accessible, err
+}
+
+func lockPostThread(ctx context.Context, tx pgx.Tx, postID string) error {
+	var rootID string
+	err := jetQueryRow(ctx, tx, jetpg.RawStatement(`
+		WITH RECURSIVE lineage AS (
+			SELECT id, parent_id FROM fluo_posts WHERE id = #post::uuid
+			UNION ALL
+			SELECT parent.id, parent.parent_id
+			FROM fluo_posts parent JOIN lineage child ON parent.id = child.parent_id
+		)
+		SELECT id::text FROM lineage WHERE parent_id IS NULL
+	`, jetpg.RawArgs{"#post": postID})).Scan(&rootID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fluo.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	// Serialize mutations that traverse this branch with replies added to it.
+	return jetAdvisoryLock(ctx, tx, jetpg.RawString(
+		"pg_advisory_xact_lock(hashtextextended('fluo-thread:' || #root, 0))",
+		jetpg.RawArgs{"#root": rootID},
+	))
 }
 
 func insertPost(ctx context.Context, tx pgx.Tx, actorID string, input fluo.NewPost, text, visibility string) (string, error) {
@@ -141,6 +192,9 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 	}
 	defer tx.Rollback(ctx)
 
+	if err := lockPostThread(ctx, tx, id); err != nil {
+		return nil, err
+	}
 	if err := lockOwnedPost(ctx, tx, actorID, id); err != nil {
 		return nil, err
 	}
@@ -168,10 +222,11 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 }
 
 func markQuotesReferencingDeletedPost(ctx context.Context, tx pgx.Tx, postID string) error {
-	posts := table.FluoPosts
-	_, err := jetExec(ctx, tx, posts.UPDATE().SET(
-		posts.QuoteDeleted.SET(jetpg.Bool(true)),
-	).WHERE(posts.QuoteID.EQ(jetUUID(postID))))
+	_, err := jetExec(ctx, tx, jetpg.RawStatement(postBranchCTE+`
+		UPDATE fluo_posts
+		SET quote_deleted = true
+		WHERE quote_id IN (SELECT id FROM branch)
+	`, jetpg.RawArgs{"#post": postID}))
 	return err
 }
 
@@ -188,15 +243,11 @@ func lockOwnedPost(ctx context.Context, tx pgx.Tx, actorID, postID string) error
 }
 
 func postMediaIDs(ctx context.Context, tx pgx.Tx, postID string) ([]string, error) {
-	postMedia := table.FluoPostMedia.AS("pm")
-	children := table.FluoPosts.AS("children")
-	uploadIDText := jetpg.CAST(postMedia.UploadID).AS_TEXT()
-	query := postMedia.SELECT(uploadIDText).DISTINCT().WHERE(jetpg.OR(
-		postMedia.PostID.EQ(jetUUID(postID)),
-		jetpg.EXISTS(jetpg.SELECT(children.ID).FROM(children).WHERE(jetpg.AND(
-			children.ID.EQ(postMedia.PostID), children.ParentID.EQ(jetUUID(postID)),
-		))),
-	)).ORDER_BY(uploadIDText.ASC())
+	query := jetpg.RawStatement(postBranchCTE+`
+		SELECT DISTINCT media.upload_id::text
+		FROM fluo_post_media media JOIN branch ON branch.id = media.post_id
+		ORDER BY media.upload_id::text
+	`, jetpg.RawArgs{"#post": postID})
 	rows, err := jetQuery(ctx, tx, query)
 	if err != nil {
 		return nil, err

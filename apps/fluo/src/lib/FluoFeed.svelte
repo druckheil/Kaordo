@@ -178,14 +178,14 @@
 					viewerId={user.id}
 					{api}
 					{queryClient}
-					onReply={() => onReply(post)}
-					onQuote={() => onQuote(post)}
+					{onReply}
+					{onQuote}
 					onOpenPost={onOpenPost}
-					onReact={(reaction) => onReact(post, reaction)}
-					onFollow={() => onFollow(post)}
-					onSave={() => onSave(post)}
-					onVisibilityChange={(visibility) => onVisibilityChange(post, visibility)}
-					onDelete={() => onDelete(post)}
+					{onReact}
+					{onFollow}
+					{onSave}
+					{onVisibilityChange}
+					{onDelete}
 				/>
 			</div>
 		{/each}

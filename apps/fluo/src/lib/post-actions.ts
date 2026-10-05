@@ -45,12 +45,7 @@ export function createFluoPostActions(
       return run(
         () => api.setSaved(post.id, !post.saved),
         'Could not update your saved posts.',
-        async () => {
-          await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ['fluo', 'feed'] }),
-            queryClient.invalidateQueries({ queryKey: ['fluo', 'post', post.id] }),
-          ]);
-        },
+        () => queryClient.invalidateQueries({ queryKey: ['fluo'] }),
       );
     },
     setVisibility(post: FluoPost, visibility: FluoPost['visibility']): Promise<void> {

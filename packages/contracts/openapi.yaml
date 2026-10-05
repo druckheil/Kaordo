@@ -647,7 +647,7 @@ components:
       properties:
         good: { type: integer, format: int64 }
         bad: { type: integer, format: int64 }
-        comments: { type: integer, format: int64 }
+        comments: { type: integer, format: int64, description: Number of direct replies. }
     FluoPost:
       type: object
       required: [id, author, content, text, visibility, parentId, quoteId, quoteDeleted, quote, media, counts, myReaction, saved, createdAt, updatedAt]
@@ -657,8 +657,8 @@ components:
         content: { $ref: '#/components/schemas/FluoDocument' }
         text: { type: string }
         visibility: { type: string, enum: [public, private] }
-        parentId: { type: [string, 'null'], format: uuid }
-        quoteId: { type: [string, 'null'], format: uuid }
+        parentId: { type: [string, 'null'], format: uuid, description: Direct parent post for replies; null for a root post. }
+        quoteId: { type: [string, 'null'], format: uuid, description: ID of the public post or reply quoted by this post. }
         quoteDeleted: { type: boolean, description: Whether the quoted post was deleted. }
         quote: { anyOf: [{ $ref: '#/components/schemas/FluoQuote' }, { type: 'null' }] }
         media:
@@ -873,7 +873,7 @@ paths:
       operationId: deleteFluoPost
       security: [{ bearerAuth: [] }]
       responses:
-        '204': { description: Deleted own post and its comments. }
+        '204': { description: Deleted own post and its reply branch. }
         default:
           description: Access or server error.
           content:
@@ -888,7 +888,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/FluoPostVisibility' }
       responses:
-        '204': { description: Updated post visibility. }
+        '204': { description: Updated post and descendant reply visibility. }
         default:
           description: Validation, access or server error.
           content:
@@ -903,7 +903,7 @@ paths:
         - { name: cursor, in: query, schema: { type: string } }
       responses:
         '200':
-          description: Accessible direct comments.
+          description: Accessible direct replies to the specified post.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/FluoPage' }

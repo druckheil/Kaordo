@@ -71,6 +71,8 @@ func fluoError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "The referenced post is unavailable.")
 	case errors.Is(err, fluo.ErrInvalidVisibility):
 		writeError(w, http.StatusBadRequest, invalidVisibilityMessage)
+	case errors.Is(err, fluo.ErrPrivateParent):
+		writeError(w, http.StatusBadRequest, "A reply cannot be public while its parent is private.")
 	case errors.Is(err, fluo.ErrSelfFollow):
 		writeError(w, http.StatusBadRequest, "You cannot follow yourself.")
 	case errors.Is(err, fluo.ErrRateLimited):
@@ -269,7 +271,7 @@ func validatePostReferences(w http.ResponseWriter, input *fluo.NewPost) bool {
 		return false
 	}
 	if input.ParentID != nil && input.QuoteID != nil {
-		writeError(w, http.StatusBadRequest, "A comment cannot quote another post.")
+		writeError(w, http.StatusBadRequest, "A post cannot be both a reply and a quote.")
 		return false
 	}
 	for _, reference := range []*string{input.ParentID, input.QuoteID} {

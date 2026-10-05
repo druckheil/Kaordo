@@ -26,11 +26,20 @@
 
   type FluoDialogsComponent = typeof import('./FluoDialogs.svelte').default;
 
-  let { user }: { user: UserIdentity } = $props();
+  let {
+    user,
+    onBackActionChange
+  }: {
+    user: UserIdentity;
+    onBackActionChange: (action: (() => void) | null) => void;
+  } = $props();
 
   const api = createFluoApi(import.meta.env.VITE_KAORDO_API_URL, import.meta.env.VITE_KAORDO_NODO_URL);
   const queryClient = new QueryClient();
-  onDestroy(() => queryClient.clear());
+  onDestroy(() => {
+    onBackActionChange(null);
+    queryClient.clear();
+  });
   let view = $state<FluoView>('feed');
   let feed = $state<Feed>('latest');
   let replyTo = $state<FluoPost | null>(null);
@@ -156,6 +165,8 @@
     syncLocation();
   }
 
+  $effect(() => onBackActionChange(postId ? backFromPost : null));
+
   function openComposer(): void {
     replyTo = null;
     quoteTo = null;
@@ -188,11 +199,15 @@
     quoteTo = null;
     actionError = '';
     if (repliedTo) {
-      void Promise.all([
+      const invalidations = [
         queryClient.invalidateQueries({ queryKey: ['fluo', 'comments', repliedTo.id] }),
         queryClient.invalidateQueries({ queryKey: ['fluo', 'feed'] }),
         queryClient.invalidateQueries({ queryKey: ['fluo', 'post', repliedTo.id] })
-      ]);
+      ];
+      if (repliedTo.parentId) {
+        invalidations.push(queryClient.invalidateQueries({ queryKey: ['fluo', 'comments', repliedTo.parentId] }));
+      }
+      void Promise.all(invalidations);
       return;
     }
     void queryClient.invalidateQueries({ queryKey: ['fluo'] });
@@ -237,7 +252,6 @@
         viewerId={user.id}
         {api}
         {queryClient}
-        onBack={backFromPost}
         onRetry={() => void selectedPost.refetch()}
         onReply={reply}
         onQuote={quote}

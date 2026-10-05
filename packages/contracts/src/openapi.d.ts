@@ -1306,7 +1306,10 @@ export interface components {
             good: number;
             /** Format: int64 */
             bad: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of direct replies.
+             */
             comments: number;
         };
         FluoPost: {
@@ -1317,9 +1320,15 @@ export interface components {
             text: string;
             /** @enum {string} */
             visibility: "public" | "private";
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description Direct parent post for replies; null for a root post.
+             */
             parentId: string | null;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description ID of the public post or reply quoted by this post.
+             */
             quoteId: string | null;
             /** @description Whether the quoted post was deleted. */
             quoteDeleted: boolean;
@@ -1668,7 +1677,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Deleted own post and its comments. */
+            /** @description Deleted own post and its reply branch. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -1701,7 +1710,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Updated post visibility. */
+            /** @description Updated post and descendant reply visibility. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -1732,7 +1741,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Accessible direct comments. */
+            /** @description Accessible direct replies to the specified post. */
             200: {
                 headers: {
                     [name: string]: unknown;

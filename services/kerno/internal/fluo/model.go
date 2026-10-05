@@ -16,6 +16,7 @@ var (
 	ErrNotFound          = errors.New("post not found")
 	ErrInvalidRelation   = errors.New("post cannot reference that item")
 	ErrInvalidVisibility = errors.New("post visibility must be public or private")
+	ErrPrivateParent     = errors.New("a reply cannot be more public than its parent")
 	ErrSelfFollow        = errors.New("you cannot follow yourself")
 	ErrRateLimited       = errors.New("posting too quickly")
 	ErrMediaOwner        = errors.New("media upload belongs to another account")

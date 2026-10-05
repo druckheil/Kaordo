@@ -20,6 +20,13 @@ type Fluo struct {
 	pool *pgxpool.Pool
 }
 
+type fluoPostAlias string
+
+const (
+	currentPostAlias fluoPostAlias = "p"
+	quotedPostAlias  fluoPostAlias = "q"
+)
+
 func NewFluo(pool *pgxpool.Pool) *Fluo {
 	return &Fluo{pool: pool}
 }
@@ -55,14 +62,47 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 			WHERE(jetpg.AND(good.PostID.EQ(p.ID), good.Value.EQ(jetpg.String("good"))))),
 		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(bad.PostID)).FROM(bad).
 			WHERE(jetpg.AND(bad.PostID.EQ(p.ID), bad.Value.EQ(jetpg.String("bad"))))),
-		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(comments.ID)).FROM(comments).WHERE(comments.ParentID.EQ(p.ID))),
+		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(comments.ID)).FROM(comments).WHERE(jetpg.AND(
+			comments.ParentID.EQ(p.ID),
+			jetpg.OR(
+				comments.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)),
+				comments.AuthorID.EQ(viewer),
+			),
+		))),
 		jetpg.SELECT(reaction.Value).FROM(reaction).WHERE(jetpg.AND(reaction.PostID.EQ(p.ID), reaction.UserID.EQ(viewer))),
 		jetpg.EXISTS(jetpg.SELECT(saved.PostID).FROM(saved).
 			WHERE(jetpg.AND(saved.UserID.EQ(viewer), saved.PostID.EQ(p.ID)))),
 		media, p.CreatedAt, p.UpdatedAt,
 	).FROM(p.INNER_JOIN(a, a.ID.EQ(p.AuthorID)).
-		LEFT_JOIN(q, jetpg.AND(q.ID.EQ(p.QuoteID), q.ParentID.IS_NULL(), q.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)))).
+		LEFT_JOIN(q, jetpg.AND(
+			q.ID.EQ(p.QuoteID), q.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)),
+			postTreeAccessibleFor(viewerID, quotedPostAlias),
+		)).
 		LEFT_JOIN(qa, qa.ID.EQ(q.AuthorID)))
+}
+
+func postTreeAccessible(viewerID string) jetpg.BoolExpression {
+	return postTreeAccessibleFor(viewerID, currentPostAlias)
+}
+
+func postTreeAccessibleFor(viewerID string, alias fluoPostAlias) jetpg.BoolExpression {
+	return jetpg.RawBool(fmt.Sprintf(`NOT EXISTS (
+		WITH RECURSIVE lineage AS (
+			SELECT id, parent_id, visibility, author_id FROM fluo_posts WHERE id = %s.id
+			UNION ALL
+			SELECT parent.id, parent.parent_id, parent.visibility, parent.author_id
+			FROM fluo_posts parent JOIN lineage child ON parent.id = child.parent_id
+		)
+		SELECT 1 FROM lineage WHERE visibility = 'private' AND author_id <> #viewer::uuid
+	)`, alias), jetpg.RawArgs{"#viewer": viewerID})
+}
+
+func postAccessibleCondition(viewerID string, posts *table.FluoPostsTable) jetpg.BoolExpression {
+	viewer := jetUUID(viewerID)
+	return jetpg.AND(
+		jetpg.OR(posts.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)), posts.AuthorID.EQ(viewer)),
+		postTreeAccessible(viewerID),
+	)
 }
 
 type scanner interface{ Scan(...any) error }
@@ -110,13 +150,7 @@ func scanPost(row scanner) (fluo.Post, error) {
 
 func (store *Fluo) Get(ctx context.Context, viewerID, id string) (fluo.Post, error) {
 	p := table.FluoPosts.AS("p")
-	root := table.FluoPosts.AS("root")
-	viewer := jetUUID(viewerID)
-	condition := jetpg.AND(p.ID.EQ(jetUUID(id)), jetpg.OR(p.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)), p.AuthorID.EQ(viewer)))
-	rootVisible := jetpg.EXISTS(jetpg.SELECT(root.ID).FROM(root).WHERE(jetpg.AND(
-		root.ID.EQ(p.ParentID), jetpg.OR(root.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)), root.AuthorID.EQ(viewer)),
-	)))
-	condition = jetpg.AND(condition, jetpg.OR(p.ParentID.IS_NULL(), rootVisible))
+	condition := jetpg.AND(p.ID.EQ(jetUUID(id)), postAccessibleCondition(viewerID, p))
 	post, err := scanPost(jetQueryRow(ctx, store.pool, postQuery(viewerID).WHERE(condition)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fluo.Post{}, fluo.ErrNotFound
@@ -144,21 +178,25 @@ func validatePostParent(ctx context.Context, store *Fluo, options fluo.ListOptio
 	if options.ParentID == nil {
 		return nil
 	}
-	parent, err := store.Get(ctx, options.ViewerID, *options.ParentID)
-	if err != nil {
-		return err
-	}
-	if parent.ParentID != nil {
+	posts := table.FluoPosts.AS("p")
+	var accessibleID string
+	err := jetQueryRow(ctx, store.pool, posts.SELECT(jetpg.CAST(posts.ID).AS_TEXT()).WHERE(jetpg.AND(
+		posts.ID.EQ(jetUUID(*options.ParentID)),
+		postAccessibleCondition(options.ViewerID, posts),
+	))).Scan(&accessibleID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return fluo.ErrNotFound
 	}
-	return nil
+	return err
 }
 
 func postListCondition(options fluo.ListOptions, posts *table.FluoPostsTable) jetpg.BoolExpression {
 	viewer := jetUUID(options.ViewerID)
-	condition := jetpg.OR(posts.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)), posts.AuthorID.EQ(viewer))
+	condition := postAccessibleCondition(options.ViewerID, posts)
 	if options.ParentID == nil {
-		condition = jetpg.AND(condition, posts.ParentID.IS_NULL())
+		if options.Feed != "saved" {
+			condition = jetpg.AND(condition, posts.ParentID.IS_NULL())
+		}
 		condition = postFeedCondition(condition, options.Feed, posts, viewer)
 	} else {
 		condition = jetpg.AND(condition, posts.ParentID.EQ(jetUUID(*options.ParentID)))
