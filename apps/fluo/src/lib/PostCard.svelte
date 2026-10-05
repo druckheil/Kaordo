@@ -48,7 +48,7 @@
   }
 </script>
 
-<article data-post-id={post.id} class="fluo-post min-w-0 rounded-[1.5rem] border border-border bg-card p-4 shadow-[0_10px_32px_-25px_rgba(20,65,39,.5)] sm:p-6"
+<article data-post-id={post.id} class="fluo-post min-w-0 rounded-[1.5rem] border border-border bg-card p-[var(--media-gallery-edge-gutter)] shadow-[0_10px_32px_-25px_rgba(20,65,39,.5)]"
   aria-label={'Post by ' + post.author.username}>
   <header class="flex items-start gap-3">
     <div class="grid size-11 shrink-0 place-items-center rounded-2xl bg-accent text-sm font-bold text-accent-foreground" aria-hidden="true">{initials}</div>
@@ -71,7 +71,7 @@
   </header>
 
   {#if post.text.trim()}<div class="mt-4"><RichText content={post.content} /></div>{/if}
-  <MediaGallery media={post.media} />
+  <MediaGallery media={post.media} edgeBleed />
   {#if post.quote}
     <QuotePreview quote={post.quote} onOpen={onOpenPost} />
   {:else if post.quoteId}
@@ -84,6 +84,13 @@
 </article>
 
 <style>
-  .fluo-post { transition: border-color .2s ease, box-shadow .2s ease; }
+  .fluo-post {
+    --media-gallery-edge-gutter: 1rem;
+    transition: border-color .2s ease, box-shadow .2s ease;
+  }
   .fluo-post:hover { border-color: var(--input); box-shadow: 0 16px 40px -30px rgba(20, 65, 39, .55); }
+
+  @media (min-width: 40rem) {
+    .fluo-post { --media-gallery-edge-gutter: 1.5rem; }
+  }
 </style>

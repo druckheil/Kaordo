@@ -8,6 +8,7 @@
   import {
     maxMediaHeightRem,
     maxMediaRatio,
+    mediaCarouselViewportRatio,
     mediaFrameRatio,
     mediaGapPx,
     mediaPositionLabel,
@@ -21,9 +22,10 @@
   interface Props {
     media: MediaAttachment[];
     label?: string;
+    edgeBleed?: boolean;
   }
 
-  let { media, label = 'Post media' }: Props = $props();
+  let { media, label = 'Post media', edgeBleed = false }: Props = $props();
   let gallery = $state<HTMLDivElement>();
   let carousel = $state.raw<EmblaCarouselType | null>(null);
   let visible = $state<number[]>([0]);
@@ -35,16 +37,17 @@
   const pairedPhotos = $derived(media.length === 2 && media.every(isImage));
   const pairAspectRatio = $derived(pairedPhotos ? ratios.reduce((sum, ratio) => sum + ratio, 0) : 1);
   const pairColumns = $derived(`${ratios[0] ?? 1}fr ${ratios[1] ?? 1}fr`);
-  const widestRatio = $derived(Math.max(1, ...ratios));
+  const carouselAspectRatio = $derived(mediaCarouselViewportRatio(ratios));
   const stripMaxWidth = $derived(mediaStripMaxWidth(ratios));
   const positionLabel = $derived(mediaPositionLabel(visible, media.length));
+  const edgeBleedCarousel = $derived(edgeBleed && media.length > 2);
 
   const carouselOptions = {
     align: 'start' as const,
     containScroll: 'trimSnaps' as const,
-    slidesToScroll: 'auto' as const,
+    slidesToScroll: 1,
     dragFree: true,
-    inViewThreshold: 0.5,
+    inViewThreshold: 0.15,
     loop: false,
     duration: typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 22
   };
@@ -131,7 +134,12 @@
 {/snippet}
 
 {#if firstAttachment}
-  <div bind:this={gallery} class="mt-4 w-full min-w-0" aria-label={`${label} attachments`}>
+  <div
+    bind:this={gallery}
+    class="mt-4 w-full min-w-0"
+    class:media-gallery-bleed={edgeBleedCarousel}
+    aria-label={`${label} attachments`}
+  >
     {#if media.length === 1}
       <div
         class="mx-auto max-w-full overflow-hidden rounded-2xl ring-1 ring-border"
@@ -167,22 +175,33 @@
         style:max-width={stripMaxWidth}
       >
         <div
-          class="w-full overflow-hidden rounded-2xl"
-          style:aspect-ratio={widestRatio}
+          class="w-full overflow-hidden"
+          style:aspect-ratio={carouselAspectRatio}
           style:max-height={`${maxMediaHeightRem}rem`}
           use:useEmblaCarousel={{ options: carouselOptions, plugins: [] }}
           onemblaInit={initialized}
         >
-          <div class="flex h-full touch-pan-y" style:gap={`${mediaGapPx}px`}>
+          <div
+            class="box-border flex h-full touch-pan-y py-0.5"
+            class:media-gallery-track-bleed={edgeBleedCarousel}
+            style:gap={`${mediaGapPx}px`}
+          >
             {#each media as item, index (item.id)}
               <div
-                class="h-full shrink-0 overflow-hidden rounded-xl"
+                class="relative box-border h-full shrink-0 overflow-hidden rounded-xl bg-border"
                 style:aspect-ratio={ratios[index]}
+                style:--media-frame-inset="2px"
                 role="group"
                 aria-roledescription="slide"
                 aria-label={`${index + 1} of ${media.length}`}
               >
-                {@render attachment(item, index)}
+                <div
+                  class="absolute overflow-hidden bg-muted"
+                  style:inset="var(--media-frame-inset)"
+                  style:border-radius="calc(var(--radius-xl) - var(--media-frame-inset))"
+                >
+                  {@render attachment(item, index)}
+                </div>
               </div>
             {/each}
           </div>
@@ -227,3 +246,18 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  .media-gallery-bleed {
+    width: calc(100% + var(--media-gallery-edge-gutter, 0px) + var(--media-gallery-edge-gutter, 0px));
+    margin-inline: calc(0px - var(--media-gallery-edge-gutter, 0px));
+  }
+
+  .media-gallery-track-bleed {
+    padding-inline-start: var(--media-gallery-edge-gutter, 0px);
+  }
+
+  .media-gallery-track-bleed > :last-child {
+    margin-inline-end: var(--media-gallery-edge-gutter, 0px);
+  }
+</style>
