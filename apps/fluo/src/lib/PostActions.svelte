@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Renders reaction, reply, quote, follow, save, and delete actions
+	// Renders the available reactions and post actions
 
 	import type { FluoPost } from "@kaordo/contracts";
 	import {
@@ -11,16 +11,18 @@
 		ThumbsUpIcon,
 	} from "@kaordo/ui";
 
-	let { post, onReply, onQuote, onReact, onSave }: {
+	let { post, onReply, onQuote, onReact, onSave, showReplyAction = true }: {
 		post: FluoPost;
 		onReply: () => void;
 		onQuote: () => void;
 		onReact: (value: "good" | "bad" | null) => Promise<void>;
 		onSave: () => Promise<void>;
+		showReplyAction?: boolean;
 	} = $props();
 
 	let saving = $state(false);
 	let reacting = $state(false);
+	const actionColumns = $derived((post.visibility === "public" ? 3 : 2) + (showReplyAction ? 1 : 0));
 
 	async function chooseReaction(value: "good" | "bad"): Promise<void> {
 		if (reacting) return;
@@ -44,8 +46,8 @@
 </script>
 
 <div
-	class={`post-actions mt-5 grid gap-1.5 border-t border-border/80 pt-3 sm:gap-3 ${post.visibility === "public" ? "grid-cols-4" : "grid-cols-3"}`}
-	data-visibility={post.visibility}
+	class="post-actions mt-5 grid gap-1.5 border-t border-border/80 pt-3 sm:gap-3"
+	style={`--post-action-columns: ${actionColumns}; --post-action-columns-touch: ${actionColumns + 1}`}
 	aria-label="Post actions"
 >
 	<div class:disliked={post.myReaction === "bad"} class="reaction-control relative">
@@ -77,12 +79,14 @@
 		</Button>
 	</div>
 
-	<Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost" size="sm"
-		aria-label="Reply to post" onclick={onReply}>
-		<MessageCircleIcon class="size-4" />
-		<span class="hidden text-xs sm:inline">Reply</span>
-		<span class="text-xs tabular-nums">{post.counts.comments}</span>
-	</Button>
+	{#if showReplyAction}
+		<Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost" size="sm"
+			aria-label="Reply to post" onclick={onReply}>
+			<MessageCircleIcon class="size-4" />
+			<span class="hidden text-xs sm:inline">Reply</span>
+			<span class="text-xs tabular-nums">{post.counts.comments}</span>
+		</Button>
+	{/if}
 
 	{#if post.visibility === "public"}
 		<Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost" size="sm"
@@ -100,6 +104,10 @@
 </div>
 
 <style>
+	.post-actions {
+		grid-template-columns: repeat(var(--post-action-columns), minmax(0, 1fr));
+	}
+
 	:global(.dislike-choice) {
 		opacity: 0;
 		pointer-events: none;
@@ -116,8 +124,7 @@
 	}
 
 	@media (hover: none) {
-		.post-actions[data-visibility="public"] { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.25rem; }
-		.post-actions[data-visibility="private"] { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.25rem; }
+		.post-actions { grid-template-columns: repeat(var(--post-action-columns-touch), minmax(0, 1fr)); gap: 0.25rem; }
 		.reaction-control { display: contents; }
 		:global(.dislike-choice) {
 			position: static;

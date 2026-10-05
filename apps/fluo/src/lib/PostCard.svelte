@@ -11,11 +11,25 @@
 	import QuotePreview from './QuotePreview.svelte';
 	import RichText from './RichText.svelte';
 
-  let { post, viewerId, api, queryClient, onReply, onQuote, onOpenPost, onReact, onFollow, onSave, onDelete }: {
+  let {
+    post,
+    viewerId,
+    api,
+    queryClient,
+    repliesAlwaysVisible = false,
+    onReply,
+    onQuote,
+    onOpenPost,
+    onReact,
+    onFollow,
+    onSave,
+    onDelete,
+  }: {
     post: FluoPost;
     viewerId: string;
     api: FluoApi;
     queryClient: QueryClient;
+    repliesAlwaysVisible?: boolean;
     onReply: () => void;
     onQuote: () => void;
     onOpenPost: (id: string) => void;
@@ -78,9 +92,22 @@
     <p class="mt-4 rounded-2xl border p-4 text-sm text-muted-foreground">Quoted post unavailable.</p>
   {/if}
 
-  <PostActions {post} onReply={onReply} onQuote={onQuote} onReact={onReact} onSave={onSave} />
+  <PostActions
+    {post}
+    onReply={onReply}
+    onQuote={onQuote}
+    onReact={onReact}
+    onSave={onSave}
+    showReplyAction={!repliesAlwaysVisible}
+  />
 
-  <PostReplies {post} {api} {queryClient} onReply={onReply} />
+  <PostReplies
+    {post}
+    {api}
+    {queryClient}
+    onReply={onReply}
+    alwaysVisible={repliesAlwaysVisible}
+  />
 </article>
 
 <style>

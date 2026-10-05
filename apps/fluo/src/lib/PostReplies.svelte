@@ -8,15 +8,41 @@
 	import { MediaGallery } from "@kaordo/media-ui";
 	import RichText from "./RichText.svelte";
 
-	let { post, api, queryClient, onReply }: {
+	let { post, api, queryClient, onReply, alwaysVisible = false }: {
 		post: FluoPost;
 		api: FluoApi;
 		queryClient: QueryClient;
 		onReply: () => void;
+		alwaysVisible?: boolean;
 	} = $props();
 
 	let expanded = $state(false);
-	const replies = createInfiniteQuery(() => commentsOptions(api, post.id, expanded), () => queryClient);
+	let nextPageRequest = false;
+	const repliesVisible = $derived(alwaysVisible || expanded);
+	const replies = createInfiniteQuery(() => commentsOptions(api, post.id, repliesVisible), () => queryClient);
+
+	async function fetchNextReplies(retry = false): Promise<void> {
+		if (nextPageRequest || !replies.hasNextPage || replies.isFetchingNextPage) return;
+		if (!retry && replies.isFetchNextPageError) return;
+
+		nextPageRequest = true;
+		try {
+			await replies.fetchNextPage();
+		} catch {
+			// The query state renders the retry message below.
+		} finally {
+			nextPageRequest = false;
+		}
+	}
+
+	function observeReplyEnd(node: HTMLDivElement) {
+		const observer = new IntersectionObserver(([entry]) => {
+			if (entry?.isIntersecting) void fetchNextReplies();
+		}, { rootMargin: "320px 0px" });
+		observer.observe(node);
+
+		return { destroy: () => observer.disconnect() };
+	}
 
 	function formatReplyTime(value: string): string {
 		return new Intl.DateTimeFormat(undefined, {
@@ -28,23 +54,31 @@
 	}
 </script>
 
-{#if post.counts.comments > 0}
+{#if !alwaysVisible && post.counts.comments > 0}
 	<Button class="mt-2" variant="ghost" size="sm" aria-expanded={expanded}
 		aria-controls={expanded ? `comments-${post.id}` : undefined} onclick={() => (expanded = !expanded)}>
 		{expanded ? "Hide replies" : `View ${post.counts.comments} ${post.counts.comments === 1 ? "reply" : "replies"}`}
 	</Button>
 {/if}
 
-{#if expanded}
+{#if repliesVisible}
 	<section id={`comments-${post.id}`} class="comment-panel mt-4 border-t border-border/80 pt-4" aria-label="Replies">
 		<div class="flex items-center justify-between gap-3">
 			<h3 class="text-sm font-bold">
 				Replies <span class="ml-1 font-medium text-muted-foreground">{post.counts.comments}</span>
 			</h3>
-			<Button variant="ghost" size="icon-xs" aria-label="Close replies" onclick={() => (expanded = false)}>
-				<XIcon class="size-4" />
-			</Button>
+			{#if !alwaysVisible}
+				<Button variant="ghost" size="icon-xs" aria-label="Close replies" onclick={() => (expanded = false)}>
+					<XIcon class="size-4" />
+				</Button>
+			{/if}
 		</div>
+
+		{#if alwaysVisible}
+			<Button class="mt-4 w-full justify-center" variant="outline" size="sm" onclick={onReply}>
+				<MessageCircleIcon class="size-4" /> Write a reply
+			</Button>
+		{/if}
 
 		{#if replies.isPending}
 			<p class="mt-5 text-sm text-muted-foreground" role="status">Loading replies…</p>
@@ -77,22 +111,24 @@
 
 			{#if replies.isFetchNextPageError}
 				<p class="mt-4 text-sm text-destructive" role="alert">{replies.error.message}</p>
-				<Button class="mt-3 w-full" variant="outline" size="sm" onclick={() => void replies.fetchNextPage()}>
-					Try loading more replies
+				<Button class="mt-3" variant="outline" size="sm" onclick={() => void fetchNextReplies(true)}>
+					Retry loading replies
 				</Button>
 			{:else if replies.hasNextPage}
-				<Button class="mt-4 w-full" variant="outline" size="sm" disabled={replies.isFetchingNextPage}
-					onclick={() => void replies.fetchNextPage()}>
-					{replies.isFetchingNextPage ? "Loading…" : "More replies"}
-				</Button>
+				{#if replies.isFetchingNextPage}
+					<p class="mt-4 text-center text-sm text-muted-foreground" role="status">Loading more replies…</p>
+				{/if}
+				<div class="h-px" aria-hidden="true" use:observeReplyEnd></div>
 			{/if}
 		{/if}
 
-		<div class="mt-4">
-			<Button variant="outline" size="sm" onclick={onReply}>
-				<MessageCircleIcon class="size-4" /> Write a reply
-			</Button>
-		</div>
+		{#if !alwaysVisible}
+			<div class="mt-4">
+				<Button variant="outline" size="sm" onclick={onReply}>
+					<MessageCircleIcon class="size-4" /> Write a reply
+				</Button>
+			</div>
+		{/if}
 	</section>
 {/if}
 
