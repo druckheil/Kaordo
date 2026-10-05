@@ -83,6 +83,15 @@
     const hash = window.location.hash;
     const hashPostId = postIdFromHash(hash);
     if (hashPostId) {
+      if (removedIds.includes(hashPostId)) {
+        const returnView = viewFromPostHistory(page.state) ?? view;
+        const { cleanState } = postBackDestination(page.state, returnView, historySession);
+        replaceState(`#${returnView}`, cleanState);
+        postId = null;
+        view = returnView;
+        restoreFeedScroll();
+        return;
+      }
       const returnView = viewFromPostHistory(page.state);
       if (returnView) view = returnView;
       postId = hashPostId;
@@ -165,6 +174,14 @@
     syncLocation();
   }
 
+  function returnToViewAfterDeletedAncestor(): void {
+    const destination = postBackDestination(page.state, view, historySession);
+    replaceState(`#${destination.view}`, destination.cleanState);
+    view = destination.view;
+    postId = null;
+    restoreFeedScroll();
+  }
+
   $effect(() => onBackActionChange(postId ? backFromPost : null));
 
   function openComposer(): void {
@@ -228,8 +245,12 @@
       actionError = '';
       await api.remove(post.id);
       deleteTarget = null;
-      removedIds = [...removedIds, post.id];
-      if (selectedThread.data?.posts.some((threadPost) => threadPost.id === post.id)) backFromPost();
+      const thread = selectedThread.data?.posts ?? [];
+      const deletedThreadIndex = thread.findIndex((threadPost) => threadPost.id === post.id);
+      const deletedThreadPosts = deletedThreadIndex < 0 ? [] : thread.slice(deletedThreadIndex);
+      removedIds = [...new Set([...removedIds, post.id, ...deletedThreadPosts.map((threadPost) => threadPost.id)])];
+      if (deletedThreadIndex >= 0 && deletedThreadIndex === thread.length - 1) backFromPost();
+      else if (deletedThreadIndex >= 0) returnToViewAfterDeletedAncestor();
       removePostFromCachedFeeds(queryClient, post.id);
       await queryClient.invalidateQueries({ queryKey: ['fluo'] });
     } catch (cause) {

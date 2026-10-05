@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"sync"
 )
 
 var services = []string{
@@ -46,11 +47,15 @@ func runCommand(ctx context.Context, args ...string) (string, error) {
 }
 
 type limitWriter struct {
+	mu        sync.Mutex
 	writer    io.Writer
 	remaining int
 }
 
 func (writer *limitWriter) Write(p []byte) (int, error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+
 	length := len(p)
 	if writer.remaining <= 0 {
 		return length, nil
