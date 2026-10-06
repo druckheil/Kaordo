@@ -70,6 +70,7 @@ test('live verification checks all applications and rejects an old Keycloak them
     if (url.pathname.endsWith('/auth')) return new Response('<input name="rememberMe"><label>Stay signed in</label><script src="/resources/cache/login/kaordo/js/session.js"></script>');
     if (url.pathname.endsWith('/js/session.js')) return new Response(staleTheme ? 'old-session-script' : 'new-session-script');
     if (url.pathname.endsWith('/thread')) return new Response(null, { status: 401 });
+    if (url.pathname === '/healthz') return new Response(null, { status: 204 });
     return new Response('healthy');
   };
   try {
@@ -156,7 +157,11 @@ const base=process.env.FIXTURE_ROOT,args=process.argv.slice(2),name=path.basenam
 fs.appendFileSync(base+'/events',name+':'+args.join(' ')+'\\n');
 function link(target,file){try{fs.unlinkSync(file)}catch{}fs.symlinkSync(target,file)}
 if(name==='nixos-rebuild' && args[0]==='build')link(base+'/new-system',process.cwd()+'/result');
-if(name==='nixos-rebuild' && args[0]==='switch')link(args[args.indexOf('--store-path')+1],base+'/current-system');
+if(name==='nixos-rebuild' && args[0]==='switch'){
+  const target=args[args.indexOf('--store-path')+1];
+  if(process.env.FIXTURE_FAIL==='switch' && target.endsWith('/new-system'))process.exit(1);
+  link(target,base+'/current-system');
+}
 if(name==='switch-to-configuration')link(base+'/old-system',base+'/current-system');
 if(name==='systemctl' && args[0]==='show')console.log(100+['kerno','nodo','regado-agent'].indexOf(args[1]));
 if(name==='systemctl' && ['restart','start'].includes(args[0]))for(const item of args.slice(1)){let index=['kerno','nodo','regado-agent'].indexOf(item);if(index>=0)fs.copyFileSync(base+'/data/bin/'+item,base+'/proc/'+(100+index)+'/exe')}
@@ -245,5 +250,18 @@ test('frontend-only deployment refuses a commit that differs from the active com
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /Run deploy:production first/);
     assert.equal(await readlink(join(fixture.data, 'www/current')), 'releases/old');
+  } finally { await fixture.close(); }
+});
+
+test('failed NixOS activation reapplies the old closure even when current-system was not switched', async () => {
+  const fixture = await hostFixture('switch');
+  try {
+    const result = fixture.run();
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Previous release restored/);
+    const events = await readFile(fixture.events, 'utf8');
+    assert.ok(events.includes(`nixos-rebuild:switch --store-path ${await realpath(fixture.oldSystem)}`));
+    assert.equal(await realpath(fixture.systemLink), await realpath(fixture.oldSystem));
+    assert.equal(await readFile(join(fixture.data, 'bin/kerno'), 'utf8'), 'old-kerno');
   } finally { await fixture.close(); }
 });

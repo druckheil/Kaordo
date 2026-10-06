@@ -32,6 +32,7 @@ source_mutated=0
 binaries_mutated=0
 site_mutated=0
 identity_mutated=0
+system_switch_started=0
 node_runtime=
 previous_system=
 previous_site=
@@ -109,7 +110,7 @@ restore_release() {
     for path in deploy/nixos deploy/postgres deploy/keycloak scripts/sync-keycloak.mjs; do
       restore_source "/etc/nixos/$path" "$backup_root/etc-nixos/$path" || rollback_failed=1
     done
-    if [[ "$(readlink -f /run/current-system)" != "$previous_system" ]]; then
+    if [[ "$system_switch_started" -eq 1 || "$(readlink -f /run/current-system)" != "$previous_system" ]]; then
       nixos-rebuild switch --store-path "$previous_system" || rollback_failed=1
     fi
     if [[ "$identity_mutated" -eq 1 ]]; then
@@ -195,6 +196,7 @@ for binary in kerno nodo regado-agent; do
 done
 binaries_mutated=1
 for binary in kerno nodo regado-agent; do mv -f "$data_root/bin/.$binary-new" "$data_root/bin/$binary"; done
+system_switch_started=1
 nixos-rebuild switch --store-path "$(readlink -f "$release_root/nixos-system")"
 [[ "$(readlink -f /run/current-system)" == "$(readlink -f "$release_root/nixos-system")" ]]
 systemctl restart kaordo-system-volumes

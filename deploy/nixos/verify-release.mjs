@@ -89,8 +89,8 @@ export async function verifyLiveRelease(directory, manifest, {
       throw new Error(`Public Keycloak theme differs from the release: ${resource}`);
     }
   }
-  await response('http://127.0.0.1:8081/healthz');
-  await response('http://127.0.0.1:8082/healthz');
+  await response('http://127.0.0.1:8081/healthz', 204);
+  await response('http://127.0.0.1:8082/healthz', 204);
   await response('http://127.0.0.1:7880/');
   await response('http://127.0.0.1:9090/-/ready');
   await response('http://127.0.0.1:9100/metrics');
