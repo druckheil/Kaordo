@@ -38,7 +38,7 @@
 </script>
 
 <Dialog.Root open={open} onOpenChange={onOpenChange}>
-	<Dialog.Content class="flex max-h-[min(44rem,90dvh)] flex-col gap-5 overflow-hidden p-4 sm:max-w-2xl sm:p-6">
+	<Dialog.Content class="flex max-h-[min(44rem,90dvh)] flex-col gap-5 overflow-hidden p-4 transition-none sm:max-w-2xl sm:p-6">
 		<Dialog.Header class="shrink-0 pr-12">
 			<Dialog.Title class="text-xl font-bold tracking-tight">
 				{visibleReply ? "Reply to post" : visibleQuote ? "Quote post" : "Create a post"}

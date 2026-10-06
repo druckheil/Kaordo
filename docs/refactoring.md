@@ -474,14 +474,15 @@ executed for this refactor. No production release accompanied these changes.
 
 ## Fluo composer layout and refactor — 6 October 2026
 
-The composer starts with a 12rem draft region and grows with text, replies,
-quotes and attachments up to the dialog's 44rem/90dvh cap. The draft viewport
-then scrolls independently while the publishing controls remain visible.
-Native Svelte dimension bindings measure intrinsic content and the responsive
-options panel; the preferred height reserves the panel in both states. Closed
-options remain measurable, invisible and inert. Opening them preserves the
-dialog height and the last visible text line without premature overflow for
-short drafts. The editor keeps a neutral border when focused.
+The editable text starts at four line heights and grows with content. Native
+flex layout sizes the centered Bits UI dialog to the text, replies, quotes and
+attachments up to a 44rem/90dvh cap. The draft viewport then scrolls independently
+while the publishing controls remain visible. Options mounts in normal flow;
+short dialogs grow around their center, and capped dialogs give the panel space
+from the draft viewport. There is no hidden-panel reserve, measured height formula,
+custom positional offset or geometry transition. The viewport has one text line
+of bottom padding, and a native viewport-height binding preserves its last visible
+text line when space changes. The editor keeps a neutral border when focused.
 
 Formatting composes the shared Rhea Toggle Group and Tiptap mark commands;
 Public/Only me uses the existing Dropdown Menu radio items. Bits UI owns keyboard
@@ -494,17 +495,28 @@ The review covered all accumulated composer changes, editor/publishing/media
 helpers, shared primitives and existing fixture/live journey selectors.
 Refactoring removes the duplicate close-animation timer and flags, retains only
 the reply/quote context for native dialog presence, and consolidates the
-character limit and options focus/scroll handling. Obsolete scroll callbacks
-cannot update a detached viewport or a superseded panel state. Editor CSS is
-scoped locally; the existing editor configuration already owns its focus
+character limit and options focus/scroll handling. Native dimension bindings own
+measurement cleanup; scroll adjustments require a connected viewport. Editor CSS
+is scoped locally; the existing editor configuration already owns its focus
 outline. No wire schema, upload workflow or production deployment is changed.
 
-Compilation evidence: `pnpm check:front` reported zero errors and warnings in
+Refactor compilation evidence: `pnpm check:front` reported zero errors and warnings in
 all six Svelte projects; `pnpm build:pages` built all five static applications.
 The updated live-journey script passed `node --check`, and `git diff --check`
 was clean. No functional/browser tests or hosted CI run were executed for this
 refactor. Vite retained the existing Rondo advisory for a chunk larger than
 500 kB; no size budget was changed.
+
+The subsequent spacing correction replaced the 12rem region minimum with a
+four-line minimum on the editable document and removed the hidden-options
+reserve from the preferred height. Quotes and attachments follow the editor's
+actual height without a separate empty area beneath them. The final simplification
+removes all document/header/control measurements, custom height/position variables
+and options layout animation. Standard dialog centering and CSS flex layout own
+growth; local `transition-none` prevents implicit transitions of dialog geometry
+while retaining Bits UI's entrance and exit animations.
+Targeted Fluo `check` and `build` passed; functional/browser tests were not run
+for these corrections.
 
 ## Remaining boundaries
 

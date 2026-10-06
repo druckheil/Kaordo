@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Manages a rich-text post draft and its publishing state
 
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import type { Editor } from '@tiptap/core';
   import type { FluoPost } from '@kaordo/contracts';
   import type { FluoApi } from '@kaordo/api-client';
@@ -24,6 +24,7 @@
 
   let element: HTMLDivElement;
   let draftViewport: HTMLDivElement;
+  let viewportHeight = 0;
   let fileInput: HTMLInputElement;
   let optionsButton = $state<HTMLElement | null>(null);
   let editor = $state.raw<Editor | null>(null);
@@ -34,13 +35,7 @@
   let progress = $state(0);
   let error = $state('');
   let optionsOpen = $state(false);
-  let draftSize = $state.raw<DOMRectReadOnly>();
-  let optionsSize = $state.raw<DOMRectReadOnly>();
   const characterLimit = $derived(replyTo ? 2_000 : 5_000);
-  // Reserve options in both states, plus viewport p-4/borders and the region's gap-3
-  const draftRegionHeight = $derived(
-    `max(12rem, calc(${(draftSize?.height ?? 0) + (optionsSize?.height ?? 0)}px + 2rem + 2px + 0.75rem))`,
-  );
 
   $effect(() => { if (replyTo) visibility = replyTo.visibility; });
   $effect(() => { editor?.setEditable(!pending); });
@@ -90,16 +85,18 @@
     error = '';
   }
 
-  async function setOptionsOpen(open: boolean): Promise<void> {
+  function setOptionsOpen(open: boolean): void {
     if (optionsOpen === open) return;
-    const viewport = draftViewport;
-    const visibleBottom = viewport.scrollTop + viewport.clientHeight;
     optionsOpen = open;
     if (!open) optionsButton?.focus({ preventScroll: true });
-    await tick();
-    // Keep the same last visible line as the panel takes or releases space
-    if (viewport.isConnected && optionsOpen === open && viewport.scrollHeight > viewport.clientHeight) {
-      viewport.scrollTop = visibleBottom - viewport.clientHeight;
+  }
+
+  function resizeDraftViewport(height: number): void {
+    const previousHeight = viewportHeight;
+    viewportHeight = height;
+    // Preserve the last visible line when options reduce the available viewport
+    if (previousHeight && draftViewport?.isConnected && draftViewport.scrollHeight > height) {
+      draftViewport.scrollTop += previousHeight - height;
     }
   }
 
@@ -143,67 +140,68 @@
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-[1_1_auto] flex-col gap-3">
-  <div class="relative flex min-h-0 min-w-0 flex-[1_1_auto] flex-col gap-3" style:height={draftRegionHeight}>
-    <div class="kaordo-scrollbar min-h-0 min-w-0 flex-[1_1_auto] overflow-y-auto overscroll-contain rounded-2xl border border-input bg-background p-4 [scrollbar-gutter:stable]"
-      bind:this={draftViewport} role="presentation"
-      onclick={(event) => { if (event.target === event.currentTarget) editor?.commands.focus('end'); }}>
-      <div class="flow-root min-w-0" bind:contentRect={draftSize}>
-        {#if replyTo}
-          <section class="mb-5" aria-label="Post being replied to">
-            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Replying to</p>
-            <QuotePreview quote={replyTo} context="reply" />
-          </section>
-        {/if}
-        {#if !editor && !error}<p class="text-sm text-muted-foreground" role="status">Loading editor…</p>{/if}
-        <div class="editor-surface min-w-0 wrap-anywhere text-[15px] leading-7" bind:this={element}></div>
-        {#if files.length > 0}
-          <ComposerAttachmentList bind:files {pending} />
-        {/if}
-        {#if quoteTo}
-          <section class="mt-5" aria-label="Quoted post">
-            <div class="flex items-center justify-between gap-3">
-              <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Quoting</p>
-              <Button variant="ghost" size="xs" disabled={pending} onclick={onCancel}>Remove quote</Button>
-            </div>
-            <QuotePreview quote={quoteTo} />
-          </section>
-        {/if}
-      </div>
-    </div>
-    <!-- Keep closed options measurable at the same width without focus or layout participation -->
-    <div class={optionsOpen ? 'shrink-0' : 'pointer-events-none invisible absolute inset-x-0 top-0'}
-      inert={!optionsOpen} bind:contentRect={optionsSize}>
-      <ComposerOptionsPanel
-        {editor}
-        bind:visibility
-        {pending}
-        replying={!!replyTo}
-        onClose={() => void setOptionsOpen(false)}
-      />
+  <div class="kaordo-scrollbar min-h-0 min-w-0 flex-[1_1_auto] overflow-y-auto overscroll-contain rounded-2xl border border-input bg-background p-4 pb-7 [scrollbar-gutter:stable]"
+    bind:this={draftViewport} bind:clientHeight={null, resizeDraftViewport} role="presentation"
+    onclick={(event) => { if (event.target === event.currentTarget) editor?.commands.focus('end'); }}>
+    <div class="flow-root min-w-0">
+      {#if replyTo}
+        <section class="mb-5" aria-label="Post being replied to">
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Replying to</p>
+          <QuotePreview quote={replyTo} context="reply" />
+        </section>
+      {/if}
+      {#if !editor && !error}<p class="text-sm text-muted-foreground" role="status">Loading editor…</p>{/if}
+      <div class="editor-surface min-w-0 wrap-anywhere text-[15px] leading-7" bind:this={element}></div>
+      {#if files.length > 0}
+        <ComposerAttachmentList bind:files {pending} />
+      {/if}
+      {#if quoteTo}
+        <section class="mt-5" aria-label="Quoted post">
+          <div class="flex items-center justify-between gap-3">
+            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Quoting</p>
+            <Button variant="ghost" size="xs" disabled={pending} onclick={onCancel}>Remove quote</Button>
+          </div>
+          <QuotePreview quote={quoteTo} />
+        </section>
+      {/if}
     </div>
   </div>
-  {#if pending && files.length > 0}
-    <p class="shrink-0 text-xs text-muted-foreground" role="status">{progress < 100 ? `Uploading media: ${progress}%` : 'Processing media…'}</p>
+  {#if optionsOpen}
+    <ComposerOptionsPanel
+      {editor}
+      bind:visibility
+      {pending}
+      replying={!!replyTo}
+      onClose={() => setOptionsOpen(false)}
+    />
   {/if}
-  {#if error}<p class="shrink-0 text-sm text-destructive" role="alert">{error}</p>{/if}
-  <div class="flex shrink-0 items-center justify-between gap-1.5 border-t border-border/80 pt-3 sm:gap-3">
-    <div class="flex shrink-0 items-center gap-1 sm:gap-2">
-      <input bind:this={fileInput} type="file" accept={[...composerMediaTypes, '.mov'].join(',')} multiple disabled={pending} class="sr-only" aria-label="Choose photos or videos" onchange={chooseFiles} />
-      <Button class="size-11 p-0 min-[420px]:w-auto min-[420px]:px-3" size="sm" variant="outline" disabled={pending}
-        aria-label="Add media" title="Add media" onclick={() => fileInput?.click()}><ImagePlusIcon class="size-4" /><span class="hidden min-[420px]:inline">Media</span></Button>
-      <Button class="size-11 p-0 min-[420px]:w-auto min-[420px]:px-3" size="sm" variant={optionsOpen ? 'secondary' : 'ghost'} aria-label="Post options" title="Post options"
-        bind:ref={optionsButton} aria-expanded={optionsOpen} aria-controls="fluo-post-options" disabled={pending}
-        onclick={() => void setOptionsOpen(!optionsOpen)}><EllipsisIcon class="size-4" /><span class="hidden min-[420px]:inline">Options</span></Button>
-    </div>
-    <div class="flex shrink-0 items-center gap-1.5 sm:gap-3">
-      <span class="text-xs tabular-nums text-muted-foreground" aria-label="Character count">{textLength}/{characterLimit}</span>
-      <Button class="h-11" disabled={!editor || pending} onclick={publish}>{pending ? 'Publishing…' : replyTo ? 'Reply' : 'Publish'}</Button>
+  <div class="flex shrink-0 flex-col gap-3">
+    {#if pending && files.length > 0}
+      <p class="shrink-0 text-xs text-muted-foreground" role="status">{progress < 100 ? `Uploading media: ${progress}%` : 'Processing media…'}</p>
+    {/if}
+    {#if error}<p class="shrink-0 text-sm text-destructive" role="alert">{error}</p>{/if}
+    <div class="flex shrink-0 items-center justify-between gap-1.5 border-t border-border/80 pt-3 sm:gap-3">
+      <div class="flex shrink-0 items-center gap-1 sm:gap-2">
+        <input bind:this={fileInput} type="file" accept={[...composerMediaTypes, '.mov'].join(',')} multiple disabled={pending} class="sr-only" aria-label="Choose photos or videos" onchange={chooseFiles} />
+        <Button class="size-11 p-0 min-[420px]:w-auto min-[420px]:px-3" size="sm" variant="outline" disabled={pending}
+          aria-label="Add media" title="Add media" onclick={() => fileInput?.click()}><ImagePlusIcon class="size-4" /><span class="hidden min-[420px]:inline">Media</span></Button>
+        <Button class="size-11 p-0 min-[420px]:w-auto min-[420px]:px-3" size="sm" variant={optionsOpen ? 'secondary' : 'ghost'} aria-label="Post options" title="Post options"
+          bind:ref={optionsButton} aria-expanded={optionsOpen} aria-controls="fluo-post-options" disabled={pending}
+          onclick={() => setOptionsOpen(!optionsOpen)}><EllipsisIcon class="size-4" /><span class="hidden min-[420px]:inline">Options</span></Button>
+      </div>
+      <div class="flex shrink-0 items-center gap-1.5 sm:gap-3">
+        <span class="text-xs tabular-nums text-muted-foreground" aria-label="Character count">{textLength}/{characterLimit}</span>
+        <Button class="h-11" disabled={!editor || pending} onclick={publish}>{pending ? 'Publishing…' : replyTo ? 'Reply' : 'Publish'}</Button>
+      </div>
     </div>
   </div>
 </div>
 
 <style>
-  .editor-surface :global(.tiptap) { min-width: 0; }
+  .editor-surface :global(.tiptap) {
+    min-width: 0;
+    min-height: 4lh;
+  }
   .editor-surface :global(.tiptap p + p) { margin-top: 0.6rem; }
   .editor-surface :global(.tiptap p.is-editor-empty:first-child::before) {
     color: var(--muted-foreground);
