@@ -112,7 +112,7 @@ in
     };
   };
 
-  environment.systemPackages = with pkgs; [ btrfs-progs disko e2fsprogs ffmpeg-headless restic smartmontools ];
+  environment.systemPackages = with pkgs; [ btrfs-progs disko e2fsprogs ffmpeg-headless nodejs restic smartmontools ];
 
   services.postgresql = {
     enable = true;
