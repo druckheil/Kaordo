@@ -1,8 +1,7 @@
 // Exercises Regado navigation, accessible storage evidence, and guarded administrator actions
 import assert from "node:assert/strict";
-import test from "node:test";
-import AxeBuilder from "@axe-core/playwright";
-import { startAppFixture } from "./ui-fixture.mjs";
+import { assertAccessible as accessibility } from "./ui-accessibility.mjs";
+import { test, expect } from "./ui-fixture.mjs";
 
 const actor = {
 	id: "01999111-2222-7333-8444-555555555551",
@@ -36,25 +35,11 @@ const services = [
 	"regado-agent",
 ];
 
-async function accessibility(page, section) {
-	const { violations } = await new AxeBuilder({ page })
-		.withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-		.analyze();
-	assert.deepEqual(
-		violations.map((item) => ({
-			id: item.id,
-			targets: item.nodes.map(({ target, html, failureSummary }) => ({ target, html, failureSummary })),
-		})),
-		[],
-		`${section}: automated accessibility`,
-	);
-}
-
 test(
 	"Regado renders all sections, admin controls and responsive charts",
-	{ timeout: 90000 },
-	async (t) => {
-		const { page, origin, errors } = await startAppFixture(t, "regado");
+	async ({ startAppFixture }) => {
+		test.setTimeout(90_000);
+		const { page, origin, errors } = await startAppFixture("regado");
 		const mutations = [];
 		const systemActions = [];
 		const layoutActions = [];
@@ -339,23 +324,13 @@ test(
 		await theme.click();
 		for (const section of ["Storage", "Logs", "Users", "Audit", "System"]) {
 			await page.getByRole("button", { name: section, exact: true }).click();
-			await page.waitForTimeout(100);
+			await expect(page.getByRole("button", { name: section, exact: true })).toHaveAttribute("aria-current", "page");
 			await accessibility(page, section);
 			await theme.click();
 			await accessibility(page, `Dark ${section}`);
 			await page.setViewportSize({ width: 320, height: 700 });
-			await page.evaluate(
-				() =>
-					new Promise((resolve) =>
-						requestAnimationFrame(() => requestAnimationFrame(resolve)),
-					),
-			);
-			assert.ok(
-				await page.evaluate(
-					() => document.documentElement.scrollWidth <= window.innerWidth + 1,
-				),
-				`${section}: no page horizontal overflow at 320px`,
-			);
+			await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+				{ message: `${section}: no page horizontal overflow at 320px` }).toBeLessThanOrEqual(1);
 			await page.setViewportSize({ width: 1440, height: 900 });
 			await theme.click();
 		}
@@ -433,8 +408,7 @@ test(
 		await page.getByRole("button", { name: "Users", exact: true }).click();
 		releaseStaleLogs();
 		await page.getByRole("heading", { name: "Accounts", exact: true }).waitFor();
-		await page.waitForTimeout(100);
-		assert.equal(await page.getByText("Stale log failure", { exact: true }).count(), 0, "A late log failure cannot affect Users");
+		await expect(page.getByText("Stale log failure", { exact: true }), "A late log failure cannot affect Users").toHaveCount(0);
 		await page
 			.getByRole("button", { name: "Grant admin", exact: true })
 			.click();

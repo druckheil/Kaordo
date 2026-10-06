@@ -1,8 +1,7 @@
 // Exercises focused post navigation, composing, and native message scrolling
 
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { startAppFixture } from './ui-fixture.mjs';
+import { test, expect } from './ui-fixture.mjs';
 
 const id = (n) => `01999111-2222-7333-8444-${String(n).padStart(12, '0')}`;
 const now = '2026-10-03T10:00:00Z';
@@ -12,8 +11,8 @@ const image = { id: id(3), kind: 'image', mimeType: 'image/png', width: 640, hei
 const document = (text) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
 const post = (n, text, media = []) => ({ id: id(n), author: { ...partner, following: false }, content: document(text), text, visibility: 'public', parentId: null, quoteId: null, quoteDeleted: false, quote: null, media, counts: { good: 0, bad: 0, comments: 0, quotes: 0, saves: 0 }, myReaction: null, saved: false, createdAt: now, updatedAt: now });
 
-test('Fluo preserves post history after reload and composes replies and quotes', { timeout: 60000 }, async (t) => {
-  const { page, origin, errors } = await startAppFixture(t, 'fluo');
+test('Fluo preserves post history after reload and composes replies and quotes', async ({ startAppFixture }) => {
+  const { page, origin, errors } = await startAppFixture('fluo');
   const navigations = [];
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navigations.push(frame.url());
@@ -100,8 +99,7 @@ test('Fluo preserves post history after reload and composes replies and quotes',
   await page.getByText('Original with media', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.waitForFunction(() => location.hash === '#feed');
-  await page.waitForTimeout(100);
-  assert.equal(await page.locator('[aria-label="Post"] article').count(), 0, 'Back returns to the feed without reopening the focused post');
+  await expect(page.locator('[aria-label="Post"] article'), 'Back returns to the feed without reopening the focused post').toHaveCount(0);
 
   await quoteLink.click();
   await page.getByText('Original with media', { exact: true }).waitFor();
@@ -127,8 +125,8 @@ test('Fluo preserves post history after reload and composes replies and quotes',
   assert.deepEqual(errors, [], 'No client runtime errors');
 });
 
-test('Fluo pastes media into the shared attachment queue and preserves text paste', { timeout: 60000 }, async (t) => {
-  const { page, origin, errors } = await startAppFixture(t, 'fluo');
+test('Fluo pastes media into the shared attachment queue and preserves text paste', async ({ startAppFixture }) => {
+  const { page, origin, errors } = await startAppFixture('fluo');
   await page.route('**/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     const body = path === '/v1/session' || path === '/v1/me' ? actor : { items: [], nextCursor: null };
@@ -185,8 +183,8 @@ test('Fluo pastes media into the shared attachment queue and preserves text past
   assert.deepEqual(errors, [], 'No client runtime errors');
 });
 
-test('Ligo starts at the bottom, keeps rapid scrolling native and shares the composer', { timeout: 60000 }, async (t) => {
-  const { page, origin, errors } = await startAppFixture(t, 'ligo');
+test('Ligo starts at the bottom, keeps rapid scrolling native and shares the composer', async ({ startAppFixture }) => {
+  const { page, origin, errors } = await startAppFixture('ligo');
   const conversation = { id: id(60), kind: 'duo', title: '', createdBy: actor.id, members: [actor, partner], lastMessage: null, unreadCount: 0, createdAt: now, updatedAt: now };
   const messages = Array.from({ length: 45 }, (_, i) => ({ id: id(100 + i), clientId: id(200 + i), conversationId: conversation.id, sender: i % 2 ? actor : partner, text: `Message ${i}`, media: i === 44 ? [image] : [], reactions: [], status: 'read', editedAt: null, deleted: false, systemNotice: false, createdAt: now }));
   await page.route('**/v1/**', async (route) => {
@@ -241,8 +239,8 @@ test('Ligo starts at the bottom, keeps rapid scrolling native and shares the com
 });
 
 for (const app of ['ligo', 'rondo']) {
-  test(`${app} pastes clipboard media and captions within the shared attachment limit`, { timeout: 60000 }, async (t) => {
-    const { page, origin, errors } = await startAppFixture(t, app);
+  test(`${app} pastes clipboard media and captions within the shared attachment limit`, async ({ startAppFixture }) => {
+    const { page, origin, errors } = await startAppFixture(app);
     const conversation = { id: id(60), kind: 'duo', title: '', createdBy: actor.id, members: [actor, partner], lastMessage: null, unreadCount: 0, createdAt: now, updatedAt: now };
     const server = { id: id(70), name: 'Clipboard community', description: '', access: 'private', ownerId: actor.id, memberCount: 1, joined: true, createdAt: now };
     const channel = { id: id(71), serverId: server.id, conversationId: conversation.id, name: 'general', position: 0, createdAt: now };

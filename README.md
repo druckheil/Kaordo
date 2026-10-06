@@ -43,6 +43,9 @@ The [technical specification](docs/kaordo-technical-spec.txt) defines the identi
 pnpm check:front
 pnpm --filter @kaordo/contracts generate
 pnpm test:pages
+pnpm test:unit
+pnpm test:ui
+pnpm test:integration # built static apps; Docker, ffmpeg and restic available
 pnpm test:auth
 pnpm test:dev
 pnpm test:media
@@ -50,7 +53,7 @@ pnpm test:dependencies
 pnpm test:ui-layout
 pnpm test:product:ui
 pnpm test:regado:ui
-node --test scripts/ui-public.test.mjs
+pnpm exec playwright test --project=browser ui-public.test.mjs
 pnpm test:product:db # disposable database; covers Fluo, Ligo, Rondo and Regado
 pnpm test:auth:live # pnpm dev running in another terminal
 pnpm test:backup
@@ -61,7 +64,7 @@ go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./servi
 go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
 ```
 
-Headless fixture tests cover product interaction without manual site browsing. Live tests add real identity, persistence, media processing and call integration. The [refactor review](docs/refactoring.md) records current module ownership, fixes and verification; [scripts](scripts/README.md) documents tooling.
+The [CI guide](docs/ci.md) defines GitHub job ownership, local reproduction, caching, failure diagnostics and rules for new tests. Headless fixture tests cover product interaction without manual site browsing. Live tests add real identity, persistence, media processing and call integration. The [refactor review](docs/refactoring.md) records current module ownership, fixes and verification; [scripts](scripts/README.md) documents tooling.
 
 ## Deployment and remaining boundaries
 

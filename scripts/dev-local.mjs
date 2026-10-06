@@ -11,6 +11,7 @@ import { localDevelopmentPorts, localFrontendServers } from './local-vite.mjs';
 import { syncKeycloak } from './sync-keycloak.mjs';
 
 const root = resolve(import.meta.dirname, '..');
+const staticFrontend = process.argv.includes('--static');
 const compose = ['compose', '--env-file', 'deploy/local/.env', '-f', 'deploy/local/compose.yaml'];
 const siteOrigin = 'http://localhost:8765';
 const children = new Set();
@@ -231,6 +232,12 @@ async function buildAndStartNodo(privateConfig) {
 }
 
 async function startFrontendApplications() {
+  if (staticFrontend) {
+    console.log('Serving the built static applications without HMR…');
+    const child = start(process.execPath, [resolve(root, 'scripts/serve-pages.mjs')]);
+    await waitFor(`${siteOrigin}/login/`, 10_000, child);
+    return [['Static applications', child]];
+  }
   console.log('Starting five Vite development servers with HMR…');
   const environment = { ...process.env, KAORDO_LOCAL_DEV: '1' };
   const applications = localFrontendServers.map((application) => {
@@ -277,7 +284,12 @@ async function startApplicationServices(privateConfig) {
 }
 
 async function startLocalDevelopment() {
-  await assertAvailablePorts(localDevelopmentPorts);
+  if (staticFrontend && !(await exists(resolve(root, 'dist/pages/login/index.html')))) {
+    throw new Error('Static applications are missing. Run pnpm build:pages before pnpm dev:integration.');
+  }
+  await assertAvailablePorts(staticFrontend
+    ? localDevelopmentPorts.filter(({ port }) => port < 10_000)
+    : localDevelopmentPorts);
   closeSession = await startLocalSession(stop);
   const privateConfig = await ensureConfiguration();
   await ensureDockerAvailable();
