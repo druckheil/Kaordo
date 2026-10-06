@@ -32,6 +32,10 @@ func recordPostNotification(ctx context.Context, tx pgx.Tx, actorID, postID, kin
 		reference = post.QuoteID
 	}
 	notifications := table.FluoNotifications
+	identityVisible := jetpg.Bool(true)
+	if kind == fluo.NotificationLike {
+		identityVisible = likesIdentifiable(jetUUID(actorID))
+	}
 	_, err := jetExec(ctx, tx, notifications.INSERT(
 		notifications.RecipientID, notifications.ActorID, notifications.Kind, notifications.PostID, notifications.SubjectPostID,
 	).QUERY(jetpg.SELECT(subject.AuthorID, jetUUID(actorID), jetpg.String(kind), post.ID, subject.ID).
@@ -39,17 +43,21 @@ func recordPostNotification(ctx context.Context, tx pgx.Tx, actorID, postID, kin
 		WHERE(jetpg.AND(
 			post.ID.EQ(jetUUID(postID)), post.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)),
 			subject.AuthorID.NOT_EQ(jetUUID(actorID)),
+			identityVisible, notificationPreferenceAllows(subject.AuthorID, actorID, kind),
 			notificationCooldownElapsed(subject.AuthorID, actorID, kind, post.ID),
 		))))
 	return err
 }
 
-func recordFollowNotification(ctx context.Context, tx pgx.Tx, actorID, targetID string) error {
+func recordFollowNotification(ctx context.Context, tx pgx.Tx, actorID, targetID, kind string) error {
 	notifications := table.FluoNotifications
 	_, err := jetExec(ctx, tx, notifications.INSERT(
 		notifications.RecipientID, notifications.ActorID, notifications.Kind,
-	).QUERY(jetpg.SELECT(jetUUID(targetID), jetUUID(actorID), jetpg.String(fluo.NotificationFollow)).
-		WHERE(notificationCooldownElapsed(jetUUID(targetID), actorID, fluo.NotificationFollow, nil))))
+	).QUERY(jetpg.SELECT(jetUUID(targetID), jetUUID(actorID), jetpg.String(kind)).
+		WHERE(jetpg.AND(
+			notificationPreferenceAllows(jetUUID(targetID), actorID, kind),
+			notificationCooldownElapsed(jetUUID(targetID), actorID, kind, nil),
+		))))
 	return err
 }
 

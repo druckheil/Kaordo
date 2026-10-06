@@ -5,26 +5,28 @@
   import { pushState, replaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { createQuery, QueryClient } from '@tanstack/svelte-query';
-  import { appPaths } from '@kaordo/links';
-  import { createFluoApi, type Feed } from '@kaordo/api-client';
+  import { createFluoApi, invalidateFluoPostQueries, removePostFromCachedFeeds, type Feed } from '@kaordo/api-client';
   import type { FluoPost, UserIdentity } from '@kaordo/contracts';
   import { Button, XIcon } from '@kaordo/ui';
   import FluoFeed from './FluoFeed.svelte';
   import FluoNotifications from './FluoNotifications.svelte';
+  import FluoSettings from './FluoSettings.svelte';
   import PostFocusView from './PostFocusView.svelte';
   import FluoNavigation from './FluoNavigation.svelte';
   import { createFluoNotificationState } from './notification-state.svelte.ts';
+  import { createFluoSettingsState } from './settings-state.svelte.ts';
   import FluoPageHeader from './FluoPageHeader.svelte';
   import {
     errorMessage,
     fluoViewFromHash,
+    fluoViews,
+    isFluoSettingsView,
     postHashForId,
     postIdFromHash,
-    titleForView,
     type FluoView
   } from './fluo-model';
   import { postBackDestination, viewFromPostHistory } from './post-navigation';
-  import { createFluoPostActions, invalidateFluoPostQueries, removePostFromCachedFeeds } from './post-actions';
+  import { createFluoPostActions } from './post-actions';
 
   type FluoDialogsComponent = typeof import('./FluoDialogs.svelte').default;
 
@@ -71,10 +73,12 @@
     enabled: !!postId,
     staleTime: 15_000
   }), () => queryClient);
-  const pageTitle = $derived(titleForView(view));
+  const pageTitle = $derived(fluoViews[view].title);
   const notificationState = createFluoNotificationState(api, queryClient,
     () => view === 'notifications' && !postId,
     (message) => { if (!disposed) actionError = message; });
+  const settingsState = createFluoSettingsState(api, queryClient, () => isFluoSettingsView(view) && !postId);
+  const settingsSection = $derived(fluoViews[view].settingsSection ?? null);
 
   onMount(() => {
     historySession = window.crypto.randomUUID();
@@ -194,7 +198,11 @@
     restoreFeedScroll();
   }
 
-  $effect(() => onBackActionChange(postId ? backFromPost : null));
+  $effect(() => {
+    if (postId) onBackActionChange(backFromPost);
+    else if (settingsSection) onBackActionChange(() => navigate('settings'));
+    else onBackActionChange(null);
+  });
 
   function openComposer(): void {
     replyTo = null;
@@ -265,7 +273,7 @@
       if (deletedThreadIndex >= 0 && deletedThreadIndex === thread.length - 1) backFromPost();
       else if (deletedThreadIndex >= 0) returnToViewAfterDeletedAncestor();
       removePostFromCachedFeeds(queryClient, post.id);
-      await queryClient.invalidateQueries({ queryKey: ['fluo'] });
+      await invalidateFluoPostQueries(queryClient, { notifications: true });
     } catch (cause) {
       if (!disposed) deleteError = errorMessage(cause, 'Could not delete the post.');
     } finally {
@@ -304,16 +312,8 @@
           state={notificationState}
           onOpenPost={openPost}
         />
-      {:else if view === 'settings'}
-        <div class="rounded-[1.5rem] border border-border bg-card p-6 shadow-sm">
-          <h3 class="text-xl font-bold tracking-tight">Account</h3>
-          <dl class="mt-6 grid gap-5 text-sm sm:grid-cols-2">
-            <div><dt class="text-muted-foreground">Display name</dt><dd class="mt-1 font-semibold">{user.displayName}</dd></div>
-            <div><dt class="text-muted-foreground">Username</dt><dd class="mt-1 font-semibold">@{user.username}</dd></div>
-          </dl>
-          <p class="mt-6 border-t border-border pt-5 text-sm leading-6 text-muted-foreground">Sign-in security is managed by Kaordo Identity.</p>
-          <Button class="mt-4" href={appPaths.portal} rel="external" variant="outline">Open Kaordo account</Button>
-        </div>
+      {:else if isFluoSettingsView(view)}
+        <FluoSettings section={settingsSection} state={settingsState} {user} onNavigate={navigate} />
       {:else}
         <FluoFeed
           {view}

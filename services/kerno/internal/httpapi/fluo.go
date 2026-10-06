@@ -25,6 +25,7 @@ type MediaVerifier interface {
 type FluoDependencies struct {
 	Store         fluo.Store
 	Notifications fluo.NotificationStore
+	Settings      fluo.SettingsStore
 	Media         MediaVerifier
 	MediaBaseURL  string
 	MediaSignKey  []byte
@@ -45,6 +46,10 @@ func mountFluo(router chi.Router, verify VerifyFunc, users UserStore, deps FluoD
 	h := fluoHandler{verify: verify, users: users, deps: deps}
 	router.Get("/v1/internal/media/{id}/referenced", h.mediaReferenced)
 	router.Route("/v1/fluo", func(r chi.Router) {
+		if deps.Settings != nil {
+			r.Get("/settings", h.settings)
+			r.Patch("/settings", h.updateSettings)
+		}
 		if deps.Notifications != nil {
 			r.Get("/notifications", h.notifications)
 			r.Get("/notifications/unread-count", h.notificationSummary)
@@ -79,6 +84,8 @@ func fluoError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "The referenced post is unavailable.")
 	case errors.Is(err, fluo.ErrInvalidVisibility):
 		writeError(w, http.StatusBadRequest, invalidVisibilityMessage)
+	case errors.Is(err, fluo.ErrInvalidSettings):
+		writeError(w, http.StatusBadRequest, "Choose a valid notification or privacy setting.")
 	case errors.Is(err, fluo.ErrPrivateParent):
 		writeError(w, http.StatusBadRequest, "A reply cannot be public while its parent is private.")
 	case errors.Is(err, fluo.ErrSelfFollow):

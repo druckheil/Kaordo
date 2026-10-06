@@ -51,13 +51,13 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 			WHERE(jetpg.AND(bad.PostID.EQ(p.ID), bad.Value.EQ(jetpg.String("bad"))))),
 		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(comments.ID)).FROM(comments).WHERE(jetpg.AND(
 			comments.ParentID.EQ(p.ID),
-			jetpg.OR(
-				comments.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)),
-				comments.AuthorID.EQ(viewer),
-			),
+			// The selected parent is already accessible; only the direct child's policy can add a restriction.
+			postDirectlyAccessible(viewerID, comments),
 		))),
 		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(quotes.ID)).FROM(quotes).WHERE(jetpg.AND(
 			quotes.QuoteID.EQ(p.ID), quotes.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)),
+			// Quotes are roots by the post-kind constraint, so no ancestor walk is needed for counting.
+			postDirectlyAccessible(viewerID, quotes),
 		))),
 		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(saves.PostID)).FROM(saves).WHERE(saves.PostID.EQ(p.ID))),
 		jetpg.SELECT(reaction.Value).FROM(reaction).WHERE(jetpg.AND(reaction.PostID.EQ(p.ID), reaction.UserID.EQ(viewer))),
@@ -79,25 +79,6 @@ func postMediaJSON(post *table.FluoPostsTable) jetpg.StringExpression {
 	) ORDER BY pm.position) FROM fluo_post_media pm WHERE pm.post_id =`), post.ID, jetpg.Token(`), '[]'::jsonb)`)))
 }
 
-func postTreeAccessible(viewerID string, post *table.FluoPostsTable) jetpg.BoolExpression {
-	return jetpg.BoolExp(jetpg.CustomExpression(jetpg.Token(`NOT EXISTS (
-		WITH RECURSIVE lineage AS (
-			SELECT id, parent_id, visibility, author_id FROM fluo_posts WHERE id =`), post.ID, jetpg.Token(`
-			UNION ALL
-			SELECT parent.id, parent.parent_id, parent.visibility, parent.author_id
-			FROM fluo_posts parent JOIN lineage child ON parent.id = child.parent_id
-		)
-		SELECT 1 FROM lineage WHERE visibility = 'private' AND author_id <>`), jetUUID(viewerID), jetpg.Token(`)`)))
-}
-
-func postAccessibleCondition(viewerID string, posts *table.FluoPostsTable) jetpg.BoolExpression {
-	viewer := jetUUID(viewerID)
-	return jetpg.AND(
-		jetpg.OR(posts.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)), posts.AuthorID.EQ(viewer)),
-		postTreeAccessible(viewerID, posts),
-	)
-}
-
 type scanner interface{ Scan(...any) error }
 
 func scanPost(row scanner) (fluo.Post, error) {
@@ -112,6 +93,9 @@ func scanPost(row scanner) (fluo.Post, error) {
 		&reaction, &post.Saved,
 		&mediaJSON, &post.CreatedAt, &post.UpdatedAt,
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fluo.Post{}, fluo.ErrNotFound
+	}
 	if err != nil {
 		return post, err
 	}
@@ -145,11 +129,7 @@ func scanPost(row scanner) (fluo.Post, error) {
 func (store *Fluo) Get(ctx context.Context, viewerID, id string) (fluo.Post, error) {
 	p := table.FluoPosts.AS("p")
 	condition := jetpg.AND(p.ID.EQ(jetUUID(id)), postAccessibleCondition(viewerID, p))
-	post, err := scanPost(jetQueryRow(ctx, store.pool, postQuery(viewerID).WHERE(condition)))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return fluo.Post{}, fluo.ErrNotFound
-	}
-	return post, err
+	return scanPost(jetQueryRow(ctx, store.pool, postQuery(viewerID).WHERE(condition)))
 }
 
 func (store *Fluo) List(ctx context.Context, options fluo.ListOptions) (fluo.Page, error) {

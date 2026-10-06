@@ -15,7 +15,7 @@
 		UserRoundIcon,
 	} from "@kaordo/ui";
 	import type { FluoView } from "./fluo-model";
-	import { displayInitial } from "./fluo-model";
+	import { displayInitial, isFluoSettingsView } from "./fluo-model";
 
 	let {
 		view,
@@ -46,6 +46,7 @@
 		id === "feed" || id === "search" || id === "saved" || id === "profile",
 	);
 	const notificationsLabel = $derived(unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications');
+	const settingsActive = $derived(isFluoSettingsView(view));
 </script>
 
 {#snippet unreadBadge()}
@@ -59,10 +60,11 @@
 	<nav class="grid gap-1" aria-label="Fluo navigation">
 		{#each navigation as item (item.id)}
 			{@const Icon = item.icon}
+			{@const selected = item.id === 'settings' ? settingsActive : view === item.id}
 			<Button
 				class="h-11 w-full justify-start gap-3 rounded-xl px-4 text-[14px]"
-				variant={view === item.id ? "secondary" : "ghost"}
-				aria-current={view === item.id ? "page" : undefined}
+				variant={selected ? "secondary" : "ghost"}
+				aria-current={selected ? "page" : undefined}
 				aria-label={item.id === "notifications" ? notificationsLabel : item.label}
 				onclick={() => onNavigate(item.id)}
 			>
@@ -123,8 +125,8 @@
 					aria-label="More Fluo sections"
 					title={unreadCount > 0 ? notificationsLabel : 'More Fluo sections'}
 					aria-describedby={unreadCount > 0 ? 'fluo-mobile-notification-count' : undefined}
-					variant={view === "notifications" || view === "settings" ? "secondary" : "ghost"}
-					class={`h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold ${view === "notifications" || view === "settings" ? "" : "text-muted-foreground"}`}
+					variant={view === "notifications" || settingsActive ? "secondary" : "ghost"}
+					class={`h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold ${view === "notifications" || settingsActive ? "" : "text-muted-foreground"}`}
 				>
 					<span class="relative" aria-hidden="true">
 						{#if unreadCount > 0}

@@ -7,11 +7,12 @@ import (
 )
 
 const (
-	NotificationLike    = "like"
-	NotificationDislike = "dislike"
-	NotificationReply   = "reply"
-	NotificationQuote   = "quote"
-	NotificationFollow  = "follow"
+	NotificationLike     = "like"
+	NotificationDislike  = "dislike"
+	NotificationReply    = "reply"
+	NotificationQuote    = "quote"
+	NotificationFollow   = "follow"
+	NotificationUnfollow = "unfollow"
 )
 
 type NotificationPost struct {

@@ -713,13 +713,71 @@ components:
       required: [value]
       properties:
         value: { type: string, enum: [good, bad] }
+    FluoNotificationPolicy:
+      type: string
+      enum: [all, off, following]
+      description: Notify for all actors, nobody, or only accounts the recipient follows at the time of the action.
+    FluoNotificationPreferences:
+      type: object
+      additionalProperties: false
+      required: [likes, dislikes, replies, follows, unfollows, quotes]
+      properties:
+        likes: { $ref: '#/components/schemas/FluoNotificationPolicy', default: all }
+        dislikes: { $ref: '#/components/schemas/FluoNotificationPolicy', default: all }
+        replies: { $ref: '#/components/schemas/FluoNotificationPolicy', default: all }
+        follows: { $ref: '#/components/schemas/FluoNotificationPolicy', default: all }
+        unfollows: { $ref: '#/components/schemas/FluoNotificationPolicy', default: off }
+        quotes: { $ref: '#/components/schemas/FluoNotificationPolicy', default: all }
+    FluoPrivacySettings:
+      type: object
+      additionalProperties: false
+      required: [accountVisibility, showLikes]
+      properties:
+        accountVisibility:
+          type: string
+          enum: [public, private]
+          default: public
+          description: Private account posts are accessible only to their author and accounts the author follows. Individual private posts remain author-only.
+        showLikes:
+          type: boolean
+          default: true
+          description: Hidden likes still contribute to counts, but do not create identifying notifications. Existing like notifications are hidden while this setting is false.
+    FluoSettings:
+      type: object
+      required: [notifications, privacy]
+      properties:
+        notifications: { $ref: '#/components/schemas/FluoNotificationPreferences' }
+        privacy: { $ref: '#/components/schemas/FluoPrivacySettings' }
+    FluoSettingsPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        notifications:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            likes: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+            dislikes: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+            replies: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+            follows: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+            unfollows: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+            quotes: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+        privacy:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            accountVisibility: { type: string, enum: [public, private] }
+            showLikes: { type: boolean }
     FluoNotification:
       type: object
       description: Activity from another account, visible only to its recipient while its posts remain accessible.
       required: [id, kind, actor, post, createdAt, readAt]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [like, dislike, reply, quote, follow] }
+        kind: { type: string, enum: [like, dislike, reply, quote, follow, unfollow] }
         actor: { $ref: '#/components/schemas/FluoAuthor' }
         post:
           anyOf:
@@ -770,6 +828,31 @@ components:
       properties:
         referenced: { type: boolean }
 paths:
+  /v1/fluo/settings:
+    get:
+      operationId: getFluoSettings
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current account settings, including defaults for unchanged preferences.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FluoSettings' } } }
+        default:
+          description: Access or server error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    patch:
+      operationId: updateFluoSettings
+      security: [{ bearerAuth: [] }]
+      description: Atomically updates only supplied preferences. Notification preferences govern future activity; privacy applies to existing posts and notification reads.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/FluoSettingsPatch' } } }
+      responses:
+        '200':
+          description: Saved account settings.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FluoSettings' } } }
+        default:
+          description: Validation, access or server error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
   /v1/uploads/{id}/meta:
     servers:
       - url: http://localhost:8082

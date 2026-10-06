@@ -6,7 +6,7 @@ Product UI and all user-facing copy must be in English. Repository documentation
 
 The rebuild started at scope 0.0.1 with a new Git root. The previous code and full history remain at `/Users/druckheil/Projects/Archive/Kaordo-before-0.0.1`. Do not restore old D1 schemas, wire formats, Tauri commands, or release artifacts for compatibility.
 
-Implemented applications are Portal authentication/account entry, Fluo social posting and activity notifications, Ligo messaging, Rondo communities and LiveKit calls, and Regado administration. Notifications outside Fluo, complete settings, Matrix integration, content encryption and cryptographic recovery remain incomplete or reserved. Describe actual capabilities and evidence, not the scaffold's original plans.
+Implemented applications are Portal authentication/account entry, Fluo social posting with activity notifications and notification/privacy settings, Ligo messaging, Rondo communities and LiveKit calls, and Regado administration. Notifications outside Fluo, other account settings, Matrix integration, content encryption and cryptographic recovery remain incomplete or reserved. Describe actual capabilities and evidence, not the scaffold's original plans.
 
 ## Architecture
 

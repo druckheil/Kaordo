@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/v1/fluo/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getFluoSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Atomically updates only supplied preferences. Notification preferences govern future activity; privacy applies to existing posts and notification reads. */
+        patch: operations["updateFluoSettings"];
+        trace?: never;
+    };
     "/v1/uploads/{id}/meta": {
         parameters: {
             query?: never;
@@ -1464,12 +1481,63 @@ export interface components {
             /** @enum {string} */
             value: "good" | "bad";
         };
+        /**
+         * @description Notify for all actors, nobody, or only accounts the recipient follows at the time of the action.
+         * @enum {string}
+         */
+        FluoNotificationPolicy: "all" | "off" | "following";
+        FluoNotificationPreferences: {
+            /** @default all */
+            likes: components["schemas"]["FluoNotificationPolicy"];
+            /** @default all */
+            dislikes: components["schemas"]["FluoNotificationPolicy"];
+            /** @default all */
+            replies: components["schemas"]["FluoNotificationPolicy"];
+            /** @default all */
+            follows: components["schemas"]["FluoNotificationPolicy"];
+            /** @default off */
+            unfollows: components["schemas"]["FluoNotificationPolicy"];
+            /** @default all */
+            quotes: components["schemas"]["FluoNotificationPolicy"];
+        };
+        FluoPrivacySettings: {
+            /**
+             * @description Private account posts are accessible only to their author and accounts the author follows. Individual private posts remain author-only.
+             * @default public
+             * @enum {string}
+             */
+            accountVisibility: "public" | "private";
+            /**
+             * @description Hidden likes still contribute to counts, but do not create identifying notifications. Existing like notifications are hidden while this setting is false.
+             * @default true
+             */
+            showLikes: boolean;
+        };
+        FluoSettings: {
+            notifications: components["schemas"]["FluoNotificationPreferences"];
+            privacy: components["schemas"]["FluoPrivacySettings"];
+        };
+        FluoSettingsPatch: {
+            notifications?: {
+                likes?: components["schemas"]["FluoNotificationPolicy"];
+                dislikes?: components["schemas"]["FluoNotificationPolicy"];
+                replies?: components["schemas"]["FluoNotificationPolicy"];
+                follows?: components["schemas"]["FluoNotificationPolicy"];
+                unfollows?: components["schemas"]["FluoNotificationPolicy"];
+                quotes?: components["schemas"]["FluoNotificationPolicy"];
+            };
+            privacy?: {
+                /** @enum {string} */
+                accountVisibility?: "public" | "private";
+                showLikes?: boolean;
+            };
+        };
         /** @description Activity from another account, visible only to its recipient while its posts remain accessible. */
         FluoNotification: {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            kind: "like" | "dislike" | "reply" | "quote" | "follow";
+            kind: "like" | "dislike" | "reply" | "quote" | "follow" | "unfollow";
             actor: components["schemas"]["FluoAuthor"];
             post: {
                 /**
@@ -1538,6 +1606,68 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getFluoSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current account settings, including defaults for unchanged preferences. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoSettings"];
+                };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateFluoSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FluoSettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description Saved account settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoSettings"];
+                };
+            };
+            /** @description Validation, access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     getNodoUploadMetadata: {
         parameters: {
             query?: never;

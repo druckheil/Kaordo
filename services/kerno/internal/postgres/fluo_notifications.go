@@ -16,18 +16,17 @@ import (
 func notificationAccessible(viewerID string, notifications *table.FluoNotificationsTable) jetpg.BoolExpression {
 	post := table.FluoPosts.AS("p")
 	subject := table.FluoPosts.AS("subject")
+	identityVisible := jetpg.OR(
+		notifications.Kind.NOT_EQ(jetpg.String(fluo.NotificationLike)), likesIdentifiable(notifications.ActorID),
+	)
+	followActivity := notifications.Kind.IN(jetpg.String(fluo.NotificationFollow), jetpg.String(fluo.NotificationUnfollow))
+	postsAccessible := jetpg.EXISTS(jetpg.SELECT(post.ID).
+		FROM(post.INNER_JOIN(subject, subject.ID.EQ(notifications.SubjectPostID))).
+		WHERE(jetpg.AND(
+			post.ID.EQ(notifications.PostID), postAccessibleCondition(viewerID, post), postTreeAccessible(viewerID, subject),
+		)))
 	return jetpg.AND(
-		notifications.RecipientID.EQ(jetUUID(viewerID)),
-		jetpg.OR(
-			notifications.Kind.EQ(jetpg.String(fluo.NotificationFollow)),
-			jetpg.EXISTS(jetpg.SELECT(post.ID).
-				FROM(post.INNER_JOIN(subject, subject.ID.EQ(notifications.SubjectPostID))).
-				WHERE(jetpg.AND(
-					post.ID.EQ(notifications.PostID),
-					postAccessibleCondition(viewerID, post),
-					postTreeAccessible(viewerID, subject),
-				))),
-		),
+		notifications.RecipientID.EQ(jetUUID(viewerID)), identityVisible, jetpg.OR(followActivity, postsAccessible),
 	)
 }
 

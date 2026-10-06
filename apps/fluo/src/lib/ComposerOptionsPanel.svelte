@@ -49,6 +49,7 @@
 			<option value="private">Only me</option>
 		</select>
 	</div>
+	<p class="mt-2 text-xs text-muted-foreground">Your account privacy also applies to posts and replies.</p>
 	{#if replying}
 		<p class="mt-2 text-xs text-muted-foreground">Replies use the original post&apos;s visibility.</p>
 	{/if}

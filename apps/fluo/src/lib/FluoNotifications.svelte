@@ -8,7 +8,7 @@
 	import { MediaPreview } from '@kaordo/media-ui';
 	import {
 		BellIcon, Button, CheckIcon, MessageCircleIcon,
-		Repeat2Icon, ThumbsDownIcon, ThumbsUpIcon, UserPlusIcon,
+		Repeat2Icon, ThumbsDownIcon, ThumbsUpIcon, UserMinusIcon, UserPlusIcon,
 	} from '@kaordo/ui';
 	import { displayInitial, postHashForId } from './fluo-model';
 	import type { FluoNotificationState } from './notification-state.svelte.ts';
@@ -37,6 +37,7 @@
 		reply: { description: 'replied to your post.', icon: MessageCircleIcon },
 		quote: { description: 'quoted your post.', icon: Repeat2Icon },
 		follow: { description: 'started following you.', icon: UserPlusIcon },
+		unfollow: { description: 'stopped following you.', icon: UserMinusIcon },
 	} as const;
 
 	function openNotification(event: MouseEvent, notification: FluoNotification): void {

@@ -18,6 +18,7 @@ func UseSchema(schema string) {
 	FluoPosts = FluoPosts.FromSchema(schema)
 	FluoReactions = FluoReactions.FromSchema(schema)
 	FluoSavedPosts = FluoSavedPosts.FromSchema(schema)
+	FluoSettings = FluoSettings.FromSchema(schema)
 	LigoConversations = LigoConversations.FromSchema(schema)
 	LigoMembers = LigoMembers.FromSchema(schema)
 	LigoMessageMedia = LigoMessageMedia.FromSchema(schema)

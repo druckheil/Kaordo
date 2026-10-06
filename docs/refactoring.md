@@ -11,12 +11,12 @@ This is an engineering review with automated evidence, not a new ISO score or a 
 | Layer | Responsibility |
 | --- | --- |
 | Portal | Welcome/app entry/auth presentation; shared account controller handles the session |
-| Fluo | Controller for selection/navigation/mutations; separate feed/header, composer/editor/publishing, post actions/replies/detail |
+| Fluo | Controller for selection/navigation/post actions; notification/settings query controllers and separate feed/header, settings, composer/editor/publishing, replies/detail |
 | Ligo | Conversation selection and SSE/query coordination; separate sidebar and conversation dialog |
 | Rondo | Server/channel coordination, member panel, layout helpers and voice views; shared chat pipeline |
 | Regado | Independent query resources and mutations; overview/storage/system/users/audit/log panels and action/access dialogs |
 | auth / account-ui | In-memory OIDC tokens; verified account bootstrap and nonauthorizing per-tab preview |
-| api-client / contracts | Typed requests, response/refresh policy, query keys, pagination, cancellation and immutable message-cache helpers; generated wire schemas |
+| api-client / contracts | Typed requests, response/refresh policy, query keys, pagination, cancellation and immutable message/Fluo cache helpers; generated wire schemas |
 | ui / chat-ui | STaSBRL primitives and shared message/composer/native-scroll interaction |
 | media-client / media-ui / voice-client | Upload/resize workflow; metadata-based layout, PhotoSwipe/Vidstack; LiveKit room/track lifecycle and sounds |
 | Kerno | Configuration/wiring, HTTP authorization/orchestration, domain validation, Jet/pgx persistence split by operation |
@@ -369,10 +369,80 @@ this was source inspection, with no product query executed. Modified fixture
 and migration scripts passed `node --check`; `git diff --check` was clean.
 No functional notification tests were added or run in this change.
 
+## Fluo notification/privacy settings and refactor — 6 October 2026
+
+Settings now opens separate Notifications and Privacy sections through the
+existing SvelteKit shallow navigation. Rhea/Bits UI radio groups own keyboard
+selection; TanStack Query owns cancellation and serialized mutations. Pending
+patches from its mutation cache overlay confirmed query data, keeping selection
+immediate while earlier responses arrive. Each change uses a partial
+authenticated settings request, and PostgreSQL upserts only supplied columns,
+preserving preferences changed in another section or session. Migration 015
+stores account-owned settings with defaults and constraints; OpenAPI and Jet
+declarations are generated. Validation requires each supplied preference group
+to contain a change, matching the OpenAPI request constraints.
+
+Likes, dislikes, replies, follows and quotes default to **Notify**; unfollows
+default to **Off**. Every category also offers **Only people I follow**, evaluated
+from the recipient's follow relation when the action occurs. Preferences govern
+future notifications and preserve existing read history. A real unfollow now
+records activity in its relation transaction, using the same one-hour cooldown
+as other repeated actions. New reply/quote IDs still notify independently.
+
+Account privacy is public by default. A private account grants post access to
+its author and the accounts its author follows. Individual private posts remain
+author-only. A shared lineage predicate applies this policy to feeds, search,
+saved posts, focused threads, quoted previews, interactions and notifications;
+reply/quote counts omit inaccessible posts. Administrative access remains
+governed by the existing audited access-case workflow.
+
+Likes are visible by default. Hidden likes contribute to the aggregate count
+without inserting an identifying notification. Reads also hide existing like
+notifications while their actor hides likes, including unread counts and read
+mutations. Returning to visible likes does not backfill actions performed while
+hidden. Ordinary post mutations invalidate only feed/comment/thread resources;
+privacy saves invalidate affected content and notification resources.
+
+Preference controls stay enabled during saves. A single CSS highlight follows
+equal grid tracks; the chosen policy also tints its section and icon. Responsive
+layout and Bits UI arrow navigation use the same breakpoint. Focus rings and
+reduced-motion preferences remain supported. The shared Rhea radio indicator
+stays mounted for opacity/scale transitions, and its selection styles and
+`ThemePicker` now match the installed Bits UI `data-state="checked"` attribute.
+
+The accumulated settings changes were reviewed through their related feed,
+thread, interaction, media and notification paths. Maintainability changes:
+
+- One row template renders notification and privacy preferences. A typed
+  single-field mutation replaces generic nested-patch error bookkeeping;
+  obsolete failures are superseded only by a newer choice for that field.
+  The native mutation scope serializes saves and application teardown aborts
+  requests without repopulating cleared caches.
+- One view registry owns valid hashes, titles, descriptions and settings
+  sections; navigation no longer casts a split URL segment into a section.
+- `api-client` owns post cache removal and selective invalidation. Privacy,
+  visibility and deletion refresh content/notifications without refetching
+  account settings. Query Core types use a declared dependency.
+- Post access uses explicit public-account/audience grants. Notification policy
+  uses Jet's simple `CASE` to read the stored/default policy once, with defaults
+  taken from the domain model. Existing transaction boundaries and shared
+  lineage restrictions remain in place.
+- Post row scanning maps absence to `ErrNotFound` consistently, including
+  access revoked between a reaction's access check and its final read.
+
+Compilation evidence: `pnpm check:front` reported zero errors and warnings in
+all six Svelte projects; `pnpm build:pages` built all five static applications.
+All four Go modules built and passed `go vet`. OpenAPI declarations were
+regenerated; the migration runner passed `node --check`; `git diff --check`
+was clean. Migration 015 was applied to the local development database during
+implementation. No production release accompanied this refactor. Access and
+policy predicates were reviewed from source; functional/browser tests were
+not added or run for these changes.
+
 ## Remaining boundaries
 
 - No content E2EE, user-held decryption keys or system escrow lifecycle; Regado cases authorize existing plaintext data and notify/audit access.
 - Data1 RAID1 mirrors two physical disks, but an independently recoverable backup destination/key copy/schedule still require configuration. Local development does not mirror disks.
 - Public voice quality depends on reachable signaling/RTC/TURN, actual devices and external networks. Synthetic local camera/room tests do not establish that quality.
 - Chromium/axe/reflow tests do not cover every browser, screen reader or native macOS trackpad rubber-band interaction. No participant UEQ/VisAWI study or production load test was performed.
-- Notifications outside Fluo, full settings, ownership transfer/moderation, Matrix and Cloudflare integrations remain outside implemented workflows. Reserved crypto is intentionally empty.
+- Notifications outside Fluo, other account settings, ownership transfer/moderation, Matrix and Cloudflare integrations remain outside implemented workflows. Reserved crypto is intentionally empty.

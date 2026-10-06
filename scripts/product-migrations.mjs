@@ -12,5 +12,6 @@ export const productMigrations = [
   '011_regado.sql',
   '012_fluo_quote_tombstones.sql',
   '013_fluo_saved_post_counts.sql',
-  '014_fluo_notifications.sql'
+  '014_fluo_notifications.sql',
+  '015_fluo_settings.sql'
 ];

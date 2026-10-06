@@ -60,6 +60,7 @@ export { default as SendIcon } from '@lucide/svelte/icons/send';
 export { default as PaperclipIcon } from '@lucide/svelte/icons/paperclip';
 export { default as UsersIcon } from '@lucide/svelte/icons/users';
 export { default as UserPlusIcon } from '@lucide/svelte/icons/user-plus';
+export { default as UserMinusIcon } from '@lucide/svelte/icons/user-minus';
 export { default as CheckIcon } from '@lucide/svelte/icons/check';
 export { default as CheckCheckIcon } from '@lucide/svelte/icons/check-check';
 export { default as CircleIcon } from '@lucide/svelte/icons/circle';

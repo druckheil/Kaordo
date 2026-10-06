@@ -125,18 +125,20 @@ func (store *Fluo) Follow(ctx context.Context, actorID, targetID string, followi
 
 func writeFluoFollow(ctx context.Context, tx pgx.Tx, actorID, targetID string, following bool) error {
 	follows := table.FluoFollows
-	if !following {
-		_, err := jetExec(ctx, tx, follows.DELETE().WHERE(jetpg.AND(
-			follows.FollowerID.EQ(jetUUID(actorID)), follows.FollowedID.EQ(jetUUID(targetID)),
-		)))
-		return err
+	kind := fluo.NotificationUnfollow
+	var change jetpg.Statement = follows.DELETE().WHERE(jetpg.AND(
+		follows.FollowerID.EQ(jetUUID(actorID)), follows.FollowedID.EQ(jetUUID(targetID)),
+	))
+	if following {
+		kind = fluo.NotificationFollow
+		change = follows.INSERT(follows.FollowerID, follows.FollowedID).
+			VALUES(jetUUID(actorID), jetUUID(targetID)).ON_CONFLICT().DO_NOTHING()
 	}
-	changed, err := jetExec(ctx, tx, follows.INSERT(follows.FollowerID, follows.FollowedID).
-		VALUES(jetUUID(actorID), jetUUID(targetID)).ON_CONFLICT().DO_NOTHING())
+	changed, err := jetExec(ctx, tx, change)
 	if err != nil || changed.RowsAffected() == 0 {
 		return err
 	}
-	return recordFollowNotification(ctx, tx, actorID, targetID)
+	return recordFollowNotification(ctx, tx, actorID, targetID, kind)
 }
 
 var _ fluo.Store = (*Fluo)(nil)

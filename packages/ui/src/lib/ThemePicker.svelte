@@ -26,7 +26,7 @@
     {#each themes as candidate (candidate.id)}
       <label
         for={`theme-${candidate.id}`}
-        class="group/field-label cursor-pointer rounded-2xl border border-border bg-card p-3 transition-[border-color,box-shadow] hover:border-ring/50 has-data-[checked]:border-ring has-data-[checked]:ring-1 has-data-[checked]:ring-ring has-focus-visible:ring-3 has-focus-visible:ring-ring/30"
+        class="group/field-label cursor-pointer rounded-2xl border border-border bg-card p-3 transition-[border-color,box-shadow] hover:border-ring/50 has-data-[state=checked]:border-ring has-data-[state=checked]:ring-1 has-data-[state=checked]:ring-ring has-focus-visible:ring-3 has-focus-visible:ring-ring/30"
       >
         <div
           data-theme={candidate.id}

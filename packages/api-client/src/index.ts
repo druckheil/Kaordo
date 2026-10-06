@@ -10,8 +10,9 @@ export { adminSummaryOptions, adminSystemOptions, adminMetricsOptions, adminUser
   adminAuditOptions, adminLogsOptions, adminCaseContentOptions } from './admin-queries.ts';
 
 export {
-  createFluoApi, feedOptions, commentsOptions, type Feed, type FluoApi
+  createFluoApi, feedOptions, commentsOptions, fluoSettingsKey, fluoSettingsOptions, type Feed, type FluoApi
 } from './fluo.ts';
+export { invalidateFluoPostQueries, removePostFromCachedFeeds } from './fluo-cache.ts';
 export {
   fluoNotificationKeys,
   fluoNotificationSummaryOptions, fluoNotificationRecentOptions, fluoNotificationsOptions,

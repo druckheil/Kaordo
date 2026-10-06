@@ -19,6 +19,11 @@ export type FluoNotification = Schemas['FluoNotification'];
 export type FluoNotificationPage = Schemas['FluoNotificationPage'];
 export type FluoNotificationSummary = Schemas['FluoNotificationSummary'];
 export type FluoNotificationReadState = Schemas['FluoNotificationReadState'];
+export type FluoNotificationPolicy = Schemas['FluoNotificationPolicy'];
+export type FluoNotificationPreferences = Schemas['FluoNotificationPreferences'];
+export type FluoPrivacySettings = Schemas['FluoPrivacySettings'];
+export type FluoSettings = Schemas['FluoSettings'];
+export type FluoSettingsPatch = Schemas['FluoSettingsPatch'];
 
 // Nodo upload metadata
 export type NodoUpload = Schemas['NodoUpload'];

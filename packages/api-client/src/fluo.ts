@@ -2,7 +2,7 @@
 
 import type {
   FluoNewPost, FluoPage, FluoPost, FluoPostThread, FluoNotificationPage,
-  FluoNotificationSummary, FluoNotificationReadState, NodoUpload, paths
+  FluoNotificationSummary, FluoNotificationReadState, FluoSettings, FluoSettingsPatch, NodoUpload, paths
 } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
 import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
@@ -15,6 +15,14 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
   const nodoClient = createClient<paths>({ baseUrl: nodo, fetch: sessionFetch });
 
   return {
+    async settings(signal?: AbortSignal): Promise<FluoSettings> {
+      const { data, error, response } = await client.GET('/v1/fluo/settings', { signal });
+      return requireResponseData(data, error, response.status);
+    },
+    async updateSettings(patch: FluoSettingsPatch, signal?: AbortSignal): Promise<FluoSettings> {
+      const { data, error, response } = await client.PATCH('/v1/fluo/settings', { body: patch, signal });
+      return requireResponseData(data, error, response.status);
+    },
     async notifications(cursor?: string, signal?: AbortSignal): Promise<FluoNotificationPage> {
       const { data, error, response } = await client.GET('/v1/fluo/notifications', {
         params: { query: { cursor, limit: 20 } }, signal
@@ -100,6 +108,16 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
 }
 
 export type FluoApi = ReturnType<typeof createFluoApi>;
+
+export const fluoSettingsKey = ['fluo', 'settings'] as const;
+
+export function fluoSettingsOptions(api: FluoApi) {
+  return {
+    queryKey: fluoSettingsKey,
+    queryFn: ({ signal }: { signal: AbortSignal }) => api.settings(signal),
+    staleTime: 30_000
+  };
+}
 
 export function feedOptions(api: FluoApi, feed: Feed, search?: string) {
   return {

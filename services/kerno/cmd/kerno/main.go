@@ -54,6 +54,7 @@ var schemaRequirements = []requiredRelation{
 	{name: "fluo_posts", missing: "Fluo tables are missing", migration: "deploy/postgres/002_fluo.sql"},
 	{name: "fluo_notifications", missing: "Fluo notifications table is missing", migration: "deploy/postgres/014_fluo_notifications.sql"},
 	{name: "fluo_notifications_event_lookup_idx", missing: "Fluo notification cooldown index is missing", migration: "deploy/postgres/014_fluo_notifications.sql"},
+	{name: "fluo_settings", missing: "Fluo settings table is missing", migration: "deploy/postgres/015_fluo_settings.sql"},
 	{name: "ligo_conversations", missing: "Ligo tables are missing", migration: "deploy/postgres/007_ligo.sql"},
 	{name: "rondo_servers", missing: "Rondo tables are missing", migration: "deploy/postgres/010_rondo.sql"},
 	{name: "admin_audit", missing: "Regado tables are missing", migration: "deploy/postgres/011_regado.sql"},
@@ -234,6 +235,7 @@ func fluoDependencies(cfg config, pool *pgxpool.Pool, media httpapi.NodoClient) 
 	return httpapi.FluoDependencies{
 		Store:         store,
 		Notifications: store,
+		Settings:      store,
 		Media:         media,
 		MediaBaseURL:  cfg.NodoPublicURL,
 		MediaSignKey:  cfg.MediaSigningKey,

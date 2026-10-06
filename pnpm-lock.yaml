@@ -332,6 +332,9 @@ importers:
       '@microsoft/fetch-event-source':
         specifier: ^2.0.1
         version: 2.0.1
+      '@tanstack/query-core':
+        specifier: ^5.104.0
+        version: 5.104.0
       openapi-fetch:
         specifier: ^0.17.0
         version: 0.17.0

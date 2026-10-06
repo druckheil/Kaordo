@@ -1,8 +1,8 @@
-// Coordinates post mutations and keeps feed cache updates consistent
+// Coordinates Fluo post mutations and shared content cache invalidation
 
-import type { QueryClient, InfiniteData } from '@tanstack/svelte-query';
-import type { FluoPage, FluoPost } from '@kaordo/contracts';
-import type { FluoApi } from '@kaordo/api-client';
+import type { QueryClient } from '@tanstack/svelte-query';
+import type { FluoPost } from '@kaordo/contracts';
+import { invalidateFluoPostQueries, type FluoApi } from '@kaordo/api-client';
 import { errorMessage } from './fluo-model';
 
 type PostReaction = 'good' | 'bad' | null;
@@ -49,28 +49,8 @@ export function createFluoPostActions(
       return run(
         () => api.setVisibility(post.id, visibility),
         'Could not change the post visibility.',
-        () => queryClient.invalidateQueries({ queryKey: ['fluo'] }),
+        () => invalidateFluoPostQueries(queryClient, { notifications: true }),
       );
     },
   };
-}
-
-export function invalidateFluoPostQueries(queryClient: QueryClient): Promise<void> {
-  return queryClient.invalidateQueries({
-    queryKey: ['fluo'],
-    predicate: ({ queryKey }) => queryKey[1] !== 'notifications',
-  });
-}
-
-export function removePostFromCachedFeeds(queryClient: QueryClient, postId: string): void {
-  queryClient.setQueriesData<InfiniteData<FluoPage>>({ queryKey: ['fluo', 'feed'] }, (cached) => {
-    if (!cached) return cached;
-    return {
-      ...cached,
-      pages: cached.pages.map((page) => ({
-        ...page,
-        items: page.items.filter((item) => item.id !== postId),
-      })),
-    };
-  });
 }
