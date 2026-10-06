@@ -1,15 +1,21 @@
 // Manages LiveKit connections, participant state, tracks and local voice controls
 import {
   ConnectionState,
+  LocalAudioTrack,
+  RemoteAudioTrack,
   Room,
   RoomEvent,
   ScreenSharePresets,
   Track,
   VideoPresets,
+  supportsAudioOutputSelection,
   type Participant,
+  type RemoteParticipant,
   type RemoteTrack
 } from 'livekit-client';
 import { VoiceSounds } from './sounds.js';
+import { MicrophoneVolume } from './microphone-volume.js';
+import { clampVoiceVolume, defaultVoicePreferences, devicePreferenceKeys, type VoicePreferences } from './preferences.js';
 
 export type ScreenQuality =
   | '360p15'
@@ -90,7 +96,9 @@ export const emptyVoiceSnapshot = (): VoiceSnapshot => ({
 });
 
 export class VoiceConnection {
-  private readonly room = new Room({ adaptiveStream: true, dynacast: true });
+  private readonly room: Room;
+  private readonly microphoneVolume = new MicrophoneVolume();
+  private readonly preferences: VoicePreferences;
   private readonly audioElements = new Set<HTMLMediaElement>();
   private readonly sounds: VoiceSounds;
   private listener: ((state: VoiceSnapshot) => void) | undefined;
@@ -100,9 +108,24 @@ export class VoiceConnection {
   private lastControls: LocalControls | null = null;
   private deafened = false;
   private microphoneBeforeDeafen = false;
+  private disposed = false;
+  private disconnectPromise?: Promise<void>;
 
-  constructor(sounds = new VoiceSounds()) {
+  constructor(sounds = new VoiceSounds(), preferences = defaultVoicePreferences()) {
     this.sounds = sounds;
+    this.preferences = { ...preferences };
+    this.room = new Room({
+      adaptiveStream: true, dynacast: true,
+      audioCaptureDefaults: {
+        deviceId: preferences.microphoneId === 'default' ? undefined : preferences.microphoneId,
+        autoGainControl: false
+      },
+      videoCaptureDefaults: {
+        deviceId: preferences.cameraId === 'default' ? undefined : preferences.cameraId,
+        resolution: VideoPresets.h720.resolution
+      }
+    });
+    this.setVolumes(preferences.microphoneVolume, preferences.speakerVolume);
     this.bindRoomEvents();
   }
 
@@ -122,7 +145,8 @@ export class VoiceConnection {
     this.room.on(RoomEvent.TrackUnsubscribed, this.onTrackUnsubscribed);
   }
 
-  private onParticipantConnected = (): void => {
+  private onParticipantConnected = (participant: RemoteParticipant): void => {
+    this.applyParticipantVolume(participant);
     if (this.room.state === 'connected' && this.connected) this.sounds.play('connect');
     this.emit();
   };
@@ -143,6 +167,7 @@ export class VoiceConnection {
   };
 
   private attachAudio(track: RemoteTrack): void {
+    if (track instanceof RemoteAudioTrack) track.setVolume(this.preferences.speakerVolume / 100);
     const element = track.attach();
     element.className = 'sr-only';
     element.muted = this.deafened;
@@ -150,9 +175,77 @@ export class VoiceConnection {
     this.audioElements.add(element);
   }
 
+  private applyParticipantVolume(participant: RemoteParticipant): void {
+    participant.setVolume(this.preferences.speakerVolume / 100);
+    participant.setVolume(this.preferences.speakerVolume / 100, Track.Source.ScreenShareAudio);
+  }
+
+  setVolumes(microphone: number, speakers: number): void {
+    this.preferences.microphoneVolume = clampVoiceVolume(microphone);
+    this.preferences.speakerVolume = clampVoiceVolume(speakers);
+    this.microphoneVolume.setVolume(this.preferences.microphoneVolume);
+    this.sounds.setVolume(this.preferences.speakerVolume);
+    for (const participant of this.room.remoteParticipants.values()) this.applyParticipantVolume(participant);
+  }
+
+  async setDevice(kind: MediaDeviceKind, deviceId: string): Promise<void> {
+    if (this.disposed) return;
+    if (kind === 'audiooutput' && !supportsAudioOutputSelection()) {
+      if (deviceId !== 'default') throw new Error('Choose the output device in your system settings.');
+    } else {
+      const id = kind === 'audiooutput' && deviceId === 'default' ? '' : deviceId;
+      const switched = await this.room.switchActiveDevice(kind, id, deviceId !== 'default');
+      // System default is an ideal constraint that can resolve to a concrete device ID
+      if (!switched && deviceId !== 'default') throw new Error('This device is unavailable. Connect it or choose another device.');
+    }
+    if (this.disposed) return;
+    this.preferences[devicePreferenceKeys[kind]] = deviceId;
+    if (kind === 'audiooutput') await this.routeSounds();
+  }
+
+  private async routeSounds(): Promise<void> {
+    try { await this.sounds.setOutput(this.preferences.speakerId); } catch {
+      // Optional interface sounds must not interrupt calls or output selection
+    }
+  }
+
+  private async enableMicrophone(): Promise<void> {
+    if (this.disposed) return;
+    const local = this.room.localParticipant;
+    const existing = local.getTrackPublication(Track.Source.Microphone)?.audioTrack;
+    if (existing) {
+      if (existing.getProcessor() !== this.microphoneVolume) await existing.setProcessor(this.microphoneVolume);
+      await local.setMicrophoneEnabled(true);
+      return;
+    }
+    const captureDeviceId = this.preferences.microphoneId;
+    const tracks = await local.createTracks({ audio: true });
+    if (this.disposed) { for (const track of tracks) track.stop(); return; }
+    try {
+      for (const track of tracks) {
+        if (track instanceof LocalAudioTrack) {
+          if (captureDeviceId !== this.preferences.microphoneId) {
+            const id = this.preferences.microphoneId;
+            await track.setDeviceId(id === 'default' ? id : { exact: id });
+          }
+          await track.setProcessor(this.microphoneVolume);
+        }
+        if (this.disposed) { track.stop(); continue; }
+        await local.publishTrack(track);
+      }
+    } catch (cause) {
+      for (const track of tracks) track.stop();
+      await this.microphoneVolume.destroy();
+      throw cause;
+    }
+  }
+
   setSoundEnabled(enabled: boolean): void {
     this.sounds.enabled = enabled;
-    if (enabled) this.sounds.unlock();
+    if (enabled) {
+      this.sounds.unlock();
+      void this.routeSounds();
+    }
   }
 
   subscribe(listener: (state: VoiceSnapshot) => void): void {
@@ -279,11 +372,19 @@ export class VoiceConnection {
   }
 
   async connect(serverUrl: string, token: string): Promise<void> {
+    if (this.disposed) return;
     this.sounds.unlock();
     await this.room.connect(serverUrl, token);
+    if (this.disposed) { await this.room.disconnect(); return; }
+    if (this.preferences.speakerId !== 'default') {
+      try { await this.setDevice('audiooutput', this.preferences.speakerId); } catch {
+        await this.setDevice('audiooutput', 'default');
+      }
+    }
+    for (const participant of this.room.remoteParticipants.values()) this.applyParticipantVolume(participant);
     this.emit();
     try {
-      await this.room.localParticipant.setMicrophoneEnabled(true);
+      await this.enableMicrophone();
     } catch {
       // Keep the connection available in listen-only mode when microphone access is denied.
     }
@@ -295,7 +396,8 @@ export class VoiceConnection {
   async toggleMicrophone(): Promise<void> {
     if (this.deafened) throw new Error('Undeafen before using the microphone.');
     this.sounds.unlock();
-    await this.room.localParticipant.setMicrophoneEnabled(!this.room.localParticipant.isMicrophoneEnabled);
+    if (this.room.localParticipant.isMicrophoneEnabled) await this.room.localParticipant.setMicrophoneEnabled(false);
+    else await this.enableMicrophone();
     this.emit();
   }
 
@@ -332,7 +434,7 @@ export class VoiceConnection {
   private async restoreMicrophoneAfterDeafen(deafened: boolean): Promise<void> {
     if (deafened || !this.microphoneBeforeDeafen) return;
     this.microphoneBeforeDeafen = false;
-    await this.room.localParticipant.setMicrophoneEnabled(true);
+    await this.enableMicrophone();
   }
 
   async toggleCamera(): Promise<void> {
@@ -375,14 +477,21 @@ export class VoiceConnection {
     }
   }
 
-  async disconnect(): Promise<void> {
+  disconnect(): Promise<void> {
+    if (this.disconnectPromise) return this.disconnectPromise;
+    this.disposed = true;
     this.listener = undefined;
+    this.disconnectPromise = this.disconnectRoom();
+    return this.disconnectPromise;
+  }
+
+  private async disconnectRoom(): Promise<void> {
     try {
       await this.room.disconnect();
     } finally {
       this.emit();
       this.removeAudioElements();
-      this.scheduleSoundDisposal();
+      this.sounds.dispose(420);
     }
   }
 
@@ -391,7 +500,4 @@ export class VoiceConnection {
     this.audioElements.clear();
   }
 
-  private scheduleSoundDisposal(): void {
-    setTimeout(() => this.sounds.dispose(), 420);
-  }
 }

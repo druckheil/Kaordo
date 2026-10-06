@@ -4,6 +4,7 @@ export { Button, buttonVariants } from './components/ui/button/index.js';
 export type { ButtonProps, ButtonSize, ButtonVariant } from './components/ui/button/index.js';
 export { Input } from './components/ui/input/index.js';
 export { Textarea } from './components/ui/textarea/index.js';
+export { Slider } from './components/ui/slider/index.js';
 
 // Shared application shells
 export { default as ModuleLanding } from './ModuleLanding.svelte';

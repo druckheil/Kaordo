@@ -11,6 +11,14 @@
     "./sounds": {
       "types": "./src/sounds.ts",
       "default": "./src/sounds.ts"
+    },
+    "./preferences": {
+      "types": "./src/preferences.ts",
+      "default": "./src/preferences.ts"
+    },
+    "./devices": {
+      "types": "./src/devices.ts",
+      "default": "./src/devices.ts"
     }
   },
   "dependencies": {

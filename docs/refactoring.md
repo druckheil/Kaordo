@@ -518,6 +518,38 @@ while retaining Bits UI's entrance and exit animations.
 Targeted Fluo `check` and `build` passed; functional/browser tests were not run
 for these corrections.
 
+## Rondo voice and video settings — 6 October 2026
+
+The channel header opens a lazily loaded settings screen through SvelteKit
+shallow navigation. The channel view stays mounted, preserving the call,
+message draft and scroll position; browser Back/Forward synchronize the view.
+Device choices use the shared Dropdown Menu radio group and the official Rhea
+Slider, with accessible labels on the slider thumbs.
+
+`voice-client` owns validated browser defaults, LiveKit device switching,
+microphone gain processing before publication, remote/screen/interface audio
+volume, and isolated microphone/speaker checks. Checks release capture tracks,
+audio graphs and scheduled work on stop/teardown, including late permission
+results. Output selection uses browser capabilities and falls back to system
+output where selection is unsupported. Defaults are browser-local preferences,
+not server account settings.
+
+The maintainability pass separates lazy loading/retries into
+`DeferredRondoSettings`, stores the settings return location in typed router
+history, and shares one device-action error/refresh boundary. Device choices are
+normalized once; volume validation belongs to `voice-client`. The microphone
+meter scales its measured level without an extra gain node, and the speaker
+check owns its completion timer rather than duplicating it in the view.
+Connection teardown is idempotent; disposed sounds cannot recreate audio
+contexts, and obsolete capture results are stopped before publication.
+
+Compilation evidence: `pnpm check:front` reported zero errors and warnings in
+all six Svelte projects; `pnpm build:pages` built all five static applications,
+and `git diff --check` passed. Vite retained the existing Rondo advisory for a
+chunk larger than 500 kB; no size budget was changed. No functional/browser
+tests, real-device checks or hosted CI run were executed for this addition
+and refactor.
+
 ## Remaining boundaries
 
 - No content E2EE, user-held decryption keys or system escrow lifecycle; Regado cases authorize existing plaintext data and notify/audit access.
