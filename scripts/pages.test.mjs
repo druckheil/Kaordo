@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import test from 'node:test';
+import { createPageServer } from './serve-pages.mjs';
 
 const site = resolve(import.meta.dirname, '../dist/pages');
 const fluoClient = resolve(import.meta.dirname, '../apps/fluo/.svelte-kit/output/client');
@@ -39,7 +40,7 @@ test('authentication entry points are prerendered without showing guest actions 
   const login = pageAt('/login/');
   const register = pageAt('/register/');
   assert.match(login, /Sign in/);
-  assert.match(register, /Join Kaordo/);
+  assert.match(register, /Opening your registration form/);
   assert.doesNotMatch(login, />Continue to sign in</);
   assert.doesNotMatch(register, />Continue to registration</);
 });
@@ -47,6 +48,33 @@ test('authentication entry points are prerendered without showing guest actions 
 test('the static Pages artifact includes the Keycloak silent SSO callback', () => {
   const callback = readFileSync(join(site, 'silent-check-sso.html'), 'utf8');
   assert.match(callback, /parent\.postMessage\(location\.href, location\.origin\)/);
+});
+
+test('the local static server canonicalizes app paths before relative assets resolve', async () => {
+  const server = createPageServer(site);
+  server.listen(0, '127.0.0.1');
+  await new Promise((resolveListen) => server.once('listening', resolveListen));
+
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const origin = `http://127.0.0.1:${address.port}`;
+    const route = await fetch(`${origin}/regado?tab=storage`, { redirect: 'manual' });
+    assert.equal(route.status, 308);
+    assert.equal(route.headers.get('location'), '/regado/?tab=storage');
+
+    const page = await fetch(new URL(route.headers.get('location'), origin));
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    const stylesheet = html.match(/href="([^"]+\.css)" rel="stylesheet"/)?.[1];
+    const clientScript = html.match(/href="([^"]+\.js)" rel="modulepreload"/)?.[1];
+    assert.ok(stylesheet, 'Regado page should include its stylesheet');
+    assert.ok(clientScript, 'Regado page should include its client entry');
+    assert.equal((await fetch(new URL(stylesheet, page.url))).status, 200);
+    assert.equal((await fetch(new URL(clientScript, page.url))).status, 200);
+  } finally {
+    await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
+  }
 });
 
 test('all local HTML asset references exist in the Pages artifact', () => {

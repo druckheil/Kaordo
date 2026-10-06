@@ -92,7 +92,7 @@
 
 {#snippet linkedText(text: string)}
   {#each splitMessageText(text) as part}
-    {#if part.href}<a href={part.href} rel="external" class="font-semibold text-primary underline underline-offset-2">{part.text}</a>{:else}{part.text}{/if}
+    {#if part.href}<a href={part.href} rel="external" class="font-semibold text-link underline underline-offset-2">{part.text}</a>{:else}{part.text}{/if}
   {/each}
 {/snippet}
 
@@ -101,8 +101,8 @@
     <time datetime={message.createdAt}>{formatMessageTime(message.createdAt)}</time>
     {#if message.editedAt && !message.deleted}<span aria-label="Edited">· edited</span>{/if}
     {#if own && !personal && !message.deleted && showReceipt}
-      {#if message.status === 'read'}<CheckCheckIcon class="size-3.5 text-primary" aria-label="Read" />
-      {:else if message.status === 'delivered'}<CheckIcon class="size-3.5 text-primary" aria-label="Delivered" />
+      {#if message.status === 'read'}<CheckCheckIcon class="size-3.5 text-link" aria-label="Read" />
+      {:else if message.status === 'delivered'}<CheckIcon class="size-3.5 text-link" aria-label="Delivered" />
       {:else}<CheckIcon class="size-3.5 text-muted-foreground/55" aria-label="Sent, not delivered" />{/if}
     {/if}
   </span>
@@ -111,8 +111,8 @@
 <Message.Root align={own ? 'end' : 'start'} class="items-start gap-1.5">
   {#if showAvatarSlot}
     {#if showSender}
-      <Avatar.Root class="size-8 shrink-0 rounded-xl bg-primary/10 text-primary">
-        <Avatar.Fallback class="rounded-xl bg-primary/10 text-xs font-semibold text-primary">
+      <Avatar.Root class="size-8 shrink-0 rounded-xl bg-primary-soft text-primary-soft-foreground">
+        <Avatar.Fallback class="rounded-xl bg-primary-soft text-xs font-semibold text-primary-soft-foreground">
           {message.sender.displayName.slice(0, 1).toUpperCase()}
         </Avatar.Fallback>
       </Avatar.Root>
@@ -124,7 +124,7 @@
     style:max-width={showAvatarSlot ? 'calc(100% - 2.5rem)' : '100%'}>
     <Message.Content class="w-fit max-w-[min(86vw,38rem)] gap-0.5 sm:max-w-[min(76vw,38rem)]">
       {#if showSender}
-        <Message.Header class="px-1 text-xs font-semibold text-primary">{message.sender.displayName}</Message.Header>
+        <Message.Header class="px-1 text-xs font-semibold text-link">{message.sender.displayName}</Message.Header>
       {/if}
       <ContextMenu.Root>
         <ContextMenu.Trigger class="block w-fit max-w-full rounded-[14px]" aria-label={`Message from ${message.sender.displayName}`}>
@@ -174,7 +174,7 @@
                   <button type="button" disabled={busy} onclick={() => void toggleReaction(reaction.emoji)}
                     aria-label={`${reaction.emoji} reaction, ${reaction.count}. ${reaction.mine ? 'Remove' : 'Add'} reaction`}
                     aria-pressed={reaction.mine}
-                    class={`rounded-full border px-2 py-0.5 text-xs transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring ${reaction.mine ? 'border-primary/35 bg-primary/10' : 'border-border bg-card'}`}>
+                    class={`rounded-full border px-2 py-0.5 text-xs transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring ${reaction.mine ? 'border-primary/35 bg-primary-soft' : 'border-border bg-card'}`}>
                     {reaction.emoji} <span class="tabular-nums">{reaction.count}</span>
                   </button>
                 {/each}
@@ -202,7 +202,7 @@
     </Message.Content>
     {#if !message.deleted}
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger aria-label="Message actions" class="mb-0.5 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:opacity-0 sm:group-hover/message-frame:opacity-100 sm:group-focus-within/message-frame:opacity-100">
+        <DropdownMenu.Trigger aria-label="Message actions" class="mb-0.5 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:opacity-0 sm:group-hover/message-frame:opacity-100 sm:group-focus-within/message-frame:opacity-100">
           <EllipsisIcon class="size-4" />
         </DropdownMenu.Trigger>
         <DropdownMenu.Content align={own ? 'start' : 'end'}>

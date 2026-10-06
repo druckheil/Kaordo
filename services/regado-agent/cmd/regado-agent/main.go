@@ -2,12 +2,15 @@ package main
 
 // Configures the local Unix socket and starts the agent HTTP server
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -23,6 +26,11 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) == 2 && os.Args[1] == "--mount-system-volumes" {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		return mountPreparedSystemVolumes(ctx, runCommand)
+	}
 	path := socketPath()
 	listener, err := listenOnUnixSocket(path)
 	if err != nil {
@@ -30,10 +38,29 @@ func run() error {
 	}
 	defer listener.Close()
 
-	server := newHTTPServer()
+	replication := newReplicationMonitor()
+	defer replication.Close()
+	server := newHTTPServer(newHandler(runCommand, replication))
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	log.Printf("Regado agent listening on %s", path)
-	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("serve agent: %w", err)
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	select {
+	case err := <-served:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve agent: %w", err)
+		}
+	case <-ctx.Done():
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdown); err != nil {
+			_ = server.Close()
+			return err
+		}
+		if err := <-served; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
 	}
 	return nil
 }
@@ -61,9 +88,9 @@ func listenOnUnixSocket(path string) (net.Listener, error) {
 	return listener, nil
 }
 
-func newHTTPServer() *http.Server {
+func newHTTPServer(handler http.Handler) *http.Server {
 	return &http.Server{
-		Handler:           newHandler(runCommand),
+		Handler:           handler,
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      35 * time.Second,

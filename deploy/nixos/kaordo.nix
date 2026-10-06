@@ -30,12 +30,25 @@ in
   };
 
   systemd.tmpfiles.rules = [
+    "d /var/lib/regado-agent 0700 root regado-agent - -"
+    "C /var/lib/regado-agent/journald-retention.conf 0600 root root - ${pkgs.writeText "kaordo-journal-retention-default.conf" "[Journal]\nMaxRetentionSec=14day\n"}"
+    "d /var/lib/btrfs 0755 root root - -"
+    "d /var/lib/kaordo-volumes 0755 root root - -"
     "d ${dataRoot}/postgresql 0700 postgres postgres - -"
     "d ${dataRoot}/media 0700 kaordo kaordo - -"
     "d ${dataRoot}/secrets 0700 root root - -"
     "d ${dataRoot}/caddy 0700 caddy caddy - -"
     "d ${dataRoot}/prometheus 0700 prometheus prometheus - -"
   ];
+
+  services.journald.extraConfig = ''
+    SystemMaxUse=256M
+    SystemMaxFileSize=16M
+    MaxRetentionSec=14day
+  '';
+  # The immutable host integration points to a persistent, narrowly managed retention override
+  environment.etc."systemd/journald.conf.d/90-kaordo-retention.conf".source =
+    "/var/lib/regado-agent/journald-retention.conf";
 
   services.prometheus = {
     enable = true;
@@ -60,9 +73,11 @@ in
   systemd.services.regado-agent = {
     description = "Kaordo local system monitor and restricted control agent";
     wantedBy = [ "multi-user.target" ];
-    after = [ "local-fs.target" ];
+    after = [ "local-fs.target" "kaordo-system-volumes.service" ];
+    wants = [ "kaordo-system-volumes.service" ];
     unitConfig.RequiresMountsFor = dataRoot;
-    path = [ pkgs.util-linux pkgs.btrfs-progs pkgs.systemd pkgs.smartmontools ];
+    path = [ pkgs.util-linux pkgs.btrfs-progs pkgs.parted pkgs.systemd pkgs.smartmontools pkgs.disko pkgs.nix pkgs.e2fsprogs ];
+    environment.NIX_PATH = "nixpkgs=${pkgs.path}";
     serviceConfig = {
       User = "root";
       Group = "regado-agent";
@@ -71,16 +86,33 @@ in
       RestartSec = 5;
       RuntimeDirectory = "regado-agent";
       RuntimeDirectoryMode = "0750";
+      StateDirectory = "regado-agent";
+      StateDirectoryMode = "0700";
       NoNewPrivileges = true;
       PrivateNetwork = true;
+      PrivateTmp = true;
       ProtectHome = true;
       ProtectSystem = "strict";
-      ReadWritePaths = [ dataRoot "/run/regado-agent" ];
+      ReadWritePaths = [ dataRoot "/run/regado-agent" "/var/lib/btrfs" "/var/lib/regado-agent" "/var/lib/kaordo-volumes" "-/var/log/journal" "-/run/log/journal" ];
       RestrictAddressFamilies = [ "AF_UNIX" ];
     };
   };
 
-  environment.systemPackages = with pkgs; [ btrfs-progs ffmpeg-headless restic smartmontools ];
+  # Mount prepared System volumes by UUID through the host systemd manager
+  systemd.services.kaordo-system-volumes = {
+    description = "Mount Kaordo System data partitions";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "local-fs.target" ];
+    unitConfig.RequiresMountsFor = dataRoot;
+    path = [ pkgs.util-linux pkgs.systemd ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${dataRoot}/bin/regado-agent --mount-system-volumes";
+      RemainAfterExit = true;
+    };
+  };
+
+  environment.systemPackages = with pkgs; [ btrfs-progs disko e2fsprogs ffmpeg-headless restic smartmontools ];
 
   services.postgresql = {
     enable = true;

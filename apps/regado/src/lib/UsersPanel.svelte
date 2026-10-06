@@ -134,7 +134,7 @@
 	<section class="mt-6 rounded-[1.4rem] border border-primary/25 bg-card p-5 sm:p-6">
 		<div class="flex flex-wrap items-start justify-between gap-3">
 			<div>
-				<p class="text-xs font-bold uppercase tracking-widest text-primary">Audited access</p>
+				<p class="text-xs font-bold uppercase tracking-widest text-link">Audited access</p>
 				<h2 class="mt-1 text-xl font-bold">@{caseRecord.targetUsername}</h2>
 				<p class="mt-1 text-xs text-muted-foreground">
 					Expires {time(caseRecord.expiresAt)} · Case {caseRecord.id}
@@ -173,7 +173,7 @@
 						<div class="mt-3 flex flex-wrap gap-2">
 							{#each item.media as media}
 								<a
-									class="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-primary hover:underline"
+									class="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-link hover:underline"
 									href={media.url}
 									target="_blank"
 									rel="noopener noreferrer"

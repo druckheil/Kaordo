@@ -34,6 +34,12 @@ func (store *fluoStoreStub) Create(_ context.Context, actor string, input fluo.N
 func (store *fluoStoreStub) Get(context.Context, string, string) (fluo.Post, error) {
 	return fluo.Post{}, fluo.ErrNotFound
 }
+func (store *fluoStoreStub) Thread(context.Context, string, string) (fluo.Thread, error) {
+	return fluo.Thread{}, fluo.ErrNotFound
+}
+func (store *fluoStoreStub) SetVisibility(context.Context, string, string, string) error {
+	return fluo.ErrNotFound
+}
 func (store *fluoStoreStub) List(_ context.Context, options fluo.ListOptions) (fluo.Page, error) {
 	store.listed++
 	store.lastList = options

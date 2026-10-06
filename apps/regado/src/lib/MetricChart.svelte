@@ -4,15 +4,18 @@
 	import { onMount } from "svelte";
 	import "uplot/dist/uPlot.min.css";
 	import type uPlot from "uplot";
+	import ContextHelp from "./ContextHelp.svelte";
 
 	let {
 		title,
 		points,
 		unit = "%",
+		description = "",
 	}: {
 		title: string;
 		points: { time: number; value: number }[];
 		unit?: string;
+		description?: string;
 	} = $props();
 	let host: HTMLDivElement;
 	let chart = $state.raw<uPlot>();
@@ -57,7 +60,7 @@
 	function observeSize(): ResizeObserver {
 		const observer = new ResizeObserver(() => {
 			if (chart && host.clientWidth > 0) {
-				chart.setSize({ width: host.clientWidth, height: 176 });
+				chart.setSize({ width: host.clientWidth, height: 200 });
 			}
 		});
 		observer.observe(host);
@@ -73,19 +76,24 @@
 	function createOptions() {
 		return {
 			width: host.clientWidth,
-			height: 176,
+			height: 200,
+			legend: { show: false },
 			padding: [12, 8, 2, 8] as [number, number, number, number],
 			cursor: { drag: { x: false, y: false } },
 			scales: { x: { time: true } },
 			axes: [
 				{
+					label: "Time (local)",
+					labelSize: 20,
 					stroke: () => themeColor("--muted-foreground"),
 					grid: { stroke: () => themeColor("--border") },
 				},
 				{
+					label: unit === "%" ? "Usage (%)" : unit.trim() || "Tasks",
+					labelSize: 20,
 					stroke: () => themeColor("--muted-foreground"),
 					grid: { stroke: () => themeColor("--border") },
-					size: 40,
+					size: 52,
 				},
 			],
 			series: [
@@ -110,7 +118,19 @@
 	aria-label={`${title} history`}
 >
 	<div class="mb-4 flex items-baseline justify-between gap-3">
-		<h3 class="text-sm font-semibold text-muted-foreground">{title}</h3>
+		<div class="flex items-center gap-1">
+			<h3 class="text-sm font-semibold text-muted-foreground">{title}</h3>
+			{#if description}<ContextHelp label={title}
+					><p>{description}</p>
+					<p>
+						The horizontal axis is local time. The vertical axis shows {unit ===
+						"%"
+							? "percentage used"
+							: unit.trim() || "the number of runnable or waiting tasks"}. The
+						value above is the latest sample.
+					</p></ContextHelp
+				>{/if}
+		</div>
 		<strong class="text-2xl font-bold tracking-tight text-foreground"
 			>{latest === undefined
 				? "—"

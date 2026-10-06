@@ -1,4 +1,4 @@
-// Exercises post history, composing, and native message scrolling after refactoring
+// Exercises focused post navigation, composing, and native message scrolling
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -10,14 +10,19 @@ const actor = { id: id(1), username: 'writer', displayName: 'Writer', createdAt:
 const partner = { id: id(2), username: 'reader', displayName: 'Reader' };
 const image = { id: id(3), kind: 'image', mimeType: 'image/png', width: 640, height: 480, size: 200, altText: 'Fixture photo', url: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#b7d9c5"/></svg>') };
 const document = (text) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
-const post = (n, text, media = []) => ({ id: id(n), author: { ...partner, following: false }, content: document(text), text, visibility: 'public', parentId: null, quoteId: null, quote: null, media, counts: { good: 0, bad: 0, comments: 0 }, myReaction: null, saved: false, createdAt: now, updatedAt: now });
+const post = (n, text, media = []) => ({ id: id(n), author: { ...partner, following: false }, content: document(text), text, visibility: 'public', parentId: null, quoteId: null, quoteDeleted: false, quote: null, media, counts: { good: 0, bad: 0, comments: 0, quotes: 0, saves: 0 }, myReaction: null, saved: false, createdAt: now, updatedAt: now });
 
 test('Fluo preserves post history after reload and composes replies and quotes', { timeout: 60000 }, async (t) => {
   const { page, origin, errors } = await startAppFixture(t, 'fluo');
+  const navigations = [];
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) navigations.push(frame.url());
+  });
   const parent = { ...post(9, 'Nested original'), author: { ...actor, following: false } };
   const original = { ...post(10, 'Original with media', [image]), quoteId: parent.id, quote: parent };
   const quoted = { ...post(11, 'Quotation'), quoteId: original.id, quote: original };
   const posts = [quoted, ...Array.from({ length: 12 }, (_, i) => post(20 + i, `Feed item ${i}`))];
+  const postsById = new Map([parent, original, ...posts].map((item) => [item.id, item]));
   const writes = [];
   await page.route('**/v1/**', async (route) => {
     const request = route.request();
@@ -25,6 +30,15 @@ test('Fluo preserves post history after reload and composes replies and quotes',
     let body;
     if (path === '/v1/session' || path === '/v1/me') body = actor;
     else if (path.endsWith('/comments')) body = { items: [], nextCursor: null };
+    else if (path.endsWith('/thread')) {
+      const thread = [];
+      let current = postsById.get(path.split('/').at(-2));
+      while (current) {
+        thread.unshift(current);
+        current = current.parentId ? postsById.get(current.parentId) : undefined;
+      }
+      body = { posts: thread };
+    }
     else if (path === '/v1/fluo/posts' && request.method() === 'POST') {
       const input = request.postDataJSON();
       writes.push(input);
@@ -39,37 +53,65 @@ test('Fluo preserves post history after reload and composes replies and quotes',
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
   });
   const quoteLink = page.getByRole('button', { name: 'Open quoted post by reader' });
-  const dialog = page.getByRole('dialog');
+  const composerDialog = page.getByRole('dialog');
   await page.goto(`${origin}/fluo/`);
   await quoteLink.waitFor();
-  await quoteLink.click();
-  await dialog.getByRole('heading', { name: 'Post', exact: true }).waitFor();
-  await page.reload();
-  await dialog.getByRole('heading', { name: 'Post', exact: true }).waitFor();
-  await page.keyboard.press('Escape');
-  await dialog.waitFor({ state: 'hidden' });
-  await page.waitForFunction(() => location.hash === '#feed');
-  await quoteLink.click();
-  await dialog.getByRole('heading', { name: 'Post', exact: true }).waitFor();
-  await page.keyboard.press('Escape');
-  await dialog.waitFor({ state: 'hidden' });
-  await page.waitForFunction(() => location.hash === '#feed');
-  await page.waitForTimeout(100);
-  assert.equal(await dialog.count(), 0, 'History events cannot reopen a dismissed post');
+  const navigationsBeforeComposer = navigations.length;
+  const replyAction = page.getByRole('button', { name: 'Reply, 0', exact: true }).first();
+  await replyAction.click();
+  await composerDialog.getByRole('heading', { name: 'Reply to post', exact: true }).waitFor();
+  const editor = composerDialog.locator('[contenteditable="true"]');
+  await editor.waitFor({ state: 'visible', timeout: 10_000 }).catch(async (cause) => {
+    const state = await page.evaluate(() => ({
+      url: location.href,
+      dialogs: [...document.querySelectorAll('[role="dialog"]')].map((dialog) => dialog.innerText),
+      page: document.body.innerText.slice(-1_000),
+    }));
+    throw new Error(`Composer editor did not mount: ${JSON.stringify(state)}; navigations: ${navigations.join('; ')}; client errors: ${errors.join('; ')}`, { cause });
+  });
+  assert.equal(navigations.length, navigationsBeforeComposer, 'Opening the lazy editor does not reload the page');
+  await editor.fill('Reply after refactor');
+  assert.equal(await composerDialog.getByRole('button', { name: 'Post options', exact: true }).getAttribute('aria-expanded'), 'false', 'Typing does not open advanced controls');
+  await composerDialog.getByRole('button', { name: 'Reply', exact: true }).click();
+  await composerDialog.waitFor({ state: 'hidden' });
+  assert.equal(writes[0].parentId, quoted.id);
+  assert.equal(writes[0].content.content[0].content[0].text, 'Reply after refactor');
+
+  await page.getByRole('button', { name: 'Quote, 0', exact: true }).first().click();
+  await composerDialog.getByRole('heading', { name: 'Quote post', exact: true }).waitFor();
+  await editor.fill('Quote after refactor');
+  const positions = await composerDialog.evaluate((el) => ({
+    editor: el.querySelector('[contenteditable]').getBoundingClientRect().top,
+    quoted: el.querySelector('[aria-label="Quoted post"]').getBoundingClientRect().top,
+  }));
+  assert.ok(positions.editor < positions.quoted, 'Quote text is above the original post');
+  await composerDialog.getByRole('button', { name: 'Publish', exact: true }).click();
+  await composerDialog.waitFor({ state: 'hidden' });
+  assert.equal(writes[1].quoteId, quoted.id);
 
   await quoteLink.click();
-  await dialog.getByRole('heading', { name: 'Post', exact: true }).waitFor();
-  await dialog.getByRole('button', { name: 'Open quoted post by writer' }).click();
-  await dialog.getByText('Nested original', { exact: true }).waitFor();
-  await page.keyboard.press('Escape');
-  await page.waitForFunction((id) => location.hash === `#post/${id}`, original.id);
-  await dialog.getByText('Original with media', { exact: true }).waitFor();
-  await dialog.getByRole('button', { name: 'Open quoted post by writer' }).click();
-  await dialog.getByText('Nested original', { exact: true }).waitFor();
+  await page.getByText('Original with media', { exact: true }).waitFor();
+  await page.waitForFunction((postId) => location.hash === `#post/${postId}`, original.id);
   await page.reload();
-  await dialog.getByText('Nested original', { exact: true }).waitFor();
-  await page.keyboard.press('Escape');
-  await dialog.waitFor({ state: 'hidden' });
+  await page.getByText('Original with media', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.waitForFunction(() => location.hash === '#feed');
+  await quoteLink.click();
+  await page.getByText('Original with media', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.waitForFunction(() => location.hash === '#feed');
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('[aria-label="Post"] article').count(), 0, 'Back returns to the feed without reopening the focused post');
+
+  await quoteLink.click();
+  await page.getByText('Original with media', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Open quoted post by writer' }).click();
+  await page.getByText('Nested original', { exact: true }).waitFor();
+  await page.waitForFunction((postId) => location.hash === `#post/${postId}`, parent.id);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.waitForFunction((postId) => location.hash === `#post/${postId}`, original.id);
+  await page.getByText('Original with media', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.waitForFunction(() => location.hash === '#feed');
 
   const navigation = page.getByRole('navigation', { name: 'Fluo navigation' });
@@ -82,28 +124,6 @@ test('Fluo preserves post history after reload and composes replies and quotes',
   await page.locator(`article[data-post-id="${quoted.id}"]`).waitFor();
   await navigation.getByRole('button', { name: 'Feed', exact: true }).click();
   await quoteLink.waitFor();
-
-  await page.getByRole('button', { name: 'Reply to post', exact: true }).first().click();
-  await dialog.getByRole('heading', { name: 'Reply to post', exact: true }).waitFor();
-  const editor = dialog.locator('[contenteditable="true"]');
-  await editor.fill('Reply after refactor');
-  assert.equal(await dialog.getByRole('button', { name: 'Post options', exact: true }).getAttribute('aria-expanded'), 'false', 'Typing does not open advanced controls');
-  await dialog.getByRole('button', { name: 'Reply', exact: true }).click();
-  await dialog.waitFor({ state: 'hidden' });
-  assert.equal(writes[0].parentId, quoted.id);
-  assert.equal(writes[0].content.content[0].content[0].text, 'Reply after refactor');
-
-  await page.getByRole('button', { name: 'Quote post', exact: true }).first().click();
-  await dialog.getByRole('heading', { name: 'Quote post', exact: true }).waitFor();
-  await editor.fill('Quote after refactor');
-  const positions = await dialog.evaluate((el) => ({
-    editor: el.querySelector('[contenteditable]').getBoundingClientRect().top,
-    quoted: el.querySelector('[aria-label="Quoted post"]').getBoundingClientRect().top,
-  }));
-  assert.ok(positions.editor < positions.quoted, 'Quote text is above the original post');
-  await dialog.getByRole('button', { name: 'Publish', exact: true }).click();
-  await dialog.waitFor({ state: 'hidden' });
-  assert.equal(writes[1].quoteId, quoted.id);
   assert.deepEqual(errors, [], 'No client runtime errors');
 });
 
@@ -135,11 +155,16 @@ test('Ligo starts at the bottom, keeps rapid scrolling native and shares the com
     return el && el.scrollHeight > el.clientHeight && Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop) <= 2;
   });
   for (let i = 0; i < 4; i++) {
-    await log.evaluate((el) => { el.scrollTop = 0; });
-    await page.waitForTimeout(30);
+    await log.evaluate((el) => new Promise((resolve) => {
+      el.scrollTop = 0;
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
     await log.hover();
     await page.mouse.wheel(0, 100000);
-    await page.waitForTimeout(80);
+    await page.waitForFunction(() => {
+      const el = document.querySelector('[role="log"]');
+      return el && el.scrollHeight - el.clientHeight - el.scrollTop <= 2;
+    }, null, { timeout: 3000 });
     const distance = await log.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop);
     assert.ok(distance <= 2, `Rapid bottom scroll ${i} remains at the end (${distance}px)`);
   }

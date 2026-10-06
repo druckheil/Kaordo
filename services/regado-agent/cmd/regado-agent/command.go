@@ -7,9 +7,8 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"sync"
 )
-
-const dataRoot = "/srv/kaordo"
 
 var services = []string{
 	"kerno",
@@ -27,8 +26,7 @@ var services = []string{
 var actions = map[string][]string{
 	"restart-nodo":     {"systemctl", "restart", "nodo.service"},
 	"restart-livekit":  {"systemctl", "restart", "livekit.service"},
-	"restart-ddclient": {"systemctl", "restart", "ddclient.service"},
-	"scrub-data":       {"btrfs", "scrub", "start", dataRoot},
+	"restart-ddclient": {"systemctl", "start", "ddclient.service"},
 }
 
 type commandRunner func(context.Context, ...string) (string, error)
@@ -40,8 +38,8 @@ func runCommand(ctx context.Context, args ...string) (string, error) {
 
 	command := exec.CommandContext(ctx, args[0], args[1:]...)
 	var output bytes.Buffer
-	command.Stdout = &limitWriter{writer: &output, remaining: 1 << 20}
-	command.Stderr = &limitWriter{writer: &output, remaining: 1 << 20}
+	writer := &limitWriter{writer: &output, remaining: 1 << 20}
+	command.Stdout, command.Stderr = writer, writer
 	if err := command.Run(); err != nil {
 		return output.String(), err
 	}
@@ -49,11 +47,15 @@ func runCommand(ctx context.Context, args ...string) (string, error) {
 }
 
 type limitWriter struct {
+	mu        sync.Mutex
 	writer    io.Writer
 	remaining int
 }
 
 func (writer *limitWriter) Write(p []byte) (int, error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+
 	length := len(p)
 	if writer.remaining <= 0 {
 		return length, nil

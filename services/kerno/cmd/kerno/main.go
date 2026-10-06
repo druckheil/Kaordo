@@ -259,6 +259,7 @@ func adminDependencies(cfg config, pool *pgxpool.Pool) httpapi.AdminDependencies
 		Store:        postgres.NewAdmin(pool),
 		System:       regado.NewSystemClient(regadoAgentSocket),
 		Metrics:      regado.NewMetricsClient(metricsEndpoint),
+		Maintenance:  httpapi.NodoClient{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey},
 		MediaBaseURL: cfg.NodoPublicURL,
 		MediaSignKey: cfg.MediaSigningKey,
 	}

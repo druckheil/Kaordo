@@ -1,15 +1,20 @@
+// Assembles independent app builds into the static deployment tree
 import { cp, mkdir, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
+import { createBuildEnvironment } from './build-pages-config.mjs';
+import './sync-theme.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const output = resolve(root, 'dist/pages');
 const apps = ['portal', 'ligo', 'fluo', 'rondo', 'regado'];
+const environment = createBuildEnvironment(process.argv.includes('--production'));
 
 for (const app of apps) {
   await new Promise((resolveBuild, rejectBuild) => {
     const child = spawn('pnpm', ['--filter', `@kaordo/${app}`, 'build'], {
       cwd: root,
+      env: environment,
       stdio: 'inherit'
     });
     child.on('error', rejectBuild);

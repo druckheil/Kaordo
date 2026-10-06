@@ -63,7 +63,7 @@
         <span class="grid size-9 place-items-center rounded-full bg-background/85 text-foreground shadow-md backdrop-blur-sm"><PlayIcon class="size-4 fill-current" /></span>
       </span>
     {:else}
-      <div class="grid h-full w-full place-items-center text-primary/75"><FileIcon class="size-9" /></div>
+      <div class="grid h-full w-full place-items-center text-link/75"><FileIcon class="size-9" /></div>
     {/if}
     {#if remove}
       <Attachment.Action aria-label={`Remove ${file.name}`} onclick={remove}

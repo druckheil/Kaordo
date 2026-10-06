@@ -44,6 +44,17 @@ export async function initializeAuth(config: AuthConfig): Promise<AuthSession> {
   }
 }
 
+export async function createAuthenticationUrl(
+  config: AuthConfig,
+  action: 'login' | 'register',
+  redirectUri: string
+): Promise<string> {
+  requireBrowser();
+  const client = await createInitializedClient(config, false);
+  const options = { redirectUri };
+  return action === 'register' ? client.createRegisterUrl(options) : client.createLoginUrl(options);
+}
+
 export async function signIn(redirectUri?: string): Promise<void> {
   const client = await ready();
   await client.login({ redirectUri: redirectUri ?? currentPageUrl() });
@@ -80,15 +91,17 @@ export function createAuthorizedFetch(
 
 export const authorizedFetch = createAuthorizedFetch(accessToken);
 
-async function createInitializedClient(config: AuthConfig): Promise<Keycloak> {
+async function createInitializedClient(config: AuthConfig, checkSession = true): Promise<Keycloak> {
   const { default: KeycloakClient } = await import('keycloak-js');
   const client = new KeycloakClient(config);
 
   await client.init({
-    onLoad: 'check-sso',
     pkceMethod: 'S256',
     checkLoginIframe: false,
-    silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`
+    ...(checkSession ? {
+      onLoad: 'check-sso' as const,
+      silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`
+    } : {})
   });
 
   return client;

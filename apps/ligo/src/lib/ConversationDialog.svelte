@@ -160,9 +160,9 @@
 					type="button"
 					disabled={selfBusy}
 					onclick={onOpenSaved}
-					class="mb-4 flex w-full items-center gap-3 rounded-xl border border-border px-3 py-3 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+					class="mb-4 flex w-full items-center gap-3 rounded-xl border border-border px-3 py-3 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
 				>
-					<BookmarkIcon class="size-5 text-primary" />
+					<BookmarkIcon class="size-5 text-link" />
 					<span>
 						<span class="block text-sm font-semibold">Saved messages</span>
 						<span class="block text-xs text-muted-foreground">A private chat with yourself</span>
@@ -206,7 +206,7 @@
 					{#each selectedUsers as candidate (candidate.id)}
 						<button
 							type="button"
-							class="inline-flex min-h-8 items-center rounded-full bg-accent px-3 py-1 text-xs font-semibold text-primary hover:brightness-95 focus-visible:outline-2 focus-visible:outline-ring"
+							class="inline-flex min-h-8 items-center rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground hover:shadow-sm focus-visible:outline-2 focus-visible:outline-ring"
 							onclick={() => toggleUser(candidate)}
 							aria-label={`Remove ${candidate.username}`}
 						>
@@ -235,9 +235,9 @@
 							type="button"
 							disabled={dialogBusy}
 							onclick={() => (groupMode ? toggleUser(candidate) : void startDirectChat(candidate))}
-							class="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+							class="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
 						>
-							<span class="grid size-9 place-items-center rounded-xl bg-primary/10 text-xs font-bold text-primary">
+							<span class="grid size-9 place-items-center rounded-xl bg-primary-soft text-xs font-bold text-primary-soft-foreground">
 								{userInitials(candidate.displayName)}
 							</span>
 							<span class="min-w-0 flex-1">
@@ -245,7 +245,7 @@
 								<span class="block truncate text-xs text-muted-foreground">@{candidate.username}</span>
 							</span>
 							{#if selectedUsers.some((user) => user.id === candidate.id)}
-								<CheckIcon class="size-4 text-primary" />
+								<CheckIcon class="size-4 text-link" />
 							{/if}
 						</button>
 					{/each}

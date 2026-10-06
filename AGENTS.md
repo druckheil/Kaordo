@@ -18,7 +18,7 @@ Implemented applications are Portal authentication/account entry, Fluo social po
 - Four Go modules are in `go.work`: Kerno coordinates business metadata/access; Nodo owns tus uploads and bytes; mediaauth signs/verifies media links; regado-agent exposes fixed Linux operations through a protected Unix socket.
 - Kerno uses Jet query builders with pgx transactions. Domain packages validate data; HTTP handlers coordinate authorization and services; PostgreSQL files are split by feature and operation. Keep transaction and access boundaries intact.
 - The local Compose profile runs PostgreSQL, Keycloak and LiveKit. The NixOS production profile includes Caddy, Namecheap DDNS, Prometheus, Node Exporter and regado-agent. Cloudflare and Synapse directories are reserved integrations, not active production dependencies.
-- Production Data1 mirrors data and metadata across two physical disks. NisOS has one separate root partition. Independent backups, content encryption and user/system escrow keys are not configured; never claim RAID1 is a backup or that current messaging is E2EE.
+- Production Data1 mirrors data and metadata across two physical disks. NixOS has one separate root partition. Independent backups, content encryption and user/system escrow keys are not configured; never claim RAID1 is a backup or that current messaging is E2EE.
 
 ## Working rules
 

@@ -8,12 +8,14 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
+	"github.com/druckheil/Kaordo/services/kerno/internal/regado"
 	"github.com/druckheil/Kaordo/services/mediaauth"
 	"github.com/go-chi/chi/v5"
 )
@@ -34,17 +36,23 @@ type AdminStore interface {
 type AdminSystem interface {
 	Snapshot(context.Context) (json.RawMessage, error)
 	Logs(context.Context, string) (json.RawMessage, error)
-	Action(context.Context, string) (json.RawMessage, error)
+	Action(context.Context, string, regado.ActionRequest) (json.RawMessage, error)
 }
 
 type AdminMetrics interface {
 	History(context.Context, string) (json.RawMessage, error)
 }
 
+type AdminStorageMaintenance interface {
+	StorageStatus(context.Context) (json.RawMessage, error)
+	StartStorageMaintenance(context.Context, bool) error
+}
+
 type AdminDependencies struct {
 	Store        AdminStore
 	System       AdminSystem
 	Metrics      AdminMetrics
+	Maintenance  AdminStorageMaintenance
 	MediaBaseURL string
 	MediaSignKey []byte
 }
@@ -66,8 +74,11 @@ func mountAdmin(router chi.Router, verify VerifyFunc, users UserStore, deps Admi
 		r.Get("/cases/{id}/content", h.caseContent)
 		r.Post("/cases/{id}/close", h.closeCase)
 		r.Get("/system", h.system)
+		r.Post("/storage/plan", func(w http.ResponseWriter, r *http.Request) { h.storageLayout(w, r, false) })
+		r.Post("/storage/apply", func(w http.ResponseWriter, r *http.Request) { h.storageLayout(w, r, true) })
 		r.Get("/metrics", h.metrics)
 		r.Get("/logs", h.logs)
+		r.Patch("/logs/retention", h.logRetention)
 		r.Post("/actions/{action}", h.action)
 	})
 }
@@ -300,7 +311,18 @@ func (h adminHandler) system(w http.ResponseWriter, r *http.Request) {
 		adminFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, item)
+	var system map[string]json.RawMessage
+	if err := json.Unmarshal(item, &system); err != nil {
+		adminFailure(w, err)
+		return
+	}
+	system["mediaMaintenance"] = json.RawMessage("null")
+	if h.deps.Maintenance != nil {
+		if status, err := h.deps.Maintenance.StorageStatus(r.Context()); err == nil {
+			system["mediaMaintenance"] = status
+		}
+	}
+	writeJSON(w, http.StatusOK, system)
 }
 
 func (h adminHandler) metrics(w http.ResponseWriter, r *http.Request) {
@@ -368,7 +390,10 @@ func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Reason string `json:"reason"`
+		Reason     string `json:"reason"`
+		Target     string `json:"target"`
+		Identity   string `json:"identity"`
+		Filesystem string `json:"filesystem"`
 	}
 	if !decodeAdminBody(w, r, &body) {
 		return
@@ -378,18 +403,63 @@ func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "A reason of 10 to 500 characters is required.")
 		return
 	}
+	switch action {
+	case "scrub-filesystem", "check-storage", "repair-storage":
+		if body.Target == "" || (action != "scrub-filesystem" && body.Target == "/") || len(body.Target) > 1024 || !filepath.IsAbs(body.Target) || filepath.Clean(body.Target) != body.Target || body.Identity != "" || body.Filesystem != "" {
+			writeError(w, http.StatusBadRequest, "A mounted filesystem path is required.")
+			return
+		}
+	case "configure-storage":
+		if !strings.HasPrefix(body.Target, "/dev/") || len(body.Target) > 256 || filepath.Clean(body.Target) != body.Target ||
+			!validStorageIdentity(body.Identity) || body.Filesystem == "/" || len(body.Filesystem) > 1024 ||
+			!filepath.IsAbs(body.Filesystem) || filepath.Clean(body.Filesystem) != body.Filesystem {
+			writeError(w, http.StatusBadRequest, "A physical device, stable identity, and mounted data-pool path are required.")
+			return
+		}
+	default:
+		if body.Target != "" || body.Identity != "" || body.Filesystem != "" {
+			writeError(w, http.StatusBadRequest, "This operation does not accept a storage target.")
+			return
+		}
+	}
+	var mediaDirectory string
+	if action == "check-storage" || action == "repair-storage" {
+		if h.deps.Maintenance == nil {
+			writeError(w, http.StatusServiceUnavailable, "File-reference checks are unavailable.")
+			return
+		}
+		status, err := h.deps.Maintenance.StorageStatus(r.Context())
+		var media struct {
+			Directory string `json:"directory"`
+			State     string `json:"state"`
+		}
+		if err != nil || json.Unmarshal(status, &media) != nil || media.Directory == "" {
+			writeError(w, http.StatusServiceUnavailable, "File-reference checks are unavailable.")
+			return
+		}
+		mediaDirectory = media.Directory
+		if (media.Directory == body.Target || strings.HasPrefix(media.Directory, body.Target+"/")) && (media.State == "checking" || media.State == "repairing") {
+			writeError(w, http.StatusConflict, "A file-copy operation is already running.")
+			return
+		}
+	}
 	actorID := adminActor(r).ID
-	if err := h.recordSystemAction(r.Context(), actorID, action, "", body.Reason, "requested"); err != nil {
+	if err := h.recordSystemAction(r.Context(), actorID, action, "", body.Reason, body.Target, body.Identity, body.Filesystem, "requested"); err != nil {
 		adminFailure(w, err)
 		return
 	}
-	result, err := h.deps.System.Action(r.Context(), action)
+	result, err := h.deps.System.Action(r.Context(), action, regado.ActionRequest{
+		Target: body.Target, Identity: body.Identity, Filesystem: body.Filesystem,
+	})
+	if err == nil && mediaDirectory != "" && (mediaDirectory == body.Target || strings.HasPrefix(mediaDirectory, body.Target+"/")) {
+		err = h.deps.Maintenance.StartStorageMaintenance(r.Context(), action == "repair-storage")
+	}
 	if err != nil {
-		_ = h.recordSystemAction(r.Context(), actorID, action, "failed", body.Reason, "failed")
+		_ = h.recordSystemAction(r.Context(), actorID, action, "failed", body.Reason, body.Target, body.Identity, body.Filesystem, "failed")
 		adminFailure(w, err)
 		return
 	}
-	if err := h.recordSystemAction(r.Context(), actorID, action, "completed", body.Reason, "accepted"); err != nil {
+	if err := h.recordSystemAction(r.Context(), actorID, action, "completed", body.Reason, body.Target, body.Identity, body.Filesystem, "accepted"); err != nil {
 		log.Printf("Regado outcome audit failed: %v", err)
 	}
 	writeJSON(w, http.StatusAccepted, result)
@@ -397,17 +467,34 @@ func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
 
 func validSystemAction(action string) bool {
 	switch action {
-	case "restart-nodo", "restart-livekit", "restart-ddclient", "scrub-data":
+	case "restart-nodo", "restart-livekit", "restart-ddclient", "scrub-filesystem", "check-storage", "repair-storage":
+		return true
+	case "configure-storage":
 		return true
 	default:
 		return false
 	}
 }
 
-func (h adminHandler) recordSystemAction(ctx context.Context, actorID, action, stage, reason, status string) error {
+func (h adminHandler) recordSystemAction(ctx context.Context, actorID, action, stage, reason, target, identity, filesystem, status string) error {
 	event := "system." + action
 	if stage != "" {
 		event += "." + stage
 	}
-	return h.deps.Store.Record(ctx, actorID, "", event, reason, map[string]string{"status": status})
+	details := map[string]string{"status": status}
+	if target != "" {
+		details["target"] = target
+	}
+	if identity != "" {
+		details["identity"] = identity
+	}
+	if filesystem != "" {
+		details["filesystem"] = filesystem
+	}
+	return h.deps.Store.Record(ctx, actorID, "", event, reason, details)
+}
+
+func validStorageIdentity(identity string) bool {
+	return len(identity) > len("serial:") && len(identity) <= 256 &&
+		(strings.HasPrefix(identity, "serial:") || strings.HasPrefix(identity, "wwn:"))
 }

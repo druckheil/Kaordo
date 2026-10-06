@@ -22,6 +22,26 @@ export function mediaFrameRatio(item: Pick<MediaAttachment, 'width' | 'height'>)
   return Math.min(maxMediaRatio, Math.max(minMediaRatio, naturalRatio));
 }
 
+// Derive the carousel frame from neighboring media instead of a fixed preview width
+export function mediaCarouselViewportRatio(ratios: readonly number[]): number {
+  if (ratios.length < 2) return Math.max(1, ...ratios);
+
+  let adjacentPairRatioTotal = 0;
+  let widestAdjacentPairRatio = 0;
+
+  for (let index = 0; index < ratios.length - 1; index += 1) {
+    const adjacentPairRatio = (ratios[index] ?? 1) + (ratios[index + 1] ?? 1);
+    adjacentPairRatioTotal += adjacentPairRatio;
+    widestAdjacentPairRatio = Math.max(widestAdjacentPairRatio, adjacentPairRatio);
+  }
+
+  const averageAdjacentPairRatio = adjacentPairRatioTotal / (ratios.length - 1);
+  const widestMediaRatio = Math.max(1, ...ratios);
+
+  // Keep an unusually wide attachment and its neighbor in the same viewport
+  return averageAdjacentPairRatio > widestMediaRatio ? averageAdjacentPairRatio : widestAdjacentPairRatio;
+}
+
 export function mediaFrameHeightPx(
   media: readonly Pick<MediaAttachment, 'width' | 'height'>[],
   availableWidth: number,

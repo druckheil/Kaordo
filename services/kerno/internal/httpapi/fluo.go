@@ -35,7 +35,10 @@ type fluoHandler struct {
 	deps   FluoDependencies
 }
 
-const maxPostAttachments = 4
+const (
+	maxPostAttachments       = 4
+	invalidVisibilityMessage = "Visibility must be public or private."
+)
 
 func mountFluo(router chi.Router, verify VerifyFunc, users UserStore, deps FluoDependencies) {
 	h := fluoHandler{verify: verify, users: users, deps: deps}
@@ -46,6 +49,8 @@ func mountFluo(router chi.Router, verify VerifyFunc, users UserStore, deps FluoD
 		r.Put("/posts/{id}/saved", h.savePost)
 		r.Delete("/posts/{id}/saved", h.unsavePost)
 		r.Get("/posts/{id}", h.get)
+		r.Get("/posts/{id}/thread", h.thread)
+		r.Patch("/posts/{id}", h.setVisibility)
 		r.Delete("/posts/{id}", h.delete)
 		r.Get("/posts/{id}/comments", h.comments)
 		r.Put("/posts/{id}/reaction", h.react)
@@ -65,6 +70,10 @@ func fluoError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "Post or account not found.")
 	case errors.Is(err, fluo.ErrInvalidRelation):
 		writeError(w, http.StatusNotFound, "The referenced post is unavailable.")
+	case errors.Is(err, fluo.ErrInvalidVisibility):
+		writeError(w, http.StatusBadRequest, invalidVisibilityMessage)
+	case errors.Is(err, fluo.ErrPrivateParent):
+		writeError(w, http.StatusBadRequest, "A reply cannot be public while its parent is private.")
 	case errors.Is(err, fluo.ErrSelfFollow):
 		writeError(w, http.StatusBadRequest, "You cannot follow yourself.")
 	case errors.Is(err, fluo.ErrRateLimited):
@@ -99,8 +108,12 @@ func (h fluoHandler) signMedia(items []fluo.Media) error {
 }
 
 func (h fluoHandler) decoratePage(page *fluo.Page) error {
-	for index := range page.Items {
-		if err := h.decorate(&page.Items[index]); err != nil {
+	return h.decoratePosts(page.Items)
+}
+
+func (h fluoHandler) decoratePosts(posts []fluo.Post) error {
+	for index := range posts {
+		if err := h.decorate(&posts[index]); err != nil {
 			return err
 		}
 	}
@@ -197,6 +210,28 @@ func (h fluoHandler) get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, post)
 }
 
+func (h fluoHandler) thread(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !fluo.ValidID(id) {
+		writeError(w, http.StatusBadRequest, "Invalid post ID.")
+		return
+	}
+	thread, err := h.deps.Store.Thread(r.Context(), actor.ID, id)
+	if err != nil {
+		fluoError(w, err)
+		return
+	}
+	if err := h.decoratePosts(thread.Posts); err != nil {
+		fluoError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, thread)
+}
+
 func (h fluoHandler) create(w http.ResponseWriter, r *http.Request) {
 	actor, ok := h.actor(w, r)
 	if !ok {
@@ -256,14 +291,14 @@ func validatePostInput(w http.ResponseWriter, input *fluo.NewPost) (string, bool
 
 func validatePostReferences(w http.ResponseWriter, input *fluo.NewPost) bool {
 	if input.Visibility == "" {
-		input.Visibility = "public"
+		input.Visibility = fluo.VisibilityPublic
 	}
-	if input.Visibility != "public" && input.Visibility != "private" {
-		writeError(w, http.StatusBadRequest, "Visibility must be public or private.")
+	if !fluo.ValidVisibility(input.Visibility) {
+		writeError(w, http.StatusBadRequest, invalidVisibilityMessage)
 		return false
 	}
 	if input.ParentID != nil && input.QuoteID != nil {
-		writeError(w, http.StatusBadRequest, "A comment cannot quote another post.")
+		writeError(w, http.StatusBadRequest, "A post cannot be both a reply and a quote.")
 		return false
 	}
 	for _, reference := range []*string{input.ParentID, input.QuoteID} {
@@ -346,6 +381,34 @@ func (h fluoHandler) delete(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h fluoHandler) setVisibility(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !fluo.ValidID(id) {
+		writeError(w, http.StatusBadRequest, "Invalid post ID.")
+		return
+	}
+	var input struct {
+		Visibility string `json:"visibility"`
+	}
+	if !decodeBody(w, r, &input) {
+		return
+	}
+	if !fluo.ValidVisibility(input.Visibility) {
+		writeError(w, http.StatusBadRequest, invalidVisibilityMessage)
+		return
+	}
+	if err := h.deps.Store.SetVisibility(r.Context(), actor.ID, id, input.Visibility); err != nil {
+		fluoError(w, err)
+		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)

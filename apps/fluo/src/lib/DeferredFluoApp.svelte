@@ -5,7 +5,13 @@
   import type { UserIdentity } from '@kaordo/contracts';
   import { Button } from '@kaordo/ui';
 
-  let { user }: { user: UserIdentity } = $props();
+  let {
+    user,
+    onBackActionChange
+  }: {
+    user: UserIdentity;
+    onBackActionChange: (action: (() => void) | null) => void;
+  } = $props();
   let App = $state.raw<typeof import('./FluoApp.svelte').default | null>(null);
   let failed = $state(false);
 
@@ -22,7 +28,7 @@
 </script>
 
 {#if App}
-  <App {user} />
+  <App {user} {onBackActionChange} />
 {:else if failed}
   <section class="mx-auto max-w-[46rem] rounded-3xl border border-border bg-card px-6 py-12 text-center" role="alert">
     <h1 class="text-xl font-bold">The feed could not open</h1>

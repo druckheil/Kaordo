@@ -92,15 +92,39 @@ func isCanonicalGCEntry(directory, id, name string) bool {
 }
 
 func (server *Server) cleanupExpiredUpload(ctx context.Context, id string) {
-	referenced, err := server.referenced(ctx, id)
-	if err != nil {
+	if _, err := server.removeIfUnreferenced(ctx, id); err != nil {
 		log.Printf("Nodo deferred cleanup for %s: %v", id, err)
-		return
 	}
-	if referenced {
-		return
+}
+
+func (server *Server) gcEligible(id string) (bool, error) {
+	info, err := os.Lstat(filepath.Join(server.config.Directory, id+".info"))
+	if err == nil {
+		return info.Mode().IsRegular() && time.Since(info.ModTime()) > uploadRetention, nil
 	}
-	if err := server.removeFiles(id); err != nil {
-		log.Printf("Nodo could not remove %s: %v", id, err)
+	if !errors.Is(err, os.ErrNotExist) {
+		return false, err
 	}
+	paths, err := filepath.Glob(filepath.Join(server.config.Directory, id+"*"))
+	if err != nil {
+		return false, err
+	}
+	found := false
+	for _, path := range paths {
+		if uploadIDFromFilename(filepath.Base(path)) != id {
+			continue
+		}
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if !info.Mode().IsRegular() || time.Since(info.ModTime()) <= uploadRetention {
+			return false, nil
+		}
+		found = true
+	}
+	return found, nil
 }

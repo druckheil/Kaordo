@@ -38,7 +38,7 @@
 <div class="kaordo-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
   {#each current.members as member (member.id)}
     <div class="flex items-center gap-2.5 rounded-xl px-2 py-2">
-      <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-xs font-bold text-primary">
+      <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary-soft text-xs font-bold text-primary-soft-foreground">
         {getInitials(member.displayName)}
       </span>
       <span class="min-w-0 flex-1">
@@ -46,7 +46,7 @@
         <span class="block truncate text-xs text-muted-foreground">@{member.username}</span>
       </span>
       {#if member.id === current.server.ownerId}
-        <span class="text-[10px] font-semibold text-primary" title="Server owner">Owner</span>
+        <span class="text-[10px] font-semibold text-link" title="Server owner">Owner</span>
       {/if}
     </div>
   {/each}

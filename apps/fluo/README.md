@@ -4,7 +4,7 @@ Independent SvelteKit social app. After the shared Kaordo account gate, it offer
 
 `@kaordo/api-client` owns typed Kerno requests and pagination policy. `@kaordo/media-client` resizes large images with Pica, uploads through Uppy/Tus to Nodo, and waits for validated media metadata before a post is created. PhotoSwipe handles still images and Vidstack handles processed MP4. All display text is rendered from safe structured Tiptap JSON without injecting user HTML.
 
-The production static build is assembled by the repository root `build:pages` command.
+The production static build is assembled by `pnpm build:pages:production` at the repository root.
 
 ## Code organization
 

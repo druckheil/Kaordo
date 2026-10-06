@@ -46,7 +46,7 @@
 
 <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
 	<div>
-		<p class="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Fluo / {pageTitle}</p>
+		<p class="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-link">Fluo / {pageTitle}</p>
 		<h1 class="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">{pageTitle}</h1>
 		<p class="mt-2 text-sm text-muted-foreground">{pageDescription}</p>
 	</div>
@@ -87,7 +87,7 @@
 		<p class="mt-3 text-xs text-muted-foreground">Search public posts and your own posts by text or author.</p>
 	</div>
 {:else if view === "saved"}
-	<p class="mb-5 rounded-xl border border-border bg-accent/60 px-4 py-3 text-sm text-accent-foreground">
+	<p class="mb-5 rounded-xl border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
 		<BookmarkIcon class="mr-2 inline size-4" />Only you can see the posts you save.
 	</p>
 {:else if view === "profile"}

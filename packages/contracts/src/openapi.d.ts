@@ -118,6 +118,22 @@ export interface paths {
         delete: operations["deleteFluoPost"];
         options?: never;
         head?: never;
+        patch: operations["setFluoPostVisibility"];
+        trace?: never;
+    };
+    "/v1/fluo/posts/{id}/thread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getFluoPostThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -658,6 +674,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/logs/retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Audits and persists host-wide journal retention. Archived journals may be deleted by native rotation and vacuum. */
+        patch: operations["setRegadoLogRetention"];
+        trace?: never;
+    };
     "/v1/admin/actions/{action}": {
         parameters: {
             query?: never;
@@ -668,6 +701,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["runRegadoAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/storage/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["previewRegadoStoragePlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/storage/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["applyRegadoStoragePlan"];
         delete?: never;
         options?: never;
         head?: never;
@@ -778,11 +843,43 @@ export interface components {
             name: string;
             path: string;
             label: string | null;
+            partitionLabel: string | null;
             fsType: string | null;
             size: number;
             type: string;
             model: string | null;
+            serial: string | null;
+            wwn: string | null;
             mountpoints: (string | null)[];
+            /** @description Whether this device contains the filesystem mounted at / */
+            systemDisk: boolean;
+            /**
+             * @description Operational state of this physical device in the managed storage pool
+             * @enum {string}
+             */
+            storageState?: "unconfigured" | "queued" | "working";
+            /** @description Whether the host agent's current preflight considers this device safe to onboard */
+            configureEligible?: boolean;
+            /** @description A concise explanation of the current storage state or onboarding eligibility */
+            configureReason?: string;
+            /** @description Discovered physical connection such as SATA */
+            transport?: string | null;
+            /** @description Discovered controller address; no enclosure bay is inferred */
+            address?: string | null;
+            partitionType?: string | null;
+            start?: number;
+            number?: number;
+            /** @enum {string} */
+            role?: "" | "system" | "storage" | "unassigned";
+            bootKind?: string;
+            /** @description Partition-table and alignment slack excluded from allocatable regions */
+            overheadBytes?: number;
+            layoutAvailable?: boolean;
+            unallocated?: {
+                /** @description Byte offset from the start of the physical disk */
+                start: number;
+                size: number;
+            }[];
             children?: components["schemas"]["RegadoDisk"][];
             health?: components["schemas"]["RegadoDiskHealth"];
         };
@@ -800,25 +897,165 @@ export interface components {
         };
         RegadoMount: {
             path: string;
+            source: string;
+            fsType: string;
             total: number;
             used: number;
             free: number;
+            available: boolean;
+            integrity: components["schemas"]["RegadoFilesystemIntegrity"] | null;
         };
-        RegadoMirror: {
+        RegadoFilesystemIntegrity: {
+            uuid: string;
+            /** @description Physical block device paths participating in this Btrfs filesystem */
+            members: string[];
             dataProfile: string;
             metadataProfile: string;
             systemProfile: string;
             mirroredPercent: number;
             deviceErrors: number;
             devicesOnline: number;
+            devicesExpected: number;
             healthy: boolean;
-            scrub: string;
+            balanceRunning: boolean;
+            /** @enum {string} */
+            scrubState: "not-run" | "running" | "complete" | "errors" | "unknown";
+            scrubErrors: number;
+            /** @description Sum of physical pool capacity before RAID replication */
+            physicalTotal?: number;
+            /** @description Physical space used including replicas and metadata */
+            physicalUsed?: number;
+        };
+        RegadoReplicationReport: {
+            path: string;
+            /** @enum {string} */
+            state: "checking" | "repairing" | "complete" | "failed";
+            /** @enum {string} */
+            stage: "replication" | "checksums" | "inventory" | "complete";
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            checkedAt: string | null;
+            files: number;
+            /** @description Logical size of regular files */
+            bytes: number;
+            unreadable: number;
+            /** @enum {string} */
+            duplication: "" | "duplicated" | "single" | "unverified";
+            progress?: components["schemas"]["RegadoOperationProgress"] | null;
+            /** @enum {string} */
+            checksumState: "" | "passed" | "errors";
+            error: string;
+        };
+        RegadoOperationProgress: {
+            completed: number;
+            /** @description Null when no measured denominator is available */
+            total: number | null;
+            /** @enum {string} */
+            unit: "bytes" | "chunks" | "files" | "uploads" | "steps";
+        };
+        RegadoLayoutRequest: {
+            device: string;
+            identity: string;
+            filesystem: string;
+            systemBytes: number;
+            storageBytes: number;
+            fingerprint?: string;
+            confirmation?: string;
+        };
+        RegadoLayoutStep: {
+            /** @enum {string} */
+            kind: "keep" | "boot" | "create" | "resize" | "activate";
+            /** @enum {string} */
+            role: "system" | "storage";
+            number: number;
+            start: number;
+            size: number;
+            previousSize: number;
+            source: string;
+        };
+        RegadoStoragePlan: {
+            device: string;
+            identity: string;
+            fingerprint: string;
+            supported: boolean;
+            /** @enum {string} */
+            backend: "disko" | "systemd-repart";
+            /** @description Exportable Disko role declaration; applying it to existing disks requires operator review */
+            declaration: string;
+            issues: string[];
+            warnings: string[];
+            systemBytes: number;
+            storageBytes: number;
+            availableBytes: number;
+            steps: components["schemas"]["RegadoLayoutStep"][];
+        };
+        RegadoLayoutReport: {
+            device: string;
+            /** @enum {string} */
+            state: "running" | "complete" | "failed";
+            stage: string;
+            /** Format: date-time */
+            startedAt: string;
+            error: string;
+            progress: components["schemas"]["RegadoOperationProgress"] | null;
+        };
+        RegadoMediaMaintenance: {
+            directory: string;
+            /** @enum {string} */
+            state: "idle" | "checking" | "repairing" | "complete" | "failed";
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            checkedAt: string | null;
+            files: number;
+            bytes: number;
+            /** @description Actual expired upload artifact files with no database references */
+            surplusFiles: number;
+            surplusBytes: number;
+            unverifiedFiles: number;
+            missingFiles: number;
+            removedFiles: number;
+            removedBytes: number;
+            error: string;
+            /** @enum {string} */
+            stage?: "" | "inventory" | "references" | "complete";
+            progress?: components["schemas"]["RegadoOperationProgress"] | null;
+        };
+        RegadoSwapDevice: {
+            name: string;
+            path: string;
+            /** @enum {string} */
+            kind: "compressed RAM" | "disk swap" | "swap file";
+            size: number;
+            used: number;
+            priority: number;
+        };
+        RegadoActionResult: {
+            action: string;
+            target: string;
+            output: string;
+            accepted: boolean;
         };
         RegadoService: {
             id: string;
             active: string;
             substate: string;
             loaded: string;
+            type?: string;
+            result?: string;
+            exitCode?: number;
+            /** Format: date-time */
+            finishedAt?: string;
+            timer?: {
+                id: string;
+                active: string;
+                substate: string;
+                /** Format: date-time */
+                lastRunAt: string | null;
+                /** Format: date-time */
+                nextRunAt: string | null;
+            };
         };
         RegadoSystem: {
             hostname: string;
@@ -828,13 +1065,20 @@ export interface components {
                 memoryTotalBytes: number;
                 uptimeSeconds: number;
                 kernel: string;
+                osName?: string;
+                osVersion?: string;
+                /** @enum {string} */
+                bootMode?: "bios" | "uefi";
             };
             /** Format: date-time */
             time: string;
             disks: components["schemas"]["RegadoDisk"][];
             mounts: components["schemas"]["RegadoMount"][];
-            mirror: components["schemas"]["RegadoMirror"];
+            swapDevices: components["schemas"]["RegadoSwapDevice"][];
             services: components["schemas"]["RegadoService"][];
+            layoutReports?: components["schemas"]["RegadoLayoutReport"][];
+            replicationReports?: components["schemas"]["RegadoReplicationReport"][];
+            mediaMaintenance?: components["schemas"]["RegadoMediaMaintenance"] | null;
         };
         RegadoSample: {
             time: number;
@@ -849,11 +1093,21 @@ export interface components {
         };
         RegadoLogs: {
             service: string;
+            journal?: components["schemas"]["RegadoJournal"];
             items: {
                 time: string;
                 priority: string;
                 message: string;
             }[];
+        };
+        RegadoJournal: {
+            totalBytes: number | null;
+            diskBytes: number | null;
+            runtimeBytes: number | null;
+            maxUseBytes: number | null;
+            retentionDays: number | null;
+            managed: boolean;
+            warning?: string;
         };
         LigoUser: {
             /** Format: uuid */
@@ -1068,8 +1322,21 @@ export interface components {
             good: number;
             /** Format: int64 */
             bad: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of direct replies.
+             */
             comments: number;
+            /**
+             * Format: int64
+             * @description Number of public posts quoting this post.
+             */
+            quotes: number;
+            /**
+             * Format: int64
+             * @description Number of accounts that saved this post.
+             */
+            saves: number;
         };
         FluoPost: {
             /** Format: uuid */
@@ -1079,10 +1346,18 @@ export interface components {
             text: string;
             /** @enum {string} */
             visibility: "public" | "private";
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description Direct parent post for replies; null for a root post.
+             */
             parentId: string | null;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description ID of the public post or reply quoted by this post.
+             */
             quoteId: string | null;
+            /** @description Whether the quoted post was deleted. */
+            quoteDeleted: boolean;
             quote: components["schemas"]["FluoQuote"] | null;
             media: components["schemas"]["FluoMedia"][];
             counts: components["schemas"]["FluoCounts"];
@@ -1094,6 +1369,10 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        FluoPostThread: {
+            /** @description Accessible posts ordered from the thread root through the selected post. */
+            posts: components["schemas"]["FluoPost"][];
         };
         FluoPage: {
             items: components["schemas"]["FluoPost"][];
@@ -1112,6 +1391,10 @@ export interface components {
             altTexts?: {
                 [key: string]: string;
             };
+        };
+        FluoPostVisibility: {
+            /** @enum {string} */
+            visibility: "public" | "private";
         };
         FluoReaction: {
             /** @enum {string} */
@@ -1424,12 +1707,76 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Deleted own post and its comments. */
+            /** @description Deleted own post and its reply branch. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setFluoPostVisibility: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FluoPostVisibility"];
+            };
+        };
+        responses: {
+            /** @description Updated post and descendant reply visibility. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation, access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getFluoPostThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accessible thread from its root through the selected post. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoPostThread"];
+                };
             };
             /** @description Access or server error. */
             default: {
@@ -1455,7 +1802,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Accessible direct comments. */
+            /** @description Accessible direct replies to the specified post. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2732,12 +3079,52 @@ export interface operations {
             };
         };
     };
+    setRegadoLogRetention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Zero keeps history until the storage budget requires rotation
+                     * @enum {integer}
+                     */
+                    retentionDays: 0 | 1 | 7 | 14 | 30 | 90;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Applied journal policy and current host-wide usage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoJournal"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     runRegadoAction: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                action: "restart-nodo" | "restart-livekit" | "restart-ddclient" | "scrub-data";
+                action: "restart-nodo" | "restart-livekit" | "restart-ddclient" | "scrub-filesystem" | "configure-storage" | "check-storage" | "repair-storage";
             };
             cookie?: never;
         };
@@ -2745,6 +3132,12 @@ export interface operations {
             content: {
                 "application/json": {
                     reason: string;
+                    /** @description Device path for configure-storage or mounted Btrfs path for scrub-filesystem/check-storage/repair-storage */
+                    target?: string;
+                    /** @description Stable serial or WWN */
+                    identity?: string;
+                    /** @description Existing mounted Btrfs data-pool path for configure-storage */
+                    filesystem?: string;
                 };
             };
         };
@@ -2755,7 +3148,77 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["RegadoActionResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    previewRegadoStoragePlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegadoLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Non-mutating layout preview with capability constraints */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoStoragePlan"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    applyRegadoStoragePlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegadoLayoutRequest"] & {
+                    reason: string;
+                    fingerprint: string;
+                    confirmation: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Revalidated audited layout change queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoActionResult"];
                 };
             };
             /** @description Error */

@@ -16,7 +16,7 @@
 		base: baseButtonClasses,
 		variants: {
 			variant: {
-				default: ["bg-primary text-primary-foreground", "shadow-sm hover:brightness-110"].join(" "),
+				default: ["bg-primary text-primary-foreground", "shadow-sm hover:shadow-md"].join(" "),
 				outline: [
 					"border-border bg-background dark:bg-transparent hover:bg-muted hover:text-foreground",
 					"dark:hover:bg-input/30 aria-expanded:bg-muted aria-expanded:text-foreground",
@@ -33,7 +33,7 @@
 					"bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
 					"dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30",
 				].join(" "),
-				link: "text-primary underline-offset-4 hover:underline",
+				link: "text-link underline-offset-4 hover:underline",
 			},
 			size: {
 				default: "h-10 gap-2 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",

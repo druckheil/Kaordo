@@ -3,81 +3,28 @@
 @import 'tw-animate-css';
 @import 'shadcn-svelte/tailwind.css';
 @import '@fontsource-variable/inter';
+@import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource-variable/google-sans-flex';
+@import '@fontsource-variable/source-code-pro';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+@import './themes/deep-purple.css';
+@import './themes/discord.css';
+@import './themes/leadgen.css';
+@import './themes/lara.css';
+@import './themes/damon.css';
+@import './themes/party-rock.css';
+@import './themes/japan-blues.css';
 
 @custom-variant dark (&:is(.dark *));
 
-/* Light semantic tokens */
-:root {
-	color-scheme: light;
-	--background: #f5f7f3;
-	--foreground: #16251e;
-	--card: #ffffff;
-	--card-foreground: #16251e;
-	--popover: #ffffff;
-	--popover-foreground: #16251e;
-	--primary: #176247;
-	--primary-foreground: #ffffff;
-	--secondary: #e7efe9;
-	--secondary-foreground: #183d2b;
-	--muted: #eef3ee;
-	--muted-foreground: #526459;
-	--accent: #e6f2eb;
-	--accent-foreground: #164b33;
-	--destructive: #a32636;
-	--border: #dbe5dc;
-	--input: #d8e4d9;
-	--ring: #176247;
-	--chart-1: #76ad87;
-	--chart-2: #337a61;
-	--chart-3: #c6d96a;
-	--chart-4: #d2986c;
-	--chart-5: #546e63;
-	--radius: 1rem;
-	--sidebar: #eef3ee;
-	--sidebar-foreground: #16251e;
-	--sidebar-primary: #176247;
-	--sidebar-primary-foreground: #ffffff;
-	--sidebar-accent: #ddece1;
-	--sidebar-accent-foreground: #164b33;
-	--sidebar-border: #dbe5dc;
-	--sidebar-ring: #176247;
-}
-
-/* Dark semantic tokens */
-.dark {
-	color-scheme: dark;
-	--background: #111e18;
-	--foreground: #ecf4ed;
-	--card: #1b2a21;
-	--card-foreground: #ecf4ed;
-	--popover: #1b2a21;
-	--popover-foreground: #ecf4ed;
-	--primary: #83d6a4;
-	--primary-foreground: #10251a;
-	--secondary: #284333;
-	--secondary-foreground: #e8f4eb;
-	--muted: #26382c;
-	--muted-foreground: #b3c7b8;
-	--accent: #284b35;
-	--accent-foreground: #e8f4eb;
-	--destructive: #ff9aa4;
-	--border: #3c5243;
-	--input: #3c5243;
-	--ring: #83d6a4;
-	--sidebar: #17251c;
-	--sidebar-foreground: #ecf4ed;
-	--sidebar-primary: #83d6a4;
-	--sidebar-primary-foreground: #10251a;
-	--sidebar-accent: #284333;
-	--sidebar-accent-foreground: #e8f4eb;
-	--sidebar-border: #3c5243;
-	--sidebar-ring: #83d6a4;
-}
-
 /* Maps semantic tokens to Tailwind utility names */
 @theme inline {
-	--font-sans: 'Inter Variable', sans-serif;
-	--font-heading: 'Inter Variable', sans-serif;
+	--font-sans: var(--font-sans);
+	--font-heading: var(--font-sans);
+	--font-serif: var(--font-serif);
+	--font-mono: var(--font-mono);
 	--color-sidebar-ring: var(--sidebar-ring);
 	--color-sidebar-border: var(--sidebar-border);
 	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -95,6 +42,7 @@
 	--color-input: var(--input);
 	--color-border: var(--border);
 	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
 	--color-accent-foreground: var(--accent-foreground);
 	--color-accent: var(--accent);
 	--color-muted-foreground: var(--muted-foreground);
@@ -103,16 +51,33 @@
 	--color-secondary: var(--secondary);
 	--color-primary-foreground: var(--primary-foreground);
 	--color-primary: var(--primary);
+	--color-link: var(--link);
+	--color-primary-soft: var(--primary-soft);
+	--color-primary-soft-foreground: var(--primary-soft-foreground);
 	--color-popover-foreground: var(--popover-foreground);
 	--color-popover: var(--popover);
 	--color-card-foreground: var(--card-foreground);
 	--color-card: var(--card);
 	--color-foreground: var(--foreground);
 	--color-background: var(--background);
-	--radius-sm: calc(var(--radius) * 0.6);
-	--radius-md: calc(var(--radius) * 0.8);
+	--shadow-2xs: var(--shadow-2xs);
+	--shadow-xs: var(--shadow-xs);
+	--shadow-sm: var(--shadow-sm);
+	--shadow: var(--shadow);
+	--shadow-md: var(--shadow-md);
+	--shadow-lg: var(--shadow-lg);
+	--shadow-xl: var(--shadow-xl);
+	--shadow-2xl: var(--shadow-2xl);
+	--tracking-tighter: calc(var(--tracking-normal) - 0.05em);
+	--tracking-tight: calc(var(--tracking-normal) - 0.025em);
+	--tracking-normal: var(--tracking-normal);
+	--tracking-wide: calc(var(--tracking-normal) + 0.025em);
+	--tracking-wider: calc(var(--tracking-normal) + 0.05em);
+	--tracking-widest: calc(var(--tracking-normal) + 0.1em);
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) * 1.4);
+	--radius-xl: calc(var(--radius) + 4px);
 	--radius-2xl: calc(var(--radius) * 1.8);
 	--radius-3xl: calc(var(--radius) * 2.2);
 	--radius-4xl: calc(var(--radius) * 2.6);
@@ -125,6 +90,7 @@
 	}
 	body {
 		@apply bg-background text-foreground antialiased;
+		letter-spacing: var(--tracking-normal);
 	}
 	html {
 		@apply font-sans;

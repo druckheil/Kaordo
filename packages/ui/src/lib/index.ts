@@ -8,6 +8,11 @@ export { Textarea } from './components/ui/textarea/index.js';
 // Shared application shells
 export { default as ModuleLanding } from './ModuleLanding.svelte';
 export { default as AppHeader } from './AppHeader.svelte';
+export { default as ThemeProvider } from './ThemeProvider.svelte';
+export { default as ThemeToggle } from './ThemeToggle.svelte';
+export { default as AgordojLink } from './AgordojLink.svelte';
+export { default as ThemePicker } from './ThemePicker.svelte';
+export { withIdentityAppearance } from './themes/identity-appearance.js';
 
 // Composite interaction components
 export * as Dialog from './components/ui/dialog/index.js';
@@ -35,6 +40,7 @@ export { default as MessageCircleIcon } from '@lucide/svelte/icons/message-circl
 export { default as ThumbsUpIcon } from '@lucide/svelte/icons/thumbs-up';
 export { default as ThumbsDownIcon } from '@lucide/svelte/icons/thumbs-down';
 export { default as Repeat2Icon } from '@lucide/svelte/icons/repeat-2';
+export { default as Share2Icon } from '@lucide/svelte/icons/share-2';
 export { default as ImagePlusIcon } from '@lucide/svelte/icons/image-plus';
 export { default as PlusIcon } from '@lucide/svelte/icons/plus';
 export { default as PlayIcon } from '@lucide/svelte/icons/play';
@@ -80,3 +86,12 @@ export { default as PencilIcon } from '@lucide/svelte/icons/pencil';
 export { default as LoaderCircleIcon } from '@lucide/svelte/icons/loader-circle';
 export { default as WifiOffIcon } from '@lucide/svelte/icons/wifi-off';
 export { default as FileIcon } from '@lucide/svelte/icons/file';
+
+export * as HoverCard from './components/ui/hover-card/index.js';
+export * as Popover from './components/ui/popover/index.js';
+export * as RadioGroup from './components/ui/radio-group/index.js';
+export { Progress } from './components/ui/progress/index.js';
+export { default as InfoIcon } from '@lucide/svelte/icons/info';
+export { default as HardDriveIcon } from '@lucide/svelte/icons/hard-drive';
+export { default as UsbIcon } from '@lucide/svelte/icons/usb';
+export { default as ServerIcon } from '@lucide/svelte/icons/server';

@@ -1,22 +1,22 @@
-// Parses post links and validates dialog return locations
+// Parses post links and validates focused-post return locations
 
 import type { FluoView } from "./fluo-model";
 import { fluoViewFromHash, isFluoView, postIdFromHash } from "./fluo-model";
 
 const postHistoryKeys = ["kaordoFluoPost", "kaordoFluoReturnView", "kaordoFluoReturnHash"] as const;
 
-export interface PostCloseDestination {
+export interface PostBackDestination {
 	view: FluoView;
 	hash: string;
 	returnThroughHistory: boolean;
 	cleanState: Record<string, unknown>;
 }
 
-export function postCloseDestination(
+export function postBackDestination(
 	state: unknown,
 	fallbackView: FluoView,
 	historySession: string,
-): PostCloseDestination {
+): PostBackDestination {
 	const historyState = asHistoryState(state);
 	const view = isFluoView(historyState.kaordoFluoReturnView)
 		? historyState.kaordoFluoReturnView

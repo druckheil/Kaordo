@@ -17,15 +17,16 @@ type fluoPostsTable struct {
 	postgres.Table
 
 	// Columns
-	ID         postgres.ColumnString
-	AuthorID   postgres.ColumnString
-	Content    postgres.ColumnString
-	PlainText  postgres.ColumnString
-	Visibility postgres.ColumnString
-	ParentID   postgres.ColumnString
-	QuoteID    postgres.ColumnString
-	CreatedAt  postgres.ColumnTimestampz
-	UpdatedAt  postgres.ColumnTimestampz
+	ID           postgres.ColumnString
+	AuthorID     postgres.ColumnString
+	Content      postgres.ColumnString
+	PlainText    postgres.ColumnString
+	Visibility   postgres.ColumnString
+	ParentID     postgres.ColumnString
+	QuoteID      postgres.ColumnString
+	CreatedAt    postgres.ColumnTimestampz
+	UpdatedAt    postgres.ColumnTimestampz
+	QuoteDeleted postgres.ColumnBool
 
 	AllColumns     postgres.ColumnList
 	MutableColumns postgres.ColumnList
@@ -67,33 +68,35 @@ func newFluoPostsTable(schemaName, tableName, alias string) *FluoPostsTable {
 
 func newFluoPostsTableImpl(schemaName, tableName, alias string) fluoPostsTable {
 	var (
-		IDColumn         = postgres.StringColumn("id")
-		AuthorIDColumn   = postgres.StringColumn("author_id")
-		ContentColumn    = postgres.StringColumn("content")
-		PlainTextColumn  = postgres.StringColumn("plain_text")
-		VisibilityColumn = postgres.StringColumn("visibility")
-		ParentIDColumn   = postgres.StringColumn("parent_id")
-		QuoteIDColumn    = postgres.StringColumn("quote_id")
-		CreatedAtColumn  = postgres.TimestampzColumn("created_at")
-		UpdatedAtColumn  = postgres.TimestampzColumn("updated_at")
-		allColumns       = postgres.ColumnList{IDColumn, AuthorIDColumn, ContentColumn, PlainTextColumn, VisibilityColumn, ParentIDColumn, QuoteIDColumn, CreatedAtColumn, UpdatedAtColumn}
-		mutableColumns   = postgres.ColumnList{AuthorIDColumn, ContentColumn, PlainTextColumn, VisibilityColumn, ParentIDColumn, QuoteIDColumn, CreatedAtColumn, UpdatedAtColumn}
-		defaultColumns   = postgres.ColumnList{IDColumn, CreatedAtColumn, UpdatedAtColumn}
+		IDColumn           = postgres.StringColumn("id")
+		AuthorIDColumn     = postgres.StringColumn("author_id")
+		ContentColumn      = postgres.StringColumn("content")
+		PlainTextColumn    = postgres.StringColumn("plain_text")
+		VisibilityColumn   = postgres.StringColumn("visibility")
+		ParentIDColumn     = postgres.StringColumn("parent_id")
+		QuoteIDColumn      = postgres.StringColumn("quote_id")
+		CreatedAtColumn    = postgres.TimestampzColumn("created_at")
+		UpdatedAtColumn    = postgres.TimestampzColumn("updated_at")
+		QuoteDeletedColumn = postgres.BoolColumn("quote_deleted")
+		allColumns         = postgres.ColumnList{IDColumn, AuthorIDColumn, ContentColumn, PlainTextColumn, VisibilityColumn, ParentIDColumn, QuoteIDColumn, CreatedAtColumn, UpdatedAtColumn, QuoteDeletedColumn}
+		mutableColumns     = postgres.ColumnList{AuthorIDColumn, ContentColumn, PlainTextColumn, VisibilityColumn, ParentIDColumn, QuoteIDColumn, CreatedAtColumn, UpdatedAtColumn, QuoteDeletedColumn}
+		defaultColumns     = postgres.ColumnList{IDColumn, CreatedAtColumn, UpdatedAtColumn, QuoteDeletedColumn}
 	)
 
 	return fluoPostsTable{
 		Table: postgres.NewTable(schemaName, tableName, alias, allColumns...),
 
 		//Columns
-		ID:         IDColumn,
-		AuthorID:   AuthorIDColumn,
-		Content:    ContentColumn,
-		PlainText:  PlainTextColumn,
-		Visibility: VisibilityColumn,
-		ParentID:   ParentIDColumn,
-		QuoteID:    QuoteIDColumn,
-		CreatedAt:  CreatedAtColumn,
-		UpdatedAt:  UpdatedAtColumn,
+		ID:           IDColumn,
+		AuthorID:     AuthorIDColumn,
+		Content:      ContentColumn,
+		PlainText:    PlainTextColumn,
+		Visibility:   VisibilityColumn,
+		ParentID:     ParentIDColumn,
+		QuoteID:      QuoteIDColumn,
+		CreatedAt:    CreatedAtColumn,
+		UpdatedAt:    UpdatedAtColumn,
+		QuoteDeleted: QuoteDeletedColumn,
 
 		AllColumns:     allColumns,
 		MutableColumns: mutableColumns,

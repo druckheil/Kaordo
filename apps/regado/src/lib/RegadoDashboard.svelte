@@ -7,9 +7,9 @@
 		createAdminApi, adminSummaryOptions, adminSystemOptions, adminMetricsOptions,
 		adminUsersOptions, adminAuditOptions, adminLogsOptions, adminCaseContentOptions,
 	} from "@kaordo/api-client";
-	import type { AdminAccessCase, UserIdentity } from "@kaordo/contracts";
+	import type { AdminAccessCase, AdminDisk, AdminMount, AdminLayoutRequest, UserIdentity } from "@kaordo/contracts";
 	import { appPaths } from "@kaordo/links";
-	import { Button, ShieldCheckIcon } from "@kaordo/ui";
+	import { AgordojLink, ArrowUpRightIcon, Button, ShieldCheckIcon, ThemeToggle } from "@kaordo/ui";
 	import AdminIntentDialog from "./AdminIntentDialog.svelte";
 	import AuditPanel from "./AuditPanel.svelte";
 	import LogsPanel from "./LogsPanel.svelte";
@@ -52,16 +52,25 @@
 	let busy = $state(false);
 	let intent = $state<AdminIntent | null>(null);
 	let reason = $state("");
+	let confirmation = $state("");
 
 	const queryClient = new QueryClient();
 	const refreshable = $derived(isRefreshableTab(tab));
 	const overviewPolicy = $derived({ enabled: refreshable, refetchInterval: refreshable ? 30_000 : false as const });
 	const summaryQuery = createQuery(() => ({ ...adminSummaryOptions(api), ...overviewPolicy }), () => queryClient);
-	const systemQuery = createQuery(() => ({ ...adminSystemOptions(api), ...overviewPolicy }), () => queryClient);
+	const systemQuery = createQuery(() => ({
+		...adminSystemOptions(api), enabled: refreshable,
+		refetchInterval: (query) => {
+			if (!refreshable) return false;
+			const data = query.state.data;
+			const running = data?.layoutReports?.some((report) => report.state === "running") || data?.replicationReports?.some((report) => report.state === "checking" || report.state === "repairing") || data?.mediaMaintenance?.state === "checking" || data?.mediaMaintenance?.state === "repairing";
+			return running ? 2_000 : 30_000;
+		},
+	}), () => queryClient);
 	const metricsQuery = createQuery(() => ({ ...adminMetricsOptions(api, timeWindow), ...overviewPolicy }), () => queryClient);
 	const usersQuery = createQuery(() => ({ ...adminUsersOptions(api, submittedSearch), enabled: tab === "Users" }), () => queryClient);
 	const auditQuery = createQuery(() => ({ ...adminAuditOptions(api), enabled: tab === "Audit" }), () => queryClient);
-	const logsQuery = createQuery(() => ({ ...adminLogsOptions(api, logService), enabled: tab === "Logs" }), () => queryClient);
+	const logsQuery = createQuery(() => ({ ...adminLogsOptions(api, logService), enabled: tab === "Logs", refetchInterval: tab === "Logs" ? 30_000 : false }), () => queryClient);
 	const contentQuery = createInfiniteQuery(() => ({
 		...adminCaseContentOptions(api, caseRecord?.id ?? null, contentKind),
 		enabled: !!caseRecord && tab === "Users",
@@ -136,23 +145,44 @@
 	function openIntent(next: AdminIntent): void {
 		intent = next;
 		reason = "";
+		confirmation = "";
 		actionError = "";
 		notice = "";
 	}
 
-	function requestDataScrub(): void {
+	async function requestCopyCheck(path: string): Promise<void> {
+		if (busy) return;
+		busy = true;
+		operationError = "";
+		try {
+			const result = await api.action("check-storage", "Verify file copies, checksums and expired upload references", { target: path });
+			notice = result.output;
+			await refreshOverview();
+		} catch (cause) { operationError = errorMessage(cause); }
+		finally { busy = false; }
+	}
+
+ async function applyStorageLayout(body: AdminLayoutRequest & { fingerprint: string; confirmation: string; reason: string }): Promise<void> {
+  const result = await api.applyStorageLayout(body);
+  notice = result.output;
+  await refreshOverview();
+ }
+
+	function requestCopyRepair(path: string): void {
 		openIntent({
 			type: "action",
-			id: "scrub-data",
-			name: "Start Data1 scrub",
+			id: "repair-storage",
+			name: `Repair file copies in ${path}`,
+			target: path,
 		});
+		reason = "Restore two-copy storage and remove expired unreferenced uploads";
 	}
 
 	function requestDnsRestart(): void {
 		openIntent({
 			type: "action",
 			id: "restart-ddclient",
-			name: "Restart dynamic DNS",
+			name: "Update DNS now",
 		});
 	}
 
@@ -160,7 +190,7 @@
 		openIntent({
 			type: "action",
 			id: restartActions[serviceId],
-			name: `Restart ${serviceId}`,
+			name: serviceId === "ddclient" ? "Update DNS now" : `Restart ${serviceId}`,
 		});
 	}
 
@@ -188,6 +218,12 @@
 
 	async function performIntent(selected: AdminIntent): Promise<void> {
 		switch (selected.type) {
+			case "log-retention": {
+				const result = await api.setLogRetention(selected.days, reason);
+				notice = result.warning || "Journal retention updated.";
+				await queryClient.invalidateQueries({ queryKey: ["regado", "logs"] });
+				return;
+			}
 			case "status":
 				await api.setStatus(selected.id, selected.disabled, reason);
 				notice = `${selected.name} ${selected.disabled ? "disabled" : "enabled"}.`;
@@ -206,8 +242,12 @@
 				return;
 			}
 			case "action":
-				await api.action(selected.id, reason);
-				notice = `${selected.name} requested.`;
+				const result = await api.action(selected.id, reason, {
+					target: selected.target,
+					identity: selected.identity,
+					filesystem: selected.filesystem,
+				});
+				notice = result.output || `${selected.name} requested.`;
 				await refreshOverview();
 		}
 	}
@@ -227,23 +267,25 @@
 		class="sticky top-0 z-20 border-b border-border bg-background/90 px-4 py-3 backdrop-blur-xl sm:px-8"
 	>
 		<div class="mx-auto flex max-w-7xl items-center justify-between gap-4">
-			<div class="flex items-center gap-3">
+			<div class="flex min-w-0 items-center gap-2 sm:gap-3">
 				<span
 					class="grid size-10 place-items-center rounded-[14px] bg-primary text-primary-foreground"
 					><ShieldCheckIcon class="size-5" /></span
 				>
 				<div>
 					<p class="text-sm font-bold tracking-tight">Regado</p>
-					<p class="text-xs text-muted-foreground">Kaordo administration</p>
+					<p class="hidden text-xs text-muted-foreground min-[400px]:block">Kaordo administration</p>
 				</div>
 			</div>
-			<div class="flex items-center gap-4 text-sm">
+			<div class="flex shrink-0 items-center gap-2 text-sm sm:gap-4">
 				<span class="hidden text-muted-foreground sm:inline"
 					>@{user.username}</span
-				><a
-					class="font-semibold text-primary hover:underline"
-					href={appPaths.portal}>All apps ↗</a
 				>
+				<Button href={appPaths.portal} variant="ghost" size="sm" aria-label="All apps">
+					<span class="hidden min-[390px]:inline">All apps</span> <ArrowUpRightIcon class="size-4" />
+				</Button>
+				<ThemeToggle />
+				<AgordojLink />
 			</div>
 		</div>
 	</header>
@@ -254,14 +296,14 @@
 	>
 		<div class="flex flex-wrap items-end justify-between gap-4">
 			<div>
-				<p class="text-xs font-bold uppercase tracking-[0.2em] text-primary">
+				<p class="text-xs font-bold uppercase tracking-[0.2em] text-link">
 					Local operations
 				</p>
 				<h1 class="mt-1 text-3xl font-bold tracking-[-0.05em] sm:text-4xl">
 					System overview
 				</h1>
 				<p class="mt-2 text-sm text-muted-foreground">
-					Live service health, mirrored storage and accountable administration.
+					Live service health, dynamically discovered storage and accountable administration.
 				</p>
 			</div>
 			<Button
@@ -279,7 +321,7 @@
 					type="button"
 					onclick={() => void openTab(item)}
 					aria-current={tab === item ? "page" : undefined}
-					class={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring ${tab === item ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+					class={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring ${tab === item ? "border-primary text-link" : "border-transparent text-muted-foreground hover:text-foreground"}`}
 					>{item}</button
 				>
 			{/each}
@@ -312,7 +354,11 @@
 				{system}
 				{summary}
 				{metrics}
-				onScrub={requestDataScrub}
+				actionBusy={busy}
+				onCheckCopies={(path) => void requestCopyCheck(path)}
+				onRepairCopies={requestCopyRepair}
+    onPreviewLayout={(body, signal) => api.previewStorageLayout(body, signal)}
+    onApplyLayout={applyStorageLayout}
 			/>
 		{:else if tab === "Logs"}
 			<LogsPanel
@@ -322,6 +368,8 @@
 				bind:priority={logLevel}
 				bind:search={logSearch}
 				onRefresh={loadLogs}
+				{busy}
+				onRetentionChange={(days) => openIntent({ type: "log-retention", days, name: "Change journal retention" })}
 			/>
 		{:else if tab === "Users"}
 			<UsersPanel
@@ -345,9 +393,9 @@
 			<SystemPanel
 				{system}
 				{metrics}
-				onScrub={requestDataScrub}
 				onRestartDns={requestDnsRestart}
 				onRestartService={requestServiceRestart}
+				onOpenStorage={() => openTab("Storage")}
 			/>
 		{/if}
 	</main>
@@ -356,6 +404,7 @@
 <AdminIntentDialog
 	{intent}
 	bind:reason
+	bind:confirmation
 	{busy}
 	error={actionError}
 	onConfirm={() => void confirmIntent()}

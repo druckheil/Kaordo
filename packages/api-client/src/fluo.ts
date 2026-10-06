@@ -1,6 +1,6 @@
 // Provides typed Fluo and Nodo requests plus their feed pagination options
 
-import type { FluoNewPost, FluoPage, FluoPost, NodoUpload, paths } from '@kaordo/contracts';
+import type { FluoNewPost, FluoPage, FluoPost, FluoPostThread, NodoUpload, paths } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
 import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
 
@@ -28,9 +28,21 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { data, error, response } = await client.GET('/v1/fluo/posts/{id}', { params: { path: { id } }, signal });
       return requireResponseData(data, error, response.status);
     },
+    async thread(id: string, signal?: AbortSignal): Promise<FluoPostThread> {
+      const { data, error, response } = await client.GET('/v1/fluo/posts/{id}/thread', {
+        params: { path: { id } }, signal
+      });
+      return requireResponseData(data, error, response.status);
+    },
     async create(input: FluoNewPost): Promise<FluoPost> {
       const { data, error, response } = await client.POST('/v1/fluo/posts', { body: input });
       return requireResponseData(data, error, response.status);
+    },
+    async setVisibility(id: string, visibility: FluoPost['visibility']): Promise<void> {
+      const { error, response } = await client.PATCH('/v1/fluo/posts/{id}', {
+        params: { path: { id } }, body: { visibility }
+      });
+      requireResponseOk(response, error);
     },
     async remove(id: string): Promise<void> {
       const { error, response } = await client.DELETE('/v1/fluo/posts/{id}', { params: { path: { id } } });
@@ -79,7 +91,7 @@ export function feedOptions(api: FluoApi, feed: Feed, search?: string) {
   };
 }
 
-export function commentsOptions(api: FluoApi, postId: string, enabled: boolean) {
+export function commentsOptions(api: FluoApi, postId: string) {
   return {
     queryKey: ['fluo', 'comments', postId] as const,
     initialPageParam: undefined as string | undefined,
@@ -87,7 +99,6 @@ export function commentsOptions(api: FluoApi, postId: string, enabled: boolean) 
       api.comments(postId, pageParam, signal),
     getNextPageParam: (lastPage: FluoPage) => lastPage.nextCursor ?? undefined,
     staleTime: 15_000,
-    refetchInterval: 5 * 60_000,
-    enabled
+    refetchInterval: 5 * 60_000
   };
 }

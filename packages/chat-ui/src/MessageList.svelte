@@ -126,7 +126,7 @@
     {/if}
     {#if items.length === 0}
       <div class="mx-auto flex min-h-full max-w-sm flex-col items-center justify-center gap-3 py-20 text-center text-muted-foreground" role="status">
-        <div class="grid size-14 place-items-center rounded-2xl bg-accent"><MessageCircleIcon class="size-7 text-primary" /></div>
+        <div class="grid size-14 place-items-center rounded-2xl bg-accent"><MessageCircleIcon class="size-7 text-accent-foreground" /></div>
         <p class="font-semibold text-foreground">No messages yet</p>
         <p class="text-sm">{personal ? 'Save a note or file here for later.' : 'Say hello to start the conversation.'}</p>
       </div>
@@ -141,7 +141,7 @@
         <div data-index={index} class={`w-full ${continuesRun ? 'pb-1' : 'pb-2.5'}`}>
           {#if item.kind === 'sent' && item.message.systemNotice}
             <p class="mx-auto max-w-xl rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-center text-sm leading-6 text-foreground" role="status">
-              <ShieldCheckIcon class="mr-1 inline size-4 align-[-2px] text-primary" />{item.message.text}
+              <ShieldCheckIcon class="mr-1 inline size-4 align-[-2px] text-link" />{item.message.text}
             </p>
           {:else if item.kind === 'sent'}
             <MessageBubble message={item.message} {viewerId} {personal} {showReceipt}

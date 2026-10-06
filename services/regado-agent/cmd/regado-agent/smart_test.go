@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSMARTHealthAndCache(t *testing.T) {
@@ -31,9 +32,14 @@ func TestSMARTHealthAndCache(t *testing.T) {
 		}
 		return good, errors.New("SMART bitmask exit status")
 	}
-	first := monitor.read(context.Background(), run, "/dev/sda")
-	second := monitor.read(context.Background(), run, "/dev/sda")
-	if calls != 1 || first.State != "passed" || !first.CheckedAt.Equal(second.CheckedAt) {
+	first, available := monitor.read(run, "/dev/sda")
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && (!available || first.State != "passed") {
+		time.Sleep(time.Millisecond)
+		first, available = monitor.read(run, "/dev/sda")
+	}
+	second, secondAvailable := monitor.read(run, "/dev/sda")
+	if calls != 1 || !available || !secondAvailable || first.State != "passed" || !first.CheckedAt.Equal(second.CheckedAt) {
 		t.Fatalf("cached SMART result = %+v / %+v, calls %d", first, second, calls)
 	}
 	if physicalDevice.MatchString("/dev/../../etc/shadow") || physicalDevice.MatchString("/dev/zram0") {

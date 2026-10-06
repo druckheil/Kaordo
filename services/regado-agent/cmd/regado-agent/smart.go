@@ -1,6 +1,6 @@
 package main
 
-// Caches SMART readings and maps smartctl reports to disk health
+// Schedules bounded SMART reads and maps smartctl reports to disk health
 import (
 	"context"
 	"encoding/json"
@@ -10,7 +10,10 @@ import (
 )
 
 const (
-	smartCacheTTL = 5 * time.Minute
+	smartCacheTTL        = 5 * time.Minute
+	smartReadTimeout     = 8 * time.Second
+	smartQueueTimeout    = 2 * time.Minute
+	smartReadConcurrency = 4
 
 	smartStateUnavailable = "unavailable"
 	smartStateStandby     = "standby"
@@ -23,7 +26,7 @@ const (
 	uncorrectableSectorsAttributeID = 198
 )
 
-var physicalDevice = regexp.MustCompile(`^/dev/(sd[a-z]+|vd[a-z]+|nvme[0-9]+n[0-9]+)$`)
+var physicalDevice = regexp.MustCompile(`^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$`)
 
 type smartHealth struct {
 	State                string    `json:"state"`
@@ -39,6 +42,8 @@ type smartHealth struct {
 type smartMonitor struct {
 	mu      sync.Mutex
 	entries map[string]smartHealth
+	pending map[string]bool
+	slots   chan struct{}
 }
 
 type smartctlReport struct {
@@ -78,22 +83,54 @@ type smartctlRawValue struct {
 	Value int64 `json:"value"`
 }
 
-func (monitor *smartMonitor) read(ctx context.Context, run commandRunner, path string) smartHealth {
+func (monitor *smartMonitor) read(run commandRunner, path string) (smartHealth, bool) {
 	monitor.mu.Lock()
-	defer monitor.mu.Unlock()
-	if cached, ok := monitor.entries[path]; ok && time.Since(cached.CheckedAt) < smartCacheTTL {
-		return cached
-	}
-	// smartctl exit codes are a bitmask: a failing drive still returns useful JSON.
-	// Do not wake sleeping disks to refresh a dashboard.
-	raw, _ := run(ctx, "smartctl", "--json", "--all", "--nocheck=standby,3", path)
-	item := parseSMART(raw)
-	item.CheckedAt = time.Now().UTC()
 	if monitor.entries == nil {
 		monitor.entries = make(map[string]smartHealth)
 	}
+	if monitor.pending == nil {
+		monitor.pending = make(map[string]bool)
+	}
+	if monitor.slots == nil {
+		monitor.slots = make(chan struct{}, smartReadConcurrency)
+	}
+	cached, exists := monitor.entries[path]
+	if exists && time.Since(cached.CheckedAt) < smartCacheTTL {
+		monitor.mu.Unlock()
+		return cached, true
+	}
+	if !monitor.pending[path] {
+		monitor.pending[path] = true
+		go monitor.refresh(run, path, monitor.slots)
+	}
+	monitor.mu.Unlock()
+	return cached, exists
+}
+
+func (monitor *smartMonitor) refresh(run commandRunner, path string, slots chan struct{}) {
+	defer func() {
+		monitor.mu.Lock()
+		delete(monitor.pending, path)
+		monitor.mu.Unlock()
+	}()
+	select {
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
+	case <-time.After(smartQueueTimeout):
+		return
+	}
+
+	// smartctl exit codes are a bitmask: a failing drive still returns useful JSON.
+	// Do not wake sleeping disks to refresh a dashboard.
+	ctx, cancel := context.WithTimeout(context.Background(), smartReadTimeout)
+	defer cancel()
+	raw, _ := run(ctx, "smartctl", "--json", "--all", "--nocheck=standby,3", path)
+	item := parseSMART(raw)
+	item.CheckedAt = time.Now().UTC()
+
+	monitor.mu.Lock()
 	monitor.entries[path] = item
-	return item
+	monitor.mu.Unlock()
 }
 
 func parseSMART(raw string) smartHealth {

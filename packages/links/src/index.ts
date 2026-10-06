@@ -3,6 +3,7 @@ type RootRelativePath = `/${string}`;
 
 export const appPaths = {
   portal: '/',
+  agordoj: '/agordoj/',
   ligo: '/ligo/',
   fluo: '/fluo/',
   rondo: '/rondo/',

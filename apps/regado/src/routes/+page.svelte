@@ -25,7 +25,7 @@
 				class="mx-auto grid min-h-[70dvh] max-w-lg place-content-center px-6 text-center"
 			>
 				<div
-					class="mx-auto grid size-16 place-items-center rounded-2xl bg-accent text-primary"
+					class="mx-auto grid size-16 place-items-center rounded-2xl bg-accent text-accent-foreground"
 				>
 					<ShieldCheckIcon class="size-8" />
 				</div>
@@ -36,7 +36,7 @@
 					This space is available only to Kaordo administrators.
 				</p>
 				<a
-					class="mt-6 font-semibold text-primary underline-offset-4 hover:underline"
+					class="mt-6 font-semibold text-link underline-offset-4 hover:underline"
 					href={appPaths.portal}>Back to Kaordo</a
 				>
 			</main>

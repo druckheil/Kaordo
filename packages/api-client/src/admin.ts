@@ -1,8 +1,8 @@
 // Provides typed administrative requests and cancellable Regado reads
 
 import type {
-  AdminAccessCase, AdminAuditEntry, AdminContentPage, AdminLogs, AdminMetrics,
-  AdminSummary, AdminSystem, AdminUser, paths,
+  AdminAccessCase, AdminAuditEntry, AdminContentPage, AdminLogs, AdminJournal, AdminLogRetentionDays, AdminMetrics,
+  AdminSummary, AdminSystem, AdminUser, AdminStoragePlan, AdminLayoutRequest, paths,
 } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
 import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
@@ -71,9 +71,27 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
       });
       return requireResponseData(data, error, response.status);
     },
-    async action(action: 'restart-nodo' | 'restart-livekit' | 'restart-ddclient' | 'scrub-data', reason: string) {
+    async setLogRetention(retentionDays: AdminLogRetentionDays, reason: string): Promise<AdminJournal> {
+      const { data, error, response } = await client.PATCH('/v1/admin/logs/retention', {
+        body: { retentionDays, reason },
+      });
+      return requireResponseData(data, error, response.status);
+    },
+    async previewStorageLayout(body: AdminLayoutRequest, signal?: AbortSignal): Promise<AdminStoragePlan> {
+      const { data, error, response } = await client.POST('/v1/admin/storage/plan', { body, signal });
+      return requireResponseData(data, error, response.status);
+    },
+    async applyStorageLayout(body: AdminLayoutRequest & { reason: string; fingerprint: string; confirmation: string }) {
+      const { data, error, response } = await client.POST('/v1/admin/storage/apply', { body });
+      return requireResponseData(data, error, response.status);
+    },
+    async action(
+      action: 'restart-nodo' | 'restart-livekit' | 'restart-ddclient' | 'scrub-filesystem' | 'configure-storage' | 'check-storage' | 'repair-storage',
+      reason: string,
+      options: { target?: string; identity?: string; filesystem?: string } = {},
+    ) {
       const { data, error, response } = await client.POST('/v1/admin/actions/{action}', {
-        params: { path: { action } }, body: { reason },
+        params: { path: { action } }, body: { reason, ...options },
       });
       return requireResponseData(data, error, response.status);
     },

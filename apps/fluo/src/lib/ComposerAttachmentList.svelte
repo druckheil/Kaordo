@@ -41,7 +41,7 @@
 					{attachment.file.name}
 				</span>
 				<details class="col-span-2 border-t border-border/70 px-2 py-2 text-xs">
-					<summary class="cursor-pointer font-medium text-primary underline-offset-4 hover:underline">
+					<summary class="cursor-pointer font-medium text-link underline-offset-4 hover:underline">
 						{attachment.altText ? "Edit description" : "Add description"}
 					</summary>
 					<label class="mt-2 block font-medium" for={`fluo-alt-${index}`}>

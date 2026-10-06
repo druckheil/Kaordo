@@ -342,7 +342,7 @@
           >
             <ChevronLeftIcon class="size-5" />
           </Button>
-          <div class="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-sm font-bold text-primary">
+          <div class="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary-soft text-sm font-bold text-primary-soft-foreground">
             {#if selected?.kind === 'self'}
               <BookmarkIcon class="size-5" />
             {:else if selected?.kind === 'group'}
@@ -421,7 +421,7 @@
       {:else}
         <div class="flex flex-1 flex-col items-center justify-center px-6 text-center">
           <div class="grid size-20 place-items-center rounded-[1.75rem] bg-accent">
-            <MessageCircleIcon class="size-10 text-primary" />
+            <MessageCircleIcon class="size-10 text-accent-foreground" />
           </div>
           <h2 class="mt-6 text-2xl font-bold tracking-tight">Stay in touch</h2>
           <p class="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">

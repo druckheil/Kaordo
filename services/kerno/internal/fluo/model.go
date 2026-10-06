@@ -13,11 +13,18 @@ import (
 const maxEncodedCursorLength = 256
 
 var (
-	ErrNotFound        = errors.New("post not found")
-	ErrInvalidRelation = errors.New("post cannot reference that item")
-	ErrSelfFollow      = errors.New("you cannot follow yourself")
-	ErrRateLimited     = errors.New("posting too quickly")
-	ErrMediaOwner      = errors.New("media upload belongs to another account")
+	ErrNotFound          = errors.New("post not found")
+	ErrInvalidRelation   = errors.New("post cannot reference that item")
+	ErrInvalidVisibility = errors.New("post visibility must be public or private")
+	ErrPrivateParent     = errors.New("a reply cannot be more public than its parent")
+	ErrSelfFollow        = errors.New("you cannot follow yourself")
+	ErrRateLimited       = errors.New("posting too quickly")
+	ErrMediaOwner        = errors.New("media upload belongs to another account")
+)
+
+const (
+	VisibilityPublic  = "public"
+	VisibilityPrivate = "private"
 )
 
 var fluoIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -28,6 +35,10 @@ var (
 )
 
 func ValidID(id string) bool { return fluoIDPattern.MatchString(id) }
+
+func ValidVisibility(value string) bool {
+	return value == VisibilityPublic || value == VisibilityPrivate
+}
 
 type Author struct {
 	ID          string `json:"id"`
@@ -58,23 +69,26 @@ type Counts struct {
 	Good     int64 `json:"good"`
 	Bad      int64 `json:"bad"`
 	Comments int64 `json:"comments"`
+	Quotes   int64 `json:"quotes"`
+	Saves    int64 `json:"saves"`
 }
 
 type Post struct {
-	ID         string          `json:"id"`
-	Author     Author          `json:"author"`
-	Content    json.RawMessage `json:"content"`
-	Text       string          `json:"text"`
-	Visibility string          `json:"visibility"`
-	ParentID   *string         `json:"parentId"`
-	QuoteID    *string         `json:"quoteId"`
-	Quote      *Quote          `json:"quote"`
-	Media      []Media         `json:"media"`
-	Saved      bool            `json:"saved"`
-	Counts     Counts          `json:"counts"`
-	MyReaction *string         `json:"myReaction"`
-	CreatedAt  time.Time       `json:"createdAt"`
-	UpdatedAt  time.Time       `json:"updatedAt"`
+	ID           string          `json:"id"`
+	Author       Author          `json:"author"`
+	Content      json.RawMessage `json:"content"`
+	Text         string          `json:"text"`
+	Visibility   string          `json:"visibility"`
+	ParentID     *string         `json:"parentId"`
+	QuoteID      *string         `json:"quoteId"`
+	QuoteDeleted bool            `json:"quoteDeleted"`
+	Quote        *Quote          `json:"quote"`
+	Media        []Media         `json:"media"`
+	Saved        bool            `json:"saved"`
+	Counts       Counts          `json:"counts"`
+	MyReaction   *string         `json:"myReaction"`
+	CreatedAt    time.Time       `json:"createdAt"`
+	UpdatedAt    time.Time       `json:"updatedAt"`
 }
 
 type NewPost struct {
@@ -89,6 +103,10 @@ type NewPost struct {
 type Page struct {
 	Items      []Post  `json:"items"`
 	NextCursor *string `json:"nextCursor"`
+}
+
+type Thread struct {
+	Posts []Post `json:"posts"`
 }
 
 type ListOptions struct {
@@ -141,7 +159,9 @@ func parseCursor(data []byte) (*Cursor, error) {
 type Store interface {
 	Create(context.Context, string, NewPost, string, []Media) (Post, error)
 	Get(context.Context, string, string) (Post, error)
+	Thread(context.Context, string, string) (Thread, error)
 	List(context.Context, ListOptions) (Page, error)
+	SetVisibility(context.Context, string, string, string) error
 	Delete(context.Context, string, string) ([]string, error)
 	SetSaved(context.Context, string, string, bool) error
 	MediaReferenced(context.Context, string) (bool, error)

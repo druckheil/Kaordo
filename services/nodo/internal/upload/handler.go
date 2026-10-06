@@ -30,19 +30,23 @@ type Config struct {
 }
 
 type Server struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	workers sync.WaitGroup
-	handler http.Handler
-	config  Config
-	store   filestore.FileStore
-	tus     *tusd.Handler
-	origins map[string]bool
-	jobs    chan string
-	quotaMu sync.Mutex
-	pending map[string]usage
-	used    map[string]usage
-	indexed map[string]indexedUpload
+	ctx                context.Context
+	cancel             context.CancelFunc
+	workers            sync.WaitGroup
+	handler            http.Handler
+	config             Config
+	store              filestore.FileStore
+	tus                *tusd.Handler
+	origins            map[string]bool
+	jobs               chan string
+	quotaMu            sync.Mutex
+	pending            map[string]usage
+	used               map[string]usage
+	indexed            map[string]indexedUpload
+	maintenanceMu      sync.Mutex
+	maintenance        storageMaintenance
+	maintenanceRunning bool
+	closing            bool
 }
 
 func NewHandler(config Config) (*Server, error) {
@@ -66,7 +70,10 @@ func NewHandler(config Config) (*Server, error) {
 
 // Close stops background work after the HTTP server has drained active requests.
 func (server *Server) Close() error {
+	server.maintenanceMu.Lock()
+	server.closing = true
 	server.cancel()
+	server.maintenanceMu.Unlock()
 	server.workers.Wait()
 	return nil
 }
@@ -164,6 +171,8 @@ func (server *Server) routes() http.Handler {
 	mux.Handle("/v1/uploads/", http.HandlerFunc(server.upload))
 	mux.HandleFunc("GET /v1/media/{id}", server.serveMedia)
 	mux.HandleFunc("DELETE /v1/media/{id}", server.purge)
+	mux.HandleFunc("GET /v1/internal/storage/maintenance", server.storageStatus)
+	mux.HandleFunc("POST /v1/internal/storage/maintenance/{operation}", server.startStorageMaintenance)
 	return server.cors(mux)
 }
 

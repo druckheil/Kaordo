@@ -12,7 +12,7 @@
 </script>
 
 {#snippet preview()}
-  <span class="block min-w-0 px-4 pt-3.5 text-left">
+  <span class="block min-w-0 px-4 py-2.5 text-left">
     <span class="block truncate text-sm font-semibold text-foreground">
       {quote.author.displayName}
       <span class="font-normal text-muted-foreground">@{quote.author.username}</span>
@@ -23,7 +23,7 @@
   </span>
   {#if quote.media.length}
     <span
-      class={`mt-3 grid gap-1 overflow-hidden border-t border-border/70 ${quote.media.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}
+      class={`grid gap-1 overflow-hidden border-t border-border/70 ${quote.media.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}
     >
       {#each quote.media as item, index (item.id)}
         <span class={`relative block overflow-hidden bg-muted ${quote.media.length === 1 ? 'h-44 sm:h-48' : 'h-28 sm:h-36'}`}>

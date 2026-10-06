@@ -81,7 +81,7 @@
 	aria-label="Fluo navigation"
 >
 	<Button
-		class="h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold text-primary"
+		class="h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold"
 		variant="ghost"
 		disabled={dialogsLoading}
 		aria-label="Post"
@@ -93,23 +93,29 @@
 	{#each mobileNavigation as item (item.id)}
 		{@const Icon = item.icon}
 		<Button
-			class={`h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold tracking-[-0.02em] ${view === item.id ? "bg-accent text-primary" : ""}`}
-			variant="ghost"
+			class={`h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold tracking-[-0.02em] ${view === item.id ? "" : "text-muted-foreground"}`}
+			variant={view === item.id ? "secondary" : "ghost"}
 			aria-label={item.label}
 			title={item.label}
 			aria-current={view === item.id ? "page" : undefined}
 			onclick={() => onNavigate(item.id)}
 		>
-			<Icon class={view === item.id ? "size-5 text-primary" : "size-5"} />
-			<span class={(view === item.id ? "text-primary" : "text-muted-foreground") + " max-w-full truncate"}>{item.label}</span>
+			<Icon class="size-5" />
+			<span class="max-w-full truncate">{item.label}</span>
 		</Button>
 	{/each}
 	<DropdownMenu.Root>
-		<DropdownMenu.Trigger
-			aria-label="More Fluo sections"
-			class={`flex h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-xs font-semibold transition-colors hover:bg-muted focus-visible:outline-3 focus-visible:outline-ring ${view === "notifications" || view === "settings" ? "bg-accent text-primary" : "text-muted-foreground"}`}
-		>
-			<EllipsisIcon class="size-5" /><span>More</span>
+		<DropdownMenu.Trigger>
+			{#snippet child({ props })}
+				<Button
+					{...props}
+					aria-label="More Fluo sections"
+					variant={view === "notifications" || view === "settings" ? "secondary" : "ghost"}
+					class={`h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold ${view === "notifications" || view === "settings" ? "" : "text-muted-foreground"}`}
+				>
+					<EllipsisIcon class="size-5" /><span>More</span>
+				</Button>
+			{/snippet}
 		</DropdownMenu.Trigger>
 		<DropdownMenu.Content side="top" align="end" class="mb-2 min-w-44">
 			<DropdownMenu.Label>More in Fluo</DropdownMenu.Label>

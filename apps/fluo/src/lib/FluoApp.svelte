@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Coordinates Fluo navigation, post actions, and post-dialog history
+  // Coordinates Fluo navigation, focused posts, and post actions
 
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { pushState, replaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { createQuery, QueryClient } from '@tanstack/svelte-query';
@@ -10,26 +10,42 @@
   import type { FluoPost, UserIdentity } from '@kaordo/contracts';
   import { BellIcon, Button, XIcon } from '@kaordo/ui';
   import FluoFeed from './FluoFeed.svelte';
+  import PostFocusView from './PostFocusView.svelte';
   import FluoNavigation from './FluoNavigation.svelte';
   import FluoPageHeader from './FluoPageHeader.svelte';
-  import { errorMessage, fluoViewFromHash, postIdFromHash, titleForView, type FluoView } from './fluo-model';
-  import { postCloseDestination, viewFromPostHistory } from './post-navigation';
+  import {
+    errorMessage,
+    fluoViewFromHash,
+    postHashForId,
+    postIdFromHash,
+    titleForView,
+    type FluoView
+  } from './fluo-model';
+  import { postBackDestination, viewFromPostHistory } from './post-navigation';
   import { createFluoPostActions, removePostFromCachedFeeds } from './post-actions';
 
   type FluoDialogsComponent = typeof import('./FluoDialogs.svelte').default;
 
-  let { user }: { user: UserIdentity } = $props();
+  let {
+    user,
+    onBackActionChange
+  }: {
+    user: UserIdentity;
+    onBackActionChange: (action: (() => void) | null) => void;
+  } = $props();
 
   const api = createFluoApi(import.meta.env.VITE_KAORDO_API_URL, import.meta.env.VITE_KAORDO_NODO_URL);
   const queryClient = new QueryClient();
-  onDestroy(() => queryClient.clear());
+  onDestroy(() => {
+    onBackActionChange(null);
+    queryClient.clear();
+  });
   let view = $state<FluoView>('feed');
   let feed = $state<Feed>('latest');
   let replyTo = $state<FluoPost | null>(null);
   let quoteTo = $state<FluoPost | null>(null);
   let composerOpen = $state(false);
   let postId = $state<string | null>(null);
-  let postDialogOpen = $state(false);
   let DialogsComponent = $state.raw<FluoDialogsComponent | null>(null);
   let dialogsLoading = $state(false);
   let dialogsPromise: Promise<void> | null = null;
@@ -45,9 +61,9 @@
     actionError = message;
   });
 
-  const selectedPost = createQuery(() => ({
-    queryKey: ['fluo', 'post', postId],
-    queryFn: ({ signal }) => api.get(postId!, signal),
+  const selectedThread = createQuery(() => ({
+    queryKey: ['fluo', 'thread', postId],
+    queryFn: ({ signal }) => api.thread(postId!, signal),
     enabled: !!postId,
     staleTime: 15_000
   }), () => queryClient);
@@ -67,23 +83,30 @@
     const hash = window.location.hash;
     const hashPostId = postIdFromHash(hash);
     if (hashPostId) {
+      if (removedIds.includes(hashPostId)) {
+        const returnView = viewFromPostHistory(page.state) ?? view;
+        const { cleanState } = postBackDestination(page.state, returnView, historySession);
+        replaceState(`#${returnView}`, cleanState);
+        postId = null;
+        view = returnView;
+        restoreFeedScroll();
+        return;
+      }
       const returnView = viewFromPostHistory(page.state);
       if (returnView) view = returnView;
       postId = hashPostId;
-      postDialogOpen = true;
-      void loadDialogs();
       return;
     }
     const wasViewingPost = !!postId;
     if (postId && deleteTarget?.id === postId) deleteTarget = null;
     postId = null;
-    postDialogOpen = false;
     const nextView = fluoViewFromHash(hash);
     if (nextView) view = nextView;
     if (wasViewingPost) restoreFeedScroll();
   }
 
   function navigate(next: FluoView): void {
+    if (postId) postId = null;
     view = next;
     window.location.hash = next;
     actionError = '';
@@ -91,9 +114,10 @@
   }
 
   function openPost(id: string): void {
+    if (postId === id) return;
     if (!postId) retainedFeedScroll = window.scrollY;
-    const hash = `#post/${id}`;
-    const returnHash = postDialogOpen && postId ? `#post/${postId}` : `#${view}`;
+    const hash = postHashForId(id);
+    const returnHash = postId ? postHashForId(postId) : `#${view}`;
     if (window.location.hash !== hash) {
       pushState(hash, {
         ...page.state,
@@ -101,7 +125,7 @@
         kaordoFluoReturnView: view,
         kaordoFluoReturnHash: returnHash
       });
-    } else if (!postDialogOpen) {
+    } else if (!postId) {
       const { kaordoFluoPost: _postEntry, ...rest } = page.state;
       replaceState(hash, {
         ...rest,
@@ -110,18 +134,16 @@
       });
     }
     postId = id;
-    postDialogOpen = true;
-    void loadDialogs();
+    window.scrollTo({ top: 0 });
   }
 
   function restoreFeedScroll(): void {
     const target = retainedFeedScroll;
     if (target === null) return;
-    const restore = () => {
-      if (!postDialogOpen) window.scrollTo({ top: target, behavior: 'instant' });
-    };
-    queueMicrotask(restore);
-    requestAnimationFrame(restore);
+    retainedFeedScroll = null;
+    void tick().then(() => requestAnimationFrame(() => {
+      if (!postId) window.scrollTo({ top: target, behavior: 'instant' });
+    }));
   }
 
   function loadDialogs(): Promise<void> {
@@ -132,8 +154,7 @@
       DialogsComponent = component;
     }).catch(() => {
       composerOpen = false;
-      postDialogOpen = false;
-      actionError = 'Could not open the post window. Try again.';
+      actionError = 'Could not load post controls. Try again.';
     }).finally(() => {
       dialogsLoading = false;
       dialogsPromise = null;
@@ -141,21 +162,27 @@
     return dialogsPromise;
   }
 
-  function closePost(): void {
-    if (!postId && !window.location.hash.startsWith('#post/')) return;
-    const destination = postCloseDestination(page.state, view, historySession);
-    postId = null;
-    postDialogOpen = false;
+  function backFromPost(): void {
+    if (!postId && !postIdFromHash(window.location.hash)) return;
+    const destination = postBackDestination(page.state, view, historySession);
     if (destination.returnThroughHistory) {
       window.history.back();
-      if (!destination.hash.startsWith('#post/')) restoreFeedScroll();
       return;
     }
     replaceState(destination.hash, destination.cleanState);
     view = destination.view;
     syncLocation();
-    if (!destination.hash.startsWith('#post/')) restoreFeedScroll();
   }
+
+  function returnToViewAfterDeletedAncestor(): void {
+    const destination = postBackDestination(page.state, view, historySession);
+    replaceState(`#${destination.view}`, destination.cleanState);
+    view = destination.view;
+    postId = null;
+    restoreFeedScroll();
+  }
+
+  $effect(() => onBackActionChange(postId ? backFromPost : null));
 
   function openComposer(): void {
     replyTo = null;
@@ -169,7 +196,6 @@
   }
 
   function openComposerFor(post: FluoPost, intent: 'reply' | 'quote'): void {
-    if (postId) closePost();
     replyTo = intent === 'reply' ? post : null;
     quoteTo = intent === 'quote' ? post : null;
     revealComposer();
@@ -190,11 +216,15 @@
     quoteTo = null;
     actionError = '';
     if (repliedTo) {
-      void Promise.all([
+      const invalidations = [
         queryClient.invalidateQueries({ queryKey: ['fluo', 'comments', repliedTo.id] }),
         queryClient.invalidateQueries({ queryKey: ['fluo', 'feed'] }),
-        queryClient.invalidateQueries({ queryKey: ['fluo', 'post', repliedTo.id] })
-      ]);
+        queryClient.invalidateQueries({ queryKey: ['fluo', 'thread', postId] })
+      ];
+      if (repliedTo.parentId) {
+        invalidations.push(queryClient.invalidateQueries({ queryKey: ['fluo', 'comments', repliedTo.parentId] }));
+      }
+      void Promise.all(invalidations);
       return;
     }
     void queryClient.invalidateQueries({ queryKey: ['fluo'] });
@@ -202,7 +232,6 @@
   }
 
   function remove(post: FluoPost): void {
-    if (postId === post.id) postDialogOpen = false;
     deleteTarget = post;
     deleteError = '';
     void loadDialogs();
@@ -216,8 +245,12 @@
       actionError = '';
       await api.remove(post.id);
       deleteTarget = null;
-      removedIds = [...removedIds, post.id];
-      if (postId === post.id) closePost();
+      const thread = selectedThread.data?.posts ?? [];
+      const deletedThreadIndex = thread.findIndex((threadPost) => threadPost.id === post.id);
+      const deletedThreadPosts = deletedThreadIndex < 0 ? [] : thread.slice(deletedThreadIndex);
+      removedIds = [...new Set([...removedIds, post.id, ...deletedThreadPosts.map((threadPost) => threadPost.id)])];
+      if (deletedThreadIndex >= 0 && deletedThreadIndex === thread.length - 1) backFromPost();
+      else if (deletedThreadIndex >= 0) returnToViewAfterDeletedAncestor();
       removePostFromCachedFeeds(queryClient, post.id);
       await queryClient.invalidateQueries({ queryKey: ['fluo'] });
     } catch (cause) {
@@ -231,69 +264,80 @@
 <div class="grid gap-7 pb-24 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:pb-10">
   <FluoNavigation {view} {user} {dialogsLoading} onNavigate={navigate} onOpenComposer={openComposer} />
 
-  <section class="mx-auto min-w-0 w-full max-w-[46rem]" aria-label={pageTitle}>
-    <FluoPageHeader {view} {feed} {user} bind:searchTerm onFeedChange={(nextFeed) => (feed = nextFeed)} />
-
-    {#if view === 'notifications'}
-      <div class="rounded-[1.5rem] border border-border bg-card px-6 py-16 text-center shadow-sm">
-        <div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent"><BellIcon class="size-6 text-primary" /></div>
-        <p class="mt-5 text-xl font-bold tracking-tight">Notifications are on their way</p>
-        <p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">For now, keep up with conversations in your feed.</p>
-        <Button class="mt-6" variant="secondary" onclick={() => navigate('feed')}>Explore the feed</Button>
-      </div>
-    {:else if view === 'settings'}
-      <div class="rounded-[1.5rem] border border-border bg-card p-6 shadow-sm">
-        <h3 class="text-xl font-bold tracking-tight">Account</h3>
-        <dl class="mt-6 grid gap-5 text-sm sm:grid-cols-2">
-          <div><dt class="text-muted-foreground">Display name</dt><dd class="mt-1 font-semibold">{user.displayName}</dd></div>
-          <div><dt class="text-muted-foreground">Username</dt><dd class="mt-1 font-semibold">@{user.username}</dd></div>
-        </dl>
-        <p class="mt-6 border-t border-border pt-5 text-sm leading-6 text-muted-foreground">Sign-in security is managed by Kaordo Identity.</p>
-        <Button class="mt-4" href={appPaths.portal} rel="external" variant="outline">Open Kaordo account</Button>
-      </div>
-    {:else}
-      <FluoFeed
-        {view}
-        {feed}
-        {searchTerm}
-        {user}
+  <section class="mx-auto min-w-0 w-full max-w-[46rem]" aria-label={postId ? 'Post' : pageTitle}>
+    {#if postId}
+      <PostFocusView
+        thread={selectedThread.data?.posts ?? []}
+        pending={selectedThread.isPending}
+        error={selectedThread.error?.message ?? null}
+        viewerId={user.id}
         {api}
         {queryClient}
-        {removedIds}
+        onRetry={() => void selectedThread.refetch()}
         onReply={reply}
         onQuote={quote}
         onOpenPost={openPost}
         onReact={postActions.react}
         onFollow={postActions.follow}
         onSave={postActions.save}
+        onVisibilityChange={postActions.setVisibility}
         onDelete={remove}
       />
+    {:else}
+      <FluoPageHeader {view} {feed} {user} bind:searchTerm onFeedChange={(nextFeed) => (feed = nextFeed)} />
+
+      {#if view === 'notifications'}
+        <div class="rounded-[1.5rem] border border-border bg-card px-6 py-16 text-center shadow-sm">
+          <div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent"><BellIcon class="size-6 text-accent-foreground" /></div>
+          <p class="mt-5 text-xl font-bold tracking-tight">Notifications are on their way</p>
+          <p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">For now, keep up with conversations in your feed.</p>
+          <Button class="mt-6" variant="secondary" onclick={() => navigate('feed')}>Explore the feed</Button>
+        </div>
+      {:else if view === 'settings'}
+        <div class="rounded-[1.5rem] border border-border bg-card p-6 shadow-sm">
+          <h3 class="text-xl font-bold tracking-tight">Account</h3>
+          <dl class="mt-6 grid gap-5 text-sm sm:grid-cols-2">
+            <div><dt class="text-muted-foreground">Display name</dt><dd class="mt-1 font-semibold">{user.displayName}</dd></div>
+            <div><dt class="text-muted-foreground">Username</dt><dd class="mt-1 font-semibold">@{user.username}</dd></div>
+          </dl>
+          <p class="mt-6 border-t border-border pt-5 text-sm leading-6 text-muted-foreground">Sign-in security is managed by Kaordo Identity.</p>
+          <Button class="mt-4" href={appPaths.portal} rel="external" variant="outline">Open Kaordo account</Button>
+        </div>
+      {:else}
+        <FluoFeed
+          {view}
+          {feed}
+          {searchTerm}
+          {user}
+          {api}
+          {queryClient}
+          {removedIds}
+          onReply={reply}
+          onQuote={quote}
+          onOpenPost={openPost}
+          onReact={postActions.react}
+          onFollow={postActions.follow}
+          onSave={postActions.save}
+          onVisibilityChange={postActions.setVisibility}
+          onDelete={remove}
+        />
+      {/if}
     {/if}
   </section>
 </div>
 
 {#if DialogsComponent}
-  <DialogsComponent {api} {user} {queryClient} {replyTo} {quoteTo} {composerOpen} {postDialogOpen}
+  <DialogsComponent {api} {replyTo} {quoteTo} {composerOpen}
     {deleteTarget} {deleteError} {deleting}
-    post={selectedPost.data} postPending={selectedPost.isPending} postError={selectedPost.error?.message ?? null}
     onComposerOpenChange={(open) => {
       composerOpen = open;
       if (!open) { replyTo = null; quoteTo = null; }
     }}
     onRemoveQuote={() => { quoteTo = null; }} onPublished={updated}
-    onPostOpenChange={(open) => {
-      if (!open) closePost();
-      else if (postId && window.location.hash === `#post/${postId}`) postDialogOpen = true;
-    }}
-    onClosePost={closePost} onReply={reply} onQuote={quote} onOpenPost={openPost}
     onDeleteOpenChange={(open) => {
-      if (!open && !deleting) {
-        const returnToPost = postId === deleteTarget?.id && window.location.hash === `#post/${postId}`;
-        deleteTarget = null;
-        if (returnToPost) postDialogOpen = true;
-      }
+      if (!open && !deleting) deleteTarget = null;
     }} onConfirmDelete={confirmRemove}
-    onReact={postActions.react} onFollow={postActions.follow} onSave={postActions.save} onDelete={remove} />
+  />
 {/if}
 
 {#if actionError}

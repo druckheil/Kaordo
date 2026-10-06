@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Renders reaction, reply, quote, follow, save, and delete actions
+	// Renders the available reactions and post actions
 
 	import type { FluoPost } from "@kaordo/contracts";
 	import {
@@ -7,20 +7,28 @@
 		Button,
 		MessageCircleIcon,
 		Repeat2Icon,
+		Share2Icon,
 		ThumbsDownIcon,
 		ThumbsUpIcon,
 	} from "@kaordo/ui";
 
-	let { post, onReply, onQuote, onReact, onSave }: {
+	let { post, onReply, onQuote, onReact, onSave, showReplyAction = true }: {
 		post: FluoPost;
 		onReply: () => void;
 		onQuote: () => void;
 		onReact: (value: "good" | "bad" | null) => Promise<void>;
 		onSave: () => Promise<void>;
+		showReplyAction?: boolean;
 	} = $props();
 
 	let saving = $state(false);
 	let reacting = $state(false);
+	const actionButtonClass = "h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3";
+	const fixedActionColumns = 3; // Like, save, and share
+	const showQuoteAction = $derived(post.visibility === "public");
+	const actionColumns = $derived(
+		fixedActionColumns + (showQuoteAction ? 1 : 0) + (showReplyAction ? 1 : 0),
+	);
 
 	async function chooseReaction(value: "good" | "bad"): Promise<void> {
 		if (reacting) return;
@@ -44,13 +52,29 @@
 </script>
 
 <div
-	class={`post-actions mt-5 grid gap-1.5 border-t border-border/80 pt-3 sm:gap-3 ${post.visibility === "public" ? "grid-cols-4" : "grid-cols-3"}`}
-	data-visibility={post.visibility}
+	class="post-actions pointer-events-none relative z-10 mt-1 grid gap-1.5 sm:gap-3"
+	style={`--post-action-columns: ${actionColumns}; --post-action-columns-touch: ${actionColumns + 1}`}
 	aria-label="Post actions"
 >
+	{#if showReplyAction}
+		<Button class={actionButtonClass} variant="ghost" size="sm"
+			aria-label={`Reply, ${post.counts.comments}`} onclick={onReply}>
+			<MessageCircleIcon class="size-5" />
+			<span class="text-xs tabular-nums sm:text-sm">{post.counts.comments}</span>
+		</Button>
+	{/if}
+
+	{#if showQuoteAction}
+		<Button class={actionButtonClass} variant="ghost" size="sm"
+			aria-label={`Quote, ${post.counts.quotes}`} onclick={onQuote}>
+			<Repeat2Icon class="size-5" />
+			<span class="text-xs tabular-nums sm:text-sm">{post.counts.quotes}</span>
+		</Button>
+	{/if}
+
 	<div class:disliked={post.myReaction === "bad"} class="reaction-control relative">
 		<Button
-			class="h-11 w-full min-w-0 gap-1 px-1 sm:gap-2 sm:px-3"
+			class={`${actionButtonClass} w-full`}
 			variant={post.myReaction === "good" ? "secondary" : "ghost"}
 			size="sm"
 			aria-label={`Like, ${post.counts.good}`}
@@ -59,9 +83,8 @@
 			disabled={reacting}
 			onclick={() => void chooseReaction("good")}
 		>
-			<ThumbsUpIcon class="size-4" />
-			<span class="hidden text-xs sm:inline">Like</span>
-			<span class="text-xs tabular-nums">{post.counts.good}</span>
+			<ThumbsUpIcon class="size-5" />
+			<span class="text-xs tabular-nums sm:text-sm">{post.counts.good}</span>
 		</Button>
 		<Button
 			class="dislike-choice absolute -right-2 -top-10 z-10 rounded-full border border-border bg-card shadow-lg"
@@ -73,33 +96,32 @@
 			disabled={reacting}
 			onclick={() => void chooseReaction("bad")}
 		>
-			<ThumbsDownIcon class={post.myReaction === "bad" ? "size-4 fill-current" : "size-4"} />
+			<ThumbsDownIcon class={post.myReaction === "bad" ? "size-5 fill-current" : "size-5"} />
 		</Button>
 	</div>
 
-	<Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost" size="sm"
-		aria-label="Reply to post" onclick={onReply}>
-		<MessageCircleIcon class="size-4" />
-		<span class="hidden text-xs sm:inline">Reply</span>
-		<span class="text-xs tabular-nums">{post.counts.comments}</span>
+	<Button class={actionButtonClass} variant={post.saved ? "secondary" : "ghost"}
+		size="sm" aria-label={`${post.saved ? "Remove from saved posts" : "Save post"}, ${post.counts.saves}`}
+		aria-pressed={post.saved} aria-busy={saving} disabled={saving} onclick={() => void toggleSaved()}>
+		<BookmarkIcon class={post.saved ? "size-5 fill-current" : "size-5"} />
+		<span class="text-xs tabular-nums sm:text-sm">{post.counts.saves}</span>
 	</Button>
 
-	{#if post.visibility === "public"}
-		<Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant="ghost" size="sm"
-			aria-label="Quote post" onclick={onQuote}>
-			<Repeat2Icon class="size-4" /><span class="hidden text-xs sm:inline">Quote</span>
-		</Button>
-	{/if}
-
-	<Button class="h-11 min-w-0 gap-1 px-1 sm:gap-2 sm:px-3" variant={post.saved ? "secondary" : "ghost"}
-		size="sm" aria-label={post.saved ? "Remove from saved posts" : "Save post"}
-		aria-pressed={post.saved} aria-busy={saving} disabled={saving} onclick={() => void toggleSaved()}>
-		<BookmarkIcon class={post.saved ? "size-4 fill-current" : "size-4"} />
-		<span class="hidden text-xs sm:inline">{saving ? "Saving…" : post.saved ? "Saved" : "Save"}</span>
+	<Button class={actionButtonClass} variant="ghost" size="sm"
+		aria-label="Share post" disabled>
+		<Share2Icon class="size-5" />
 	</Button>
 </div>
 
 <style>
+	.post-actions {
+		grid-template-columns: repeat(var(--post-action-columns), minmax(0, 1fr));
+	}
+
+	.post-actions :global([data-slot="button"]:not(.dislike-choice)) {
+		pointer-events: auto;
+	}
+
 	:global(.dislike-choice) {
 		opacity: 0;
 		pointer-events: none;
@@ -116,8 +138,7 @@
 	}
 
 	@media (hover: none) {
-		.post-actions[data-visibility="public"] { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.25rem; }
-		.post-actions[data-visibility="private"] { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.25rem; }
+		.post-actions { grid-template-columns: repeat(var(--post-action-columns-touch), minmax(0, 1fr)); gap: 0.25rem; }
 		.reaction-control { display: contents; }
 		:global(.dislike-choice) {
 			position: static;
