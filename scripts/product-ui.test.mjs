@@ -28,6 +28,8 @@ test('Fluo preserves post history after reload and composes replies and quotes',
     const path = new URL(request.url()).pathname;
     let body;
     if (path === '/v1/session' || path === '/v1/me') body = actor;
+    else if (path === '/v1/fluo/notifications/unread-count') body = { unreadCount: 0 };
+    else if (path === '/v1/fluo/notifications') body = { items: [], nextCursor: null, through: null, unreadCount: 0 };
     else if (path.endsWith('/comments')) body = { items: [], nextCursor: null };
     else if (path.endsWith('/thread')) {
       const thread = [];
@@ -129,7 +131,9 @@ test('Fluo pastes media into the shared attachment queue and preserves text past
   const { page, origin, errors } = await startAppFixture('fluo');
   await page.route('**/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    const body = path === '/v1/session' || path === '/v1/me' ? actor : { items: [], nextCursor: null };
+    const body = path === '/v1/session' || path === '/v1/me' ? actor
+      : path === '/v1/fluo/notifications/unread-count' ? { unreadCount: 0 }
+      : { items: [], nextCursor: null, through: null, unreadCount: 0 };
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
   });
   await page.goto(`${origin}/fluo/`);

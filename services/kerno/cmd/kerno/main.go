@@ -43,15 +43,17 @@ type config struct {
 
 type tokenVerifier = httpapi.VerifyFunc
 
-type requiredTable struct {
+type requiredRelation struct {
 	name      string
 	missing   string
 	migration string
 }
 
-var schemaRequirements = []requiredTable{
+var schemaRequirements = []requiredRelation{
 	{name: "users", missing: "users table is missing", migration: "deploy/postgres/001_users.sql"},
 	{name: "fluo_posts", missing: "Fluo tables are missing", migration: "deploy/postgres/002_fluo.sql"},
+	{name: "fluo_notifications", missing: "Fluo notifications table is missing", migration: "deploy/postgres/014_fluo_notifications.sql"},
+	{name: "fluo_notifications_event_lookup_idx", missing: "Fluo notification cooldown index is missing", migration: "deploy/postgres/014_fluo_notifications.sql"},
 	{name: "ligo_conversations", missing: "Ligo tables are missing", migration: "deploy/postgres/007_ligo.sql"},
 	{name: "rondo_servers", missing: "Rondo tables are missing", migration: "deploy/postgres/010_rondo.sql"},
 	{name: "admin_audit", missing: "Regado tables are missing", migration: "deploy/postgres/011_regado.sql"},
@@ -165,19 +167,19 @@ func splitOrigins(raw string) []string {
 
 func verifySchema(ctx context.Context, pool *pgxpool.Pool) error {
 	for _, requirement := range schemaRequirements {
-		if err := verifyRequiredTable(ctx, pool, requirement); err != nil {
+		if err := verifyRequiredRelation(ctx, pool, requirement); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func verifyRequiredTable(ctx context.Context, pool *pgxpool.Pool, requirement requiredTable) error {
+func verifyRequiredRelation(ctx context.Context, pool *pgxpool.Pool, requirement requiredRelation) error {
 	var exists bool
-	query := jetpg.SELECT(jetpg.RawBool("to_regclass(#table_name) IS NOT NULL",
-		jetpg.RawArgs{"#table_name": "public." + requirement.name}))
+	query := jetpg.SELECT(jetpg.RawBool("to_regclass(#relation_name) IS NOT NULL",
+		jetpg.RawArgs{"#relation_name": "public." + requirement.name}))
 	if err := postgres.JetQueryRow(ctx, pool, query).Scan(&exists); err != nil {
-		return fmt.Errorf("check schema table %q: %w", requirement.name, err)
+		return fmt.Errorf("check schema relation %q: %w", requirement.name, err)
 	}
 	if !exists {
 		return fmt.Errorf("%s; apply %s", requirement.missing, requirement.migration)
@@ -228,11 +230,13 @@ func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify t
 }
 
 func fluoDependencies(cfg config, pool *pgxpool.Pool, media httpapi.NodoClient) httpapi.FluoDependencies {
+	store := postgres.NewFluo(pool)
 	return httpapi.FluoDependencies{
-		Store:        postgres.NewFluo(pool),
-		Media:        media,
-		MediaBaseURL: cfg.NodoPublicURL,
-		MediaSignKey: cfg.MediaSigningKey,
+		Store:         store,
+		Notifications: store,
+		Media:         media,
+		MediaBaseURL:  cfg.NodoPublicURL,
+		MediaSignKey:  cfg.MediaSigningKey,
 	}
 }
 

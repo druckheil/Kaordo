@@ -1,4 +1,4 @@
-// Keep the local launcher and disposable database test on the same schema.
+// Shares product migrations between local development and disposable database integration
 export const productMigrations = [
   '002_fluo.sql',
   '003_reusable_fluo_media.sql',
@@ -11,5 +11,6 @@ export const productMigrations = [
   '010_rondo.sql',
   '011_regado.sql',
   '012_fluo_quote_tombstones.sql',
-  '013_fluo_saved_post_counts.sql'
+  '013_fluo_saved_post_counts.sql',
+  '014_fluo_notifications.sql'
 ];

@@ -87,6 +87,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/fluo/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listFluoNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getFluoNotificationSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/notifications/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["readFluoNotification"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["readFluoNotificationsThrough"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/fluo/posts": {
         parameters: {
             query?: never;
@@ -1400,6 +1464,55 @@ export interface components {
             /** @enum {string} */
             value: "good" | "bad";
         };
+        /** @description Activity from another account, visible only to its recipient while its posts remain accessible. */
+        FluoNotification: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "like" | "dislike" | "reply" | "quote" | "follow";
+            actor: components["schemas"]["FluoAuthor"];
+            post: {
+                /**
+                 * Format: uuid
+                 * @description Open this post; replies include their ancestor thread and quotes include the quoted post.
+                 */
+                id: string;
+                /** @description Accessible plain-text preview. */
+                text: string;
+                /** @description Destination post attachments for bounded notification previews. */
+                media: components["schemas"]["FluoMedia"][];
+            } | null;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Server read timestamp; null means unread.
+             */
+            readAt: string | null;
+        };
+        FluoNotificationSummary: {
+            /** Format: int64 */
+            unreadCount: number;
+        };
+        FluoNotificationPage: {
+            items: components["schemas"]["FluoNotification"][];
+            nextCursor: string | null;
+            /** @description Opaque cursor of the newest item on this page; use the first page's boundary to mark existing notifications read. */
+            through: string | null;
+            /**
+             * Format: int64
+             * @description Count of all accessible unread notifications in the same snapshot.
+             */
+            unreadCount: number;
+        };
+        FluoNotificationReadState: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            readAt: string;
+            /** Format: int64 */
+            unreadCount: number;
+        };
         NodoUpload: {
             /** Format: uuid */
             id: string;
@@ -1587,6 +1700,134 @@ export interface operations {
                 };
             };
             /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listFluoNotifications: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recipient's accessible notifications, newest first; listing does not mark them read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoNotificationPage"];
+                };
+            };
+            /** @description Validation, access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getFluoNotificationSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recipient's accessible unread notification count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoNotificationSummary"];
+                };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    readFluoNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Marked the recipient's notification read; repeated reads preserve the original timestamp. Read notifications cannot be made unread. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoNotificationReadState"];
+                };
+            };
+            /** @description Validation, access, unavailable notification or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    readFluoNotificationsThrough: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description First page's opaque boundary; newer notifications remain unread. */
+                    through: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Marked the recipient's accessible notifications at or before the supplied boundary read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoNotificationSummary"];
+                };
+            };
+            /** @description Validation, access or server error. */
             default: {
                 headers: {
                     [name: string]: unknown;

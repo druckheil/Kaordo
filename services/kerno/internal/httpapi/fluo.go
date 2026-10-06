@@ -23,10 +23,11 @@ type MediaVerifier interface {
 }
 
 type FluoDependencies struct {
-	Store        fluo.Store
-	Media        MediaVerifier
-	MediaBaseURL string
-	MediaSignKey []byte
+	Store         fluo.Store
+	Notifications fluo.NotificationStore
+	Media         MediaVerifier
+	MediaBaseURL  string
+	MediaSignKey  []byte
 }
 
 type fluoHandler struct {
@@ -44,6 +45,12 @@ func mountFluo(router chi.Router, verify VerifyFunc, users UserStore, deps FluoD
 	h := fluoHandler{verify: verify, users: users, deps: deps}
 	router.Get("/v1/internal/media/{id}/referenced", h.mediaReferenced)
 	router.Route("/v1/fluo", func(r chi.Router) {
+		if deps.Notifications != nil {
+			r.Get("/notifications", h.notifications)
+			r.Get("/notifications/unread-count", h.notificationSummary)
+			r.Put("/notifications/{id}/read", h.readNotification)
+			r.Put("/notifications/read", h.readNotifications)
+		}
 		r.Get("/posts", h.list)
 		r.Post("/posts", h.create)
 		r.Put("/posts/{id}/saved", h.savePost)
@@ -97,8 +104,10 @@ func (h fluoHandler) decorate(post *fluo.Post) error {
 }
 
 func (h fluoHandler) signMedia(items []fluo.Media) error {
+	// Keep URLs stable between frequent refreshes while retaining short-lived access.
+	expires := time.Now().Truncate(time.Minute).Add(9 * time.Minute)
 	for index := range items {
-		url, err := mediaauth.SignedURL(h.deps.MediaBaseURL, items[index].ID, time.Now().Add(9*time.Minute), h.deps.MediaSignKey)
+		url, err := mediaauth.SignedURL(h.deps.MediaBaseURL, items[index].ID, expires, h.deps.MediaSignKey)
 		if err != nil {
 			return err
 		}

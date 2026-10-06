@@ -15,6 +15,10 @@ export type FluoPage = Schemas['FluoPage'];
 export type FluoNewPost = Schemas['FluoNewPost'];
 export type FluoDocument = Schemas['FluoDocument'];
 export type FluoMedia = Schemas['FluoMedia'];
+export type FluoNotification = Schemas['FluoNotification'];
+export type FluoNotificationPage = Schemas['FluoNotificationPage'];
+export type FluoNotificationSummary = Schemas['FluoNotificationSummary'];
+export type FluoNotificationReadState = Schemas['FluoNotificationReadState'];
 
 // Nodo upload metadata
 export type NodoUpload = Schemas['NodoUpload'];

@@ -20,13 +20,6 @@ type Fluo struct {
 	pool *pgxpool.Pool
 }
 
-type fluoPostAlias string
-
-const (
-	currentPostAlias fluoPostAlias = "p"
-	quotedPostAlias  fluoPostAlias = "q"
-)
-
 func NewFluo(pool *pgxpool.Pool) *Fluo {
 	return &Fluo{pool: pool}
 }
@@ -44,14 +37,6 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 	comments := table.FluoPosts.AS("comments")
 	quotes := table.FluoPosts.AS("quotes")
 	saves := table.FluoSavedPosts.AS("saves")
-	quotedMedia := jetpg.RawString(`COALESCE((SELECT jsonb_agg(jsonb_build_object(
-		'id', qm.upload_id::text, 'kind', qm.kind, 'mimeType', qm.mime_type,
-		'width', qm.width, 'height', qm.height, 'size', qm.size_bytes, 'altText', qm.alt_text
-	) ORDER BY qm.position) FROM fluo_post_media qm WHERE qm.post_id = q.id), '[]'::jsonb)`)
-	media := jetpg.RawString(`COALESCE((SELECT jsonb_agg(jsonb_build_object(
-		'id', pm.upload_id::text, 'kind', pm.kind, 'mimeType', pm.mime_type,
-		'width', pm.width, 'height', pm.height, 'size', pm.size_bytes, 'altText', pm.alt_text
-	) ORDER BY pm.position) FROM fluo_post_media pm WHERE pm.post_id = p.id), '[]'::jsonb)`)
 	viewer := jetUUID(viewerID)
 	return jetpg.SELECT(
 		jetpg.CAST(p.ID).AS_TEXT(), jetpg.CAST(a.ID).AS_TEXT(), a.Username, a.DisplayName,
@@ -59,7 +44,7 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 			WHERE(jetpg.AND(follows.FollowerID.EQ(viewer), follows.FollowedID.EQ(a.ID)))),
 		p.Content, p.PlainText, p.Visibility, jetpg.CAST(p.ParentID).AS_TEXT(), jetpg.CAST(p.QuoteID).AS_TEXT(),
 		p.QuoteDeleted,
-		jetpg.CAST(q.ID).AS_TEXT(), jetpg.CAST(qa.ID).AS_TEXT(), qa.Username, qa.DisplayName, q.PlainText, quotedMedia,
+		jetpg.CAST(q.ID).AS_TEXT(), jetpg.CAST(qa.ID).AS_TEXT(), qa.Username, qa.DisplayName, q.PlainText, postMediaJSON(q),
 		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(good.PostID)).FROM(good).
 			WHERE(jetpg.AND(good.PostID.EQ(p.ID), good.Value.EQ(jetpg.String("good"))))),
 		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(bad.PostID)).FROM(bad).
@@ -78,36 +63,38 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 		jetpg.SELECT(reaction.Value).FROM(reaction).WHERE(jetpg.AND(reaction.PostID.EQ(p.ID), reaction.UserID.EQ(viewer))),
 		jetpg.EXISTS(jetpg.SELECT(saved.PostID).FROM(saved).
 			WHERE(jetpg.AND(saved.UserID.EQ(viewer), saved.PostID.EQ(p.ID)))),
-		media, p.CreatedAt, p.UpdatedAt,
+		postMediaJSON(p), p.CreatedAt, p.UpdatedAt,
 	).FROM(p.INNER_JOIN(a, a.ID.EQ(p.AuthorID)).
 		LEFT_JOIN(q, jetpg.AND(
 			q.ID.EQ(p.QuoteID), q.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)),
-			postTreeAccessibleFor(viewerID, quotedPostAlias),
+			postTreeAccessible(viewerID, q),
 		)).
 		LEFT_JOIN(qa, qa.ID.EQ(q.AuthorID)))
 }
 
-func postTreeAccessible(viewerID string) jetpg.BoolExpression {
-	return postTreeAccessibleFor(viewerID, currentPostAlias)
+func postMediaJSON(post *table.FluoPostsTable) jetpg.StringExpression {
+	return jetpg.StringExp(jetpg.CustomExpression(jetpg.Token(`COALESCE((SELECT jsonb_agg(jsonb_build_object(
+		'id', pm.upload_id::text, 'kind', pm.kind, 'mimeType', pm.mime_type,
+		'width', pm.width, 'height', pm.height, 'size', pm.size_bytes, 'altText', pm.alt_text
+	) ORDER BY pm.position) FROM fluo_post_media pm WHERE pm.post_id =`), post.ID, jetpg.Token(`), '[]'::jsonb)`)))
 }
 
-func postTreeAccessibleFor(viewerID string, alias fluoPostAlias) jetpg.BoolExpression {
-	return jetpg.RawBool(fmt.Sprintf(`NOT EXISTS (
+func postTreeAccessible(viewerID string, post *table.FluoPostsTable) jetpg.BoolExpression {
+	return jetpg.BoolExp(jetpg.CustomExpression(jetpg.Token(`NOT EXISTS (
 		WITH RECURSIVE lineage AS (
-			SELECT id, parent_id, visibility, author_id FROM fluo_posts WHERE id = %s.id
+			SELECT id, parent_id, visibility, author_id FROM fluo_posts WHERE id =`), post.ID, jetpg.Token(`
 			UNION ALL
 			SELECT parent.id, parent.parent_id, parent.visibility, parent.author_id
 			FROM fluo_posts parent JOIN lineage child ON parent.id = child.parent_id
 		)
-		SELECT 1 FROM lineage WHERE visibility = 'private' AND author_id <> #viewer::uuid
-	)`, alias), jetpg.RawArgs{"#viewer": viewerID})
+		SELECT 1 FROM lineage WHERE visibility = 'private' AND author_id <>`), jetUUID(viewerID), jetpg.Token(`)`)))
 }
 
 func postAccessibleCondition(viewerID string, posts *table.FluoPostsTable) jetpg.BoolExpression {
 	viewer := jetUUID(viewerID)
 	return jetpg.AND(
 		jetpg.OR(posts.Visibility.EQ(jetpg.String(fluo.VisibilityPublic)), posts.AuthorID.EQ(viewer)),
-		postTreeAccessible(viewerID),
+		postTreeAccessible(viewerID, posts),
 	)
 }
 
@@ -209,12 +196,20 @@ func postListCondition(options fluo.ListOptions, posts *table.FluoPostsTable) je
 		condition = jetpg.AND(condition, posts.ParentID.EQ(jetUUID(*options.ParentID)))
 	}
 	if options.Cursor != nil {
-		condition = jetpg.AND(condition, jetpg.OR(
-			posts.CreatedAt.LT(jetpg.TimestampzT(options.Cursor.CreatedAt)),
-			jetpg.AND(posts.CreatedAt.EQ(jetpg.TimestampzT(options.Cursor.CreatedAt)), posts.ID.LT(jetUUID(options.Cursor.ID))),
-		))
+		condition = jetpg.AND(condition, fluoBeforeCursor(posts.CreatedAt, posts.ID, *options.Cursor, false))
 	}
 	return postSearchCondition(condition, posts, options.Search)
+}
+
+func fluoBeforeCursor(createdAt jetpg.TimestampzExpression, id jetpg.StringExpression, cursor fluo.Cursor, inclusive bool) jetpg.BoolExpression {
+	beforeID := id.LT(jetUUID(cursor.ID))
+	if inclusive {
+		beforeID = id.LT_EQ(jetUUID(cursor.ID))
+	}
+	return jetpg.OR(
+		createdAt.LT(jetpg.TimestampzT(cursor.CreatedAt)),
+		jetpg.AND(createdAt.EQ(jetpg.TimestampzT(cursor.CreatedAt)), beforeID),
+	)
 }
 
 func postFeedCondition(condition jetpg.BoolExpression, feed string, posts *table.FluoPostsTable, viewer jetpg.StringExpression) jetpg.BoolExpression {
@@ -266,7 +261,8 @@ func scanPostPage(rows pgx.Rows, limit int) (fluo.Page, error) {
 	}
 	if len(page.Items) > limit {
 		page.Items = page.Items[:limit]
-		cursor := fluo.EncodeCursor(page.Items[len(page.Items)-1])
+		last := page.Items[len(page.Items)-1]
+		cursor := (fluo.Cursor{CreatedAt: last.CreatedAt, ID: last.ID}).Encode()
 		page.NextCursor = &cursor
 	}
 	return page, nil

@@ -13,6 +13,7 @@ func UseSchema(schema string) {
 	AdminAccessCases = AdminAccessCases.FromSchema(schema)
 	AdminAudit = AdminAudit.FromSchema(schema)
 	FluoFollows = FluoFollows.FromSchema(schema)
+	FluoNotifications = FluoNotifications.FromSchema(schema)
 	FluoPostMedia = FluoPostMedia.FromSchema(schema)
 	FluoPosts = FluoPosts.FromSchema(schema)
 	FluoReactions = FluoReactions.FromSchema(schema)

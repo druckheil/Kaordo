@@ -8,10 +8,12 @@
   import { appPaths } from '@kaordo/links';
   import { createFluoApi, type Feed } from '@kaordo/api-client';
   import type { FluoPost, UserIdentity } from '@kaordo/contracts';
-  import { BellIcon, Button, XIcon } from '@kaordo/ui';
+  import { Button, XIcon } from '@kaordo/ui';
   import FluoFeed from './FluoFeed.svelte';
+  import FluoNotifications from './FluoNotifications.svelte';
   import PostFocusView from './PostFocusView.svelte';
   import FluoNavigation from './FluoNavigation.svelte';
+  import { createFluoNotificationState } from './notification-state.svelte.ts';
   import FluoPageHeader from './FluoPageHeader.svelte';
   import {
     errorMessage,
@@ -22,7 +24,7 @@
     type FluoView
   } from './fluo-model';
   import { postBackDestination, viewFromPostHistory } from './post-navigation';
-  import { createFluoPostActions, removePostFromCachedFeeds } from './post-actions';
+  import { createFluoPostActions, invalidateFluoPostQueries, removePostFromCachedFeeds } from './post-actions';
 
   type FluoDialogsComponent = typeof import('./FluoDialogs.svelte').default;
 
@@ -36,7 +38,9 @@
 
   const api = createFluoApi(import.meta.env.VITE_KAORDO_API_URL, import.meta.env.VITE_KAORDO_NODO_URL);
   const queryClient = new QueryClient();
+  let disposed = false;
   onDestroy(() => {
+    disposed = true;
     onBackActionChange(null);
     queryClient.clear();
   });
@@ -58,7 +62,7 @@
   let deleting = $state(false);
   let searchTerm = $state('');
   const postActions = createFluoPostActions(api, queryClient, (message) => {
-    actionError = message;
+    if (!disposed) actionError = message;
   });
 
   const selectedThread = createQuery(() => ({
@@ -68,6 +72,9 @@
     staleTime: 15_000
   }), () => queryClient);
   const pageTitle = $derived(titleForView(view));
+  const notificationState = createFluoNotificationState(api, queryClient,
+    () => view === 'notifications' && !postId,
+    (message) => { if (!disposed) actionError = message; });
 
   onMount(() => {
     historySession = window.crypto.randomUUID();
@@ -108,7 +115,8 @@
   function navigate(next: FluoView): void {
     if (postId) postId = null;
     view = next;
-    window.location.hash = next;
+    const { cleanState } = postBackDestination(page.state, next, historySession);
+    pushState(`#${next}`, cleanState);
     actionError = '';
     window.scrollTo({ top: 0 });
   }
@@ -141,9 +149,12 @@
     const target = retainedFeedScroll;
     if (target === null) return;
     retainedFeedScroll = null;
-    void tick().then(() => requestAnimationFrame(() => {
-      if (!postId) window.scrollTo({ top: target, behavior: 'instant' });
-    }));
+    void tick().then(() => {
+      if (disposed) return;
+      requestAnimationFrame(() => {
+        if (!disposed && !postId) window.scrollTo({ top: target, behavior: 'instant' });
+      });
+    });
   }
 
   function loadDialogs(): Promise<void> {
@@ -151,8 +162,9 @@
     if (dialogsPromise) return dialogsPromise;
     dialogsLoading = true;
     dialogsPromise = import('./FluoDialogs.svelte').then(({ default: component }) => {
-      DialogsComponent = component;
+      if (!disposed) DialogsComponent = component;
     }).catch(() => {
+      if (disposed) return;
       composerOpen = false;
       actionError = 'Could not load post controls. Try again.';
     }).finally(() => {
@@ -227,7 +239,7 @@
       void Promise.all(invalidations);
       return;
     }
-    void queryClient.invalidateQueries({ queryKey: ['fluo'] });
+    void invalidateFluoPostQueries(queryClient);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -244,6 +256,7 @@
     try {
       actionError = '';
       await api.remove(post.id);
+      if (disposed) return;
       deleteTarget = null;
       const thread = selectedThread.data?.posts ?? [];
       const deletedThreadIndex = thread.findIndex((threadPost) => threadPost.id === post.id);
@@ -254,7 +267,7 @@
       removePostFromCachedFeeds(queryClient, post.id);
       await queryClient.invalidateQueries({ queryKey: ['fluo'] });
     } catch (cause) {
-      deleteError = errorMessage(cause, 'Could not delete the post.');
+      if (!disposed) deleteError = errorMessage(cause, 'Could not delete the post.');
     } finally {
       deleting = false;
     }
@@ -262,7 +275,7 @@
 </script>
 
 <div class="grid gap-7 pb-24 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:pb-10">
-  <FluoNavigation {view} {user} {dialogsLoading} onNavigate={navigate} onOpenComposer={openComposer} />
+  <FluoNavigation {view} {user} {dialogsLoading} unreadCount={notificationState.unreadCount} onNavigate={navigate} onOpenComposer={openComposer} />
 
   <section class="mx-auto min-w-0 w-full max-w-[46rem]" aria-label={postId ? 'Post' : pageTitle}>
     {#if postId}
@@ -287,12 +300,10 @@
       <FluoPageHeader {view} {feed} {user} bind:searchTerm onFeedChange={(nextFeed) => (feed = nextFeed)} />
 
       {#if view === 'notifications'}
-        <div class="rounded-[1.5rem] border border-border bg-card px-6 py-16 text-center shadow-sm">
-          <div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent"><BellIcon class="size-6 text-accent-foreground" /></div>
-          <p class="mt-5 text-xl font-bold tracking-tight">Notifications are on their way</p>
-          <p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">For now, keep up with conversations in your feed.</p>
-          <Button class="mt-6" variant="secondary" onclick={() => navigate('feed')}>Explore the feed</Button>
-        </div>
+        <FluoNotifications
+          state={notificationState}
+          onOpenPost={openPost}
+        />
       {:else if view === 'settings'}
         <div class="rounded-[1.5rem] border border-border bg-card p-6 shadow-sm">
           <h3 class="text-xl font-bold tracking-tight">Account</h3>

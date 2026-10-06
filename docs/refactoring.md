@@ -300,10 +300,79 @@ full product integration suite was not rerun. Local policy reconciliation was
 applied. Read-only inspection of production Keycloak 26.7.5 confirmed its prior
 30-minute idle/10-hour maximum policy; production rollout was not performed.
 
+## Fluo activity notifications — 6 October 2026
+
+Fluo now records likes, dislikes, direct replies, quotes and new followers in
+Kerno's PostgreSQL transaction for the originating action. Migration 014 adds
+recipient-owned read timestamps, timeline/partial unread indexes and cascading
+post/account cleanup, including an indexed one-hour cooldown shared by all
+kinds for a recipient, actor, kind and destination post. Actual repeats append
+a fresh row after the hour while retaining earlier read history; every new
+reply/quote ID notifies separately.
+Originating relation/post writes serialize repeats before the cooldown query;
+unchanged action requests do not create new alerts. Self-actions and private
+saved-post identities do not produce alerts. Private replies/quotes notify
+when actually published. Existing engagement is not backfilled.
+
+Notification pages, previews and counts apply current post/ancestor access
+checks. Shared media and recursive-access expressions use Jet column references
+for correlation, and feed/notification pagination shares one cursor predicate.
+Each list page, its count and bulk-read boundary use one read snapshot; bulk
+reads leave newer events unread. Reactions use a shared post row lock while
+authorization, the mutation, notification insertion and response reading remain
+in one transaction, allowing different users' reactions to proceed concurrently.
+
+The existing focused-post/history flow opens notification destinations and
+returns to Notifications. A cohesive Svelte controller owns query cancellation
+and one scoped TanStack read mutation for single-item and bounded bulk reads.
+Read-cache transformations and page merging live in api-client. Reading is
+one-way in the API and UI.
+Unread cards expose a full-height right bookmark strip with no transparent
+button-border/baseline gap. It slides away on confirmed reads, with
+reduced-motion and keyboard-focus handling. The bulk-read button is present
+only when the recipient has unread notifications; its reserved toolbar rows
+keep the list in place when it disappears. Destination media uses
+shared medium previews capped at 176 pixels high; videos render a static
+black frame with a Play symbol, mounting no player and fetching no video URL.
+The normal Vidstack player loads in the focused post. Existing media
+signatures stay stable within each minute to avoid four-second image reloads.
+
+The latest page or lighter unread summary polls every four seconds in the
+foreground, with a margin within the five-second update target, and refreshes
+on focus/reconnection. Native cursor pagination reuses the recent page without
+a second first-page request and joins history at the exact current boundary,
+so older-page refreshes cannot delay current activity. A missing boundary
+rebuilds history through native query invalidation. Older pages refresh every
+five minutes to renew media links and access state. Activating either polling
+query refreshes it immediately. Ordinary posting, reaction, follow and save
+mutations invalidate post queries without refetching notification history;
+visibility/deletion still invalidate every affected resource. Queries consume
+AbortSignal and the app clears its cache on teardown. Desktop navigation and
+the mobile More control/menu show unread counts. Existing browser fixtures
+were adapted to the new read endpoints.
+
+OpenAPI types and Jet table definitions were generated from their sources.
+The uncommitted migrations were consolidated into 014 before publication;
+its final schema preserves the already-created local notification history.
+Reaction/follow write helpers keep each relation change and notification in
+one transaction with guard clauses for unchanged requests. The self-follow
+guard accepts UUID letter case consistently with ID validation and PostgreSQL.
+The Fluo coordinator also suppresses obsolete error, dialog and scroll
+callbacks after teardown.
+
+Refactor evidence: `pnpm check:front` reported zero errors and warnings in all
+six Svelte projects. `pnpm build:pages` built all five applications; the final
+Fluo build also completed after the last notification layout/query edits.
+OpenAPI declarations were regenerated. All four Go modules built and passed
+`go vet`. Generated Jet SQL was inspected for preview/subject column correlation;
+this was source inspection, with no product query executed. Modified fixture
+and migration scripts passed `node --check`; `git diff --check` was clean.
+No functional notification tests were added or run in this change.
+
 ## Remaining boundaries
 
 - No content E2EE, user-held decryption keys or system escrow lifecycle; Regado cases authorize existing plaintext data and notify/audit access.
 - Data1 RAID1 mirrors two physical disks, but an independently recoverable backup destination/key copy/schedule still require configuration. Local development does not mirror disks.
 - Public voice quality depends on reachable signaling/RTC/TURN, actual devices and external networks. Synthetic local camera/room tests do not establish that quality.
 - Chromium/axe/reflow tests do not cover every browser, screen reader or native macOS trackpad rubber-band interaction. No participant UEQ/VisAWI study or production load test was performed.
-- Notifications, full settings, ownership transfer/moderation, Matrix and Cloudflare integrations remain outside implemented workflows. Reserved crypto is intentionally empty.
+- Notifications outside Fluo, full settings, ownership transfer/moderation, Matrix and Cloudflare integrations remain outside implemented workflows. Reserved crypto is intentionally empty.

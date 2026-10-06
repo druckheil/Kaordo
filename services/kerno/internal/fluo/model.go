@@ -123,8 +123,8 @@ type Cursor struct {
 	ID        string    `json:"id"`
 }
 
-func EncodeCursor(post Post) string {
-	encoded, err := json.Marshal(Cursor{CreatedAt: post.CreatedAt, ID: post.ID})
+func (cursor Cursor) Encode() string {
+	encoded, err := json.Marshal(cursor)
 	if err != nil {
 		return ""
 	}

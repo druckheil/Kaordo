@@ -1,6 +1,9 @@
 // Provides typed Fluo and Nodo requests plus their feed pagination options
 
-import type { FluoNewPost, FluoPage, FluoPost, FluoPostThread, NodoUpload, paths } from '@kaordo/contracts';
+import type {
+  FluoNewPost, FluoPage, FluoPost, FluoPostThread, FluoNotificationPage,
+  FluoNotificationSummary, FluoNotificationReadState, NodoUpload, paths
+} from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
 import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
 
@@ -12,6 +15,26 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
   const nodoClient = createClient<paths>({ baseUrl: nodo, fetch: sessionFetch });
 
   return {
+    async notifications(cursor?: string, signal?: AbortSignal): Promise<FluoNotificationPage> {
+      const { data, error, response } = await client.GET('/v1/fluo/notifications', {
+        params: { query: { cursor, limit: 20 } }, signal
+      });
+      return requireResponseData(data, error, response.status);
+    },
+    async notificationSummary(signal?: AbortSignal): Promise<FluoNotificationSummary> {
+      const { data, error, response } = await client.GET('/v1/fluo/notifications/unread-count', { signal });
+      return requireResponseData(data, error, response.status);
+    },
+    async readNotification(id: string): Promise<FluoNotificationReadState> {
+      const { data, error, response } = await client.PUT('/v1/fluo/notifications/{id}/read', {
+        params: { path: { id } }
+      });
+      return requireResponseData(data, error, response.status);
+    },
+    async readNotifications(through: string): Promise<FluoNotificationSummary> {
+      const { data, error, response } = await client.PUT('/v1/fluo/notifications/read', { body: { through } });
+      return requireResponseData(data, error, response.status);
+    },
     async list(feed: Feed, cursor?: string, signal?: AbortSignal, search?: string): Promise<FluoPage> {
       const { data, error, response } = await client.GET('/v1/fluo/posts', {
         params: { query: { feed, cursor, limit: 20, q: search } }, signal

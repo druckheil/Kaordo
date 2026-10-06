@@ -42,6 +42,9 @@ func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPos
 	if err := attachPostMedia(ctx, tx, id, media); err != nil {
 		return fluo.Post{}, err
 	}
+	if err := recordRelationNotification(ctx, tx, actorID, id, input.ParentID, input.QuoteID); err != nil {
+		return fluo.Post{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fluo.Post{}, err
 	}
@@ -116,7 +119,7 @@ func resolvePostVisibility(ctx context.Context, tx pgx.Tx, actorID string, input
 func postTreeAccessibleByID(ctx context.Context, tx pgx.Tx, viewerID, postID string) (bool, error) {
 	posts := table.FluoPosts.AS("p")
 	var accessible bool
-	err := jetQueryRow(ctx, tx, jetpg.SELECT(postTreeAccessible(viewerID)).FROM(posts).
+	err := jetQueryRow(ctx, tx, jetpg.SELECT(postTreeAccessible(viewerID, posts)).FROM(posts).
 		WHERE(posts.ID.EQ(jetUUID(postID)))).Scan(&accessible)
 	return accessible, err
 }
@@ -195,7 +198,7 @@ func (store *Fluo) Delete(ctx context.Context, actorID, id string) ([]string, er
 	if err := lockPostThread(ctx, tx, id); err != nil {
 		return nil, err
 	}
-	if err := lockOwnedPost(ctx, tx, actorID, id); err != nil {
+	if _, err := lockOwnedPost(ctx, tx, actorID, id); err != nil {
 		return nil, err
 	}
 	mediaIDs, err := postMediaIDs(ctx, tx, id)
@@ -230,16 +233,23 @@ func markQuotesReferencingDeletedPost(ctx context.Context, tx pgx.Tx, postID str
 	return err
 }
 
-func lockOwnedPost(ctx context.Context, tx pgx.Tx, actorID, postID string) error {
+type ownedPostState struct {
+	visibility string
+	parentID   *string
+	quoteID    *string
+}
+
+func lockOwnedPost(ctx context.Context, tx pgx.Tx, actorID, postID string) (ownedPostState, error) {
 	posts := table.FluoPosts
-	var lockedID string
-	err := jetQueryRow(ctx, tx, posts.SELECT(jetpg.CAST(posts.ID).AS_TEXT()).
+	var state ownedPostState
+	err := jetQueryRow(ctx, tx, posts.SELECT(posts.Visibility,
+		jetpg.CAST(posts.ParentID).AS_TEXT(), jetpg.CAST(posts.QuoteID).AS_TEXT()).
 		WHERE(jetpg.AND(posts.ID.EQ(jetUUID(postID)), posts.AuthorID.EQ(jetUUID(actorID)))).
-		FOR(jetpg.UPDATE())).Scan(&lockedID)
+		FOR(jetpg.UPDATE())).Scan(&state.visibility, &state.parentID, &state.quoteID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return fluo.ErrNotFound
+		return ownedPostState{}, fluo.ErrNotFound
 	}
-	return err
+	return state, err
 }
 
 func postMediaIDs(ctx context.Context, tx pgx.Tx, postID string) ([]string, error) {

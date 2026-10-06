@@ -18,4 +18,8 @@ Migration 012 records when a quoted Fluo post is deleted and indexes live quote 
 
 Migration 013 adds the reverse lookup index used to count saves for each Fluo post without scanning the private saved-post lists.
 
+Migration 014 adds recipient-owned Fluo notifications, persistent read timestamps, cursor timeline and partial unread indexes, a composite cooldown lookup index and cascading cleanup. Kerno requires the table and cooldown index at startup. Notifications are inserted within the originating post/reaction/follow transaction. Both the list and unread count apply current post/ancestor access checks. Marking all read is bounded by the displayed first page's cursor, leaving newer activity unread. Migration replay preserves read states and does not backfill older activity.
+
+Every kind uses the same database-time one-hour cooldown for a recipient/actor/kind/destination post. The originating relation/post write serializes actual repeats, then an indexed `NOT EXISTS` check in the same transaction gates insertion. Later eligible activity appends a fresh row; earlier read timestamps remain intact. New reply/quote IDs notify separately, and unchanged action requests never notify again.
+
 Feature persistence files are split into reads, writes, interactions, membership, receipts and admin operations. Shared media-claim locking/retirement remains transactional across Fluo/Ligo/Rondo. Case-insensitive search lowers both the indexed column and search pattern; LIKE wildcard characters in user text are escaped literally. The disposable integration suite covers Fluo, Ligo, Rondo and Regado and replays every migration. See [refactor evidence](../../docs/refactoring.md).

@@ -15,7 +15,7 @@ export function createFluoPostActions(
   async function run(
     action: () => Promise<unknown>,
     fallbackMessage: string,
-    refresh: () => Promise<unknown>,
+    refresh: () => Promise<unknown> = () => invalidateFluoPostQueries(queryClient),
   ): Promise<void> {
     try {
       onError('');
@@ -31,21 +31,18 @@ export function createFluoPostActions(
       return run(
         () => api.react(post.id, value),
         'Could not save your reaction.',
-        () => queryClient.invalidateQueries({ queryKey: ['fluo'] }),
       );
     },
     follow(post: FluoPost): Promise<void> {
       return run(
         () => api.follow(post.author.id, !post.author.following),
         'Could not change your follow list.',
-        () => queryClient.invalidateQueries({ queryKey: ['fluo'] }),
       );
     },
     save(post: FluoPost): Promise<void> {
       return run(
         () => api.setSaved(post.id, !post.saved),
         'Could not update your saved posts.',
-        () => queryClient.invalidateQueries({ queryKey: ['fluo'] }),
       );
     },
     setVisibility(post: FluoPost, visibility: FluoPost['visibility']): Promise<void> {
@@ -56,6 +53,13 @@ export function createFluoPostActions(
       );
     },
   };
+}
+
+export function invalidateFluoPostQueries(queryClient: QueryClient): Promise<void> {
+  return queryClient.invalidateQueries({
+    queryKey: ['fluo'],
+    predicate: ({ queryKey }) => queryKey[1] !== 'notifications',
+  });
 }
 
 export function removePostFromCachedFeeds(queryClient: QueryClient, postId: string): void {
