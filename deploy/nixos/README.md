@@ -57,6 +57,35 @@ This command deploys frontend files only; it does not run migrations or replace
 backend binaries. SSH uses `KAORDO_DEPLOY_SSH_KEY` when set, otherwise the
 standard `~/.ssh/id_ed25519` key or OpenSSH configuration.
 
+Deploy the complete production release with:
+
+```sh
+KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:production
+```
+
+The full command requires a clean Git tree by default; pass `--allow-dirty` only
+for an intentional release from uncommitted changes. It runs the production
+frontend checks, Go race tests and vet, builds Kerno, Nodo and Regado Agent for
+Linux amd64, then uploads a checksummed bundle containing tracked NixOS
+configuration, Keycloak policy/theme files, database migrations and the public
+sync script. Runtime credentials and user data stay on the host. SSH must allow
+non-interactive `sudo` for the deployment account.
+
+On the host it builds the NixOS system closure, applies migrations as the
+`kaordo` role, installs the backend binaries, switches NixOS, synchronizes
+Keycloak from the root-only production secret, and checks service health,
+OpenID discovery and the protected Fluo thread route. A backend/configuration
+failure restores the previous binaries and NixOS generation. Migrations are
+forward-only and must remain compatible with the previous application version.
+The static frontend is activated last using the atomic page deployment above.
+If that final step fails, its previous frontend stays active while the already
+verified backend remains deployed; rerun the full command after resolving the
+frontend deployment issue.
+
+This command builds and deploys application code and declarative service
+configuration. It does not provision disks, rotate secrets, or copy production
+user data.
+
 Never put runtime secrets in Git or the Nix store. The idempotent
 `provision-secrets.sh` creates root-readable files in
 `/srv/kaordo/secrets`; provide the Namecheap password separately in
@@ -64,8 +93,9 @@ Never put runtime secrets in Git or the Nix store. The idempotent
 file must be named `kaordo-realm.json` so Keycloak imports it. The NixOS
 module recreates its import symlink whenever Keycloak starts.
 
-Build static apps with `pnpm build:pages:production` and cross-build Kerno, Nodo, and
-Regado Agent for Linux amd64 with `CGO_ENABLED=0`. Copy release files to
+For manual recovery or operator-managed updates, build static apps with
+`pnpm build:pages:production` and cross-build Kerno, Nodo and Regado Agent for
+Linux amd64 with `CGO_ENABLED=0`. Copy release files to
 `Data1`, run `apply-migrations.sh`, then run `nixos-rebuild switch`. Migrations
 must precede a Kerno restart because Kerno requires the Regado tables. It applies the SQL
 files in numeric order as the `kaordo` database role. Running them as
