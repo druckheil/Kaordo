@@ -1023,7 +1023,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     const compactActions = await composer.evaluate((dialog) => {
       const media = dialog.querySelector('button[aria-label="Add media"]');
       const options = dialog.querySelector('button[aria-label="Post options"]');
-      const publish = Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Publish');
+      const publish = Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Post');
       return media && options && publish && {
         mediaTop: media.getBoundingClientRect().top,
         optionsTop: options.getBoundingClientRect().top,
@@ -1038,7 +1038,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     await page.setViewportSize({ width: 1280, height: 720 });
     const publishedResponse = await test.step('Upload four images and publish a post', async () => {
       const response = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'), { timeout: 20_000 });
-      const [published] = await Promise.all([response, composer.getByRole('button', { name: 'Publish' }).click()]);
+      const [published] = await Promise.all([response, composer.getByRole('button', { name: 'Post', exact: true }).click()]);
       assert.equal(published.status(), 201, 'The publish request must create the post');
       return published;
     });
@@ -1153,7 +1153,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       }))
     );
     const twoPhotoResponsePromise = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'));
-    await twoPhotoComposer.getByRole('button', { name: 'Publish' }).click();
+    await twoPhotoComposer.getByRole('button', { name: 'Post', exact: true }).click();
     const twoPhotoResponse = await twoPhotoResponsePromise;
     assert.equal(twoPhotoResponse.status(), 201);
     const twoPhotoPost = await twoPhotoResponse.json();
@@ -1175,7 +1175,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
         name: 'fluo-test.mp4', mimeType: 'video/mp4', buffer: await readFile(videoPath)
       });
       const videoPostResponsePromise = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'));
-      await videoComposer.getByRole('button', { name: 'Publish' }).click();
+      await videoComposer.getByRole('button', { name: 'Post', exact: true }).click();
       const videoPostResponse = await videoPostResponsePromise;
       assert.equal(videoPostResponse.status(), 201, 'Fluo must publish a video attachment');
       const videoPost = await videoPostResponse.json();
@@ -1304,7 +1304,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       'A quote must be written above the quoted post');
     await quoteComposer.locator('[contenteditable=true]').fill(quoteText);
     const quoteResponsePromise = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'));
-    await quoteComposer.getByRole('button', { name: 'Publish' }).click();
+    await quoteComposer.getByRole('button', { name: 'Quote', exact: true }).click();
     const quoteResponse = await quoteResponsePromise;
     assert.equal(quoteResponse.status(), 201);
     const quotedPost = await quoteResponse.json();
@@ -1474,7 +1474,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       name: 'single-photo.png', mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64')
     });
     const singlePhotoResponsePromise = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'));
-    await singlePhotoComposer.getByRole('button', { name: 'Publish' }).click();
+    await singlePhotoComposer.getByRole('button', { name: 'Post', exact: true }).click();
     const singlePhotoResponse = await singlePhotoResponsePromise;
     assert.equal(singlePhotoResponse.status(), 201);
     const singlePhotoPost = await singlePhotoResponse.json();
@@ -1561,7 +1561,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       name: item.name, mimeType: 'image/png', buffer: Buffer.from(item.data, 'base64')
     })));
     const aspectResponsePromise = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'));
-    await aspectComposer.getByRole('button', { name: 'Publish' }).click();
+    await aspectComposer.getByRole('button', { name: 'Post', exact: true }).click();
     const aspectResponse = await aspectResponsePromise;
     assert.equal(aspectResponse.status(), 201);
     const aspectPost = await aspectResponse.json();

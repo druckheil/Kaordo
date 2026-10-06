@@ -86,7 +86,7 @@ test('Fluo preserves post history after reload and composes replies and quotes',
     quoted: el.querySelector('[aria-label="Quoted post"]').getBoundingClientRect().top,
   }));
   assert.ok(positions.editor < positions.quoted, 'Quote text is above the original post');
-  await composerDialog.getByRole('button', { name: 'Publish', exact: true }).click();
+  await composerDialog.getByRole('button', { name: 'Quote', exact: true }).click();
   await composerDialog.waitFor({ state: 'hidden' });
   assert.equal(writes[1].quoteId, quoted.id);
 

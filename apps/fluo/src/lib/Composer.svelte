@@ -36,6 +36,11 @@
   let error = $state('');
   let optionsOpen = $state(false);
   const characterLimit = $derived(replyTo ? 2_000 : 5_000);
+  const publishLabel = $derived.by(() => {
+    if (replyTo) return 'Reply';
+    if (quoteTo) return textLength === 0 ? 'Repost' : 'Quote';
+    return 'Post';
+  });
 
   $effect(() => { if (replyTo) visibility = replyTo.visibility; });
   $effect(() => { editor?.setEditable(!pending); });
@@ -191,7 +196,7 @@
       </div>
       <div class="flex shrink-0 items-center gap-1.5 sm:gap-3">
         <span class="text-xs tabular-nums text-muted-foreground" aria-label="Character count">{textLength}/{characterLimit}</span>
-        <Button class="h-11" disabled={!editor || pending} onclick={publish}>{pending ? 'Publishing…' : replyTo ? 'Reply' : 'Publish'}</Button>
+        <Button class="h-11" disabled={!editor || pending} onclick={publish}>{pending ? 'Publishing…' : publishLabel}</Button>
       </div>
     </div>
   </div>
