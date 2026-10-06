@@ -69,3 +69,18 @@ The PostgreSQL runner defaults to local Compose. CI selects its service containe
 On 6 October 2026 the preceding workflow ran every layer sequentially. The successful [scope-0.0.3 run](https://github.com/druckheil/Kaordo/actions/runs/37420463620) took 7m48s; its Go stage took 2m04s, UI stage 1m02s and live stage 1m26s. Twenty preceding runs failed during browser checks or the live journey. The [last failed live run](https://github.com/druckheil/Kaordo/actions/runs/37418387771) spent 10m07s before failing while waiting 60 seconds for a feed response after publication. The following successful workflow excluded the registration/product journey with `test:auth:live:identity`.
 
 This repair restores that journey, runs it against the single built artifact, observes the publish mutation directly, separates independent jobs and adds native Playwright isolation, diagnostics and workflow validation. Hosted verification results are recorded after execution; local success alone is not evidence of GitHub runner behavior.
+
+### Hosted verification of this repair
+
+Commit `33ae7cfb0a7f79e1fef0b77fdce3549a6ca0e019` passed **all seven jobs twice** on GitHub-hosted Ubuntu 24.04:
+
+| Run | Wall time including setup, artifacts and the aggregate gate | Result |
+| --- | --- | --- |
+| [Attempt 1](https://github.com/druckheil/Kaordo/actions/runs/37440480234/attempts/1) | 5m14s | All layers passed |
+| [Attempt 2, same commit](https://github.com/druckheil/Kaordo/actions/runs/37440480234/attempts/2) | 4m40s | All layers passed |
+
+Each attempt ran 124 Node unit/config/deployment tests and 9 artifact checks with zero skips, 12 browser scenarios, all 5 live journeys, PostgreSQL product/capacity/migration tests, Go race/vet/build, actionlint and both dependency scans. Both restored pnpm/Go dependency caches; browser libraries and Compose services were installed on fresh runners. These measurements are **not a fully cold cache benchmark**. The prior 7m48s baseline had a cold Go cache and excluded the full live registration/product journey, so the timings also reflect different coverage and cache state.
+
+The follow-up tightens cleanup ordering: browser contexts close before temporary identities/application rows are removed, preventing background requests from racing account deletion. It retains the same coverage and budgets.
+
+Reference documentation: [Playwright testing practices](https://playwright.dev/docs/best-practices), [Playwright CI and worker guidance](https://playwright.dev/docs/ci), [Playwright webServer lifecycle](https://playwright.dev/docs/test-webserver), [GitHub workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).

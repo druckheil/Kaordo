@@ -275,7 +275,8 @@ async function administrator() {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function removeTemporaryUser(username, { applicationData = true } = {}) {
+async function cleanupTemporaryUser(browser, username, { applicationData = true } = {}) {
+  await Promise.all(browser.contexts().map((context) => context.close()));
   const headers = await administrator();
   const response = await fetch(`${identity}/admin/realms/kaordo/users?username=${encodeURIComponent(username)}&exact=true`, { headers });
   assert.equal(response.status, 200, 'Temporary identity lookup must succeed');
@@ -427,7 +428,7 @@ test('remembered OIDC sessions survive browser restart, rotate independently, an
     await page.locator('#kc-form-login').waitFor();
     await resumed.close();
   } finally {
-    await removeTemporaryUser(username, { applicationData: false });
+    await cleanupTemporaryUser(browser, username, { applicationData: false });
   }
 });
 
@@ -523,7 +524,7 @@ test('identity OTP errors keep one input boundary in both color modes', async ({
       await capture(page, `identity-invalid-otp-${mode}`);
     }
   } finally {
-    await removeTemporaryUser(username, { applicationData: false });
+    await cleanupTemporaryUser(browser, username, { applicationData: false });
   }
 });
 
@@ -1688,6 +1689,6 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     console.error('Live flow failed before temporary-user cleanup:', error);
     throw error;
   } finally {
-    await removeTemporaryUser(username);
+    await cleanupTemporaryUser(browser, username);
   }
 });
