@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { chmod, cp, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, readlink, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { assertSourceState, getSourceState } from './deploy-support.mjs';
+import { prepareReleasePayload } from './deploy-production.mjs';
 import { verifyLiveRelease, verifyPayload } from '../deploy/nixos/verify-release.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -18,6 +19,22 @@ async function put(path, content) {
   await mkdir(resolve(path, '..'), { recursive: true });
   await writeFile(path, content);
 }
+
+test('payload preparation gives services access to configuration regardless of builder umask', async () => {
+  const directory = await mkdtemp('/tmp/kd-permissions-');
+  try {
+    for (const path of ['bin/kerno', 'etc/nixos/deploy/postgres/001.sql', 'site/index.html']) {
+      await put(join(directory, path), path);
+      await chmod(join(directory, path), 0o600);
+    }
+    await chmod(join(directory, 'etc/nixos/deploy/postgres'), 0o700);
+    const hashes = await prepareReleasePayload(directory);
+    assert.equal((await stat(join(directory, 'etc/nixos/deploy/postgres'))).mode & 0o777, 0o755);
+    assert.equal((await stat(join(directory, 'etc/nixos/deploy/postgres/001.sql'))).mode & 0o777, 0o644);
+    assert.equal((await stat(join(directory, 'bin/kerno'))).mode & 0o777, 0o755);
+    assert.equal(hashes['site/index.html'], hash('site/index.html'));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 async function payloadFixture() {
   const directory = await mkdtemp('/tmp/kd-payload-');

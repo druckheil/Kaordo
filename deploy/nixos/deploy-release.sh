@@ -165,6 +165,7 @@ for path in bin/kerno bin/nodo bin/regado-agent manifest.json site/index.html \
   [[ -s "$staging/$path" ]] || { printf 'release is missing %s\n' "$path" >&2; exit 1; }
 done
 mv "$staging" "$release_root"
+chmod 0755 "$data_root/releases" "$release_root"
 mkdir -m 0700 "$backup_root"
 mkdir "$backup_root/bin"
 for binary in kerno nodo regado-agent; do cp -a "$data_root/bin/$binary" "$backup_root/bin/$binary"; done
