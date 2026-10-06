@@ -28,7 +28,7 @@
     `shrink-0 border-b border-border/80 bg-background/95 backdrop-blur-xl ${sticky ? 'sticky top-0 z-20' : ''}`
   );
   const contentClass = $derived(
-    `mx-auto h-16 items-center px-4 sm:px-6 ${
+    `mx-auto h-12 items-center px-4 sm:px-6 ${
       backAction
         ? 'grid grid-cols-[minmax(0,1fr)_auto] gap-1 xl:grid-cols-[14rem_minmax(0,1fr)_auto] xl:gap-10'
         : 'flex justify-between gap-3'

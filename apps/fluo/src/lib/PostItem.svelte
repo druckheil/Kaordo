@@ -115,7 +115,7 @@
 			{@render threadContext?.()}
 			<header
 				id={focusTarget ? `fluo-focused-post-${post.id}` : undefined}
-				class="flex scroll-mt-24 items-start gap-3"
+				class="flex scroll-mt-20 items-start gap-3"
 			>
 				<div class="relative z-10 grid size-11 shrink-0 place-items-center rounded-2xl bg-accent text-sm font-bold text-accent-foreground" aria-hidden="true">{initials}</div>
 				<div class="min-w-0 flex-1">

@@ -45,7 +45,7 @@
 	);
 </script>
 
-<aside class="hidden flex-col lg:sticky lg:top-24 lg:flex lg:h-[calc(100dvh-7rem)] lg:self-start">
+<aside class="hidden flex-col lg:sticky lg:top-20 lg:flex lg:h-[calc(100dvh-6rem)] lg:self-start">
 	<p class="mb-5 px-4 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Explore Fluo</p>
 	<nav class="grid gap-1" aria-label="Fluo navigation">
 		{#each navigation as item (item.id)}

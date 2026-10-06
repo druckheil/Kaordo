@@ -113,6 +113,6 @@
 				{onDelete}
 			/>
 		{/key}
-		<div class="h-[max(0px,calc(100dvh-10rem))] lg:h-[max(0px,calc(100dvh-6.5rem))]" aria-hidden="true"></div>
+		<div class="h-[max(0px,calc(100dvh-9rem))] lg:h-[max(0px,calc(100dvh-5.5rem))]" aria-hidden="true"></div>
 	</div>
 {/if}
