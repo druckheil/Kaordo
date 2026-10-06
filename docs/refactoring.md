@@ -472,6 +472,40 @@ changed. The updated live-journey script passed `node --check`, and
 `git diff --check` was clean. No functional/browser tests or hosted CI run were
 executed for this refactor. No production release accompanied these changes.
 
+## Fluo composer layout and refactor — 6 October 2026
+
+The composer starts with a 12rem draft region and grows with text, replies,
+quotes and attachments up to the dialog's 44rem/90dvh cap. The draft viewport
+then scrolls independently while the publishing controls remain visible.
+Native Svelte dimension bindings measure intrinsic content and the responsive
+options panel; the preferred height reserves the panel in both states. Closed
+options remain measurable, invisible and inert. Opening them preserves the
+dialog height and the last visible text line without premature overflow for
+short drafts. The editor keeps a neutral border when focused.
+
+Formatting composes the shared Rhea Toggle Group and Tiptap mark commands;
+Public/Only me uses the existing Dropdown Menu radio items. Bits UI owns keyboard
+selection, dismissal, focus and dialog presence. The formatting subscription
+follows editor transactions and is removed on teardown. Shared toggle variants
+have one owner, and Svelte's typed `createContext` replaces string keys,
+context assertions and unused orientation state.
+
+The review covered all accumulated composer changes, editor/publishing/media
+helpers, shared primitives and existing fixture/live journey selectors.
+Refactoring removes the duplicate close-animation timer and flags, retains only
+the reply/quote context for native dialog presence, and consolidates the
+character limit and options focus/scroll handling. Obsolete scroll callbacks
+cannot update a detached viewport or a superseded panel state. Editor CSS is
+scoped locally; the existing editor configuration already owns its focus
+outline. No wire schema, upload workflow or production deployment is changed.
+
+Compilation evidence: `pnpm check:front` reported zero errors and warnings in
+all six Svelte projects; `pnpm build:pages` built all five static applications.
+The updated live-journey script passed `node --check`, and `git diff --check`
+was clean. No functional/browser tests or hosted CI run were executed for this
+refactor. Vite retained the existing Rondo advisory for a chunk larger than
+500 kB; no size budget was changed.
+
 ## Remaining boundaries
 
 - No content E2EE, user-held decryption keys or system escrow lifecycle; Regado cases authorize existing plaintext data and notify/audit access.

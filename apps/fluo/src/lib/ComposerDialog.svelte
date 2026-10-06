@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Keeps the post composer open through its closing transition
+	// Bounds the composer layout and preserves drafts through its closing transition
 
 	import type { FluoApi } from "@kaordo/api-client";
 	import type { FluoPost } from "@kaordo/contracts";
@@ -24,44 +24,27 @@
 		onPublished: () => void;
 	} = $props();
 
-	let closing = $state(false);
-	let wasOpen = false;
-	let closingReply = $state<FluoPost | null>(null);
-	let closingQuote = $state<FluoPost | null>(null);
-	const visibleReply = $derived(open ? replyTo : closingReply);
-	const visibleQuote = $derived(open ? quoteTo : closingQuote);
+	let retainedReply = $state<FluoPost | null>(null);
+	let retainedQuote = $state<FluoPost | null>(null);
+	const visibleReply = $derived(open ? replyTo : retainedReply);
+	const visibleQuote = $derived(open ? quoteTo : retainedQuote);
 
+	// Bits UI owns unmounting; retain the context while its exit animation runs
 	$effect(() => {
-		if (open) {
-			wasOpen = true;
-			closing = false;
-			closingReply = replyTo;
-			closingQuote = quoteTo;
-			return;
-		}
-		if (!wasOpen) return;
-
-		closing = true;
-		const timer = setTimeout(() => {
-			closing = false;
-			wasOpen = false;
-		}, 180);
-		return () => clearTimeout(timer);
+		if (!open) return;
+		retainedReply = replyTo;
+		retainedQuote = quoteTo;
 	});
 </script>
 
 <Dialog.Root open={open} onOpenChange={onOpenChange}>
-	<Dialog.Content class="max-h-[90dvh] overflow-hidden p-2 sm:max-w-2xl">
-		<div class="kaordo-scrollbar min-w-0 max-h-[calc(90dvh-1rem)] overflow-y-auto p-2 sm:p-4">
-			<Dialog.Header class="mb-5 pr-12">
-				<Dialog.Title class="text-xl font-bold tracking-tight">
-					{visibleReply ? "Reply to post" : visibleQuote ? "Quote post" : "Create a post"}
-				</Dialog.Title>
-				<Dialog.Description class="sr-only">Write a post and optionally attach media or change post options.</Dialog.Description>
-			</Dialog.Header>
-			{#if open || closing}
-				<Composer {api} replyTo={visibleReply} quoteTo={visibleQuote} onPublished={onPublished} onCancel={onRemoveQuote} />
-			{/if}
-		</div>
+	<Dialog.Content class="flex max-h-[min(44rem,90dvh)] flex-col gap-5 overflow-hidden p-4 sm:max-w-2xl sm:p-6">
+		<Dialog.Header class="shrink-0 pr-12">
+			<Dialog.Title class="text-xl font-bold tracking-tight">
+				{visibleReply ? "Reply to post" : visibleQuote ? "Quote post" : "Create a post"}
+			</Dialog.Title>
+			<Dialog.Description class="sr-only">Write a post and optionally attach media or change post options.</Dialog.Description>
+		</Dialog.Header>
+		<Composer {api} replyTo={visibleReply} quoteTo={visibleQuote} onPublished={onPublished} onCancel={onRemoveQuote} />
 	</Dialog.Content>
 </Dialog.Root>

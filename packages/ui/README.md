@@ -2,7 +2,7 @@
 
 Shared STaSBLR components: Svelte/SvelteKit, Tailwind CSS, shadcn-svelte, Bits UI, Lucide and Rhea. Component source belongs here and is consumed by every app.
 
-Components remain wrappers/compositions of shadcn-svelte/Rhea and Bits UI rather than custom copies of their keyboard/focus behavior. Purpose comments and small helpers explain local style/slot behavior. Shared Bubble, Message, Attachment, Dialog, Context Menu, Dropdown Menu, Avatar, Input and Textarea primitives are consumed by product packages; application queries and access policy belong elsewhere.
+Components remain wrappers/compositions of shadcn-svelte/Rhea and Bits UI rather than custom copies of their keyboard/focus behavior. Purpose comments and small helpers explain local style/slot behavior. Shared Bubble, Message, Attachment, Dialog, Context Menu, Dropdown Menu, Toggle Group, Avatar, Input and Textarea primitives are consumed by product packages; application queries and access policy belong elsewhere.
 
 ## Appearance
 

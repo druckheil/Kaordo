@@ -982,12 +982,14 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     assert.equal(await composer.getByRole('button', { name: 'Bold' }).count(), 0,
       'Formatting controls must stay closed until requested');
     await composer.getByRole('button', { name: 'Post options' }).click();
-    await composer.getByRole('combobox', { name: 'Post visibility' }).selectOption('private');
-    await composer.getByRole('combobox', { name: 'Post visibility' }).selectOption('public');
+    await composer.getByRole('button', { name: 'Post visibility', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Only me', exact: true }).click();
+    await composer.getByRole('button', { name: 'Post visibility', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Public', exact: true }).click();
     await composer.getByRole('button', { name: 'Close post options' }).click();
     const postText = `Fluo image test ${randomBytes(4).toString('hex')}`;
     await composer.locator('[contenteditable=true]').fill(postText);
-    assert.equal(await composer.getByRole('combobox', { name: 'Post visibility' }).count(), 0,
+    assert.equal(await composer.getByRole('button', { name: 'Post visibility', exact: true }).count(), 0,
       'Typing must not reopen the optional post settings');
     const imageBase64 = await page.evaluate(() => {
       const canvas = document.createElement('canvas');
@@ -1260,7 +1262,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     await replyComposer.getByRole('button', { name: 'Post options' }).click();
     assert.equal(await replyComposer.getByRole('button', { name: 'Bold' }).count(), 1,
       'Replies must have the same optional formatting tools as posts');
-    assert.equal(await replyComposer.getByRole('combobox', { name: 'Post visibility' }).isDisabled(), true,
+    assert.equal(await replyComposer.getByRole('button', { name: 'Post visibility', exact: true }).isDisabled(), true,
       'Replies must inherit the original post visibility');
     await replyComposer.getByRole('button', { name: 'Close post options' }).click();
     await replyEditor.fill(replyText);
