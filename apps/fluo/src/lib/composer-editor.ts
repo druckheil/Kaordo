@@ -2,17 +2,20 @@
 
 import type { Editor } from "@tiptap/core";
 import type { FluoPost } from "@kaordo/contracts";
+import { composerMediaTypes } from "./composer-model";
 
 export function createComposerEditor(
 	element: HTMLDivElement,
 	replyTo: FluoPost | null,
 	onTextChange: (length: number) => void,
+	onFilesPaste: (files: File[]) => void,
 ): Promise<Editor> {
 	return Promise.all([
 		import("@tiptap/core"),
 		import("@tiptap/starter-kit"),
 		import("@tiptap/extension-placeholder"),
-	]).then(([{ Editor: EditorConstructor }, { default: StarterKit }, { Placeholder }]) => new EditorConstructor({
+		import("@tiptap/extension-file-handler"),
+	]).then(([{ Editor: EditorConstructor }, { default: StarterKit }, { Placeholder }, { FileHandler }]) => new EditorConstructor({
 		element,
 		extensions: [
 			StarterKit.configure({
@@ -30,6 +33,10 @@ export function createComposerEditor(
 			}),
 			Placeholder.configure({
 				placeholder: replyTo ? "Write a reply…" : "What would you like to share?",
+			}),
+			FileHandler.configure({
+				allowedMimeTypes: composerMediaTypes,
+				onPaste: (_editor, files) => onFilesPaste(files),
 			}),
 		],
 		content: { type: "doc", content: [{ type: "paragraph" }] },

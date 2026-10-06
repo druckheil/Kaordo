@@ -14,7 +14,7 @@ export default defineConfig({
 	envDir: '../..',
 	server: localViteServer('fluo'),
 	optimizeDeps: {
-		include: ['@tiptap/core', '@tiptap/extension-placeholder', '@tiptap/starter-kit']
+		include: ['@tiptap/core', '@tiptap/extension-file-handler', '@tiptap/extension-placeholder', '@tiptap/starter-kit']
 	},
 	plugins: [
 		tailwindcss(),

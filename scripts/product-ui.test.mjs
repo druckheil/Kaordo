@@ -127,6 +127,64 @@ test('Fluo preserves post history after reload and composes replies and quotes',
   assert.deepEqual(errors, [], 'No client runtime errors');
 });
 
+test('Fluo pastes media into the shared attachment queue and preserves text paste', { timeout: 60000 }, async (t) => {
+  const { page, origin, errors } = await startAppFixture(t, 'fluo');
+  await page.route('**/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const body = path === '/v1/session' || path === '/v1/me' ? actor : { items: [], nextCursor: null };
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  await page.goto(`${origin}/fluo/`);
+  await page.getByRole('button', { name: 'Post', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  const editor = dialog.locator('[contenteditable="true"]');
+  await editor.waitFor();
+  const attachments = dialog.getByRole('list', { name: 'Attachments', exact: true }).getByRole('listitem');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1c8AAAAASUVORK5CYII=', 'base64');
+  const clipboardImage = (name) => ({ name, type: 'image/png', bytes: [...png] });
+  const paste = (files = [], text = '', html = '') => editor.evaluate((element, input) => {
+    const clipboardData = new DataTransfer();
+    for (const { name, type, bytes } of input.files) {
+      clipboardData.items.add(new File([new Uint8Array(bytes)], name, { type }));
+    }
+    if (input.text) clipboardData.setData('text/plain', input.text);
+    if (input.html) clipboardData.setData('text/html', input.html);
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+  }, { files, text, html });
+
+  await paste([], 'Pasted text');
+  assert.equal(await editor.textContent(), 'Pasted text', 'Text-only paste follows the editor behavior');
+  await paste([clipboardImage('clipboard.png')], ' Caption bold', '<p> Caption <strong>bold</strong></p>');
+  await dialog.getByRole('button', { name: 'Remove clipboard.png', exact: true }).waitFor();
+  assert.equal(await attachments.count(), 1, 'A pasted image is attached once');
+  assert.equal(await editor.locator('strong').textContent(), 'bold', 'Rich text accompanying media retains its formatting');
+  assert.equal(await editor.locator('img').count(), 0, 'Media uses attachment previews rather than embedded editor nodes');
+
+  await paste([
+    { name: 'clipboard.webm', type: 'video/webm', bytes: [1, 2, 3] },
+    { name: 'notes.pdf', type: 'application/pdf', bytes: [4, 5, 6] },
+  ]);
+  await dialog.getByRole('button', { name: 'Remove clipboard.webm', exact: true }).waitFor();
+  assert.equal(await attachments.count(), 2, 'Supported videos are attached and unrelated files are ignored');
+
+  await dialog.getByLabel('Choose photos or videos', { exact: true }).setInputFiles([
+    { name: 'selected-1.png', mimeType: 'image/png', buffer: png },
+    { name: 'selected-2.png', mimeType: 'image/png', buffer: png },
+  ]);
+  assert.equal(await attachments.count(), 4, 'File selection and paste share one queue');
+  await paste([clipboardImage('overflow.png')]);
+  await dialog.getByRole('alert').waitFor();
+  assert.equal(await dialog.getByRole('alert').textContent(), 'Add at most 4 files.');
+  assert.equal(await attachments.count(), 4, 'Pasting cannot bypass the attachment limit');
+
+  await dialog.getByRole('button', { name: 'Remove clipboard.png', exact: true }).click();
+  await paste([clipboardImage('replacement.png')]);
+  await dialog.getByRole('button', { name: 'Remove replacement.png', exact: true }).waitFor();
+  assert.equal(await attachments.count(), 4, 'Removing an attachment frees a slot for paste');
+  assert.equal(await dialog.getByRole('alert').count(), 0, 'Successful paste clears the previous selection error');
+  assert.deepEqual(errors, [], 'No client runtime errors');
+});
+
 test('Ligo starts at the bottom, keeps rapid scrolling native and shares the composer', { timeout: 60000 }, async (t) => {
   const { page, origin, errors } = await startAppFixture(t, 'ligo');
   const conversation = { id: id(60), kind: 'duo', title: '', createdBy: actor.id, members: [actor, partner], lastMessage: null, unreadCount: 0, createdAt: now, updatedAt: now };

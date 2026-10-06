@@ -7,3 +7,12 @@ export interface ComposerAttachment {
 }
 
 export const maxComposerAttachments = 4;
+
+export const composerMediaTypes = [
+	"image/jpeg",
+	"image/png",
+	"image/webp",
+	"video/mp4",
+	"video/webm",
+	"video/quicktime",
+];

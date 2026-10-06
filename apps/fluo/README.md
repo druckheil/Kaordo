@@ -4,6 +4,8 @@ Independent SvelteKit social app. After the shared Kaordo account gate, it offer
 
 `@kaordo/api-client` owns typed Kerno requests and pagination policy. `@kaordo/media-client` resizes large images with Pica, uploads through Uppy/Tus to Nodo, and waits for validated media metadata before a post is created. PhotoSwipe handles still images and Vidstack handles processed MP4. All display text is rendered from safe structured Tiptap JSON without injecting user HTML.
 
+Tiptap FileHandler attaches pasted photos, screenshots, and videos when the browser exposes them as clipboard files. Pasting shares the media picker's supported formats, four-file limit, previews, descriptions, and upload path. Text paste remains handled by Tiptap; draft editing is disabled while publishing.
+
 The production static build is assembled by `pnpm build:pages:production` at the repository root.
 
 ## Code organization
