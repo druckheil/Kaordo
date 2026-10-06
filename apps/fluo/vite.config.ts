@@ -13,6 +13,9 @@ function runesModeForFile(filename: string): boolean | undefined {
 export default defineConfig({
 	envDir: '../..',
 	server: localViteServer('fluo'),
+	optimizeDeps: {
+		include: ['@tiptap/core', '@tiptap/extension-placeholder', '@tiptap/starter-kit']
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

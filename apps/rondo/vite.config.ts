@@ -9,6 +9,9 @@ import { localViteServer } from '../../scripts/local-vite.mjs';
 export default defineConfig({
 	envDir: '../..',
 	server: localViteServer('rondo'),
+	optimizeDeps: {
+		include: ['@kaordo/voice-client', '@kaordo/voice-client > livekit-client']
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

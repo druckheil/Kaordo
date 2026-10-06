@@ -35,7 +35,11 @@ func nativeLayoutPreview(device disk) []repartPartition {
 
 func TestBlankLayoutsUseDiskoForMixedAndBothExtremeAllocations(t *testing.T) {
 	device := disk{Path: "/dev/sdc", Type: "disk", Size: 10 * testGiB}
-	for _, allocation := range []struct{ system, storage int64 }{{testGiB, 8 * testGiB}, {10*testGiB - 4*partitionAlignment, 0}, {0, 10*testGiB - 2*partitionAlignment}} {
+	for _, allocation := range []struct{ system, storage int64 }{
+		{testGiB, 8 * testGiB},
+		{10*testGiB - bootMetadataBytes("uefi") - 4*partitionAlignment, 0},
+		{0, 10*testGiB - 2*partitionAlignment},
+	} {
 		plan := buildStoragePlan(device, layoutRequest{Device: device.Path, SystemBytes: allocation.system, StorageBytes: allocation.storage})
 		if !plan.Supported || plan.Backend != "disko" {
 			t.Fatalf("layout = %+v", plan)
@@ -73,7 +77,9 @@ func TestGeneratedDiskoDeclarationMatchesTheLiveToolFixture(t *testing.T) {
 		t.Fatal("update the live-tool fixture to match the exported declaration")
 	}
 	other := diskoDeclaration("/dev/sdc", "serial:another-disk", testGiB, 2*testGiB, "bios")
-	if strings.Contains(other, "02272746-730e-5859-a0e3-048ec3c83598") { t.Fatal("different disks share a System partition UUID") }
+	if strings.Contains(other, "02272746-730e-5859-a0e3-048ec3c83598") {
+		t.Fatal("different disks share a System partition UUID")
+	}
 }
 
 func TestPreparedStorageAreaCanBeActivatedWithoutFormatting(t *testing.T) {

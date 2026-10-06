@@ -259,9 +259,11 @@
 	}
 
 	.post-card-carousel-media :global([aria-roledescription="slide"]),
-	.post-card-carousel-media :global([data-slot="button"]) {
+	.post-card-carousel-media :global([data-slot="button"]),
+	.post-card-carousel-media :global([data-pswp-item]) {
 		position: relative;
 		z-index: 10;
+		pointer-events: auto;
 	}
 
 	@media (hover: none) {

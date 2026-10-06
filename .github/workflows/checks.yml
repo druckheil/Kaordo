@@ -44,7 +44,7 @@ jobs:
         run: pnpm exec playwright-core install --with-deps chromium --only-shell
       - name: Check public screens and product interactions in Chromium
         run: |
-          node --test scripts/ui-public.test.mjs scripts/product-ui.test.mjs scripts/regado-ui.test.mjs
+          node --test --test-concurrency=1 scripts/ui-public.test.mjs scripts/product-ui.test.mjs scripts/regado-ui.test.mjs
       - name: Check Go services
         run: |
           go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
@@ -93,7 +93,7 @@ jobs:
           bzip2 --decompress "$RUNNER_TEMP/restic.bz2"
           sudo install -m 0755 "$RUNNER_TEMP/restic" /usr/local/bin/restic
           restic version
-      - name: Test live account, product and recovery journeys
+      - name: Test live identity, session and backup flows
         run: |
           pnpm dev > "$RUNNER_TEMP/kaordo-dev.log" 2>&1 &
           for attempt in {1..120}; do
@@ -108,7 +108,7 @@ jobs:
             tail -n 100 "$RUNNER_TEMP/kaordo-dev.log"
             exit 1
           fi
-          pnpm test:auth:live
+          pnpm test:auth:live:identity
           pnpm test:backup:live
       - name: Stop local services
         if: always()

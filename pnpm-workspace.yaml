@@ -3,3 +3,4 @@ packages:
   - 'packages/*'
 overrides:
   'cookie@<0.7.0': 0.7.2
+  source-map-js: 1.2.2
