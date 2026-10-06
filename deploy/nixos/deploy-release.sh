@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Applies a checksummed full release with source and service rollback
+# Applies one verified frontend, backend and configuration snapshot with coordinated rollback
 set -euo pipefail
 
 release_id=${1:?release ID required}
@@ -26,23 +26,26 @@ temporary_root="$data_root/tmp"
 release_root="$data_root/releases/$release_id-full"
 backup_root="$data_root/rollbacks/$release_id-full"
 staging="$temporary_root/$release_id-full"
-lock="$temporary_root/full-deploy.lock"
+lock="$temporary_root/production-deploy.lock"
 origin="https://$origin_host"
 source_mutated=0
 binaries_mutated=0
+site_mutated=0
+identity_mutated=0
 node_runtime=
 previous_system=
+previous_site=
+previous_release=
+services=(caddy keycloak postgresql livekit kerno nodo regado-agent kaordo-system-volumes prometheus prometheus-node-exporter ddclient.timer)
 
 mkdir -p "$temporary_root" "$data_root/releases" "$data_root/rollbacks"
 if ! mkdir "$lock" 2>/dev/null; then
-  echo 'another full production deployment is already running' >&2
+  echo 'another production deployment is already running' >&2
   exit 1
 fi
 
 wait_for_http() {
-  local url=$1
-  local max_attempts=${2:-40}
-  local attempt=0
+  local url=$1 max_attempts=${2:-40} attempt=0
   while [[ "$attempt" -lt "$max_attempts" ]]; do
     if curl --fail --silent --max-time 3 -o /dev/null "$url"; then return 0; fi
     sleep 1
@@ -52,20 +55,29 @@ wait_for_http() {
   return 1
 }
 
+check_services() {
+  local service
+  for service in "${services[@]}"; do
+    systemctl is-active --quiet "$service" || {
+      printf 'required service is not active: %s\n' "$service" >&2
+      return 1
+    }
+  done
+  [[ -S /run/regado-agent/agent.sock ]] || {
+    echo 'Regado agent socket is missing' >&2
+    return 1
+  }
+}
+
 backup_source() {
-  local source=$1
-  local destination=$2
+  local source=$1 destination=$2
   mkdir -p "$(dirname "$destination")"
-  if [[ -e "$source" || -L "$source" ]]; then
-    cp -a "$source" "$destination"
-  else
-    touch "$destination.absent"
-  fi
+  if [[ -e "$source" || -L "$source" ]]; then cp -a "$source" "$destination";
+  else touch "$destination.absent"; fi
 }
 
 restore_source() {
-  local source=$1
-  local backup=$2
+  local source=$1 backup=$2
   rm -rf "$source"
   if [[ ! -e "$backup.absent" ]]; then
     mkdir -p "$(dirname "$source")"
@@ -74,42 +86,44 @@ restore_source() {
 }
 
 restore_release() {
-  local status=$?
+  local status=$? rollback_failed=0
   trap - EXIT
   set +e
-  if [[ "$status" -ne 0 ]]; then
-    if [[ "$binaries_mutated" -eq 1 || "$source_mutated" -eq 1 ]]; then
-      echo 'Full release failed; restoring the previous NixOS configuration and backend binaries.' >&2
-      systemctl stop kerno.service nodo.service regado-agent.service
-      if [[ "$binaries_mutated" -eq 1 ]]; then
-        for binary in kerno nodo regado-agent; do
-          cp -a "$backup_root/bin/$binary" "/srv/kaordo/bin/.$binary-rollback"
-          mv -f "/srv/kaordo/bin/.$binary-rollback" "/srv/kaordo/bin/$binary"
-        done
-      fi
-      if [[ "$source_mutated" -eq 1 ]]; then
-        restore_source /etc/nixos/deploy/nixos "$backup_root/etc-nixos/deploy/nixos"
-        restore_source /etc/nixos/deploy/postgres "$backup_root/etc-nixos/deploy/postgres"
-        restore_source /etc/nixos/deploy/keycloak "$backup_root/etc-nixos/deploy/keycloak"
-        restore_source /etc/nixos/scripts/sync-keycloak.mjs "$backup_root/etc-nixos/scripts/sync-keycloak.mjs"
-      fi
-      if [[ -n "$previous_system" && "$(readlink -f /run/current-system 2>/dev/null)" != "$previous_system" ]]; then
-        nixos-rebuild switch --rollback
-      fi
-      if [[ -n "$node_runtime" && -x "$node_runtime" ]]; then
-        wait_for_http http://127.0.0.1:8080/realms/master 120 || true
-        "$node_runtime" /etc/nixos/deploy/nixos/sync-keycloak-production.mjs || true
-      fi
-      systemctl restart kaordo-system-volumes.service || true
-      systemctl start regado-agent.service || true
-      systemctl start nodo.service || true
-      systemctl start kerno.service || true
-      wait_for_http http://127.0.0.1:8081/healthz || true
-      wait_for_http http://127.0.0.1:8082/healthz || true
-      echo 'Rollback attempt finished; inspect systemctl and the deployment log.' >&2
-    else
-      echo 'Full release failed before changing the host; no rollback was needed.' >&2
+  if [[ "$status" -ne 0 && "$source_mutated" -eq 1 ]]; then
+    echo 'Release failed; restoring the previous applications, configuration and identity policy.' >&2
+    if [[ "$site_mutated" -eq 1 ]]; then
+      ln -s "$previous_site" "$data_root/www/.rollback-$release_id" &&
+        mv -Tf "$data_root/www/.rollback-$release_id" "$data_root/www/current" || rollback_failed=1
+      if [[ -n "$previous_release" ]]; then
+        ln -s "$previous_release" "$data_root/releases/.rollback-$release_id" &&
+          mv -Tf "$data_root/releases/.rollback-$release_id" "$data_root/releases/current" || rollback_failed=1
+      else rm -f "$data_root/releases/current"; fi
     fi
+    systemctl stop kerno nodo regado-agent || rollback_failed=1
+    if [[ "$binaries_mutated" -eq 1 ]]; then
+      for binary in kerno nodo regado-agent; do
+        cp -a "$backup_root/bin/$binary" "$data_root/bin/.$binary-rollback" &&
+          mv -f "$data_root/bin/.$binary-rollback" "$data_root/bin/$binary" || rollback_failed=1
+      done
+    fi
+    for path in deploy/nixos deploy/postgres deploy/keycloak scripts/sync-keycloak.mjs; do
+      restore_source "/etc/nixos/$path" "$backup_root/etc-nixos/$path" || rollback_failed=1
+    done
+    if [[ "$(readlink -f /run/current-system)" != "$previous_system" ]]; then
+      nixos-rebuild switch --store-path "$previous_system" || rollback_failed=1
+    fi
+    if [[ "$identity_mutated" -eq 1 ]]; then
+      wait_for_http http://127.0.0.1:8080/realms/master 120 &&
+        "$node_runtime" "$release_root/etc/nixos/deploy/nixos/sync-keycloak-production.mjs" --restore "$backup_root/keycloak.json" || rollback_failed=1
+    fi
+    systemctl restart kaordo-system-volumes || rollback_failed=1
+    systemctl start regado-agent nodo kerno || rollback_failed=1
+    wait_for_http http://127.0.0.1:8081/healthz &&
+      wait_for_http http://127.0.0.1:8082/healthz && check_services || rollback_failed=1
+    if [[ "$rollback_failed" -eq 1 ]]; then echo 'Rollback needs operator attention; inspect the deployment log.' >&2;
+    else echo 'Previous release restored; forward-only database migrations are retained.' >&2; fi
+  elif [[ "$status" -ne 0 ]]; then
+    echo 'Release failed before changing the host.' >&2
   fi
   rm -rf "$staging"
   rm -f "$archive"
@@ -122,19 +136,14 @@ if [[ -e "$release_root" || -e "$backup_root" ]]; then
   echo 'release or rollback directory already exists' >&2
   exit 1
 fi
-for service in caddy keycloak postgresql kerno nodo regado-agent kaordo-system-volumes; do
-  systemctl is-active --quiet "$service.service" || {
-    printf 'required service is not active: %s\n' "$service" >&2
-    exit 1
-  }
-done
+check_services
 wait_for_http http://127.0.0.1:8081/healthz
 wait_for_http http://127.0.0.1:8082/healthz
 wait_for_http http://127.0.0.1:8080/realms/master 120
-[[ -S /run/regado-agent/agent.sock ]] || {
-  echo 'Regado agent socket is missing before deployment' >&2
-  exit 1
-}
+[[ -L "$data_root/www/current" && -d "$data_root/www/current" ]]
+previous_site=$(readlink "$data_root/www/current")
+previous_release=$(readlink "$data_root/releases/current" 2>/dev/null || true)
+previous_system=$(readlink -f /run/current-system)
 curl --location --fail --silent --show-error --max-time 15 \
   --resolve "$origin_host:443:127.0.0.1" "$origin/realms/$auth_realm/.well-known/openid-configuration" -o /dev/null
 
@@ -147,92 +156,75 @@ if tar -tzf "$archive" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null; then
   echo 'release archive contains an unsafe path' >&2
   exit 1
 fi
-
 mkdir "$staging"
 tar -xzf "$archive" -C "$staging" --no-same-owner
-for path in bin/kerno bin/nodo bin/regado-agent etc/nixos/deploy/nixos/kaordo.nix \
-  etc/nixos/deploy/postgres/013_fluo_saved_post_counts.sql \
-  etc/nixos/deploy/keycloak/registration-profile.json \
-  etc/nixos/scripts/sync-keycloak.mjs; do
-  [[ -s "$staging/$path" ]] || {
-    printf 'release is missing required file: %s\n' "$path" >&2
-    exit 1
-  }
+for path in bin/kerno bin/nodo bin/regado-agent manifest.json site/index.html \
+  etc/nixos/deploy/nixos/kaordo.nix etc/nixos/deploy/nixos/verify-release.mjs \
+  etc/nixos/deploy/nixos/sync-keycloak-production.mjs etc/nixos/scripts/sync-keycloak.mjs; do
+  [[ -s "$staging/$path" ]] || { printf 'release is missing %s\n' "$path" >&2; exit 1; }
 done
-
-mkdir "$release_root" "$backup_root"
-mkdir -p "$release_root/bin" "$backup_root/bin"
-for binary in kerno nodo regado-agent; do
-  install -o root -g root -m 0755 "$staging/bin/$binary" "$release_root/bin/$binary"
-  cp -a "/srv/kaordo/bin/$binary" "$backup_root/bin/$binary"
-done
-previous_system=$(readlink -f /run/current-system)
+mv "$staging" "$release_root"
+mkdir -m 0700 "$backup_root"
+mkdir "$backup_root/bin"
+for binary in kerno nodo regado-agent; do cp -a "$data_root/bin/$binary" "$backup_root/bin/$binary"; done
 printf '%s\n' "$previous_system" > "$backup_root/nixos-system"
-backup_source /etc/nixos/deploy/nixos "$backup_root/etc-nixos/deploy/nixos"
-backup_source /etc/nixos/deploy/postgres "$backup_root/etc-nixos/deploy/postgres"
-backup_source /etc/nixos/deploy/keycloak "$backup_root/etc-nixos/deploy/keycloak"
-backup_source /etc/nixos/scripts/sync-keycloak.mjs "$backup_root/etc-nixos/scripts/sync-keycloak.mjs"
+printf '%s\n' "$previous_site" > "$backup_root/site-target"
+for path in deploy/nixos deploy/postgres deploy/keycloak scripts/sync-keycloak.mjs; do
+  backup_source "/etc/nixos/$path" "$backup_root/etc-nixos/$path"
+done
 
 source_mutated=1
 for path in deploy/nixos deploy/postgres deploy/keycloak; do
   rm -rf "/etc/nixos/$path"
   mkdir -p "$(dirname "/etc/nixos/$path")"
-  cp -a "$staging/etc/nixos/$path" "/etc/nixos/$path"
+  cp -a "$release_root/etc/nixos/$path" "/etc/nixos/$path"
 done
-rm -f /etc/nixos/scripts/sync-keycloak.mjs
 mkdir -p /etc/nixos/scripts
-cp -a "$staging/etc/nixos/scripts/sync-keycloak.mjs" /etc/nixos/scripts/sync-keycloak.mjs
+cp -a "$release_root/etc/nixos/scripts/sync-keycloak.mjs" /etc/nixos/scripts/sync-keycloak.mjs
 
-nixos-rebuild build --out-link "$release_root/nixos-system"
+(cd "$release_root" && nixos-rebuild build)
+mv "$release_root/result" "$release_root/nixos-system"
+node_runtime="$release_root/nixos-system/sw/bin/node"
+[[ -x "$node_runtime" ]]
+"$node_runtime" "$release_root/etc/nixos/deploy/nixos/verify-release.mjs" payload "$release_root" "$release_id" "$origin" "$auth_realm"
+"$node_runtime" "$release_root/etc/nixos/deploy/nixos/sync-keycloak-production.mjs" --snapshot "$backup_root/keycloak.json"
 bash /etc/nixos/deploy/nixos/apply-migrations.sh /etc/nixos/deploy/postgres
 
 for binary in kerno nodo regado-agent; do
-  install -o root -g root -m 0755 "$release_root/bin/$binary" "/srv/kaordo/bin/.$binary-new"
+  install -o root -g root -m 0755 "$release_root/bin/$binary" "$data_root/bin/.$binary-new"
 done
 binaries_mutated=1
-for binary in kerno nodo regado-agent; do
-  mv -f "/srv/kaordo/bin/.$binary-new" "/srv/kaordo/bin/$binary"
-done
-
-nixos-rebuild switch
-node_runtime=$(readlink -f "$(command -v node)")
-systemctl restart kaordo-system-volumes.service
-systemctl restart regado-agent.service
-systemctl restart nodo.service
-systemctl restart kerno.service
+for binary in kerno nodo regado-agent; do mv -f "$data_root/bin/.$binary-new" "$data_root/bin/$binary"; done
+nixos-rebuild switch --store-path "$(readlink -f "$release_root/nixos-system")"
+[[ "$(readlink -f /run/current-system)" == "$(readlink -f "$release_root/nixos-system")" ]]
+systemctl restart kaordo-system-volumes
+systemctl restart regado-agent
+systemctl restart nodo
+systemctl restart kerno
 wait_for_http http://127.0.0.1:8080/realms/master 120
+identity_mutated=1
 "$node_runtime" /etc/nixos/deploy/nixos/sync-keycloak-production.mjs
-
-for service in caddy keycloak postgresql kerno nodo regado-agent kaordo-system-volumes; do
-  systemctl is-active --quiet "$service.service" || {
-    printf 'service failed after deployment: %s\n' "$service" >&2
-    exit 1
-  }
-done
-[[ -S /run/regado-agent/agent.sock ]] || {
-  echo 'Regado agent socket is missing after deployment' >&2
-  exit 1
-}
 wait_for_http http://127.0.0.1:8081/healthz
 wait_for_http http://127.0.0.1:8082/healthz
-curl --location --fail --silent --show-error --max-time 15 \
-  --resolve "$origin_host:443:127.0.0.1" "$origin/realms/$auth_realm/.well-known/openid-configuration" -o /dev/null
-thread_status=$(curl --silent --show-error --max-time 10 -o /dev/null -w '%{http_code}' \
-  --resolve "$origin_host:443:127.0.0.1" "$origin/v1/fluo/posts/01a10fd2-692b-7966-be35-037f86108801/thread")
-if [[ "$thread_status" != 401 ]]; then
-  printf 'Fluo thread route returned HTTP %s without a token; expected 401.\n' "$thread_status" >&2
-  exit 1
-fi
+check_services
+for binary in kerno nodo regado-agent; do
+  pid=$(systemctl show "$binary" -p MainPID --value)
+  [[ "$pid" -gt 0 ]]
+  [[ "$(sha256sum "/proc/$pid/exe" | cut -d' ' -f1)" == "$(sha256sum "$data_root/bin/$binary" | cut -d' ' -f1)" ]]
+done
 
-source_commit=$(sed -n 's/^Source commit: //p' "$staging/RELEASE.txt")
-printf 'source_commit=%s\nrelease=%s\nthread_route_without_token=%s\n' \
-  "$source_commit" "$release_id" "$thread_status" \
-  > "$release_root/RELEASE.txt"
+chmod -R a+rX "$release_root/site"
+site_mutated=1
+ln -s "../releases/$release_id-full/site" "$data_root/www/.current-$release_id"
+mv -Tf "$data_root/www/.current-$release_id" "$data_root/www/current"
+ln -s "$release_id-full" "$data_root/releases/.current-$release_id"
+mv -Tf "$data_root/releases/.current-$release_id" "$data_root/releases/current"
+"$node_runtime" /etc/nixos/deploy/nixos/verify-release.mjs live "$release_root" "$release_id" "$origin" "$auth_realm"
+
 source_mutated=0
 binaries_mutated=0
-trap - EXIT
-rm -rf "$staging"
+site_mutated=0
+identity_mutated=0
 rm -f "$archive"
-rmdir "$lock"
-printf 'active_backend_release=%s\nprevious_nixos_system=%s\n' "$release_root" "$previous_system"
-sha256sum /srv/kaordo/bin/kerno /srv/kaordo/bin/nodo /srv/kaordo/bin/regado-agent
+printf 'active_full_release=%s\nprevious_nixos_system=%s\n' "$release_root" "$previous_system"
+sha256sum "$data_root/bin/kerno" "$data_root/bin/nodo" "$data_root/bin/regado-agent"

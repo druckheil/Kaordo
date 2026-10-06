@@ -1,10 +1,10 @@
 // Builds, validates and atomically deploys the static production applications
-import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { getSourceState, root, run, sshArguments, validateTarget } from './deploy-support.mjs';
+import { assertSourceState, getSourceState, root, run, sshArguments, validateTarget } from './deploy-support.mjs';
 
 async function createRelease(source, origin) {
   const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
@@ -22,7 +22,7 @@ async function createRelease(source, origin) {
       [
         'Kaordo static frontend release',
         `Release: ${release}`,
-        `Source commit: ${source.commit}`,
+        `Source commit: ${source.revision}`,
         `Working tree dirty: ${source.dirty}`,
         `Public origin: ${origin.origin}`,
         `Built at: ${new Date().toISOString()}`,
@@ -39,24 +39,20 @@ async function createRelease(source, origin) {
   }
 }
 
-export async function deployPages({ allowDirty = false, pagesAlreadyBuilt = false } = {}) {
+export async function deployPages({ allowDirty = false } = {}) {
   const { host, origin, realm } = validateTarget();
   const source = await getSourceState(allowDirty);
   const ssh = await sshArguments();
   await run('ssh', [...ssh, host, 'sudo -n true']);
-  if (pagesAlreadyBuilt) {
-    await access(join(root, 'dist/pages/index.html'));
-    await access(join(root, 'dist/pages/silent-check-sso.html'));
-  } else {
-    await run('pnpm', ['test:pages:production']);
-  }
+  await run('pnpm', ['test:pages:production']);
 
   const release = await createRelease(source, origin);
+  await assertSourceState(source);
   const remoteArchive = `/tmp/kaordo-${release.release}.tar.gz`;
   try {
     await run('scp', [...ssh, release.artifact, `${host}:${remoteArchive}`]);
     const remoteScript = await readFile(join(root, 'deploy/nixos/deploy-static.sh'), 'utf8');
-    const remoteCommand = `sudo -n bash -s -- ${release.release} ${release.hash} ${origin.hostname} ${realm} ${remoteArchive}`;
+    const remoteCommand = `sudo -n bash -s -- ${release.release} ${release.hash} ${origin.hostname} ${realm} ${remoteArchive} ${source.revision}`;
     await run('ssh', [...ssh, host, remoteCommand], { input: remoteScript });
     process.stdout.write(`Deployed ${release.release} to ${host}\n`);
   } finally {

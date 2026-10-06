@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { addPasswordConfirmation } from '../deploy/keycloak/themes/kaordo/login/resources/js/register.js';
-import { syncKeycloak, syncRealmSecurity, syncWebClientSecurity } from './sync-keycloak.mjs';
+import { restoreKeycloak, snapshotKeycloak, syncKeycloak, syncRealmSecurity, syncWebClientSecurity } from './sync-keycloak.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const realm = JSON.parse(readFileSync(resolve(root, 'deploy/keycloak/kaordo-realm.json'), 'utf8'));
@@ -166,7 +166,7 @@ test('web client security sync removes short session overrides and preserves unr
       attributes = update.attributes;
       return new Response(null, { status: 204 });
     }
-    return Response.json({ attributes });
+    return Response.json({ ...web, attributes });
   };
   await syncWebClientSecurity(fetcher, adminBase, {}, 'web-id', web);
   assert.deepEqual(attributes, { ...web.attributes, custom: 'keep' });
@@ -176,8 +176,23 @@ test('web client security sync removes short session overrides and preserves unr
 
 test('web client security sync rejects an ignored policy update', async () => {
   await assert.rejects(syncWebClientSecurity(async () => Response.json({
-    attributes: { ...web.attributes, 'client.session.max.lifespan': '7200' }
+    ...web, attributes: { ...web.attributes, 'client.session.max.lifespan': '7200' }
   }), adminBase, {}, 'web-id', web), /did not apply the required web client security policy/);
+});
+
+test('production client reconciliation removes local redirects and restores PKCE login policy', async () => {
+  const production = JSON.parse(readFileSync(resolve(root, 'deploy/nixos/kaordo-realm.json'), 'utf8').replaceAll('${KAORDO_SITE_ORIGIN}', 'https://kaordo.link'));
+  const desired = production.clients.find((client) => client.clientId === 'kaordo-web');
+  let current = { ...web, publicClient: false, standardFlowEnabled: false, directAccessGrantsEnabled: true };
+  await syncWebClientSecurity(async (url, options = {}) => {
+    if (options.method === 'PUT') { current = { ...current, ...JSON.parse(options.body) }; return new Response(null, { status: 204 }); }
+    return Response.json(current);
+  }, adminBase, {}, 'web-id', desired);
+  assert.deepEqual(current.redirectUris, ['https://kaordo.link/*']);
+  assert.deepEqual(current.webOrigins, ['https://kaordo.link']);
+  assert.equal(current.publicClient, true);
+  assert.equal(current.standardFlowEnabled, true);
+  assert.equal(current.directAccessGrantsEnabled, false);
 });
 
 test('new users must configure TOTP before login completes', () => {
@@ -447,4 +462,47 @@ test('realm security sync fails closed when recovery action is unavailable', asy
 test('realm security sync verifies effective policy after an ignored update', async () => {
   const mock = securityMock({ ignoreRealmUpdate: true });
   await assert.rejects(syncRealmSecurity(mock.fetcher, adminBase, {}, realm), /did not apply the required realm security policy/);
+});
+
+test('identity rollback restores observed policy, overrides, flows and scopes without user data or credentials', async () => {
+  const mock = securityMock();
+  let client = { ...web, attributes: { ...web.attributes, 'client.session.idle.timeout': '1800' } };
+  let profile = { attributes: [{ name: 'username' }] };
+  let scopes = [{ id: 'profile-id', name: 'profile' }];
+  let mappers = [];
+  const fetcher = async (url, options = {}) => {
+    const method = options.method || 'GET';
+    if (url.endsWith('/protocol/openid-connect/token')) return Response.json({ access_token: 'fixture-token' });
+    if (url.endsWith('/clients?clientId=kaordo-web')) return Response.json([{ clientId: 'kaordo-web', id: 'web-id' }]);
+    if (url === `${adminBase}/clients/web-id`) {
+      if (method === 'PUT') { client = { ...client, ...JSON.parse(options.body) }; return new Response(null, { status: 204 }); }
+      return Response.json(client);
+    }
+    if (url.endsWith('/users/profile')) {
+      if (method === 'PUT') { profile = JSON.parse(options.body); return new Response(null, { status: 204 }); }
+      return Response.json(profile);
+    }
+    if (url.endsWith('/protocol-mappers/models')) return Response.json(mappers);
+    if (url.endsWith('/protocol-mappers/models/new-mapper') && method === 'DELETE') { mappers = []; return new Response(null, { status: 204 }); }
+    if (url.endsWith('/default-client-scopes')) return Response.json(scopes);
+    if (url.endsWith('/default-client-scopes/basic-id') && method === 'DELETE') { scopes = scopes.filter((item) => item.id !== 'basic-id'); return new Response(null, { status: 204 }); }
+    return mock.fetcher(url, options);
+  };
+  const credential = { KEYCLOAK_ADMIN_USERNAME: 'admin', KEYCLOAK_ADMIN_PASSWORD: 'fixture-private-password' };
+  const snapshot = await snapshotKeycloak(credential, fetcher);
+  assert.doesNotMatch(JSON.stringify(snapshot), /fixture-token|fixture-private-password|unrelatedSetting/);
+  await syncRealmSecurity(fetcher, adminBase, {}, realm);
+  await syncWebClientSecurity(fetcher, adminBase, {}, 'web-id', web);
+  scopes.push({ id: 'basic-id', name: 'basic' });
+  mappers.push({ id: 'new-mapper', name: 'kerno-api-audience' });
+  profile = registrationProfile;
+  await restoreKeycloak(credential, snapshot, fetcher);
+  assert.equal(mock.current().rememberMe, false);
+  assert.equal(mock.current().ssoSessionIdleTimeout, 1800);
+  assert.equal(client.attributes['client.session.idle.timeout'], '1800');
+  assert.deepEqual(scopes, snapshot.scopes);
+  assert.deepEqual(profile, snapshot.profile);
+  assert.deepEqual(mappers, []);
+  assert.ok(mock.executions.every((item) => item.requirement === 'DISABLED'));
+  assert.ok(mock.actions.every((item) => !item.enabled && !item.defaultAction));
 });
