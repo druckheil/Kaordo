@@ -1,5 +1,6 @@
 // Shares guarded process, target, source and SSH setup across production deploys
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
@@ -40,13 +41,28 @@ export function validateTarget(host = process.env.KAORDO_DEPLOY_HOST) {
   return { host, origin, realm };
 }
 
-export async function getSourceState(allowDirty = false) {
-  const commit = await run('git', ['rev-parse', '--short=12', 'HEAD'], { capture: true });
-  const changes = await run('git', ['status', '--porcelain', '--untracked-files=normal'], { capture: true });
+export async function getSourceState(allowDirty = false, cwd = root) {
+  const revision = await run('git', ['rev-parse', 'HEAD'], { capture: true, cwd });
+  const changes = await run('git', ['status', '--porcelain', '--untracked-files=normal'], { capture: true, cwd });
   if (changes && !allowDirty) {
     throw new Error('Working tree is not clean. Commit the release or pass --allow-dirty deliberately.');
   }
-  return { commit, dirty: Boolean(changes) };
+  const fingerprint = createHash('sha256').update(revision).update(changes);
+  if (changes) {
+    fingerprint.update(await run('git', ['diff', '--binary', 'HEAD'], { capture: true, cwd }));
+    const untracked = await run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { capture: true, cwd });
+    for (const path of untracked.split('\0').filter(Boolean).sort()) {
+      fingerprint.update(path).update(await readFile(join(cwd, path)));
+    }
+  }
+  return { commit: revision.slice(0, 12), revision, dirty: Boolean(changes), fingerprint: fingerprint.digest('hex') };
+}
+
+export async function assertSourceState(expected, cwd = root) {
+  const actual = await getSourceState(expected.dirty, cwd);
+  if (actual.fingerprint !== expected.fingerprint) {
+    throw new Error('Release source changed during the build. Restart deployment from one unchanged Git snapshot.');
+  }
 }
 
 export async function sshArguments() {

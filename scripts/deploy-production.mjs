@@ -1,11 +1,10 @@
 // Builds and deploys a complete Kaordo production release in dependency order
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { deployPages } from './deploy-pages.mjs';
-import { getSourceState, root, run, sshArguments, validateTarget } from './deploy-support.mjs';
+import { assertSourceState, getSourceState, root, run, sshArguments, validateTarget } from './deploy-support.mjs';
 
 const goPackages = [
   ['kerno', './services/kerno/cmd/kerno'],
@@ -50,7 +49,19 @@ async function copyReleaseSources(bundle) {
   }
 }
 
-async function buildReleaseBundle(source) {
+async function payloadHashes(directory, prefix = '') {
+  const hashes = {};
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) Object.assign(hashes, await payloadHashes(path, relative));
+    else if (entry.isFile()) hashes[relative] = createHash('sha256').update(await readFile(path)).digest('hex');
+    else throw new Error(`Unsupported release entry: ${relative}`);
+  }
+  return hashes;
+}
+
+async function buildReleaseBundle(source, target) {
   const metadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   const id = releaseId(metadata.version, source);
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'kaordo-full-release-'));
@@ -60,6 +71,7 @@ async function buildReleaseBundle(source) {
   try {
     await mkdir(binaryDirectory, { recursive: true });
     await copyReleaseSources(bundle);
+    await cp(join(root, 'dist/pages'), join(bundle, 'site'), { recursive: true });
 
     const buildEnvironment = { ...process.env, GOOS: 'linux', GOARCH: 'amd64', CGO_ENABLED: '0' };
     for (const [name, packagePath] of goPackages) {
@@ -73,15 +85,25 @@ async function buildReleaseBundle(source) {
       [
         'Kaordo full production release',
         `Release: ${id}`,
-        `Source commit: ${source.commit}`,
+        `Source commit: ${source.revision}`,
         `Working tree dirty: ${source.dirty}`,
         `Built at: ${new Date().toISOString()}`,
-        'Includes static application source configuration, migrations and Linux amd64 backend binaries.',
+        'Includes static applications, NixOS configuration, Keycloak, migrations and Linux amd64 backend binaries.',
         'Runtime credentials are read from the production host and are not part of this artifact.',
         ''
       ].join('\n')
     );
-    await run('tar', ['-czf', artifact, '-C', bundle, 'bin', 'etc', 'RELEASE.txt']);
+    await writeFile(join(bundle, 'manifest.json'), JSON.stringify({
+      format: 1,
+      release: id,
+      sourceCommit: source.revision,
+      workingTreeDirty: source.dirty,
+      origin: target.origin.origin,
+      realm: target.realm,
+      files: await payloadHashes(bundle)
+    }, null, 2) + '\n');
+    await assertSourceState(source);
+    await run('tar', ['-czf', artifact, '-C', bundle, 'bin', 'etc', 'site', 'RELEASE.txt', 'manifest.json']);
     const hash = createHash('sha256').update(await readFile(artifact)).digest('hex');
     return { id, artifact, hash, temporaryDirectory };
   } catch (error) {
@@ -90,7 +112,7 @@ async function buildReleaseBundle(source) {
   }
 }
 
-async function deployBackend(release, target, ssh) {
+async function deployRelease(release, target, ssh) {
   const remoteArchive = `/tmp/kaordo-${release.id}-full.tar.gz`;
   const remoteScript = await readFile(join(root, 'deploy/nixos/deploy-release.sh'), 'utf8');
   const remoteCommand = [
@@ -113,6 +135,9 @@ async function deployBackend(release, target, ssh) {
 async function main() {
   const { allowDirty } = parseOptions(process.argv.slice(2));
   const target = validateTarget();
+  if (target.origin.origin !== 'https://kaordo.link' || target.realm !== 'kaordo') {
+    throw new Error('The NixOS production configuration declares https://kaordo.link and the kaordo realm.');
+  }
   const source = await getSourceState(allowDirty);
   const ssh = await sshArguments();
   await run('ssh', [...ssh, target.host, 'sudo -n true']);
@@ -125,20 +150,13 @@ async function main() {
   await run('node', ['--check', join(root, 'scripts/deploy-production.mjs')]);
   await run('node', ['--check', join(root, 'scripts/deploy-support.mjs')]);
   await run('bash', ['-n', join(root, 'deploy/nixos/deploy-release.sh')]);
+  await run('pnpm', ['test:deploy']);
+  await run('pnpm', ['test:auth']);
 
   process.stdout.write('Building Linux backend release…\n');
-  const release = await buildReleaseBundle(source);
-  process.stdout.write(`Deploying backend, configuration and migrations as ${release.id}…\n`);
-  await deployBackend(release, target, ssh);
-
-  process.stdout.write('Deploying the verified static frontend…\n');
-  try {
-    await deployPages({ allowDirty, pagesAlreadyBuilt: true });
-  } catch (error) {
-    throw new Error(
-      `Backend release ${release.id} is active, but the frontend deploy failed; the previous frontend remains active. ${error.message}`
-    );
-  }
+  const release = await buildReleaseBundle(source, target);
+  process.stdout.write(`Deploying the complete release ${release.id} from ${source.revision}…\n`);
+  await deployRelease(release, target, ssh);
   process.stdout.write(`Full production release ${release.id} is active on ${target.host}.\n`);
 }
 

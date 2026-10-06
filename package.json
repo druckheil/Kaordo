@@ -28,6 +28,7 @@
     "test:pages:production": "pnpm build:pages:production && node --test scripts/pages-production.test.mjs && node --check scripts/deploy-pages.mjs && bash -n deploy/nixos/deploy-static.sh",
     "deploy:pages:production": "node scripts/deploy-pages.mjs",
     "deploy:production": "node scripts/deploy-production.mjs",
+    "test:deploy": "node --test scripts/deploy-production.test.mjs",
     "check:front": "pnpm -r --filter \"@kaordo/*\" check",
     "test:pages": "pnpm build:pages && node --test scripts/pages.test.mjs scripts/build-pages-config.test.mjs",
     "test:ui-layout": "node --test scripts/media-layout.test.mjs scripts/ligo-message-layout.test.mjs",

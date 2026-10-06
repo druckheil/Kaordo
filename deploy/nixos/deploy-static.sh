@@ -7,12 +7,13 @@ expected_hash=${2:?archive hash required}
 origin_host=${3:?public hostname required}
 auth_realm=${4:?Keycloak realm required}
 archive=${5:?release archive required}
+source_commit=${6:?source commit required}
 
 if [[ ! "$release_id" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z0-9-]+-pages-[0-9TZ-]+(-dirty)?$ ]]; then
   echo 'invalid release id' >&2
   exit 2
 fi
-if [[ ! "$expected_hash" =~ ^[a-f0-9]{64}$ || ! "$origin_host" =~ ^[A-Za-z0-9.-]+$ || ! "$auth_realm" =~ ^[A-Za-z0-9._-]+$ ]]; then
+if [[ ! "$expected_hash" =~ ^[a-f0-9]{64}$ || ! "$source_commit" =~ ^[a-f0-9]{40}$ || ! "$origin_host" =~ ^[A-Za-z0-9.-]+$ || ! "$auth_realm" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo 'invalid release verification parameters' >&2
   exit 2
 fi
@@ -20,7 +21,7 @@ fi
 web_root=/srv/kaordo/www
 release_root="$web_root/releases/$release_id"
 temporary_root=/srv/kaordo/tmp
-lock="$temporary_root/static-deploy.lock"
+lock="$temporary_root/production-deploy.lock"
 metadata_root=/srv/kaordo/releases
 rollback_root=/srv/kaordo/rollbacks
 previous_target=
@@ -44,12 +45,18 @@ restore_on_failure() {
 }
 trap restore_on_failure EXIT
 
+if [[ ! -s /srv/kaordo/releases/current/RELEASE.txt ]] ||
+  [[ "$(sed -n 's/^Source commit: //p' /srv/kaordo/releases/current/RELEASE.txt)" != "$source_commit" ]]; then
+  echo 'Backend/configuration release differs from this frontend. Run deploy:production first.' >&2
+  exit 1
+fi
+
 if [[ ! -L "$web_root/current" ]]; then
   echo 'current site is not a release symlink' >&2
   exit 1
 fi
 previous_target=$(readlink "$web_root/current")
-if [[ "$previous_target" != releases/* || ! -d "$web_root/$previous_target" ]]; then
+if [[ ( "$previous_target" != releases/* && "$previous_target" != ../releases/*-full/site ) || ! -d "$web_root/$previous_target" ]]; then
   echo 'current site does not point to a valid release' >&2
   exit 1
 fi

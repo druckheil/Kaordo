@@ -1,4 +1,4 @@
-// Synchronizes local Keycloak settings with the repository configuration
+// Reconciles Keycloak policy and captures managed identity settings for release rollback
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,12 +7,17 @@ import { parseEnv } from 'node:util';
 const root = resolve(import.meta.dirname, '..');
 
 const securityFields = [
+  'enabled', 'displayName', 'loginTheme',
   'rememberMe', 'accessTokenLifespan', 'ssoSessionIdleTimeout', 'ssoSessionMaxLifespan',
   'ssoSessionIdleTimeoutRememberMe', 'ssoSessionMaxLifespanRememberMe',
   'clientSessionIdleTimeout', 'clientSessionMaxLifespan', 'revokeRefreshToken', 'refreshTokenMaxReuse',
   'registrationAllowed', 'registrationEmailAsUsername', 'loginWithEmailAllowed',
   'verifyEmail', 'resetPasswordAllowed', 'bruteForceProtected', 'failureFactor',
   'passwordPolicy', 'otpPolicyType', 'otpPolicyAlgorithm', 'otpPolicyDigits', 'otpPolicyPeriod'
+];
+const clientFields = [
+  'enabled', 'protocol', 'publicClient', 'standardFlowEnabled', 'implicitFlowEnabled',
+  'directAccessGrantsEnabled', 'serviceAccountsEnabled'
 ];
 const inheritedTokenAttributes = ['access.token.lifespan', 'client.session.idle.timeout', 'client.session.max.lifespan'];
 const requiredFlowExecutions = ['OTP Form', 'Recovery Authentication Code Form'];
@@ -35,7 +40,7 @@ async function requireUpdate(fetcher, url, headers, method, value, label) {
 }
 
 function differsFrom(current, desired) {
-  return Object.entries(desired).some(([field, value]) => current[field] !== value);
+  return Object.entries(desired).some(([field, value]) => JSON.stringify(current[field]) !== JSON.stringify(value));
 }
 
 async function ensureRequiredAction(fetcher, adminBase, authorization, desiredAction) {
@@ -122,7 +127,7 @@ async function signInAsAdministrator(fetcher, identityOrigin, privateConfig) {
     }),
     signal: AbortSignal.timeout(10_000)
   });
-  if (!response.ok) throw new Error(`Keycloak administrator sign-in failed (${response.status}). Check deploy/local/.env.`);
+  if (!response.ok) throw new Error(`Keycloak administrator sign-in failed (${response.status}). Check the configured administrator credential.`);
   const { access_token: accessToken } = await response.json();
   if (!accessToken) throw new Error('Keycloak did not issue an administrator token.');
   return { Authorization: `Bearer ${accessToken}` };
@@ -140,15 +145,20 @@ export async function syncWebClientSecurity(fetcher, adminBase, authorization, c
   const current = await requireJSON(fetcher, clientUrl, authorization, 'web client policy lookup');
   const attributes = { ...current.attributes, ...desiredClient.attributes };
   for (const name of inheritedTokenAttributes) delete attributes[name];
+  const desired = { attributes };
+  for (const field of [...clientFields, 'redirectUris', 'webOrigins']) {
+    const value = desiredClient[field];
+    if (value !== undefined && !JSON.stringify(value).includes('${')) desired[field] = value;
+  }
 
   const needsUpdate = inheritedTokenAttributes.some((name) => name in (current.attributes ?? {})) ||
-    differsFrom(current.attributes ?? {}, attributes);
+    differsFrom(current, desired);
   if (!needsUpdate) return;
 
-  await requireUpdate(fetcher, clientUrl, authorization, 'PUT', { attributes }, 'web client policy update');
+  await requireUpdate(fetcher, clientUrl, authorization, 'PUT', desired, 'web client policy update');
   const actual = await requireJSON(fetcher, clientUrl, authorization, 'web client policy verification');
   if (inheritedTokenAttributes.some((name) => name in (actual.attributes ?? {})) ||
-      differsFrom(actual.attributes ?? {}, attributes)) {
+      differsFrom(actual, desired)) {
     throw new Error('Keycloak did not apply the required web client security policy.');
   }
 }
@@ -210,7 +220,9 @@ async function verifyExampleTokenClaims(fetcher, adminBase, authorization, clien
   }
 }
 
-export async function syncKeycloak(privateConfig, fetcher = fetch, identityOrigin = 'http://127.0.0.1:8080') {
+export async function syncKeycloak(privateConfig, fetcher = fetch, identityOrigin = 'http://127.0.0.1:8080', {
+  realmPath = resolve(root, 'deploy/keycloak/kaordo-realm.json'), siteOrigin
+} = {}) {
   const authorization = await signInAsAdministrator(fetcher, identityOrigin, privateConfig);
 
   const profileJson = await readFile(resolve(root, 'deploy/keycloak/registration-profile.json'), 'utf8');
@@ -222,7 +234,8 @@ export async function syncKeycloak(privateConfig, fetcher = fetch, identityOrigi
   });
   if (!response.ok) throw new Error(`Keycloak rejected the registration profile (${response.status}).`);
 
-  const realm = JSON.parse(await readFile(resolve(root, 'deploy/keycloak/kaordo-realm.json'), 'utf8'));
+  const realmSource = await readFile(realmPath, 'utf8');
+  const realm = JSON.parse(siteOrigin ? realmSource.replaceAll('${KAORDO_SITE_ORIGIN}', siteOrigin) : realmSource);
   const webClient = realm.clients.find((client) => client.clientId === 'kaordo-web');
   const desiredMapper = webClient?.protocolMappers?.find((mapper) => mapper.name === 'kerno-api-audience');
   if (!desiredMapper) throw new Error('The Kerno audience mapper is missing from the realm configuration.');
@@ -234,6 +247,66 @@ export async function syncKeycloak(privateConfig, fetcher = fetch, identityOrigi
   await verifyEffectiveAudienceMapper(fetcher, adminBase, authorization, clientId, desiredMapper);
   await verifyExampleTokenClaims(fetcher, adminBase, authorization, clientId);
   await syncRealmSecurity(fetcher, adminBase, authorization, realm);
+}
+
+export async function snapshotKeycloak(privateConfig, fetcher = fetch, identityOrigin = 'http://127.0.0.1:8080') {
+  const authorization = await signInAsAdministrator(fetcher, identityOrigin, privateConfig);
+  const adminBase = `${identityOrigin}/admin/realms/kaordo`;
+  const clientId = await findWebClient(fetcher, adminBase, authorization);
+  const current = await requireJSON(fetcher, adminBase, authorization, 'rollback realm lookup');
+  const client = await requireJSON(fetcher, `${adminBase}/clients/${clientId}`, authorization, 'rollback client lookup');
+  const actions = await requireJSON(fetcher, `${adminBase}/authentication/required-actions`, authorization, 'rollback actions lookup');
+  const executions = await requireJSON(fetcher, `${adminBase}/authentication/flows/${encodeURIComponent(current.browserFlow || 'browser')}/executions`, authorization, 'rollback flow lookup');
+  const mappers = await requireJSON(fetcher, `${adminBase}/clients/${clientId}/protocol-mappers/models`, authorization, 'rollback mapper lookup');
+  return {
+    realm: Object.fromEntries(securityFields.filter((field) => current[field] !== undefined).map((field) => [field, current[field]])),
+    clientId,
+    client: Object.fromEntries([...clientFields, 'redirectUris', 'webOrigins', 'attributes'].map((field) => [field, client[field]])),
+    actions: actions.map(({ alias, enabled, defaultAction }) => ({ alias, enabled, defaultAction })),
+    flow: current.browserFlow || 'browser',
+    executions: executions.map(({ id, requirement }) => ({ id, requirement })),
+    audienceMapper: mappers.find((mapper) => mapper.name === 'kerno-api-audience') ?? null,
+    scopes: await requireJSON(fetcher, `${adminBase}/clients/${clientId}/default-client-scopes`, authorization, 'rollback scopes lookup'),
+    profile: await requireJSON(fetcher, `${adminBase}/users/profile`, authorization, 'rollback profile lookup')
+  };
+}
+
+export async function restoreKeycloak(privateConfig, snapshot, fetcher = fetch, identityOrigin = 'http://127.0.0.1:8080') {
+  const authorization = await signInAsAdministrator(fetcher, identityOrigin, privateConfig);
+  const adminBase = `${identityOrigin}/admin/realms/kaordo`;
+  const clientUrl = `${adminBase}/clients/${encodeURIComponent(snapshot.clientId)}`;
+  await requireUpdate(fetcher, adminBase, authorization, 'PUT', snapshot.realm, 'rollback realm');
+  await requireUpdate(fetcher, clientUrl, authorization, 'PUT', snapshot.client, 'rollback client');
+  await requireUpdate(fetcher, `${adminBase}/users/profile`, authorization, 'PUT', snapshot.profile, 'rollback profile');
+  const actions = await requireJSON(fetcher, `${adminBase}/authentication/required-actions`, authorization, 'rollback actions verification');
+  for (const action of actions) {
+    const desired = snapshot.actions.find((item) => item.alias === action.alias);
+    await requireUpdate(fetcher, `${adminBase}/authentication/required-actions/${encodeURIComponent(action.alias)}`, authorization,
+      'PUT', { ...action, ...(desired ?? { enabled: false, defaultAction: false }) }, 'rollback action');
+  }
+  for (const execution of snapshot.executions) {
+    await requireUpdate(fetcher, `${adminBase}/authentication/flows/${encodeURIComponent(snapshot.flow)}/executions`, authorization,
+      'PUT', execution, 'rollback flow');
+  }
+  const mappersUrl = `${clientUrl}/protocol-mappers/models`;
+  const mappers = await requireJSON(fetcher, mappersUrl, authorization, 'rollback mapper verification');
+  const mapper = mappers.find((item) => item.name === 'kerno-api-audience');
+  if (snapshot.audienceMapper) {
+    await requireUpdate(fetcher, mapper ? `${mappersUrl}/${mapper.id}` : mappersUrl, authorization,
+      mapper ? 'PUT' : 'POST', { ...snapshot.audienceMapper, ...(mapper ? { id: mapper.id } : {}) }, 'rollback mapper');
+  } else if (mapper) {
+    await requireUpdate(fetcher, `${mappersUrl}/${mapper.id}`, authorization, 'DELETE', undefined, 'rollback mapper removal');
+  }
+  const scopes = await requireJSON(fetcher, `${clientUrl}/default-client-scopes`, authorization, 'rollback scope verification');
+  for (const scope of scopes) {
+    if (!snapshot.scopes.some((item) => item.id === scope.id)) {
+      await requireUpdate(fetcher, `${clientUrl}/default-client-scopes/${scope.id}`, authorization, 'DELETE', undefined, 'rollback scope removal');
+    }
+  }
+  const actual = await requireJSON(fetcher, adminBase, authorization, 'rollback realm verification');
+  if (differsFrom(actual, snapshot.realm)) throw new Error('Keycloak did not restore the previous realm policy.');
+  const actualClient = await requireJSON(fetcher, clientUrl, authorization, 'rollback client verification');
+  if (differsFrom(actualClient, snapshot.client)) throw new Error('Keycloak did not restore the previous client policy.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

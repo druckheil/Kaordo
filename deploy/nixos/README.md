@@ -39,7 +39,8 @@ an SSH port forward when needed.
 
 ## Provisioning and updates
 
-Deploy only the static applications with:
+Use `deploy:production` below for releases. Reapply only the static applications
+from the same commit as the verified active full release with:
 
 ```sh
 KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:pages:production
@@ -53,8 +54,10 @@ verify Kerno, Nodo, Keycloak and Caddy before switching `www/current`. The
 switch is atomic. It compares the served Portal and Regado HTML with the new
 release and rechecks the auth iframes and service health; any failed post-check
 restores the previous symlink. Old releases and rollback targets are retained.
-This command deploys frontend files only; it does not run migrations or replace
-backend binaries. SSH uses `KAORDO_DEPLOY_SSH_KEY` when set, otherwise the
+The host rejects a frontend commit that differs from the active full release.
+Frontend and full deployments share one host lock. This command deploys frontend
+files only; it does not run migrations or replace backend binaries.
+SSH uses `KAORDO_DEPLOY_SSH_KEY` when set, otherwise the
 standard `~/.ssh/id_ed25519` key or OpenSSH configuration.
 
 Deploy the complete production release with:
@@ -65,22 +68,37 @@ KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:production
 
 The full command requires a clean Git tree by default; pass `--allow-dirty` only
 for an intentional release from uncommitted changes. It runs the production
-frontend checks, Go race tests and vet, builds Kerno, Nodo and Regado Agent for
-Linux amd64, then uploads a checksummed bundle containing tracked NixOS
-configuration, Keycloak policy/theme files, database migrations and the public
-sync script. Runtime credentials and user data stay on the host. SSH must allow
+frontend checks, deployment/identity regression fixtures, Go race tests and vet,
+builds Kerno, Nodo and Regado Agent for Linux amd64, then uploads one checksummed
+bundle containing the built applications, tracked NixOS configuration, Keycloak
+policy/theme files, database migrations and the public sync script. The manifest
+records the full source commit and the SHA-256 of every payload file. A source
+change during the build aborts deployment. Runtime credentials and user data stay
+on the host. SSH must allow
 non-interactive `sudo` for the deployment account.
 
-On the host it builds the NixOS system closure, applies migrations as the
-`kaordo` role, installs the backend binaries, switches NixOS, synchronizes
-Keycloak from the root-only production secret, and checks service health,
-OpenID discovery and the protected Fluo thread route. A backend/configuration
-failure restores the previous binaries and NixOS generation. Migrations are
-forward-only and must remain compatible with the previous application version.
-The static frontend is activated last using the atomic page deployment above.
-If that final step fails, its previous frontend stays active while the already
-verified backend remains deployed; rerun the full command after resolving the
-frontend deployment issue.
+On the host it builds the NixOS system closure, verifies the payload manifest,
+captures the actual managed Keycloak settings in a root-only rollback file,
+applies migrations as the `kaordo` role, installs backend binaries, and switches
+NixOS. Keycloak is reconciled from `deploy/nixos/kaordo-realm.json`, including
+production redirect origins and client flags, and its applied policy is read
+back through the Admin API. The frontend is activated under the same lock.
+
+Success requires the built NixOS closure to be active, all declared long-running
+services and the DDNS timer to be active, and each running Go executable to match
+its installed binary. Final checks compare installed files and all five public
+applications with the manifest, validate OIDC discovery/iframes and the protected
+Fluo route, and fetch the native login form and its actual custom theme resources.
+An old theme or a missing **Stay signed in** control fails deployment even when
+the service health endpoints respond successfully. LiveKit, Prometheus and Node
+Exporter HTTP endpoints are also checked.
+
+Any failed activation or final check restores the previous frontend, backend
+binaries, exact NixOS closure, source configuration and observed Keycloak policy.
+Rollback failures are reported explicitly. Migrations are forward-only and must
+remain compatible with the previous application version. Successful releases
+are recorded at `/srv/kaordo/releases/current`, with the payload manifest and
+rollback files retained on the host.
 
 This command builds and deploys application code and declarative service
 configuration. It does not provision disks, rotate secrets, or copy production
