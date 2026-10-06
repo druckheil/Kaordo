@@ -69,9 +69,9 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { data, error, response } = await client.POST('/v1/fluo/posts', { body: input });
       return requireResponseData(data, error, response.status);
     },
-    async setVisibility(id: string, visibility: FluoPost['visibility']): Promise<void> {
+    async setVisibility(id: string, visibility: FluoPost['visibility'], signal?: AbortSignal): Promise<void> {
       const { error, response } = await client.PATCH('/v1/fluo/posts/{id}', {
-        params: { path: { id } }, body: { visibility }
+        params: { path: { id } }, body: { visibility }, signal
       });
       requireResponseOk(response, error);
     },
@@ -79,22 +79,22 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { error, response } = await client.DELETE('/v1/fluo/posts/{id}', { params: { path: { id } } });
       requireResponseOk(response, error);
     },
-    async setSaved(id: string, saved: boolean): Promise<void> {
+    async setSaved(id: string, saved: boolean, signal?: AbortSignal): Promise<void> {
       const result = saved
-        ? await client.PUT('/v1/fluo/posts/{id}/saved', { params: { path: { id } } })
-        : await client.DELETE('/v1/fluo/posts/{id}/saved', { params: { path: { id } } });
+        ? await client.PUT('/v1/fluo/posts/{id}/saved', { params: { path: { id } }, signal })
+        : await client.DELETE('/v1/fluo/posts/{id}/saved', { params: { path: { id } }, signal });
       requireResponseOk(result.response, result.error);
     },
-    async react(id: string, value: 'good' | 'bad' | null): Promise<FluoPost> {
+    async react(id: string, value: FluoPost['myReaction'], signal?: AbortSignal): Promise<FluoPost> {
       const result = value
-        ? await client.PUT('/v1/fluo/posts/{id}/reaction', { params: { path: { id } }, body: { value } })
-        : await client.DELETE('/v1/fluo/posts/{id}/reaction', { params: { path: { id } } });
+        ? await client.PUT('/v1/fluo/posts/{id}/reaction', { params: { path: { id } }, body: { value }, signal })
+        : await client.DELETE('/v1/fluo/posts/{id}/reaction', { params: { path: { id } }, signal });
       return requireResponseData(result.data, result.error, result.response.status);
     },
-    async follow(id: string, following: boolean): Promise<void> {
+    async follow(id: string, following: boolean, signal?: AbortSignal): Promise<void> {
       const result = following
-        ? await client.PUT('/v1/fluo/users/{id}/follow', { params: { path: { id } } })
-        : await client.DELETE('/v1/fluo/users/{id}/follow', { params: { path: { id } } });
+        ? await client.PUT('/v1/fluo/users/{id}/follow', { params: { path: { id } }, signal })
+        : await client.DELETE('/v1/fluo/users/{id}/follow', { params: { path: { id } }, signal });
       requireResponseOk(result.response, result.error);
     },
     async uploadMetadata(id: string): Promise<NodoUpload | null> {

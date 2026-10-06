@@ -29,6 +29,7 @@ export { default as ArrowUpRightIcon } from '@lucide/svelte/icons/arrow-up-right
 export { default as ArrowRightIcon } from '@lucide/svelte/icons/arrow-right';
 export { default as ChevronLeftIcon } from '@lucide/svelte/icons/chevron-left';
 export { default as ChevronRightIcon } from '@lucide/svelte/icons/chevron-right';
+export { default as ChevronDownIcon } from '@lucide/svelte/icons/chevron-down';
 export { default as EllipsisIcon } from '@lucide/svelte/icons/ellipsis';
 export { default as XIcon } from '@lucide/svelte/icons/x';
 export { default as ShieldCheckIcon } from '@lucide/svelte/icons/shield-check';
@@ -37,6 +38,7 @@ export { default as LogOutIcon } from '@lucide/svelte/icons/log-out';
 
 // Post and message icons
 export { default as MessageCircleIcon } from '@lucide/svelte/icons/message-circle';
+export { default as HeartIcon } from '@lucide/svelte/icons/heart';
 export { default as ThumbsUpIcon } from '@lucide/svelte/icons/thumbs-up';
 export { default as ThumbsDownIcon } from '@lucide/svelte/icons/thumbs-down';
 export { default as Repeat2Icon } from '@lucide/svelte/icons/repeat-2';
@@ -81,7 +83,6 @@ export { default as PanelLeftIcon } from '@lucide/svelte/icons/panel-left';
 export { default as PanelRightIcon } from '@lucide/svelte/icons/panel-right';
 export { default as LayoutGridIcon } from '@lucide/svelte/icons/layout-grid';
 export { default as CompassIcon } from '@lucide/svelte/icons/compass';
-export { default as HeartIcon } from '@lucide/svelte/icons/heart';
 export { default as SmilePlusIcon } from '@lucide/svelte/icons/smile-plus';
 export { default as PencilIcon } from '@lucide/svelte/icons/pencil';
 export { default as LoaderCircleIcon } from '@lucide/svelte/icons/loader-circle';

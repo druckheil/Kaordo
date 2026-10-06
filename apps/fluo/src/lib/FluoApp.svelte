@@ -41,11 +41,6 @@
   const api = createFluoApi(import.meta.env.VITE_KAORDO_API_URL, import.meta.env.VITE_KAORDO_NODO_URL);
   const queryClient = new QueryClient();
   let disposed = false;
-  onDestroy(() => {
-    disposed = true;
-    onBackActionChange(null);
-    queryClient.clear();
-  });
   let view = $state<FluoView>('feed');
   let feed = $state<Feed>('latest');
   let replyTo = $state<FluoPost | null>(null);
@@ -79,6 +74,13 @@
     (message) => { if (!disposed) actionError = message; });
   const settingsState = createFluoSettingsState(api, queryClient, () => isFluoSettingsView(view) && !postId);
   const settingsSection = $derived(fluoViews[view].settingsSection ?? null);
+
+  onDestroy(() => {
+    disposed = true;
+    onBackActionChange(null);
+    postActions.dispose();
+    queryClient.clear();
+  });
 
   onMount(() => {
     historySession = window.crypto.randomUUID();

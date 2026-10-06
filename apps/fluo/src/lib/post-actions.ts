@@ -1,56 +1,64 @@
-// Coordinates Fluo post mutations and shared content cache invalidation
+// Coordinates cancellable Fluo post mutations and shared content cache invalidation
 
 import type { QueryClient } from '@tanstack/svelte-query';
 import type { FluoPost } from '@kaordo/contracts';
 import { invalidateFluoPostQueries, type FluoApi } from '@kaordo/api-client';
 import { errorMessage } from './fluo-model';
 
-type PostReaction = 'good' | 'bad' | null;
-
 export function createFluoPostActions(
   api: FluoApi,
   queryClient: QueryClient,
   onError: (message: string) => void,
 ) {
-  async function run(
-    action: () => Promise<unknown>,
+  const lifetime = new AbortController();
+
+  async function run<T>(
+    action: (signal: AbortSignal) => Promise<T>,
     fallbackMessage: string,
     refresh: () => Promise<unknown> = () => invalidateFluoPostQueries(queryClient),
-  ): Promise<void> {
+  ): Promise<T | undefined> {
+    if (lifetime.signal.aborted) return;
     try {
       onError('');
-      await action();
+      const result = await action(lifetime.signal);
+      if (lifetime.signal.aborted) return;
       await refresh();
+      return lifetime.signal.aborted ? undefined : result;
     } catch (cause) {
-      onError(errorMessage(cause, fallbackMessage));
+      if (!lifetime.signal.aborted) onError(errorMessage(cause, fallbackMessage));
     }
   }
 
   return {
-    react(post: FluoPost, value: PostReaction): Promise<void> {
+    dispose(): void {
+      lifetime.abort();
+    },
+    react(post: FluoPost, value: FluoPost['myReaction']): Promise<FluoPost | undefined> {
       return run(
-        () => api.react(post.id, value),
+        (signal) => api.react(post.id, value, signal),
         'Could not save your reaction.',
       );
     },
     follow(post: FluoPost): Promise<void> {
       return run(
-        () => api.follow(post.author.id, !post.author.following),
+        (signal) => api.follow(post.author.id, !post.author.following, signal),
         'Could not change your follow list.',
       );
     },
     save(post: FluoPost): Promise<void> {
       return run(
-        () => api.setSaved(post.id, !post.saved),
+        (signal) => api.setSaved(post.id, !post.saved, signal),
         'Could not update your saved posts.',
       );
     },
     setVisibility(post: FluoPost, visibility: FluoPost['visibility']): Promise<void> {
       return run(
-        () => api.setVisibility(post.id, visibility),
+        (signal) => api.setVisibility(post.id, visibility, signal),
         'Could not change the post visibility.',
         () => invalidateFluoPostQueries(queryClient, { notifications: true }),
       );
     },
   };
 }
+
+export type FluoPostActionHandlers = ReturnType<typeof createFluoPostActions>;

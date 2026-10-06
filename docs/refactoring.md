@@ -439,6 +439,39 @@ implementation. No production release accompanied this refactor. Access and
 policy predicates were reviewed from source; functional/browser tests were
 not added or run for these changes.
 
+## Fluo reaction controls and refactor — 6 October 2026
+
+Post reactions use a red heart for Like and a larger, heavier X for Dislike.
+A permanent adjacent trigger opens the existing Rhea/Bits UI menu, which owns
+keyboard selection, dismissal and focus restoration. The primary button
+removes an active reaction. Motion is local CSS with reduced-motion support;
+selection and counts remain tied to confirmed server data.
+
+The accumulated changes were reviewed through feed, reply, focused-post,
+notification, settings, request and live-journey paths. Maintainability changes:
+
+- One reaction description supplies both the primary glyphs and menu choices.
+  CSS flex layout distributes action widths without JavaScript column counts,
+  hover tracking or separate pointer-specific layouts.
+- Shared controller callback types derive from the existing implementation
+  and generated post schema. Reaction results reach the animation component,
+  allowing a failed save to clear pending motion without shadowing counts.
+- Function bindings keep reaction and both visibility radio menus tied to
+  confirmed values, including after a failed request.
+- `api-client` accepts cancellation signals for reactions, follows, saved
+  posts and visibility changes. The application aborts its post-action scope
+  before clearing query caches; obsolete callbacks do not report errors.
+- Notification and settings icons match the reaction symbols. The existing
+  live journey now observes the reaction response separately from the UI and
+  uses native menu roles, keyboard access and Escape focus restoration.
+
+Compilation evidence: `pnpm check:front` reported zero errors and warnings in
+all six Svelte projects; `pnpm build:pages` built all five static applications.
+Vite emitted its advisory for a chunk larger than 500 kB; no size budget was
+changed. The updated live-journey script passed `node --check`, and
+`git diff --check` was clean. No functional/browser tests or hosted CI run were
+executed for this refactor. No production release accompanied these changes.
+
 ## Remaining boundaries
 
 - No content E2EE, user-held decryption keys or system escrow lifecycle; Regado cases authorize existing plaintext data and notify/audit access.

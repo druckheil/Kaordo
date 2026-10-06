@@ -9,6 +9,7 @@
 	import { BookmarkIcon, Button } from "@kaordo/ui";
 	import { estimatePostHeight, feedEmptyDescription, feedEmptyTitle, feedForView, type FluoView } from "./fluo-model";
 	import PostCard from "./PostCard.svelte";
+	import type { FluoPostActionHandlers } from "./post-actions";
 
 	let {
 		view,
@@ -37,10 +38,10 @@
 		onReply: (post: FluoPost) => void;
 		onQuote: (post: FluoPost) => void;
 		onOpenPost: (id: string) => void;
-		onReact: (post: FluoPost, reaction: "good" | "bad" | null) => Promise<void>;
-		onFollow: (post: FluoPost) => Promise<void>;
-		onSave: (post: FluoPost) => Promise<void>;
-		onVisibilityChange: (post: FluoPost, visibility: FluoPost['visibility']) => Promise<void>;
+		onReact: FluoPostActionHandlers['react'];
+		onFollow: FluoPostActionHandlers['follow'];
+		onSave: FluoPostActionHandlers['save'];
+		onVisibilityChange: FluoPostActionHandlers['setVisibility'];
 		onDelete: (post: FluoPost) => void;
 	} = $props();
 

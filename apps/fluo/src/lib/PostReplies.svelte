@@ -6,6 +6,7 @@
 	import type { FluoPost } from '@kaordo/contracts';
 	import { Button, MessageCircleIcon } from '@kaordo/ui';
 	import PostItem from './PostItem.svelte';
+	import type { FluoPostActionHandlers } from './post-actions';
 
 	let {
 		post,
@@ -29,10 +30,10 @@
 		onReply: (post: FluoPost) => void;
 		onQuote: (post: FluoPost) => void;
 		onOpenPost: (id: string) => void;
-		onReact: (post: FluoPost, value: 'good' | 'bad' | null) => Promise<void>;
-		onFollow: (post: FluoPost) => Promise<void>;
-		onSave: (post: FluoPost) => Promise<void>;
-		onVisibilityChange: (post: FluoPost, visibility: FluoPost['visibility']) => Promise<void>;
+		onReact: FluoPostActionHandlers['react'];
+		onFollow: FluoPostActionHandlers['follow'];
+		onSave: FluoPostActionHandlers['save'];
+		onVisibilityChange: FluoPostActionHandlers['setVisibility'];
 		onDelete: (post: FluoPost) => void;
 		threadHasAncestors?: boolean;
 	} = $props();

@@ -6,7 +6,7 @@
   import { appPaths } from '@kaordo/links';
   import {
     BellIcon, Button, ChevronLeftIcon, ChevronRightIcon, RadioGroup, ShieldCheckIcon,
-    ThumbsUpIcon, ThumbsDownIcon, MessageCircleIcon, UserPlusIcon, UserMinusIcon, Repeat2Icon,
+    HeartIcon, XIcon, MessageCircleIcon, UserPlusIcon, UserMinusIcon, Repeat2Icon,
     CheckIcon, LoaderCircleIcon
   } from '@kaordo/ui';
   import type { FluoSettingsSection, FluoView } from './fluo-model';
@@ -24,8 +24,8 @@
   const settings = $derived(state.settings);
   const saving = $derived(state.isSaving);
   const notificationRows = [
-    { key: 'likes', label: 'Likes', description: 'When someone likes your post.', icon: ThumbsUpIcon },
-    { key: 'dislikes', label: 'Dislikes', description: 'When someone dislikes your post.', icon: ThumbsDownIcon },
+    { key: 'likes', label: 'Likes', description: 'When someone likes your post.', icon: HeartIcon },
+    { key: 'dislikes', label: 'Dislikes', description: 'When someone dislikes your post.', icon: XIcon },
     { key: 'replies', label: 'Replies', description: 'When someone replies to your post.', icon: MessageCircleIcon },
     { key: 'follows', label: 'Follows', description: 'When someone starts following you.', icon: UserPlusIcon },
     { key: 'unfollows', label: 'Unfollows', description: 'When someone stops following you.', icon: UserMinusIcon },
@@ -37,7 +37,7 @@
       description: 'A private account shares posts only with people you follow. Posts you individually mark private stay visible only to you.'
     },
     {
-      key: 'showLikes', label: 'Show others what I like', icon: ThumbsUpIcon,
+      key: 'showLikes', label: 'Show others what I like', icon: HeartIcon,
       description: 'When hidden, your likes still increase the count. Your name is hidden from post authors and other people.'
     }
   ] as const;

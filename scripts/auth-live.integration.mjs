@@ -1228,18 +1228,21 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       const image = article?.querySelector('img');
       return image?.complete && image.naturalWidth === 8;
     }, postText);
+    const likeResponsePromise = page.waitForResponse((response) =>
+      isApiResponse(response, `/v1/fluo/posts/${postId}/reaction`, 'PUT'));
     await card.getByRole('button', { name: 'Like, 0', exact: true }).click();
-    await card.getByRole('button', { name: 'Like, 1', exact: true }).waitFor();
-    await card.getByRole('button', { name: 'Like, 1', exact: true }).hover();
-    await page.waitForFunction((postId) => {
-      const dislike = document.querySelector(`article[data-post-id="${postId}"] [aria-label="Dislike, 0"]`);
-      return dislike && Number(getComputedStyle(dislike).opacity) > 0.5;
-    }, postId, { timeout: 2_000 });
-    await page.mouse.move(0, 0);
-    await card.getByRole('button', { name: 'Like, 1', exact: true }).focus();
+    assert.equal((await likeResponsePromise).status(), 200, 'Liking a post must succeed');
+    const liked = card.getByRole('button', { name: 'Like, 1', exact: true });
+    await expect(liked).toBeEnabled();
+    await expect(liked).toHaveAttribute('aria-pressed', 'true');
+    await liked.focus();
     await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Dislike, 0',
-      'Keyboard focus must reach the dislike action after Like');
+    const reactionOptions = card.getByRole('button', { name: 'Reaction options', exact: true });
+    await expect(reactionOptions).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('menuitemradio', { name: 'Dislike, 0', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(reactionOptions).toBeFocused();
     const replyText = `Reply ${randomBytes(3).toString('hex')}`;
     await card.getByRole('button', { name: 'Reply, 0', exact: true }).click();
     const replyComposer = page.getByRole('dialog', { name: 'Reply to post' });

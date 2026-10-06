@@ -7,8 +7,8 @@
 	import { fluoNotificationItems } from '@kaordo/api-client';
 	import { MediaPreview } from '@kaordo/media-ui';
 	import {
-		BellIcon, Button, CheckIcon, MessageCircleIcon,
-		Repeat2Icon, ThumbsDownIcon, ThumbsUpIcon, UserMinusIcon, UserPlusIcon,
+		BellIcon, Button, CheckIcon, HeartIcon, MessageCircleIcon,
+		Repeat2Icon, XIcon, UserMinusIcon, UserPlusIcon,
 	} from '@kaordo/ui';
 	import { displayInitial, postHashForId } from './fluo-model';
 	import type { FluoNotificationState } from './notification-state.svelte.ts';
@@ -32,8 +32,8 @@
 	const loading = $derived(recent.isPending && query.isPending);
 	const dateFormat = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' });
 	const activity = {
-		like: { description: 'liked your post.', icon: ThumbsUpIcon },
-		dislike: { description: 'disliked your post.', icon: ThumbsDownIcon },
+		like: { description: 'liked your post.', icon: HeartIcon },
+		dislike: { description: 'disliked your post.', icon: XIcon },
 		reply: { description: 'replied to your post.', icon: MessageCircleIcon },
 		quote: { description: 'quoted your post.', icon: Repeat2Icon },
 		follow: { description: 'started following you.', icon: UserPlusIcon },
