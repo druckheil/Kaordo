@@ -26,9 +26,14 @@
 
 	let fileInput = $state<HTMLInputElement>();
 
-	function addFiles(event: Event): void {
+	function chooseFiles(event: Event): void {
 		const input = event.currentTarget as HTMLInputElement;
-		const selectedFiles = Array.from(input.files ?? []);
+		addFiles(Array.from(input.files ?? []));
+		input.value = "";
+	}
+
+	function addFiles(selectedFiles: File[]): void {
+		if (!selectedFiles.length) return;
 
 		if (files.length + selectedFiles.length > maxAttachments) {
 			actionError = `Attach at most ${maxAttachments} files.`;
@@ -36,8 +41,14 @@
 			files = [...files, ...selectedFiles];
 			actionError = "";
 		}
+	}
 
-		input.value = "";
+	function handlePaste(event: ClipboardEvent): void {
+		const clipboard = event.clipboardData;
+		if (!clipboard?.files.length) return;
+
+		addFiles(Array.from(clipboard.files));
+		if (!clipboard.getData("text/plain")) event.preventDefault();
 	}
 
 	function handleKeydown(event: KeyboardEvent): void {
@@ -74,7 +85,7 @@
 			multiple
 			class="sr-only"
 			aria-label="Choose files"
-			onchange={addFiles}
+			onchange={chooseFiles}
 		/>
 		<Button
 			variant="ghost"
@@ -88,6 +99,7 @@
 		<Textarea
 			bind:value={draft}
 			onkeydown={handleKeydown}
+			onpaste={handlePaste}
 			maxlength={maxCharacters}
 			rows={1}
 			{placeholder}

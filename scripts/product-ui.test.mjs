@@ -239,3 +239,75 @@ test('Ligo starts at the bottom, keeps rapid scrolling native and shares the com
   await page.getByRole('img', { name: 'Preview of preview.png', exact: true }).waitFor();
   assert.deepEqual(errors, [], 'No client runtime errors');
 });
+
+for (const app of ['ligo', 'rondo']) {
+  test(`${app} pastes clipboard media and captions within the shared attachment limit`, { timeout: 60000 }, async (t) => {
+    const { page, origin, errors } = await startAppFixture(t, app);
+    const conversation = { id: id(60), kind: 'duo', title: '', createdBy: actor.id, members: [actor, partner], lastMessage: null, unreadCount: 0, createdAt: now, updatedAt: now };
+    const server = { id: id(70), name: 'Clipboard community', description: '', access: 'private', ownerId: actor.id, memberCount: 1, joined: true, createdAt: now };
+    const channel = { id: id(71), serverId: server.id, conversationId: conversation.id, name: 'general', position: 0, createdAt: now };
+    await page.route('**/v1/**', async (route) => {
+      const request = route.request();
+      const path = new URL(request.url()).pathname;
+      let body;
+      if (path === '/v1/session' || path === '/v1/me') body = actor;
+      else if (path.endsWith('/events')) { await route.fulfill({ status: 403, contentType: 'application/json', body: '{}' }); return; }
+      else if (path.endsWith('/read') || path.endsWith('/delivered')) { await route.fulfill({ status: 204 }); return; }
+      else if (path === '/v1/ligo/conversations') body = { items: [conversation], nextCursor: null };
+      else if (path === `/v1/ligo/conversations/${conversation.id}`) body = conversation;
+      else if (path === `/v1/ligo/conversations/${conversation.id}/messages`) body = { items: [], nextCursor: null };
+      else if (path === '/v1/rondo/servers') body = { items: [server] };
+      else if (path === `/v1/rondo/servers/${server.id}`) body = { server, channels: [channel], members: [actor] };
+      else throw new Error(`Unexpected ${app} clipboard fixture request: ${request.method()} ${path}`);
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+    });
+    await page.goto(`${origin}/${app}/${app === 'ligo' ? `#c/${conversation.id}` : `#s/${server.id}`}`);
+    if (app === 'rondo') await page.getByRole('button', { name: 'general', exact: true }).click();
+    const input = page.getByRole('textbox', { name: 'Write a message', exact: true });
+    await input.waitFor();
+    await input.fill('Existing draft');
+
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+    await page.evaluate(async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 2;
+      const png = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      await navigator.clipboard.write([new ClipboardItem({
+        'image/png': png,
+        'text/plain': new Blob([' pasted caption'], { type: 'text/plain' }),
+      })]);
+    });
+    await input.press('ControlOrMeta+V');
+    const selected = page.getByLabel('Selected attachments', { exact: true });
+    await selected.getByRole('img').waitFor();
+    assert.equal(await input.inputValue(), 'Existing draft pasted caption', 'Native paste preserves the caption and existing draft');
+
+    const pasteFile = (name, type) => input.evaluate((element, file) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.items.add(new File([new Uint8Array([1, 2, 3])], file.name, { type: file.type }));
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+    }, { name, type });
+    await pasteFile('clipboard.webm', 'video/webm');
+    await selected.getByLabel('Preview of clipboard.webm', { exact: true }).waitFor();
+    assert.equal(await input.inputValue(), 'Existing draft pasted caption', 'Media-only paste keeps the draft');
+
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1c8AAAAASUVORK5CYII=', 'base64');
+    await page.getByLabel('Choose files', { exact: true }).setInputFiles(
+      Array.from({ length: 6 }, (_, index) => ({ name: `selected-${index}.png`, mimeType: 'image/png', buffer: png })),
+    );
+    const removeButtons = selected.getByRole('button', { name: /^Remove / });
+    assert.equal(await removeButtons.count(), 8, 'Pasted and selected files share the same queue');
+    await pasteFile('overflow.webm', 'video/webm');
+    const limitError = page.getByRole('alert').filter({ hasText: 'Attach at most 8 files.' }).first();
+    await limitError.waitFor();
+    assert.equal(await limitError.textContent(), 'Attach at most 8 files.');
+    assert.equal(await removeButtons.count(), 8, 'Paste respects the attachment limit');
+
+    await selected.getByRole('button', { name: 'Remove clipboard.webm', exact: true }).click();
+    await pasteFile('replacement.webm', 'video/webm');
+    await selected.getByLabel('Preview of replacement.webm', { exact: true }).waitFor();
+    assert.equal(await removeButtons.count(), 8, 'Removing an attachment frees a slot for paste');
+    assert.equal(await page.getByRole('alert').count(), 0, 'Successful paste clears the selection error');
+    assert.deepEqual(errors, [], 'No client runtime errors');
+  });
+}
