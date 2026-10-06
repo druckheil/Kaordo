@@ -30,7 +30,9 @@ async function createRelease(source, origin) {
         ''
       ].join('\n')
     );
-    await run('tar', ['-czf', artifact, '-C', staging, 'site', 'RELEASE.txt']);
+    await run('tar', ['--no-xattrs', '-czf', artifact, '-C', staging, 'site', 'RELEASE.txt'], {
+      env: { ...process.env, COPYFILE_DISABLE: '1' }
+    });
     const hash = createHash('sha256').update(await readFile(artifact)).digest('hex');
     return { release, temporaryDirectory, artifact, hash };
   } catch (error) {

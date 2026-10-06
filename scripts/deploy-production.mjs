@@ -1,5 +1,5 @@
 // Builds and deploys a complete Kaordo production release in dependency order
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -49,13 +49,17 @@ async function copyReleaseSources(bundle) {
   }
 }
 
-async function payloadHashes(directory, prefix = '') {
+export async function prepareReleasePayload(directory, prefix = '') {
+  await chmod(directory, 0o755);
   const hashes = {};
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) Object.assign(hashes, await payloadHashes(path, relative));
-    else if (entry.isFile()) hashes[relative] = createHash('sha256').update(await readFile(path)).digest('hex');
+    if (entry.isDirectory()) Object.assign(hashes, await prepareReleasePayload(path, relative));
+    else if (entry.isFile()) {
+      await chmod(path, relative.startsWith('bin/') ? 0o755 : 0o644);
+      hashes[relative] = createHash('sha256').update(await readFile(path)).digest('hex');
+    }
     else throw new Error(`Unsupported release entry: ${relative}`);
   }
   return hashes;
@@ -100,10 +104,13 @@ async function buildReleaseBundle(source, target) {
       workingTreeDirty: source.dirty,
       origin: target.origin.origin,
       realm: target.realm,
-      files: await payloadHashes(bundle)
+      files: await prepareReleasePayload(bundle)
     }, null, 2) + '\n');
+    await chmod(join(bundle, 'manifest.json'), 0o644);
     await assertSourceState(source);
-    await run('tar', ['-czf', artifact, '-C', bundle, 'bin', 'etc', 'site', 'RELEASE.txt', 'manifest.json']);
+    await run('tar', ['--no-xattrs', '-czf', artifact, '-C', bundle, 'bin', 'etc', 'site', 'RELEASE.txt', 'manifest.json'], {
+      env: { ...process.env, COPYFILE_DISABLE: '1' }
+    });
     const hash = createHash('sha256').update(await readFile(artifact)).digest('hex');
     return { id, artifact, hash, temporaryDirectory };
   } catch (error) {

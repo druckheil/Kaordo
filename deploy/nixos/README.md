@@ -73,7 +73,9 @@ builds Kerno, Nodo and Regado Agent for Linux amd64, then uploads one checksumme
 bundle containing the built applications, tracked NixOS configuration, Keycloak
 policy/theme files, database migrations and the public sync script. The manifest
 records the full source commit and the SHA-256 of every payload file. A source
-change during the build aborts deployment. Runtime credentials and user data stay
+change during the build aborts deployment. Public payload permissions are normalized
+independently of the builder's umask; host-specific extended attributes are excluded.
+Runtime credentials and user data stay
 on the host. SSH must allow
 non-interactive `sudo` for the deployment account.
 
