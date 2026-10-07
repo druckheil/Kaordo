@@ -8,12 +8,21 @@ The `Checks` workflow validates source, static apps, services, product journeys 
 | --- | --- | --- |
 | Frontend and unit tests | Svelte/TypeScript, generated OpenAPI types, account/API cancellation and cache helpers, Lingvo presentation/AI/CSV/speech/FSRS, layout, parsed dependency ownership and deployment/rollback fixtures | None |
 | Static app artifact | All six app builds, prerendered routes, local assets, lazy-loading and initial JavaScript budget | None |
-| Browser fixtures and accessibility | Post navigation/composing/sharing, media paste and cold first uploads in Fluo/Ligo/Rondo, native scrolling, Lingvo practice/forms/error recovery, Regado interactions/history, public reflow, touch targets, enlarged text, forced colors, palette contrast and automated WCAG checks | Frontend and static artifact |
+| Browser fixtures and accessibility (two shards) | Post navigation/composing/sharing, media paste and cold first uploads in Fluo/Ligo/Rondo, native scrolling, Lingvo practice/forms/error recovery, Regado interactions/history, public reflow, touch targets, enlarged text, forced colors, palette contrast and automated WCAG checks | Frontend and static artifact |
 | Go services and PostgreSQL | All four modules with race detection, vet and build; Fluo/Ligo/Rondo/Admin/Lingvo isolated product/access tests, capacity fixtures, concurrent reviews and migration replay | None |
 | Identity, product and recovery journeys | Real registration, TOTP/recovery, persistent/rotating/revoked sessions, application SSO, uploads and processing, posts, messaging, LiveKit camera/calls, Lingvo dictionary/card/review/undo persistence, encrypted backup and disposable restore | Frontend and static artifact |
 | Dependency advisories | npm advisories and `govulncheck` for every Go module | None |
 
 Static apps are built once and passed to both browser and integration jobs as the **same run's artifact**. The artifact uses explicit local endpoints; tests do not contact production. Release-only production-origin checks remain in `pnpm test:pages:production` and the production deployment preflight.
+
+Browser scenarios use native Playwright test-level sharding across two independent
+GitHub runners (`--fully-parallel --workers=1 --shard=1/2` and `2/2`). Each runner
+owns one Vite-generating worker and fresh test contexts; live journeys remain
+sequential. Both shards must succeed for the aggregate gate. Each test step has
+a five-minute budget inside a seven-minute job, allowing fresh Chromium setup
+and diagnostic uploads. Action/navigation/test budgets and zero retries remain
+unchanged. Failure artifacts have distinct shard names. Scale independent shards
+when coverage grows; do not add workers sharing generated app source on one host.
 
 Push checks run on `main` and `scope-*` branches. Feature branches are checked through pull requests. Tags do not repeat branch checks. `workflow_dispatch` supports explicit runs once the workflow is on the default branch. A new commit cancels obsolete work for the same branch or PR, while unrelated branches remain independent.
 
@@ -123,3 +132,15 @@ failed trace action and corrected through task isolation; coverage and retries
 were preserved. No workflow file was edited, and no hosted run of this
 assessed refactor is claimed. The hosted durations above belong to their recorded
 commit and cache conditions.
+
+### Release 0.0.3 browser budget diagnosis
+
+The [first release run](https://github.com/druckheil/Kaordo/actions/runs/37691069679)
+at `864c31295f96af3528277fe77122f18936672f41` passed frontend/unit, static artifacts,
+Go/PostgreSQL, dependency checks and all five live journeys. The old single
+five-minute browser job was cancelled at scenario 33 of 57 after 1m20s setup
+and 3m54s of progressing tests, without a failed assertion. The aggregate gate
+correctly rejected that incomplete run. The repair splits the unchanged scenarios
+between separate runners using [Playwright sharding](https://playwright.dev/docs/test-sharding);
+it does not extend action waits or drop coverage. Hosted verification of the
+repair is recorded with its exact commit after the complete run.

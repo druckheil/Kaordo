@@ -13,6 +13,13 @@ const browserFiles = new Set(browserConfig.projects.flatMap(({ testMatch }) => t
 const artifactFiles = new Set(['pages.test.mjs', 'pages-production.test.mjs']);
 const databaseFiles = new Set(manifest.scripts['test:product:db'].match(/scripts\/[\w.-]+\.mjs/g).map((path) => path.slice(8)));
 
+test('hosted browser shards use native test-level distribution with one fixture owner per runner', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/checks.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /fail-fast: false\s+matrix:\s+shard: \[1, 2\]/);
+  assert.match(workflow, /run: pnpm test:ui --fully-parallel --workers=1 --shard=\$\{\{ matrix\.shard \}\}\/2/);
+  assert.match(workflow, /name: browser-failure-\$\{\{ matrix\.shard \}\}/);
+});
+
 test('every regression file has an explicit unit, browser, live, database or artifact suite', () => {
   assert.deepEqual(files.filter((name) => !unitFiles.has(name) && !browserFiles.has(name) && !artifactFiles.has(name) && !databaseFiles.has(name)), [],
     'Assign new regression files to test:unit, a Playwright project or an artifact verification suite');
