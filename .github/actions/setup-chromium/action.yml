@@ -6,8 +6,7 @@ runs:
   steps:
     - name: Select the official Ubuntu package archive
       shell: bash
-      run: |
-        sudo sed -Ei 's|https?://azure\.archive\.ubuntu\.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+      run: sudo bash scripts/ci-ubuntu-mirror.sh
     - name: Install Chromium and its system dependencies
       shell: bash
       run: pnpm exec playwright install --with-deps chromium --only-shell

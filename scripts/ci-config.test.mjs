@@ -1,7 +1,11 @@
 // Prevents new regression files from silently falling outside the declared test suites
 
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import browserConfig from '../playwright.config.mjs';
 import auditConfig from '../playwright.audit.config.mjs';
@@ -24,9 +28,34 @@ test('browser and live jobs share pinned Chromium setup using the official signe
   const workflow = readFileSync(new URL('../.github/workflows/checks.yml', import.meta.url), 'utf8');
   const setup = readFileSync(new URL('../.github/actions/setup-chromium/action.yml', import.meta.url), 'utf8');
   assert.equal(workflow.match(/uses: \.\/\.github\/actions\/setup-chromium/g)?.length, 2);
-  assert.match(setup, /https:\/\/archive\.ubuntu\.com\/ubuntu/);
+  assert.match(setup, /sudo bash scripts\/ci-ubuntu-mirror\.sh/);
   assert.match(setup, /pnpm exec playwright install --with-deps chromium --only-shell/);
   assert.doesNotMatch(setup, /allow-unauthenticated|trusted=yes|curl.*\|.*(?:sh|bash)/);
+});
+
+test('Ubuntu setup replaces direct and mirror-file sources without changing signing or package selection', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'kaordo-ci-apt-'));
+  const script = fileURLToPath(new URL('./ci-ubuntu-mirror.sh', import.meta.url));
+  const template = uri => `Types: deb\nURIs: ${uri}\nSuites: noble noble-updates noble-backports\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n`;
+  try {
+    for (const uri of ['http://azure.archive.ubuntu.com/ubuntu/', 'https://azure.archive.ubuntu.com/ubuntu/',
+      'mirror+file:/etc/apt/apt-mirrors.txt', 'https://archive.ubuntu.com/ubuntu/']) {
+      const path = join(directory, 'ubuntu.sources');
+      const security = template('mirror+file:/etc/apt/apt-security-mirrors.txt').replace('noble noble-updates noble-backports', 'noble-security');
+      writeFileSync(path, template(uri) + '\n' + security);
+      const result = spawnSync('bash', [script, path], { encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      const expected = template('https://archive.ubuntu.com/ubuntu' + (uri.endsWith('/') ? '/' : ''))
+        + '\n' + security.replace('mirror+file:/etc/apt/apt-security-mirrors.txt', 'https://security.ubuntu.com/ubuntu');
+      assert.equal(readFileSync(path, 'utf8'), expected, uri);
+    }
+    const path = join(directory, 'unknown.sources');
+    writeFileSync(path, template('mirror+file:/etc/apt/new-runner-mirrors.txt'));
+    assert.notEqual(spawnSync('bash', [script, path]).status, 0, 'Unknown mirror selection cannot silently keep the slow source');
+    assert.equal(readFileSync(path, 'utf8'), template('mirror+file:/etc/apt/new-runner-mirrors.txt'));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('every regression file has an explicit unit, browser, live, database or artifact suite', () => {

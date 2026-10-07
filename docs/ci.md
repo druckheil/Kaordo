@@ -159,3 +159,13 @@ exhausted its job budget shortly after starting the unchanged tests. This matche
 The release hotfix shares official-archive browser setup across browser and live
 jobs; retries and test budgets remain unchanged. This failed run is not counted
 as a complete verification.
+
+The [first main run](https://github.com/druckheil/Kaordo/actions/runs/37693421594)
+at `0e9b155bbc7dd0262cb746a43908b5297a34f648` showed the runner's newer APT
+`mirror+file:/etc/apt/apt-mirrors.txt` source. Replacing direct Azure URLs alone
+left Azure first in that mirror list: the second shard lost 2m03s on downloads
+and was cancelled at its final scenario. All other layers passed, including all
+five live journeys. `ci-ubuntu-mirror.sh` now handles direct and mirror-file
+sources, verifies the selected source, preserves signing keys/suites/components,
+and has fixture tests for both forms, security sources, idempotence and unknown
+future mirror formats. No incomplete run is treated as release evidence.
