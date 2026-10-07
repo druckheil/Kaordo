@@ -169,3 +169,40 @@ five live journeys. `ci-ubuntu-mirror.sh` now handles direct and mirror-file
 sources, verifies the selected source, preserves signing keys/suites/components,
 and has fixture tests for both forms, security sources, idempotence and unknown
 future mirror formats. No incomplete run is treated as release evidence.
+
+### Hosted release 0.0.3 verification — 8 October 2026
+
+The final [main run](https://github.com/druckheil/Kaordo/actions/runs/37694725134)
+passed all eight jobs at `a739666d9b0dd00210c8e82232d3dd9b9f72b5d4`, the
+`v0.0.3` release tag and deployed production revision. Dispatch through the
+completed aggregate gate took **6m46s**, including setup, artifacts and cleanup.
+
+| Job | Complete job duration | Result |
+| --- | --- | --- |
+| Frontend and unit tests | 1m01s | Passed |
+| Static app artifact | 1m20s | Passed |
+| Go services and PostgreSQL | 3m12s | Passed |
+| Dependency advisories | 49s | Passed |
+| Browser fixtures and accessibility (1/2) | 4m16s | 29 scenarios passed |
+| Browser fixtures and accessibility (2/2) | 5m13s | 28 scenarios passed |
+| Identity, product and recovery journeys | 5m10s | All five journeys passed |
+| checks | 4s | Every validation layer required and passed |
+
+The run executed 167 Node unit/config/deployment tests, 10 static artifact/build
+checks, all 57 Chromium scenarios without retries or skips, generated-contract
+verification, four-module Go race/vet/build, disposable PostgreSQL product and
+migration tests, actionlint and both advisory scans. pnpm and Go caches were
+restored; Chromium, system libraries and Docker data were prepared on fresh
+runners. This is a **warm dependency-cache measurement**, not a fully cold
+benchmark. The first browser runner fetched 36.2 MB of indexes in 6s and 21.5 MB
+of packages in 5s from the official archive. The earlier cancelled runs above
+remain failed evidence, not successful attempts.
+
+`deploy:production` subsequently activated
+`v0.0.3-a739666d9b0d-20261007T222205Z` from the clean tagged revision. Its verifier
+confirmed installed files, running binaries, the NixOS closure, effective identity
+policy and public responses. All migrations through 017 were applied. Independent
+CLI checks confirmed the manifest revision, active services, the new dictionary
+and notification tables, HTTP 200 public application entries/OIDC discovery and
+HTTP 401 for unauthenticated Lingvo access. Existing assessment limits remain
+documented in the quality audit ledger.

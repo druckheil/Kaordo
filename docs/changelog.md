@@ -45,3 +45,26 @@ const release = {
 
 export default release;
 ```
+
+## Completing an explicitly authorized release
+
+1. Prepare the versioned notes from the final scope changes, including privacy
+   corrections to prior Portal and GitHub descriptions. Keep unreleased work out
+   of the public history.
+2. Push the release work and diagnose complete `Checks` runs by exact commit.
+   Fix the first failed action; preserve all validation layers and assertions.
+3. Merge the scope into the latest `main`, preserving existing work. Push and
+   require a successful complete `Checks` run for the final main revision.
+4. Deploy that clean revision with `deploy:production` using the
+   [production workflow](../deploy/nixos/README.md). Confirm the active manifest,
+   installed services and public responses against the tested commit.
+5. Create an annotated `vMAJOR.MINOR.PATCH` tag at that revision and publish the
+   GitHub release from the same canonical public notes. Keep internal deployment
+   bundles out of public release assets. Record exact CI and deployment evidence
+   in `docs/ci.md`.
+6. Start `scope-NEXT_VERSION` from the released main revision, bump the root
+   package version, commit, and create the matching annotated scope tag at that
+   initial commit. Push the branch and tag using explicit `refs/heads/...` and
+   `refs/tags/...`: they share a name. Verify the new scope's complete `Checks`
+   run. Its public history continues to show the latest shipped version until
+   the next release.
