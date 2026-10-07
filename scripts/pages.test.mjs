@@ -1,8 +1,9 @@
 // Checks assembled static routes, local assets and the lazy-loading budget
 
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import test from 'node:test';
 import { createPageServer } from './serve-pages.mjs';
@@ -30,6 +31,27 @@ test('public applications have prerendered pages; Regado stays out of the app di
     assert.match(portal, new RegExp(name));
   }
   assert.doesNotMatch(portal, /Regado|In development/);
+});
+
+test('public release notes contain valid user-facing content without private administration details', async () => {
+  const directory = resolve(import.meta.dirname, '../apps/portal/src/lib/changelog/releases');
+  const filenames = readdirSync(directory);
+  assert.ok(filenames.length > 0, 'at least one released version must exist');
+  for (const filename of filenames) {
+    assert.match(filename, /^v\d+\.\d+\.\d+\.ts$/);
+    const { default: release } = await import(pathToFileURL(join(directory, filename)).href);
+    assert.match(release.releasedAt, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(new Date(release.releasedAt).toISOString().slice(0, 10), release.releasedAt);
+    assert.ok(release.summary.trim());
+    assert.ok(release.sections.length > 0);
+    for (const section of release.sections) {
+      assert.ok(section.heading.trim());
+      assert.ok(section.changes.length > 0);
+      assert.ok(section.changes.every(change => typeof change === 'string' && change.trim()));
+    }
+    assert.doesNotMatch(JSON.stringify(release), /\b(?:Regado|admin(?:istration|istrator|s)?|NixOS|Prometheus|Node Exporter|DDNS)\b/i,
+      `${filename} must not publish private administration or host details`);
+  }
 });
 
 test('authentication entry points are prerendered without showing guest actions before session resolution', () => {

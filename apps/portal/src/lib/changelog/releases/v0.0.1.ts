@@ -34,13 +34,6 @@ const release = {
 				"Added LiveKit rooms for voice, camera, and screen sharing.",
 			],
 		},
-		{
-			heading: "Administration and operations",
-			changes: [
-				"Added Regado tools for account administration, audits, time-limited content access, storage, and service health.",
-				"Added NixOS deployment and encrypted database and media backup workflows.",
-			],
-		},
 	],
 } satisfies ReleaseNotes;
 
