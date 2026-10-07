@@ -16,6 +16,7 @@ export { default as ThemePicker } from './ThemePicker.svelte';
 export { withIdentityAppearance } from './themes/identity-appearance.js';
 
 // Composite interaction components
+export { IsUsingKeyboard } from 'bits-ui';
 export * as Dialog from './components/ui/dialog/index.js';
 export * as AlertDialog from './components/ui/alert-dialog/index.js';
 export * as ContextMenu from './components/ui/context-menu/index.js';

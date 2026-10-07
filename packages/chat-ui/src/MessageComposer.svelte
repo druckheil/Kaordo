@@ -2,6 +2,7 @@
 	// Composes text and attachment messages
 
 	import { Button, PaperclipIcon, SendIcon, Textarea } from "@kaordo/ui";
+	import { clipboardFiles } from '@kaordo/media-client/clipboard';
 	import DraftAttachment from "./DraftAttachment.svelte";
 
 	let {
@@ -45,9 +46,10 @@
 
 	function handlePaste(event: ClipboardEvent): void {
 		const clipboard = event.clipboardData;
-		if (!clipboard?.files.length) return;
+		const pastedFiles = clipboardFiles(clipboard);
+		if (!clipboard || !pastedFiles.length) return;
 
-		addFiles(Array.from(clipboard.files));
+		addFiles(pastedFiles);
 		if (!clipboard.getData("text/plain")) event.preventDefault();
 	}
 
@@ -78,10 +80,11 @@
 		<p class="mb-2 text-sm text-destructive" role="alert">{actionError}</p>
 	{/if}
 
-	<div class="flex items-end gap-2 rounded-[1.25rem] border border-border/80 bg-background p-2 shadow-sm transition-[box-shadow,border-color] focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-ring/20">
+	<div class="flex items-end gap-2 rounded-[1.25rem] border border-[var(--control-border)] bg-background p-2 shadow-sm transition-[box-shadow,border-color] focus-within:ring-2 focus-within:ring-ring/20">
 		<input
 			bind:this={fileInput}
 			type="file"
+			tabindex="-1"
 			multiple
 			class="sr-only"
 			aria-label="Choose files"

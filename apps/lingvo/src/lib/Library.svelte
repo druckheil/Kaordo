@@ -63,7 +63,7 @@
           <span class="absolute -bottom-5 -right-3 text-8xl font-bold opacity-10" aria-hidden="true">{set.kind === 'word' ? 'Aa' : '„'}</span>
         </button>
         <div class="flex flex-1 flex-col p-5">
-          <p class="lingvo-eyebrow">{set.cards.length} {set.kind === 'word' ? 'words' : 'phrases'}</p>
+          <p class="lingvo-eyebrow">{set.cards.length} {set.kind}{set.cards.length === 1 ? '' : 's'}</p>
           <h2 class="mt-2 text-lg font-bold">{set.title}</h2><p class="mt-2 flex-1 text-sm leading-6 text-muted-foreground">{set.description}</p>
           <div class="mt-5 flex gap-2"><Button class="flex-1" variant="outline" size="sm" onclick={() => openSet(set)}>Explore</Button><Button size="sm" disabled={!!busy} aria-label={'Add ' + set.title} onclick={() => void add(set, 'active')}>{#if busy === set.id}<LoaderCircleIcon class="size-4 motion-safe:animate-spin" />{:else}<PlusIcon class="size-4" />{/if}Add</Button></div>
         </div>
@@ -85,7 +85,7 @@
         {#each selected.cards as card (card.id)}
           <ToggleGroup.Item value={card.id} class="h-auto w-full justify-start gap-4 rounded-xl border border-transparent px-4 py-4 text-left whitespace-normal data-[state=on]:border-primary/20 data-[state=on]:bg-primary/5">
             <span class="grid size-6 shrink-0 place-items-center rounded-full border border-border">{#if keys.includes(card.id)}<CheckIcon class="size-3.5 text-link" />{/if}</span>
-            <div class="min-w-0 flex-1 font-normal"><CardDefinition {card} compact /></div>
+            <div class="min-w-0 flex-1 font-normal"><CardDefinition {card} compact nativeLanguage={dictionary.nativeLanguage} /></div>
           </ToggleGroup.Item>
         {/each}
       </ToggleGroup.Root>

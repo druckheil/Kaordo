@@ -168,7 +168,7 @@
 						<span class="block text-xs text-muted-foreground">A private chat with yourself</span>
 					</span>
 				</button>
-				<label class="mb-4 flex items-center gap-2 text-sm font-medium">
+				<label class="mb-4 flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
 					<input type="checkbox" bind:checked={groupMode} class="size-5 rounded accent-primary" />
 					Create a group
 				</label>

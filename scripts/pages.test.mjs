@@ -1,3 +1,5 @@
+// Checks assembled static routes, local assets and the lazy-loading budget
+
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -7,7 +9,7 @@ import { createPageServer } from './serve-pages.mjs';
 
 const site = resolve(import.meta.dirname, '../dist/pages');
 const fluoClient = resolve(import.meta.dirname, '../apps/fluo/.svelte-kit/output/client');
-const routes = ['/', '/login/', '/register/', '/ligo/', '/fluo/', '/rondo/', '/regado/'];
+const routes = ['/', '/login/', '/register/', '/agordoj/', '/changelog/', '/ligo/', '/fluo/', '/rondo/', '/lingvo/', '/regado/'];
 
 function pageAt(route) {
   const file = join(site, route, 'index.html');
@@ -18,15 +20,13 @@ function pageAt(route) {
 test('public applications have prerendered pages; Regado stays out of the app directory', () => {
   const portal = pageAt('/');
   assert.match(portal, /href="\/fluo\/"/);
-  assert.match(pageAt('/regado/'), /Checking your account/);
-  assert.match(readFileSync(resolve(import.meta.dirname, '../apps/regado/src/lib/RegadoDashboard.svelte'), 'utf8'), /appPaths\.portal/);
-  for (const app of ['ligo', 'fluo', 'rondo']) {
-    assert.match(pageAt(`/${app}/`), /Checking your account/);
-    const component = app[0].toUpperCase() + app.slice(1) + 'App';
-    const source = readFileSync(resolve(import.meta.dirname, `../apps/${app}/src/lib/${component}.svelte`), 'utf8');
-    assert.match(source, /appPaths\.portal/);
+  for (const app of ['ligo', 'fluo', 'rondo', 'lingvo', 'regado']) {
+    const html = pageAt(`/${app}/`);
+    assert.match(html, /Checking your account/);
+    assert.match(html, /<a\b(?=[^>]*href="\/")(?=[^>]*aria-label="Kaordo home")[^>]*>/,
+      `${app} must render a working home link regardless of component ownership`);
   }
-  for (const name of ['Ligo', 'Rondo']) {
+  for (const name of ['Ligo', 'Rondo', 'Lingvo']) {
     assert.match(portal, new RegExp(name));
   }
   assert.doesNotMatch(portal, /Regado|In development/);

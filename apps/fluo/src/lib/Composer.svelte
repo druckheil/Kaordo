@@ -5,7 +5,7 @@
   import type { Editor } from '@tiptap/core';
   import type { FluoPost } from '@kaordo/contracts';
   import type { FluoApi } from '@kaordo/api-client';
-  import { Button, EllipsisIcon, ImagePlusIcon } from '@kaordo/ui';
+  import { Button, EllipsisIcon, ImagePlusIcon, IsUsingKeyboard } from '@kaordo/ui';
   import ComposerAttachmentList from './ComposerAttachmentList.svelte';
   import ComposerOptionsPanel from './ComposerOptionsPanel.svelte';
   import { composerMediaTypes, maxComposerAttachments, type ComposerAttachment } from './composer-model';
@@ -35,6 +35,7 @@
   let progress = $state(0);
   let error = $state('');
   let optionsOpen = $state(false);
+  const keyboard = new IsUsingKeyboard();
   const characterLimit = $derived(replyTo ? 2_000 : 5_000);
   const publishLabel = $derived.by(() => {
     if (replyTo) return 'Reply';
@@ -145,7 +146,8 @@
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-[1_1_auto] flex-col gap-3">
-  <div class="kaordo-scrollbar min-h-0 min-w-0 flex-[1_1_auto] overflow-y-auto overscroll-contain rounded-2xl border border-input bg-background p-4 pb-7 [scrollbar-gutter:stable]"
+  <div class="draft-viewport kaordo-scrollbar min-h-0 min-w-0 flex-[1_1_auto] overflow-y-auto overscroll-contain rounded-2xl border border-[var(--control-border)] bg-background p-4 pb-7 [scrollbar-gutter:stable]"
+    class:keyboard-focus={keyboard.current}
     bind:this={draftViewport} bind:clientHeight={null, resizeDraftViewport} role="presentation"
     onclick={(event) => { if (event.target === event.currentTarget) editor?.commands.focus('end'); }}>
     <div class="flow-root min-w-0">
@@ -187,7 +189,7 @@
     {#if error}<p class="shrink-0 text-sm text-destructive" role="alert">{error}</p>{/if}
     <div class="flex shrink-0 items-center justify-between gap-1.5 border-t border-border/80 pt-3 sm:gap-3">
       <div class="flex shrink-0 items-center gap-1 sm:gap-2">
-        <input bind:this={fileInput} type="file" accept={[...composerMediaTypes, '.mov'].join(',')} multiple disabled={pending} class="sr-only" aria-label="Choose photos or videos" onchange={chooseFiles} />
+        <input bind:this={fileInput} type="file" accept={[...composerMediaTypes, '.mov'].join(',')} multiple disabled={pending} tabindex="-1" class="sr-only" aria-label="Choose photos or videos" onchange={chooseFiles} />
         <Button class="size-11 p-0 min-[420px]:w-auto min-[420px]:px-3" size="sm" variant="outline" disabled={pending}
           aria-label="Add media" title="Add media" onclick={() => fileInput?.click()}><ImagePlusIcon class="size-4" /><span class="hidden min-[420px]:inline">Media</span></Button>
         <Button class="size-11 p-0 min-[420px]:w-auto min-[420px]:px-3" size="sm" variant={optionsOpen ? 'secondary' : 'ghost'} aria-label="Post options" title="Post options"
@@ -203,6 +205,9 @@
 </div>
 
 <style>
+  .editor-surface :global(.tiptap:focus-visible) { outline: none; }
+  .draft-viewport.keyboard-focus:focus-within { outline: 2px solid var(--focus-color); outline-offset: 2px; }
+  @media (forced-colors: active) { .draft-viewport.keyboard-focus:focus-within { outline-color: Highlight; } }
   .editor-surface :global(.tiptap) {
     min-width: 0;
     min-height: 4lh;

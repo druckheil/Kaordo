@@ -8,6 +8,8 @@ import { localViteServer } from '../../scripts/local-vite.mjs';
 export default defineConfig({
   envDir: '../..',
   server: localViteServer('lingvo'),
+  // Include lazy dependencies through their owning workspace package before opening a dialog
+  optimizeDeps: { include: ['@kaordo/lingvo-client > papaparse', '@kaordo/lingvo-client > ts-fsrs'] },
   plugins: [tailwindcss(), sveltekit({
     compilerOptions: {
       runes: ({ filename }) => filename.split(/[/\\]/).includes('node_modules') ? undefined : true

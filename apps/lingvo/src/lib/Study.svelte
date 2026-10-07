@@ -1,6 +1,6 @@
 <script lang="ts">
   // Coordinates due-card practice, FSRS answer previews, idempotent review saves and undo
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { fly } from 'svelte/transition';
   import { createQuery } from '@tanstack/svelte-query';
   import { lingvoStudyOptions } from '@kaordo/api-client';
@@ -34,6 +34,9 @@
   let pending = $state<{ cardId: string; review: LingvoReview } | null>(null);
   let undoId = $state<string | null>(null);
   let reducedMotion = $state(true);
+  let practice = $state<HTMLElement>();
+  let recall = $state<HTMLElement>();
+  let question = $state<HTMLElement>();
   let dragX = $state(0);
   let gesture: { id: number; x: number; y: number } | null = null;
   let disposed = false;
@@ -50,6 +53,13 @@
     const next = ready[0];
     untrack(() => { active = next; resetAnswer(); });
   });
+  $effect(() => {
+    active?.id; active?.revision;
+    untrack(() => { if (active) void tick().then(() => {
+      const focused = document.activeElement;
+      if (!disposed && !paused && !revealed && (focused === document.body || practice?.contains(focused))) question?.focus({ preventScroll: true });
+    }); });
+  });
   onMount(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
     const update = () => { reducedMotion = media.matches; };
@@ -58,6 +68,13 @@
     return () => media.removeEventListener('change', update);
   });
   onDestroy(() => { disposed = true; abort.abort(); pronunciation.dispose(); });
+
+  // Move focus out of the card face before it becomes inert and into the next available action
+  $effect(() => {
+    if (revealed) void tick().then(() => {
+      if (!disposed && revealed) recall?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true });
+    });
+  });
 
   function resetAnswer(): void { revealed = false; correct = null; hinted = false; dragX = 0; error = ''; pronunciation.stop(); }
 
@@ -121,7 +138,7 @@
   }
 
   function keyboard(event: KeyboardEvent): void {
-    if (event.defaultPrevented || event.repeat || event.altKey || event.ctrlKey || event.metaKey || busy || pending || paused || !active) return;
+    if (event.defaultPrevented || event.repeat || event.altKey || event.ctrlKey || event.metaKey || busy || pending || paused || !active || !practice?.contains(document.activeElement)) return;
     const target = event.target;
     if (target instanceof HTMLElement && target.closest('input,textarea,select,[contenteditable=true],[role=dialog],[role=menu]')) return;
     if (document.querySelector('[data-slot=dialog-content],[data-slot=dropdown-menu-content]')) return;
@@ -157,7 +174,8 @@
 
 <svelte:window onkeydown={keyboard} />
 
-<section class="mx-auto max-w-3xl" aria-label={kind === 'word' ? 'Flashcard practice' : 'Phrase practice'}>
+<section bind:this={practice} class="mx-auto max-w-3xl" aria-labelledby="practice-heading" tabindex="-1">
+  <h1 id="practice-heading" class="sr-only">{kind === 'word' ? 'Flashcard practice' : 'Phrase practice'}</h1>
   <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
     <Button variant="ghost" size="sm" onclick={onExit}><ChevronLeftIcon class="size-4" />{kind === 'word' ? 'Words' : 'Phrases'}</Button>
     <div class="flex items-center gap-2">
@@ -177,7 +195,7 @@
         <div class="card-scene" role="group" aria-label="Study card" onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerEnd} onpointercancel={pointerEnd} style={`transform: translateX(${dragX}px) rotate(${dragX / 25}deg);`}>
           {#if Math.abs(dragX) > 20}<span class="swipe-label" class:forgot={dragX < 0}>{dragX > 0 ? 'Remembered' : 'Forgot'}</span>{/if}
           <div class="card-turner" class:turned={revealed}>
-            <div class="lingvo-surface card-face card-front p-6 sm:p-9" inert={revealed} aria-hidden={revealed}>
+            <div bind:this={question} class="lingvo-surface card-face card-front p-6 sm:p-9" role="group" aria-label="Question" tabindex="-1" inert={revealed} aria-hidden={revealed}>
               {#if kind === 'phrase'}
                 <p class="lingvo-eyebrow text-center">Say it in German</p>
                 <p class="mb-7 mt-4 text-center text-xl font-semibold sm:text-2xl" lang={dictionary.nativeLanguage}>{active.translation}</p>
@@ -195,16 +213,16 @@
             </div>
             <div class="lingvo-surface card-face card-back p-6 sm:p-9" inert={!revealed} aria-hidden={!revealed}>
               <div class="mb-6 flex items-center justify-between"><p class="lingvo-eyebrow">{kind === 'phrase' ? 'The phrase' : 'Turn it into a memory'}</p><Button variant="ghost" size="icon-sm" aria-label="Play German pronunciation" onclick={() => speak(germanTerm(active!))}><Volume2Icon class="size-5" /></Button></div>
-              <CardDefinition card={active} />
+              <CardDefinition card={active} nativeLanguage={dictionary.nativeLanguage} />
               {#if correct !== null}<p class={`mt-5 rounded-xl p-3 text-sm ${correct ? 'bg-accent text-accent-foreground' : 'bg-muted text-muted-foreground'}`}>{#if correct}<CheckIcon class="mr-1 inline size-4" />{hinted ? 'You got it with a hint.' : 'That is right.'}{:else}Compare the phrase with your answer. A little practice will help it stick.{/if}</p>{/if}
               <p class="mt-6 text-xs text-muted-foreground">{kind === 'word' ? 'How well did you remember? Swipe left to repeat, right if you knew it.' : 'How easily did you recall the phrase?'}</p>
             </div>
           </div>
         </div>
-        <div class="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Rate your recall">
+        <div bind:this={recall} class="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Rate your recall">
           {#each ratings as rating}
             <Button variant={rating.value === 3 ? 'default' : 'outline'} class={`h-auto min-h-16 flex-col gap-1 py-3 ${rating.value === 1 ? 'border-destructive/25 text-destructive' : ''}`} disabled={!revealed || busy || !!pending} onclick={() => void save(rating.value)} aria-label={rating.label + (intervals ? ' · ' + intervals[rating.value] : '')}>
-              <span class="font-semibold">{rating.label}</span><span class="text-xs opacity-70">{revealed && intervals ? intervals[rating.value] : rating.hint}</span>
+              <span class="font-semibold">{rating.label}</span><span class="text-xs">{revealed && intervals ? intervals[rating.value] : rating.hint}</span>
             </Button>
           {/each}
         </div>
@@ -219,7 +237,7 @@
     <div class="lingvo-surface completion flex min-h-96 flex-col items-center justify-center p-8 text-center">
       <span class="mb-5 grid size-20 place-items-center rounded-3xl bg-accent text-accent-foreground"><SparklesIcon class="size-9" /></span>
       <p class="lingvo-eyebrow">{completed ? 'A little further than before' : 'Your own pace'}</p>
-      <h1 class="mt-3 text-3xl font-bold tracking-tight">{completed ? 'Good work for today.' : counts?.total ? 'You are all caught up.' : 'Find your first ' + (kind === 'word' ? 'words.' : 'phrases.')}</h1>
+      <h2 class="mt-3 text-3xl font-bold tracking-tight">{completed ? 'Good work for today.' : counts?.total ? 'You are all caught up.' : 'Find your first ' + (kind === 'word' ? 'words.' : 'phrases.')}</h2>
       <p class="mt-3 max-w-sm text-sm leading-6 text-muted-foreground">{completed ? 'You completed ' + completed + (completed === 1 ? ' review.' : ' reviews.') + ' Your next cards will appear when they are due.' : counts?.total ? 'Add a few new cards from the library or return when your next review is ready.' : 'Choose a starter set from the library or add a few cards of your own.'}</p>
       {#if nextDue}<p class="mt-3 text-xs text-muted-foreground">Next review: {dueDate(nextDue)}</p>{/if}
       <div class="mt-6 flex flex-wrap justify-center gap-2"><Button onclick={onLibrary}><LayersIcon class="size-4" />Explore the library</Button><Button variant="outline" onclick={onExit}>Back to progress</Button></div>
@@ -228,10 +246,11 @@
   {#if error}
     <div class="mt-4 rounded-2xl border border-destructive/30 bg-card p-4"><p role="alert" class="text-sm text-destructive">{error}</p><div class="mt-3 flex gap-2">{#if pending}<Button variant="outline" size="sm" disabled={busy} onclick={() => void save()}>Retry this answer</Button>{/if}<Button variant="ghost" size="sm" disabled={busy} onclick={() => void refresh()}>Refresh saved progress</Button></div></div>
   {/if}
-  <p class="mt-5 text-center text-xs leading-5 text-muted-foreground">FSRS schedules each card from your answers. Interval previews use ts-fsrs; saved due dates follow server time.</p>
+  <p class="mt-5 text-center text-xs leading-5 text-muted-foreground">Your answers help schedule the next review at the right time for you.</p>
 </section>
 
 <style>
+  .card-front:focus-visible { outline: 2px solid var(--focus-color); outline-offset: 3px; }
   .card-scene { position: relative; perspective: 1400px; touch-action: pan-y; transition: transform .15s ease-out; }
   .card-turner { display: grid; transform-style: preserve-3d; transition: transform .4s cubic-bezier(.22,.8,.26,1); }
   .card-turner.turned { transform: rotateY(180deg); }

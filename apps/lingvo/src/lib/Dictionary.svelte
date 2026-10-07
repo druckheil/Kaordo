@@ -107,7 +107,7 @@
     <Button variant="ghost" size="sm" onclick={() => { error = ''; foldersOpen = true; }}><FolderPlusIcon class="size-4" />Manage folders</Button>
   </div>
 </div>
-<div class="my-3 flex min-h-5 items-center justify-between text-xs text-muted-foreground" role="status"><span>{cards.data?.total ?? 0} {kind === 'word' ? 'words' : 'phrases'}</span>{#if cards.isFetching}<span class="inline-flex items-center gap-1.5"><LoaderCircleIcon class="size-3 motion-safe:animate-spin" />Updating…</span>{/if}</div>
+<div class="my-3 flex min-h-5 items-center justify-between text-xs text-muted-foreground" role="status"><span>{cards.data?.total ?? 0} {kind}{cards.data?.total === 1 ? '' : 's'}</span>{#if cards.isFetching}<span class="inline-flex items-center gap-1.5"><LoaderCircleIcon class="size-3 motion-safe:animate-spin" />Updating…</span>{/if}</div>
 {#if error && !foldersOpen && !confirm}<p class="mb-3 text-sm text-destructive" role="alert">{error}</p>{/if}
 {#if cards.isError}
   <div class="lingvo-surface p-6"><p role="alert" class="text-sm text-destructive">{errorMessage(cards.error)}</p><Button class="mt-4" variant="outline" onclick={() => void cards.refetch()}>Try again</Button></div>
@@ -138,7 +138,7 @@
           {#if card.status === 'active' && card.schedule.reps}<span>Next review: {dueDate(card.schedule.due)}</span>{/if}
         </div>
         {#if card.plural || card.grammar || card.example || card.notes}
-          <details class="mt-3"><summary class="w-fit cursor-pointer rounded-lg text-xs font-semibold text-link focus-visible:outline-2 focus-visible:outline-ring">Grammar & context</summary><div class="mt-3 rounded-xl bg-muted/25 p-4"><CardDefinition {card} compact showTerm={false} showTranslation={false} /></div></details>
+          <details class="mt-3"><summary class="min-h-8 w-fit cursor-pointer content-center rounded-lg py-1 text-xs font-semibold text-link focus-visible:outline-2 focus-visible:outline-ring">Grammar & context</summary><div class="mt-3 rounded-xl bg-muted/25 p-4"><CardDefinition {card} compact showTerm={false} showTranslation={false} nativeLanguage={dictionary.nativeLanguage} /></div></details>
         {/if}
       </article>
     {/each}

@@ -31,7 +31,7 @@ Preserves the single/multiple value union across the bindable props
 		<span
 			data-slot="slider-track"
 			data-orientation={orientation}
-			class="bg-input/90 rounded-2xl data-horizontal:h-1 data-horizontal:w-full data-vertical:h-full data-vertical:w-1 relative grow overflow-hidden"
+			class="bg-[var(--control-border)] rounded-2xl data-horizontal:h-1 data-horizontal:w-full data-vertical:h-full data-vertical:w-1 relative grow overflow-hidden"
 		>
 			<SliderPrimitive.Range
 				data-slot="slider-range"
@@ -43,7 +43,7 @@ Preserves the single/multiple value union across the bindable props
 				data-slot="slider-thumb"
 				index={thumb.index}
 				aria-label={thumbLabel}
-				class="ring-black/10 not-dark:bg-clip-padding ring-1 size-4 rounded-2xl bg-white shadow-md transition-[color,box-shadow] duration-200 hover:ring-4 hover:ring-ring/30 focus-visible:ring-4 focus-visible:ring-ring/30 focus-visible:outline-hidden block shrink-0 select-none disabled:pointer-events-none disabled:opacity-50"
+				class="size-6 min-h-[24px] min-w-[24px] rounded-full border-2 border-link bg-card shadow-sm transition-[color,box-shadow] duration-200 hover:ring-4 hover:ring-ring/20 focus-visible:ring-4 focus-visible:ring-ring/20 block shrink-0 select-none disabled:pointer-events-none disabled:opacity-50"
 			/>
 		{/each}
 	{/snippet}

@@ -1,6 +1,6 @@
 // Exercises Regado navigation, accessible storage evidence, and guarded administrator actions
 import assert from "node:assert/strict";
-import { assertAccessible as accessibility } from "./ui-accessibility.mjs";
+import { assertAccessible as accessibility, assertInterfaceGeometry, settleInterface } from "./ui-accessibility.mjs";
 import { test, expect } from "./ui-fixture.mjs";
 
 const actor = {
@@ -37,7 +37,7 @@ const services = [
 
 test(
 	"Regado renders all sections, admin controls and responsive charts",
-	async ({ startAppFixture }) => {
+	async ({ startAppFixture }, testInfo) => {
 		test.setTimeout(90_000);
 		const { page, origin, errors } = await startAppFixture("regado");
 		const mutations = [];
@@ -325,18 +325,62 @@ test(
 		for (const section of ["Storage", "Logs", "Users", "Audit", "System"]) {
 			await page.getByRole("button", { name: section, exact: true }).click();
 			await expect(page.getByRole("button", { name: section, exact: true })).toHaveAttribute("aria-current", "page");
+			await expect(page).toHaveURL(new RegExp('view=' + section.toLowerCase()));
+			await expect(page.getByRole('heading', { level: 1 })).toHaveText(section);
 			await accessibility(page, section);
+			await assertInterfaceGeometry(page, section);
 			await theme.click();
 			await accessibility(page, `Dark ${section}`);
 			await page.setViewportSize({ width: 320, height: 700 });
 			await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
 				{ message: `${section}: no page horizontal overflow at 320px` }).toBeLessThanOrEqual(1);
+			await assertInterfaceGeometry(page, `Mobile ${section}`);
+			await accessibility(page, `Mobile ${section}`);
+			if (process.env.KAORDO_UI_SCREENSHOTS === '1') await page.screenshot({ path: testInfo.outputPath('regado-' + section.toLowerCase() + '-mobile.png'), fullPage: true });
 			await page.setViewportSize({ width: 1440, height: 900 });
 			await theme.click();
 		}
+		await page.goBack();
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText('Audit');
+		await page.goForward();
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText('System');
+		await page.reload();
+		await expect(page.getByRole('button', { name: 'System', exact: true })).toHaveAttribute('aria-current', 'page');
+		await page.getByRole('region', { name: 'DNS maintenance', exact: true }).waitFor();
+		await settleInterface(page);
+		if (process.env.KAORDO_UI_SCREENSHOTS === '1') await page.screenshot({ path: testInfo.outputPath('regado-system-desktop.png'), fullPage: true });
+		await page.setViewportSize({ width: 1280, height: 900 });
+		await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+		await assertInterfaceGeometry(page, 'Regado enlarged text');
+		await accessibility(page, 'Regado enlarged text');
+		await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
+		const spacing = await page.addStyleTag({ content: '* { line-height: 1.5 !important; letter-spacing: .12em !important; word-spacing: .16em !important } p { margin-bottom: 2em !important }' });
+		await page.setViewportSize({ width: 320, height: 700 });
+		await assertInterfaceGeometry(page, 'Regado text spacing');
+		await accessibility(page, 'Regado text spacing');
+		await spacing.evaluate(element => element.remove());
+		await page.setViewportSize({ width: 1440, height: 900 });
 		await page.getByRole("button", { name: "Logs", exact: true }).click();
 		await page.getByText("32.0 MiB", { exact: true }).waitFor();
-		await page.getByLabel("Log lifetime", { exact: true }).selectOption("7");
+		const retention = page.getByRole('combobox', { name: 'Log lifetime', exact: true });
+		await retention.focus();
+		await page.keyboard.press('Tab');
+		await page.keyboard.press('Shift+Tab');
+		await expect(retention).toBeFocused();
+		await settleInterface(page);
+		const focus = await retention.evaluate(element => {
+			const style = getComputedStyle(element);
+			const probe = document.createElement('span');
+			probe.style.color = 'var(--focus-color)';
+			document.body.append(probe);
+			const color = getComputedStyle(probe).color;
+			probe.remove();
+			return { style: style.outlineStyle, width: parseFloat(style.outlineWidth), color: style.outlineColor, expectedColor: color };
+		});
+		expect(focus.style).toBe('solid');
+		expect(focus.width).toBeGreaterThanOrEqual(2);
+		expect(focus.color, JSON.stringify(focus)).toBe(focus.expectedColor);
+		await retention.selectOption("7");
 		await page.getByRole("button", { name: "Apply retention", exact: true }).click();
 		await page.getByRole("dialog").getByText(/entire host journal/).waitFor();
 		await page.getByRole("textbox", { name: "Reason", exact: true }).fill("Limit journal retention to seven days");

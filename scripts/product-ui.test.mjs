@@ -139,27 +139,30 @@ test('Fluo pastes media into the shared attachment queue and preserves text past
   await page.goto(`${origin}/fluo/`);
   await page.getByRole('button', { name: 'Post', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
-  const editor = dialog.locator('[contenteditable="true"]');
+  const editor = dialog.getByRole('textbox', { name: 'Post text', exact: true });
   await editor.waitFor();
   const attachments = dialog.getByRole('list', { name: 'Attachments', exact: true }).getByRole('listitem');
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1c8AAAAASUVORK5CYII=', 'base64');
   const clipboardImage = (name) => ({ name, type: 'image/png', bytes: [...png] });
-  const paste = (files = [], text = '', html = '') => editor.evaluate((element, input) => {
+  const paste = (files = [], text = '', html = '', itemsOnly = false) => editor.evaluate((element, input) => {
     const clipboardData = new DataTransfer();
     for (const { name, type, bytes } of input.files) {
       clipboardData.items.add(new File([new Uint8Array(bytes)], name, { type }));
     }
     if (input.text) clipboardData.setData('text/plain', input.text);
     if (input.html) clipboardData.setData('text/html', input.html);
-    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
-  }, { files, text, html });
+    if (input.itemsOnly) Object.defineProperty(clipboardData, 'files', { value: [] });
+    const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: clipboardData });
+    element.dispatchEvent(event);
+  }, { files, text, html, itemsOnly });
 
   await paste([], 'Pasted text');
-  assert.equal(await editor.textContent(), 'Pasted text', 'Text-only paste follows the editor behavior');
-  await paste([clipboardImage('clipboard.png')], ' Caption bold', '<p> Caption <strong>bold</strong></p>');
+  await expect(editor, 'Text-only paste follows the editor behavior').toHaveText('Pasted text');
+  await paste([clipboardImage('clipboard.png')], ' Caption bold', '<p> Caption <strong>bold</strong></p>', true);
   await dialog.getByRole('button', { name: 'Remove clipboard.png', exact: true }).waitFor();
   assert.equal(await attachments.count(), 1, 'A pasted image is attached once');
-  assert.equal(await editor.locator('strong').textContent(), 'bold', 'Rich text accompanying media retains its formatting');
+  await expect(editor.locator('strong'), 'Rich text accompanying media retains its formatting').toHaveText('bold');
   assert.equal(await editor.locator('img').count(), 0, 'Media uses attachment previews rather than embedded editor nodes');
 
   await paste([
@@ -220,7 +223,8 @@ test('Ligo starts at the bottom, keeps rapid scrolling native and shares the com
       requestAnimationFrame(() => requestAnimationFrame(resolve));
     }));
     await log.hover();
-    await page.mouse.wheel(0, 100000);
+    const { clientHeight, scrollHeight } = await log.evaluate(el => ({ clientHeight: el.clientHeight, scrollHeight: el.scrollHeight }));
+    for (let step = 0; step < Math.ceil(scrollHeight / clientHeight) + 2; step++) await page.mouse.wheel(0, clientHeight);
     await page.waitForFunction(() => {
       const el = document.querySelector('[role="log"]');
       return el && el.scrollHeight - el.clientHeight - el.scrollTop <= 2;
@@ -269,16 +273,27 @@ for (const app of ['ligo', 'rondo']) {
     await input.waitFor();
     await input.fill('Existing draft');
 
-    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
-    await page.evaluate(async () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = 2;
-      const png = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-      await navigator.clipboard.write([new ClipboardItem({
-        'image/png': png,
-        'text/plain': new Blob([' pasted caption'], { type: 'text/plain' }),
-      })]);
+    // A real user gesture owns the clipboard write in engines without Chromium's permission API
+    await page.evaluate(() => {
+      const trigger = document.createElement('button');
+      trigger.dataset.testid = 'fixture-clipboard';
+      trigger.textContent = 'Prepare clipboard fixture';
+      trigger.onclick = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 2;
+        const png = new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        navigator.clipboard.write([new ClipboardItem({
+          'image/png': png,
+          'text/plain': new Blob([' pasted caption'], { type: 'text/plain' }),
+        })]).then(() => { trigger.dataset.state = 'ready'; }, error => { trigger.dataset.state = error.message; });
+      };
+      document.body.append(trigger);
     });
+    const clipboardTrigger = page.getByTestId('fixture-clipboard');
+    await clipboardTrigger.click();
+    await expect(clipboardTrigger).toHaveAttribute('data-state', 'ready');
+    await clipboardTrigger.evaluate(element => element.remove());
+    await input.focus();
     await input.press('ControlOrMeta+V');
     const selected = page.getByLabel('Selected attachments', { exact: true });
     await selected.getByRole('img').waitFor();
@@ -287,7 +302,10 @@ for (const app of ['ligo', 'rondo']) {
     const pasteFile = (name, type) => input.evaluate((element, file) => {
       const clipboardData = new DataTransfer();
       clipboardData.items.add(new File([new Uint8Array([1, 2, 3])], file.name, { type: file.type }));
-      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+      Object.defineProperty(clipboardData, 'files', { value: [] });
+      const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: clipboardData });
+      element.dispatchEvent(event);
     }, { name, type });
     await pasteFile('clipboard.webm', 'video/webm');
     await selected.getByLabel('Preview of clipboard.webm', { exact: true }).waitFor();

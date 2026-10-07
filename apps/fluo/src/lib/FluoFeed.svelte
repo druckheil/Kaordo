@@ -67,6 +67,7 @@
 			rootFontSize(),
 		),
 		overscan: 4,
+		useAnimationFrameWithResizeObserver: true,
 	});
 
 	$effect(() => {
@@ -103,6 +104,7 @@
 	function trackList(node: HTMLDivElement) {
 		listElement = node;
 		let previousMargin = -1;
+		let frame = 0;
 
 		const updateScrollMargin = () => {
 			const nextMargin = Math.round(node.getBoundingClientRect().top + window.scrollY);
@@ -111,16 +113,21 @@
 			$virtualizer.setOptions({ scrollMargin: nextMargin });
 		};
 
-		const observer = new ResizeObserver(updateScrollMargin);
+		// Apply virtualizer measurements in the next frame, outside ResizeObserver delivery
+		const scheduleScrollMargin = () => {
+			if (frame) return;
+			frame = requestAnimationFrame(() => { frame = 0; updateScrollMargin(); });
+		};
+		const observer = new ResizeObserver(scheduleScrollMargin);
 		observer.observe(node.parentElement ?? node);
-		window.addEventListener("resize", updateScrollMargin);
-		const frame = requestAnimationFrame(updateScrollMargin);
+		window.addEventListener("resize", scheduleScrollMargin);
+		scheduleScrollMargin();
 
 		return {
 			destroy() {
 				cancelAnimationFrame(frame);
 				observer.disconnect();
-				window.removeEventListener("resize", updateScrollMargin);
+				window.removeEventListener("resize", scheduleScrollMargin);
 				if (listElement === node) listElement = undefined;
 			},
 		};
@@ -164,12 +171,14 @@
 		use:trackList
 		class="relative w-full"
 		style:height={$virtualizer.getTotalSize() + "px"}
+		role="list"
 		aria-label={view === "saved" ? "Saved posts" : view === "profile" ? "Profile posts" : view === "search" ? "Search results" : "Posts"}
 	>
 		{#each $virtualizer.getVirtualItems().filter((row) => row.index < posts.length) as row (posts[row.index].id)}
 			{@const post = posts[row.index]}
 			<div
 				data-index={row.index}
+				role="listitem" aria-posinset={row.index + 1} aria-setsize={query.hasNextPage ? -1 : posts.length}
 				class="absolute left-0 top-0 w-full pb-4"
 				style:transform={`translateY(${row.start - $virtualizer.options.scrollMargin}px)`}
 				use:measurePost

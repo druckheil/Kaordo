@@ -28,7 +28,7 @@
 
   const api = createLigoApi(import.meta.env.VITE_KAORDO_API_URL, import.meta.env.VITE_KAORDO_NODO_URL);
   const queryClient = new QueryClient();
-  onDestroy(() => queryClient.clear());
+  onDestroy(() => { void queryClient.cancelQueries(); queryClient.clear(); });
   const conversationsQuery = createInfiniteQuery(() => ligoConversationOptions(api), () => queryClient);
 
   let selectedId = $state<string | null>(null);
@@ -39,6 +39,8 @@
   let sidebarError = $state('');
   let actionError = $state('');
   let connected = $state(true);
+  let liveUnavailable = $state(false);
+  let liveController: AbortController | null = null;
   let draft = $state('');
   let files = $state<File[]>([]);
   let pending = $state<PendingMessage[]>([]);
@@ -51,6 +53,7 @@
   const selectedQuery = createQuery(() => ligoConversationDetailOptions(api, selectedId), () => queryClient);
   const messagesQuery = createInfiniteQuery(() => ({
     ...ligoMessageOptions(api, selectedId!),
+    ...(!connected ? { refetchInterval: 5000 } : {}),
     enabled: !!selectedId,
   }), () => queryClient);
 
@@ -101,23 +104,25 @@
     window.addEventListener('hashchange', syncSelectedConversation);
     document.addEventListener('visibilitychange', syncPageVisibility);
 
-    const controller = new AbortController();
-    void api.subscribe(
-      controller.signal,
-      invalidateConversationHints,
-      (value) => { connected = value; },
-    ).catch((cause) => {
-      if (!controller.signal.aborted) {
-        actionError = cause instanceof Error ? cause.message : 'Live updates are unavailable.';
-      }
-    });
+    connectLiveUpdates();
 
     return () => {
-      controller.abort();
+      liveController?.abort();
       window.removeEventListener('hashchange', syncSelectedConversation);
       document.removeEventListener('visibilitychange', syncPageVisibility);
     };
   });
+
+  function connectLiveUpdates(): void {
+    liveController?.abort();
+    const controller = new AbortController();
+    liveController = controller;
+    liveUnavailable = false;
+    connected = false;
+    void api.subscribe(controller.signal, invalidateConversationHints,
+      value => { if (!controller.signal.aborted) connected = value; }
+    ).catch(() => { if (!controller.signal.aborted) liveUnavailable = true; });
+  }
 
   function markConversationRead(conversationId: string, messageId: string): void {
     const attemptKey = `${conversationId}:${messageId}`;
@@ -356,7 +361,7 @@
             <p class="truncate text-xs text-muted-foreground">
               {selectedSubtitle}
               {#if !connected}
-                <span class="ml-2 text-amber-700 dark:text-amber-300" role="status">· Reconnecting…</span>
+                <span class="ml-2 text-amber-700 dark:text-amber-300" role="status">· {liveUnavailable ? 'Live updates unavailable' : 'Reconnecting…'}</span>
               {/if}
             </p>
           </div>
@@ -372,6 +377,12 @@
           {/if}
         </div>
 
+        {#if liveUnavailable}
+          <div class="flex shrink-0 items-center gap-3 border-b border-border bg-muted/35 px-4 py-2">
+            <p class="min-w-0 flex-1 text-xs leading-5 text-muted-foreground" role="status">Messages refresh automatically while live updates are paused.</p>
+            <Button variant="outline" size="xs" onclick={connectLiveUpdates} aria-label="Reconnect live updates">Reconnect</Button>
+          </div>
+        {/if}
         {#if messagesQuery.error}
           <div class="m-4 rounded-xl bg-destructive/10 p-4 text-sm text-destructive" role="alert">
             Could not load messages.

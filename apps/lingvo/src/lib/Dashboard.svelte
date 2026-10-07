@@ -60,7 +60,7 @@
   {#each [
     { label: 'Ready to review', value: counts?.due ?? 0, help: 'Due and new cards' },
     { label: 'Learning', value: counts?.learning ?? 0, help: 'Building familiarity' },
-    { label: 'In review', value: counts?.review ?? 0, help: 'Spaced by FSRS' },
+    { label: 'In review', value: counts?.review ?? 0, help: 'Ready again later' },
     { label: 'Already known', value: counts?.known ?? 0, help: 'Outside the review queue' }
   ] as stat}
     <div class="lingvo-surface rounded-2xl p-4 sm:p-5"><p class="text-xs font-medium text-muted-foreground">{stat.label}</p><p class="mt-2 text-3xl font-bold tracking-tight">{stat.value}</p><p class="mt-1 text-xs text-muted-foreground">{stat.help}</p></div>
@@ -79,7 +79,7 @@
       {/each}
     </div>
     <div class="mt-2 flex justify-between text-[11px] text-muted-foreground"><span>{activity[0].label}</span><span>Today</span></div>
-    <p class="mt-4 text-xs text-muted-foreground">{overview.totalReviews} total reviews · Days follow your {overview.dictionary.timeZone} time zone.</p>
+    <p class="mt-4 text-xs text-muted-foreground">{overview.totalReviews} total {overview.totalReviews === 1 ? 'review' : 'reviews'} · Days follow your {overview.dictionary.timeZone} time zone.</p>
   </div>
   <div class="lingvo-surface flex flex-col justify-center p-6">
     <span class="mb-3 grid size-10 place-items-center rounded-xl bg-muted text-muted-foreground">{#if isPhrase}<BookOpenIcon class="size-5" />{:else}<MessageCircleIcon class="size-5" />{/if}</span>
@@ -91,9 +91,8 @@
 
 <style>
   .hero { background: radial-gradient(ellipse at 100% 0%, color-mix(in oklch, var(--primary), transparent 91%), transparent 65%), var(--card); }
-  .sample-card { transform: rotate(8deg); animation: float 6s ease-in-out infinite; }
+  .sample-card { transform: rotate(8deg); }
   .activity-bar { transition: height .4s ease, background-color .2s ease; }
   .activity-bar.empty { background: var(--muted); }
-  @keyframes float { 0%, 100% { transform: translateY(0) rotate(8deg); } 50% { transform: translateY(-7px) rotate(6deg); } }
   @media (prefers-reduced-motion: reduce) { .sample-card { animation: none; } .activity-bar { transition: none; } }
 </style>

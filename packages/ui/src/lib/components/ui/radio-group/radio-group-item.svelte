@@ -15,8 +15,8 @@
 	bind:ref
 	data-slot="radio-group-item"
 	class={cn(
-		"group/radio-group-item peer relative flex size-4 aspect-square shrink-0 rounded-2xl border border-transparent outline-none after:absolute after:-inset-x-3 after:-inset-y-2",
-		"bg-input/90 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground transition-[background-color,color,box-shadow] duration-200 motion-reduce:transition-none",
+		"group/radio-group-item peer relative flex size-4 aspect-square shrink-0 rounded-full border border-[var(--control-border)] outline-none after:absolute after:-inset-x-3 after:-inset-y-2",
+		"bg-card data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground transition-[background-color,color,box-shadow] duration-200 motion-reduce:transition-none",
 		"focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-3 group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:border-transparent",
 		"aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-invalid:ring-3 dark:aria-invalid:ring-destructive/40 dark:aria-invalid:border-destructive/50 disabled:cursor-not-allowed disabled:opacity-50",
 		className

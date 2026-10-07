@@ -1,3 +1,5 @@
+// Checks declared dependency ownership without mistaking application copy for module imports
+
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -25,14 +27,21 @@ function packageName(specifier) {
 }
 
 function importedPackages(source) {
-  const pattern = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|@import\s*)['"]([^'"\r\n]+)['"]/g;
-  return [...source.matchAll(pattern)].map((match) => packageName(match[1])).filter(Boolean);
+  const patterns = [
+    /^\s*(?:import|export)\s+(?:type\s+)?(?:[\w$]+\s*,\s*)?(?:\{[^}]*\}|\*\s+as\s+[\w$]+|[\w$]+|\*)\s+from\s*['"]([^'"\r\n]+)['"]/gm,
+    /^\s*import\s+['"]([^'"\r\n]+)['"]/gm,
+    /\bimport\s*\(\s*['"]([^'"\r\n]+)['"]/g,
+    /^\s*@import\s+['"]([^'"\r\n]+)['"]/gm,
+  ];
+  return patterns.flatMap(pattern => [...source.matchAll(pattern)].map(match => packageName(match[1]))).filter(Boolean);
 }
 
 test('dependency scanning does not treat multiline UI copy as an import', () => {
   const fixture = (name) => readFileSync(join(root, 'scripts/fixtures', name), 'utf8');
   assert.deepEqual(importedPackages(fixture('dependency-copy.txt')), []);
   assert.deepEqual(importedPackages(fixture('dependency-imports.txt')), ['@kaordo/ui', 'uplot', 'tailwindcss']);
+  assert.deepEqual(importedPackages(`<div class="form" data-mode={mode === 'import' ? 'active' : ''}>Import from 'my dictionary'</div>`), []);
+  assert.deepEqual(importedPackages(`import Papa, { parse } from 'papaparse';\nexport * from '@kaordo/contracts';\n{#await import('./Study.svelte')}`), ['papaparse', '@kaordo/contracts']);
 });
 
 function scanPackage(directory, sourceDirectory = join(directory, 'src')) {

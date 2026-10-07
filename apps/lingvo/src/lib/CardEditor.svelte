@@ -118,7 +118,7 @@
         {#if draft.kind === 'word' && (!draft.partOfSpeech || draft.partOfSpeech === 'noun')}
           <div class="space-y-2">
             <p id={`${id}-article`} class="text-sm font-semibold">Article</p>
-            <RadioGroup.Root bind:value={() => draft.article || 'none', changeArticle} aria-labelledby={`${id}-article`} class="grid grid-cols-4 gap-2">
+            <RadioGroup.Root bind:value={() => draft.article || 'none', changeArticle} aria-labelledby={`${id}-article`} class="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {#each ['none', 'der', 'die', 'das'] as article}
                 <label for={`${id}-article-${article}`} class="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-card px-2 py-2 transition-[background-color,border-color,box-shadow] has-data-[state=checked]:border-primary/50 has-data-[state=checked]:bg-primary/5 has-data-[state=checked]:shadow-sm has-focus-visible:ring-2 has-focus-visible:ring-ring/40 motion-reduce:transition-none">
                   <RadioGroup.Item id={`${id}-article-${article}`} value={article} />

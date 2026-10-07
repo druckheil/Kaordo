@@ -2,6 +2,7 @@
 
 import type { Editor } from "@tiptap/core";
 import type { FluoPost } from "@kaordo/contracts";
+import { clipboardFiles } from '@kaordo/media-client/clipboard';
 import { composerMediaTypes } from "./composer-model";
 
 export function createComposerEditor(
@@ -41,7 +42,18 @@ export function createComposerEditor(
 		],
 		content: { type: "doc", content: [{ type: "paragraph" }] },
 		editorProps: {
+			handlePaste: (_view, event) => {
+				const clipboard = event.clipboardData;
+				// FileHandler owns the standard path; Gecko can expose files through items alone
+				if (!clipboard || clipboard.files.length) return false;
+				const files = clipboardFiles(clipboard).filter(file => composerMediaTypes.includes(file.type));
+				if (!files.length) return false;
+				onFilesPaste(files);
+				return !clipboard.getData('text/plain') && !clipboard.getData('text/html');
+			},
 			attributes: {
+				role: "textbox",
+				"aria-multiline": "true",
 				"aria-label": replyTo ? "Reply text" : "Post text",
 				class: "outline-none",
 			},

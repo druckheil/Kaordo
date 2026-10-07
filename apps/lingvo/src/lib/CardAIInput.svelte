@@ -56,12 +56,12 @@
 <section class="space-y-2 rounded-xl border border-primary/20 bg-primary/3 p-3" aria-labelledby={`${id}-title`}>
   <div class="flex min-w-0 items-center gap-3">
     <label id={`${id}-title`} for={`${id}-input`} class="flex shrink-0 items-center gap-2 text-sm font-semibold"><SparklesIcon class="size-4 text-link" />AI input</label>
-    <p id={`${id}-help`} class="truncate text-xs leading-4 text-muted-foreground" title="Copy prompt → ask ChatGPT → paste the filled template.">Copy prompt → ask ChatGPT → paste the filled template.</p>
+    <p id={`${id}-help`} class="text-xs leading-4 text-muted-foreground">Copy → ChatGPT → paste.</p>
   </div>
   <div class="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
     <Textarea id={`${id}-input`} bind:value={input} rows={1} maxlength={aiInputLimit}
       placeholder="Paste the filled template from ChatGPT…"
-      aria-describedby={`${id}-help`} aria-invalid={!!error && !manualPrompt}
+      aria-describedby={`${id}-help${error && !manualPrompt ? ' ' + id + '-error' : ''}`} aria-invalid={!!error && !manualPrompt}
       oninput={() => { error = ''; applied = false; }}
       class="col-span-2 h-9 min-h-9 field-sizing-fixed resize-none py-1.5 text-sm leading-5 sm:col-span-1" />
     <Button variant="outline" size="sm" class="w-24 justify-self-end sm:justify-self-auto" aria-label={copied ? 'Prompt copied' : 'Copy prompt'} onclick={() => void copyPrompt()} disabled={copying}>
@@ -69,7 +69,8 @@
     </Button>
     <Button variant="secondary" size="sm" class="justify-self-start sm:justify-self-auto" onclick={apply} disabled={!input.trim()}>Apply</Button>
   </div>
-  {#if error}<p class="text-xs leading-5 text-destructive" role="alert">{error}</p>{/if}
+  <span class="sr-only" role="status">{copied ? 'Prompt copied to clipboard.' : ''}</span>
+  {#if error}<p id={`${id}-error`} class="text-xs leading-5 text-destructive" role="alert">{error}</p>{/if}
   {#if manualPrompt}
     <Textarea aria-label="Prompt for manual copying" value={manualPrompt} readonly rows={4}
       onfocus={(event) => event.currentTarget.select()} class="max-h-36 text-xs" />

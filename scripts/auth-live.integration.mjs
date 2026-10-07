@@ -184,7 +184,7 @@ async function checkInvalidInputAppearance(input) {
     };
   });
   assert.equal(style.invalid, 'true', 'The server reports the field validation error');
-  assert.equal(style.outline, 'none', 'Invalid fields must not add a purple outline to their error ring');
+  assert.equal(style.outline, 'solid', 'An invalid field retains a distinct keyboard focus outline');
   assert.equal(style.shadow, unfocusedShadow, 'Focusing an invalid field preserves its single error indicator');
   assert.equal(style.background, 'none', 'Validation must not paint a background icon over the text');
   assert.deepEqual(style.widths, ['1px', '1px', '1px', '1px'], 'Validation must not thicken the bottom border');
@@ -207,7 +207,7 @@ async function checkPasswordAppearance(page) {
       };
     });
     assert.equal(appearance.after, 'none', `Password visibility has no inherited white border while ${state}`);
-    assert.equal(appearance.outline, 'none', `Password visibility uses one themed focus indicator while ${state}`);
+    assert.equal(appearance.outline, state === 'keyboard' ? 'solid' : 'none', `Password visibility has a distinct keyboard focus indicator while ${state}`);
     if (state === 'keyboard') assert.equal(appearance.focused, true, 'Visibility remains accessible with the keyboard');
   }
 }
@@ -528,7 +528,7 @@ test('identity OTP errors keep one input boundary in both color modes', async ({
   }
 });
 
-test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo and app SSO', async ({ browser }) => {
+test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo, Lingvo and app SSO', async ({ browser }) => {
   test.setTimeout(120_000);
   const username = `test_${randomBytes(6).toString('hex')}`;
   const password = `Qa!${randomBytes(18).toString('hex')}`;
@@ -670,7 +670,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame()) mainNavigations.push(frame.url());
     });
-    for (const app of ['ligo', 'fluo', 'rondo', 'regado']) {
+    for (const app of ['ligo', 'fluo', 'rondo', 'lingvo', 'regado']) {
       await test.step(`${app} SSO, access and product interactions`, async () => {
         if (app === 'ligo') {
           await checkCachedPreview(page, () => page.goto(`${site}/${app}/`), `Welcome back, ${username}.`);
@@ -685,6 +685,8 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
           await page.getByRole('heading', { name: 'Chats' }).waitFor();
         } else if (app === 'rondo') {
           await page.getByRole('navigation', { name: 'Servers' }).waitFor();
+        } else if (app === 'lingvo') {
+          await page.getByRole('button', { name: 'Open my dictionary', exact: true }).waitFor();
         } else {
           await page.getByRole("heading", { name: "Administrator access required", exact: true }).waitFor();
         }
@@ -694,6 +696,60 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
           `${app} must reflow at 320 CSS pixels`);
         await checkAccessibility(page, `${app} at 320px`);
         await page.setViewportSize({ width: 1280, height: 720 });
+        if (app === 'lingvo') {
+          await page.getByRole('radiogroup', { name: 'My native language' }).getByRole('radio', { name: /English/ }).check();
+          const dictionaryResponse = page.waitForResponse(response => isApiResponse(response, '/v1/lingvo/dictionaries', 'POST'));
+          await page.getByRole('button', { name: 'Open my dictionary', exact: true }).click();
+          const createdDictionary = await dictionaryResponse;
+          assert.equal(createdDictionary.status(), 201, 'A language pair must create a private dictionary');
+          const dictionary = await createdDictionary.json();
+          assert.equal(dictionary.learningLanguage, 'de');
+          assert.equal(dictionary.nativeLanguage, 'en');
+          await page.getByRole('button', { name: 'Add card', exact: true }).click();
+          const editor = page.getByRole('dialog', { name: 'Add a card', exact: true });
+          await editor.getByLabel('German word', { exact: true }).fill('Buch');
+          await editor.getByLabel('English translation', { exact: true }).fill('book');
+          await editor.getByRole('button', { name: 'Part of speech', exact: true }).click();
+          await page.getByRole('menuitemradio', { name: 'Noun', exact: true }).click();
+          await editor.getByRole('radiogroup', { name: 'Article', exact: true }).getByRole('radio', { name: 'das', exact: true }).check();
+          const cardResponse = page.waitForResponse(response => isApiResponse(response, `/v1/lingvo/dictionaries/${dictionary.id}/cards`, 'POST'));
+          await editor.getByRole('button', { name: 'Add card', exact: true }).click();
+          const createdCard = await cardResponse;
+          assert.equal(createdCard.status(), 201, 'The editor must persist a complete German card');
+          const card = await createdCard.json();
+          assert.equal(card.article, 'das');
+          assert.equal(card.translation, 'book');
+          assert.equal(card.schedule.reps, 0);
+          await editor.waitFor({ state: 'detached' });
+          const navigation = page.getByRole('navigation', { name: 'Lingvo', exact: true });
+          await navigation.getByRole('link', { name: 'My dictionary', exact: true }).click();
+          await page.getByRole('heading', { name: 'My dictionary', exact: true }).waitFor();
+          await page.getByText('book', { exact: true }).waitFor();
+          await page.reload();
+          await page.getByText('book', { exact: true }).waitFor();
+          await expect(page.getByText('1 word', { exact: true })).toBeVisible();
+          await checkAccessibility(page, 'Lingvo saved dictionary');
+          await navigation.getByRole('link', { name: 'Learn words', exact: true }).click();
+          await page.getByRole('button', { name: /^Start learning/ }).click();
+          await page.getByRole('button', { name: 'Show answer', exact: true }).click();
+          const reviewResponse = page.waitForResponse(response => isApiResponse(response, `/v1/lingvo/dictionaries/${dictionary.id}/cards/${card.id}/reviews`, 'POST'));
+          await page.getByRole('button', { name: /^Good ·/ }).click();
+          const savedReview = await reviewResponse;
+          assert.equal(savedReview.status(), 200, 'Practice must save an authoritative review');
+          const review = await savedReview.json();
+          assert.equal(review.card.schedule.reps, 1);
+          assert.ok(review.card.revision > card.revision);
+          await page.getByRole('heading', { name: 'Good work for today.', exact: true }).waitFor();
+          const undoResponse = page.waitForResponse(response => isApiResponse(response, `/v1/lingvo/dictionaries/${dictionary.id}/reviews/${review.id}/undo`, 'POST'));
+          await page.getByRole('button', { name: 'Undo', exact: true }).click();
+          const undoneReview = await undoResponse;
+          assert.equal(undoneReview.status(), 200, 'Undo must restore the persisted card schedule');
+          const restored = await undoneReview.json();
+          assert.equal(restored.schedule.reps, 0);
+          assert.equal(restored.term, 'Buch');
+          await page.getByRole('button', { name: 'Show answer', exact: true }).waitFor();
+          await checkAccessibility(page, 'Lingvo restored flashcard practice');
+        }
         if (app === 'rondo') {
           await page.getByRole('button', { name: 'Create server' }).click();
           const serverDialog = page.getByRole('dialog', { name: 'Create a server' });
@@ -1037,10 +1093,21 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     await capture(page, 'fluo-composer-mobile');
     await page.setViewportSize({ width: 1280, height: 720 });
     const publishedResponse = await test.step('Upload four images and publish a post', async () => {
+      const uploadResponses = [];
+      const recordUpload = response => {
+        const url = new URL(response.url());
+        if (url.pathname.startsWith('/v1/uploads')) uploadResponses.push({ method: response.request().method(), path: url.pathname, status: response.status() });
+      };
+      page.on('response', recordUpload);
       const response = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'), { timeout: 20_000 });
-      const [published] = await Promise.all([response, composer.getByRole('button', { name: 'Post', exact: true }).click()]);
-      assert.equal(published.status(), 201, 'The publish request must create the post');
-      return published;
+      try {
+        const [published] = await Promise.all([response, composer.getByRole('button', { name: 'Post', exact: true }).click()]);
+        assert.equal(published.status(), 201, 'The publish request must create the post');
+        return published;
+      } catch (cause) {
+        throw new Error(`Publishing failed: ${JSON.stringify({ alerts: await composer.getByRole('alert').allTextContents(),
+          status: await composer.getByRole('status').allTextContents(), uploadResponses, pageErrors })}`, { cause });
+      } finally { page.off('response', recordUpload); }
     });
     const postBearer = (await publishedResponse.request().allHeaders()).authorization;
     assert.match(postBearer ?? '', /^Bearer /, 'Publishing must carry the signed-in account');

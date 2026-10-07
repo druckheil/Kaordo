@@ -50,10 +50,12 @@
           </div>
         </div>
         <div class="flex items-center gap-2 px-1 pb-1 pt-4">
-          <span class="flex-1 text-sm font-semibold">{candidate.name}</span>
-          {#if candidate.id === defaultTheme.id}
-            <span class="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">Default</span>
-          {/if}
+          <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <span class="max-w-full text-sm font-semibold [overflow-wrap:anywhere]">{candidate.name}</span>
+            {#if candidate.id === defaultTheme.id}
+              <span class="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">Default</span>
+            {/if}
+          </div>
           <RadioGroup.Item
             id={`theme-${candidate.id}`}
             value={candidate.id}

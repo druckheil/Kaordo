@@ -42,7 +42,7 @@
         <div class="flex items-center justify-between"><p class="text-sm font-semibold" id={`${id}-goal`}>Daily review goal</p><TargetIcon class="size-5 text-link" /></div>
         <p class="my-5 text-4xl font-bold tracking-tight">{goal}<span class="ml-2 text-sm font-normal text-muted-foreground">reviews a day</span></p>
         <Slider type="single" bind:value={goal} min={5} max={200} step={5} class="h-6" thumbLabel="Daily review goal" aria-labelledby={`${id}-goal`} />
-        <RadioGroup.Root class="mt-4 grid grid-cols-5 gap-1.5" value={String(goal)} onValueChange={(value) => { goal = Number(value); }} aria-label="Suggested daily goals">
+        <RadioGroup.Root class="mt-4 grid grid-cols-3 gap-1.5 sm:grid-cols-5" value={String(goal)} onValueChange={(value) => { goal = Number(value); }} aria-label="Suggested daily goals">
           {#each [5, 10, 20, 30, 50] as value}
             <label for={`${id}-goal-${value}`} class="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-border bg-card py-2.5 text-xs font-semibold transition-[background-color,border-color,box-shadow] has-data-[state=checked]:border-primary/35 has-data-[state=checked]:bg-primary/10 has-data-[state=checked]:shadow-sm has-focus-visible:ring-2 has-focus-visible:ring-ring/35 motion-reduce:transition-none"><RadioGroup.Item id={`${id}-goal-${value}`} value={String(value)} class="size-3.5" />{value}</label>
           {/each}

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import browserConfig from '../playwright.config.mjs';
+import auditConfig from '../playwright.audit.config.mjs';
 
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const files = readdirSync(import.meta.dirname).filter((name) => /\.(?:test|integration)\.mjs$/.test(name));
@@ -28,4 +29,22 @@ test('live integration includes complete identity/product journeys and isolated 
   assert.equal(browserConfig.retries, 0, 'Retries cannot hide a failed regression');
   assert.match(manifest.scripts['test:integration'], /--project=live --workers=1/);
   assert.doesNotMatch(manifest.scripts['test:integration'], /--grep|identity-only/);
+});
+
+test('browser engine audit preserves every synthetic scenario without credential traces or retries', () => {
+  const scenarios = browserConfig.projects.find(({ name }) => name === 'browser').testMatch;
+  const [webkit, firefox, clipboard] = auditConfig.projects;
+  assert.equal(auditConfig.workers, 1, 'One owner must generate Vite source during engine verification');
+  assert.equal(auditConfig.retries, 0);
+  assert.equal(auditConfig.webServer, undefined, 'The synthetic audit cannot start credential services');
+  assert.deepEqual(webkit.testMatch, scenarios);
+  assert.deepEqual(firefox.testMatch, scenarios);
+  assert.deepEqual(clipboard.testMatch, ['product-ui.test.mjs']);
+  assert.equal(clipboard.use.headless, false, 'Native PNG paste requires a platform clipboard in Firefox');
+  assert.ok(clipboard.grep.test('Ligo pastes clipboard media'));
+  assert.ok(firefox.grepInvert.test('Ligo pastes clipboard media'));
+  assert.ok(!webkit.grepInvert.test('Ligo pastes clipboard media'));
+  for (const project of auditConfig.projects) {
+    assert.ok(!project.testMatch.includes('auth-live.integration.mjs'));
+  }
 });

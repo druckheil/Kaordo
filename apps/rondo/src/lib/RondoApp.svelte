@@ -70,6 +70,9 @@
   let dialogBusy = $state(false);
   let dialogError = $state('');
   let actionError = $state('');
+  let messageConnected = $state(true);
+  let liveUnavailable = $state(false);
+  let liveController: AbortController | null = null;
   let serverName = $state('');
   let serverDescription = $state('');
   let serverAccess = $state<'public' | 'private'>('private');
@@ -110,6 +113,7 @@
   let hideChannelsButton = $state<HTMLButtonElement | null>(null);
   let showMembersButton = $state<HTMLButtonElement | null>(null);
   let hideMembersButton = $state<HTMLButtonElement | null>(null);
+  let layoutRoot: HTMLElement;
 
   const detailQuery = createQuery(() => rondoServerOptions(rondo, serverId), () => queryClient);
   const discoverQuery = createQuery(() => rondoDiscoverOptions(rondo, discoverTerm, dialog === 'discover'), () => queryClient);
@@ -123,7 +127,8 @@
   const membersVisible = $derived(wideMembers ? (membersOpen ?? true) : mobileMembersOpen);
   const channelsVisible = $derived(channelsOpen && (!narrowChannels || !channelId));
   const messagesQuery = createInfiniteQuery(() => ({
-    ...ligoMessageOptions(ligo, channel?.conversationId ?? ''), enabled: !!channel
+    ...ligoMessageOptions(ligo, channel?.conversationId ?? ''),
+    ...(!messageConnected ? { refetchInterval: 5000 } : {}), enabled: !!channel
   }), () => queryClient);
   const messages = $derived(messagesQuery.data?.pages.flatMap((page) => page.items).reverse() ?? []);
   const activePending = $derived(pending.filter((item) => item.conversationId === channel?.conversationId &&
@@ -144,41 +149,35 @@
     const removeBreakpointListeners = watchBreakpoints();
     restorePreferences();
     const removeRouteListener = watchRouteHash();
-    const stopLiveUpdates = subscribeToMessageUpdates();
+    subscribeToMessageUpdates();
 
     return () => {
       removeBreakpointListeners();
       removeRouteListener();
-      stopLiveUpdates();
+      liveController?.abort();
     };
   });
   onDestroy(() => {
     disposed = true;
+    void queryClient.cancelQueries();
     queryClient.clear();
     if (searchTimer) clearTimeout(searchTimer);
     void stopVoice();
   });
 
   function watchBreakpoints(): () => void {
-    const memberBreakpoint = window.matchMedia('(min-width: 1280px)');
-    const channelBreakpoint = window.matchMedia('(max-width: 639px)');
-    const updateMembers = () => {
-      wideMembers = memberBreakpoint.matches;
-      mobileMembersOpen = false;
+    const update = () => {
+      const unit = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const nextWide = layoutRoot.clientWidth >= 80 * unit;
+      if (wideMembers !== nextWide) mobileMembersOpen = false;
+      wideMembers = nextWide;
+      narrowChannels = layoutRoot.clientWidth < 40 * unit;
     };
-    const updateChannels = () => {
-      narrowChannels = channelBreakpoint.matches;
-    };
-
-    updateMembers();
-    updateChannels();
-    memberBreakpoint.addEventListener('change', updateMembers);
-    channelBreakpoint.addEventListener('change', updateChannels);
-
-    return () => {
-      memberBreakpoint.removeEventListener('change', updateMembers);
-      channelBreakpoint.removeEventListener('change', updateChannels);
-    };
+    // Panel widths use rem units, so their breakpoints must also follow enlarged text
+    const observer = new ResizeObserver(update);
+    observer.observe(layoutRoot);
+    update();
+    return () => observer.disconnect();
   }
 
   function restorePreferences(): void {
@@ -241,17 +240,18 @@
     voiceConnection?.setVolumes(voicePreferences.microphoneVolume, voicePreferences.speakerVolume);
   }
 
-  function subscribeToMessageUpdates(): () => void {
+  function subscribeToMessageUpdates(): void {
+    liveController?.abort();
     const controller = new AbortController();
+    liveController = controller;
+    liveUnavailable = false;
+    messageConnected = false;
     void ligo.subscribe(controller.signal, (conversationId) => {
       if (!conversationId || conversationId === channel?.conversationId) {
         void queryClient.invalidateQueries({ queryKey: ['ligo', 'messages', channel?.conversationId] });
       }
-    }).catch(() => {
-      // Polling remains available when live updates disconnect.
-    });
-
-    return () => controller.abort();
+    }, value => { if (!controller.signal.aborted) messageConnected = value; }
+    ).catch(() => { if (!controller.signal.aborted) liveUnavailable = true; });
   }
 
   function saveLayout() {
@@ -583,7 +583,7 @@
       onDeviceChange={changeVoiceDevice} onVolumeChange={changeVoiceVolume} onBack={closeSettings} />
   {/if}
   <div class={settingsOpen ? 'hidden' : 'contents'}>
-  <div class="mx-auto flex h-11 w-full max-w-[110rem] shrink-0 items-center gap-1 border-x border-b border-border/70 bg-card px-2 sm:px-3" role="toolbar" aria-label="Rondo panels">
+  <div class="mx-auto flex min-h-11 w-full max-w-[110rem] shrink-0 items-center gap-1 border-x border-b border-border/70 bg-card px-2 sm:px-3" role="group" aria-label="Rondo panels">
     {#if !serversOpen}
       <Button bind:ref={showServersButton} variant="ghost" size="icon-xs" aria-label="Show servers" title="Show servers" onclick={toggleServers}><LayoutGridIcon class="size-4" /></Button>
     {/if}
@@ -598,7 +598,7 @@
       <Button variant="ghost" size="icon-xs" aria-label="Rondo settings" title="Voice & video settings" onclick={openSettings}><SettingsIcon class="size-4" /></Button>
     {/if}
   </div>
-  <main id={settingsOpen ? undefined : 'main-content'} tabindex="-1" class="relative mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 overflow-hidden border-x border-border/60">
+  <main bind:this={layoutRoot} id={settingsOpen ? undefined : 'main-content'} tabindex="-1" class="relative mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 overflow-hidden border-x border-border/60">
     {#if serversOpen}
       <nav id="rondo-servers" aria-label="Servers" class="flex w-14 shrink-0 flex-col items-center gap-1.5 overflow-hidden border-r border-border/75 bg-muted/35 px-1 py-2">
         <Button bind:ref={hideServersButton} variant="ghost" size="icon-xs" class="shrink-0" aria-label="Hide servers" title="Hide servers" onclick={toggleServers}><ChevronLeftIcon class="size-4" /></Button>
@@ -686,6 +686,12 @@
             <Button size="sm" class="col-span-4 w-full sm:w-auto" disabled={voiceBusy} onclick={() => void startVoice(channel)}><MicIcon class="size-4" /> {voiceBusy ? 'Connecting…' : voiceChannelId ? 'Switch voice' : 'Join voice'}</Button>
           {/if}
         </header>
+        {#if liveUnavailable}
+          <div class="flex shrink-0 items-center gap-3 border-b border-border bg-muted/35 px-4 py-2">
+            <p class="min-w-0 flex-1 text-xs leading-5 text-muted-foreground" role="status">Messages refresh automatically while live updates are paused.</p>
+            <Button variant="outline" size="xs" onclick={subscribeToMessageUpdates} aria-label="Reconnect live updates">Reconnect</Button>
+          </div>
+        {/if}
         {#if actionError}<p class="mx-4 mt-3 rounded-xl bg-destructive/10 p-3 text-sm text-destructive" role="alert">{actionError}</p>{/if}
         {#if messagesQuery.error}
           <div class="m-4 rounded-xl bg-destructive/10 p-4 text-sm text-destructive" role="alert">Could not load messages.<Button variant="outline" size="xs" class="ml-2" onclick={() => void messagesQuery.refetch()}>Retry</Button></div>

@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import { localViteServer } from '../../scripts/local-vite.mjs';
+import { localViteServer, mediaDependencies } from '../../scripts/local-vite.mjs';
 
 function runesModeForFile(filename: string): boolean | undefined {
 	return filename.split(/[/\\]/).includes('node_modules') ? undefined : true;
@@ -13,6 +13,8 @@ function runesModeForFile(filename: string): boolean | undefined {
 export default defineConfig({
 	envDir: '../..',
 	server: localViteServer('ligo'),
+	ssr: { noExternal: ['@kaordo/media-client'] },
+	optimizeDeps: { include: mediaDependencies },
 	plugins: [
 		tailwindcss(),
 		sveltekit({

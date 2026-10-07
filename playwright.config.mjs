@@ -39,7 +39,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'browser', testMatch: ['product-ui.test.mjs', 'regado-ui.test.mjs', 'ui-public.test.mjs'] },
+    { name: 'browser', testMatch: ['product-ui.test.mjs', 'regado-ui.test.mjs', 'ui-public.test.mjs', 'ui-quality.test.mjs'] },
     {
       name: 'live',
       outputDir: './dist/test-results/live',

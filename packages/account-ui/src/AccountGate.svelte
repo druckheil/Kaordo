@@ -3,7 +3,7 @@
 
   import { onMount, type Snippet } from 'svelte';
   import type { UserIdentity } from '@kaordo/contracts';
-  import { Button, ShieldCheckIcon } from '@kaordo/ui';
+  import { AppHeader, Button, ShieldCheckIcon } from '@kaordo/ui';
   import { createAccountSessionController, initialAccountSnapshot } from './session.js';
   import { readAccountPreview, type AccountPreview } from './session-preview.js';
 
@@ -13,7 +13,8 @@
     environment,
     children,
     preview,
-    compact = false
+    compact = false,
+    embedded = false
   }: {
     appName: string;
     returnPath: string;
@@ -21,6 +22,7 @@
     children: Snippet<[UserIdentity]>;
     preview?: Snippet<[AccountPreview]>;
     compact?: boolean;
+    embedded?: boolean;
   } = $props();
 
   let controller: ReturnType<typeof createAccountSessionController> | undefined;
@@ -49,6 +51,7 @@
   });
 </script>
 
+{#snippet accountState()}
 {#if snapshot.loading}
   <section class={`mx-auto flex max-w-md flex-col items-center justify-center px-6 text-center ${compact ? 'min-h-48 py-8' : 'min-h-[min(34rem,80dvh)] py-12'}`}
     role="status" aria-busy="true">
@@ -67,10 +70,8 @@
       <div class="h-full w-1/2 animate-pulse rounded-full bg-primary"></div>
     </div>
   </section>
-{:else if snapshot.user}
-  {@render children(snapshot.user)}
 {:else}
-  <section class="mx-auto mt-12 max-w-lg rounded-[1.75rem] border border-border bg-card p-7 shadow-xl sm:p-9"
+  <section class="mx-auto my-8 max-w-lg rounded-3xl border border-border bg-card p-6 shadow-sm sm:my-12 sm:p-8"
     aria-label={`${appName} account access`}>
     <div class="grid size-12 place-items-center rounded-2xl bg-accent"><ShieldCheckIcon class="size-6 text-accent-foreground" /></div>
     <svelte:element this={compact ? 'h2' : 'h1'} class="mt-6 text-2xl font-bold tracking-[-0.04em]">
@@ -87,4 +88,16 @@
       <Button class="mt-6" href={`/login/?next=${encodeURIComponent(returnPath)}`}>Sign in</Button>
     {/if}
   </section>
+{/if}
+{/snippet}
+
+{#if snapshot.user}
+  {@render children(snapshot.user)}
+{:else if embedded || compact}
+  {@render accountState()}
+{:else}
+  <AppHeader name={appName} homeHref="/" />
+  <main id="main-content" tabindex="-1" class="mx-auto max-w-6xl px-4 pb-12 sm:px-6">
+    {@render accountState()}
+  </main>
 {/if}

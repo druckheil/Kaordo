@@ -405,6 +405,9 @@ importers:
       '@kaordo/links':
         specifier: workspace:*
         version: link:../links
+      '@kaordo/media-client':
+        specifier: workspace:*
+        version: link:../media-client
       '@kaordo/media-ui':
         specifier: workspace:*
         version: link:../media-ui

@@ -1,4 +1,4 @@
-// Defines the one-origin local Vite development topology
+// Defines local Vite topology and shared media dependency preparation
 
 export const localFrontendServers = [
   { id: 'portal', name: 'Portal', port: 8765, base: '', readyPath: '/login/' },
@@ -55,3 +55,7 @@ export function localViteServer(appId) {
     }
   };
 }
+
+// Prepare lazy upload libraries without bundling the workspace's in-memory auth module
+export const mediaDependencies = ['@uppy/core', '@uppy/tus', 'pica', 'tus-js-client']
+  .map(dependency => `@kaordo/media-client > ${dependency}`);
