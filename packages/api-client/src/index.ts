@@ -29,14 +29,18 @@ export { createAdminApi, type AdminApi } from './admin.ts';
 export async function bootstrapIdentity(
   apiBaseUrl: string,
   auth: { fetch: typeof authorizedFetch; refresh: typeof refreshAccessToken } =
-    { fetch: authorizedFetch, refresh: refreshAccessToken }
+    { fetch: authorizedFetch, refresh: refreshAccessToken },
+  signal?: AbortSignal
 ): Promise<UserIdentity> {
+  signal?.throwIfAborted();
   const client = createClient<paths>({ baseUrl: apiBaseUrl, fetch: auth.fetch });
-  const requestSession = () => client.POST('/v1/session', { headers: { Accept: 'application/json' } });
+  const requestSession = () => client.POST('/v1/session', { headers: { Accept: 'application/json' }, signal });
   let result = await requestSession();
 
   if (result.response.status === 401) {
+    signal?.throwIfAborted();
     await auth.refresh();
+    signal?.throwIfAborted();
     result = await requestSession();
   }
 

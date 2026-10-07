@@ -1,6 +1,8 @@
+// Checks local startup isolation and cleanup without modifying an existing development stack
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { createServer } from 'node:net';
+import { once } from 'node:events';
+import { createConnection, createServer } from 'node:net';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -23,11 +25,17 @@ async function close(server) {
   await new Promise((resolveClose) => server.close(resolveClose));
 }
 
-test('local port preflight accepts a free loopback port and rejects an occupied one', async () => {
-  const blocker = createServer();
+test('local port preflight rejects occupied ports and its blocker releases readiness connections', async () => {
+  const blocker = createServer(socket => socket.destroy());
   await listen(blocker, 0);
   const port = blocker.address().port;
   try {
+    const probe = createConnection({ port, host: '127.0.0.1' });
+    try {
+      await once(probe, 'close', { signal: AbortSignal.timeout(1_000) });
+    } finally {
+      probe.destroy();
+    }
     await assert.rejects(
       assertAvailablePorts([{ name: 'Test service', port }]),
       /Test service cannot start: 127\.0\.0\.1:.* is already in use/
@@ -69,16 +77,13 @@ test('a managed local session stops its own process through an authenticated con
   }
 });
 
-test('a second pnpm dev fails before starting Docker or reporting ready', async (t) => {
-  const blocker = createServer();
+test('a second pnpm dev fails before starting Docker or reporting ready', async () => {
+  const blocker = createServer(socket => socket.destroy());
   try {
     await listen(blocker, 8081);
   } catch (error) {
-    if (error?.code === 'EADDRINUSE') {
-      t.skip('Kerno port is already occupied by a running local server');
-      return;
-    }
-    throw error;
+    // An existing local service provides the same occupied-port condition
+    if (error?.code !== 'EADDRINUSE') throw error;
   }
   try {
     await assert.rejects(
@@ -91,20 +96,16 @@ test('a second pnpm dev fails before starting Docker or reporting ready', async 
       }
     );
   } finally {
-    await close(blocker);
+    if (blocker.listening) await close(blocker);
   }
 });
 
-test('the standalone site reports an occupied port without an uncaught exception', async (t) => {
-  const blocker = createServer();
+test('the standalone site reports an occupied port without an uncaught exception', async () => {
+  const blocker = createServer(socket => socket.destroy());
   try {
     await listen(blocker, 8765);
   } catch (error) {
-    if (error?.code === 'EADDRINUSE') {
-      t.skip('Site port is already occupied by a running local server');
-      return;
-    }
-    throw error;
+    if (error?.code !== 'EADDRINUSE') throw error;
   }
   try {
     await assert.rejects(
@@ -117,6 +118,6 @@ test('the standalone site reports an occupied port without an uncaught exception
       }
     );
   } finally {
-    await close(blocker);
+    if (blocker.listening) await close(blocker);
   }
 });

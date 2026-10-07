@@ -1,5 +1,7 @@
 # Refactor review — 3 October 2026
 
+Latest assessment: [7 October 2026 ISO/IEC 25010 quality audit](audits/iso-iec-25010-2023-2026-10-07.md). The dated sections below preserve their original verification boundaries.
+
 ## Scope and outcome
 
 Reviewed the accumulated, uncommitted maintainability refactor across all five apps, shared packages, four Go modules and repository scripts. The refactor preserves wire schemas and existing product workflows. Generated OpenAPI/Jet files, credentials, user content and build output are not refactor targets. No production deployment accompanies this change.
@@ -611,6 +613,55 @@ ignores results after teardown, with manual copying available on failure.
 Targeted Lingvo/UI type checks reported zero errors and warnings, Lingvo's static
 build passed, and `git diff --check` was clean. No functional/browser tests were
 run for this addition.
+
+## Quality audit and refactor — 7 October 2026
+
+The [full assessment](audits/iso-iec-25010-2023-2026-10-07.md) covers all nine
+ISO/IEC 25010:2023 characteristics and 40 subcharacteristics of the implemented
+product. Its 95.9/100 engineering score does not meet the requested 99 threshold;
+the independent production backup remains an open High operational finding.
+This audit used automated tests rather than manual website exploration.
+
+Correctness changes include versioned CSV identities and migration 017 to avoid
+multiline-field collisions, matching Go/TypeScript FSRS caps, cancellation across
+account bootstrap and token refresh, joined PostgreSQL listener shutdown, bounded
+Regado JSON decoding, HTTP(S)-only media bases and nonmutating storage fingerprints.
+Rondo applies live sound choices even when browser persistence is unavailable.
+Regado chart resizing coalesces updates into an owned animation frame, skips
+unchanged dimensions and cancels the frame before destroying uPlot. Repeated
+viewport checks preserve strict browser runtime-error assertions.
+Official libraries still own scheduling, parsing, UI interaction and protocols.
+
+Storage planning/application, maintenance, admin actions and Lingvo import now
+have cohesive phase helpers. Production Go maximum cognitive complexity drops
+from 51 to 26 while preserving locked transactions, ownership checks, native
+partition tools, audit ordering and worker exclusivity. Reused immutable FSRS
+configuration reduces per-review allocation from 1432 B/11 allocations to
+1120 B/8 allocations. Imports validate each distinct folder once per transaction.
+
+Dependency ownership uses TypeScript, Svelte and PostCSS parsers, with explicit
+root dependencies for the parsers actually imported. CEL/gRPC/crypto support and
+compression dependencies are patched. Separate `GOWORK=off` verification checks
+the versions each Go module builds independently; a workspace-selected safe
+version must not conceal an older module declaration.
+
+New domain, handler, LiveKit and isolated Lingvo database tests cover validation,
+authorization, import migration/retry/Unicode/atomicity, capacity, 12 concurrent
+review attempts, undo/replay and 32 matching scheduler state/grade cases. The
+product database runner includes Lingvo. Regado and Lingvo browser scenarios
+are split by task with per-test API state; launcher preflight assertions use
+existing occupied ports without skipping or closing another process's listener.
+Bind probes and test port blockers release incoming readiness connections so
+their teardown cannot wait on an unread accepted socket.
+All previous assertions remain and Playwright retries remain zero.
+
+The audit ledger records frontend/static builds, 164 fast checks, Chromium and
+WebKit/Firefox suites, all five real static integration journeys, PostgreSQL,
+Go race/vet/build/static analysis and dependency scans. The PostgreSQL package
+reaches 70.1% statement coverage, Lingvo domain 96.2%, executable Ligo domain and
+mediaauth 100%, and the LiveKit adapter 73.3%. These are coverage measurements,
+not quality scores. Workflow files, production deployment and Git remotes were
+not changed; historical hosted runs do not verify this assessed refactor.
 
 ## Remaining boundaries
 

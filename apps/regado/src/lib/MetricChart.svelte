@@ -19,6 +19,7 @@
 	} = $props();
 	let host: HTMLDivElement;
 	let chart = $state.raw<uPlot>();
+	let resizeFrame = 0;
 
 	const latest = $derived(points.at(-1)?.value);
 	const data = $derived([
@@ -38,6 +39,7 @@
 		return () => {
 			disposed = true;
 			sizeObserver.disconnect();
+			cancelAnimationFrame(resizeFrame);
 			themeObserver.disconnect();
 			chart?.destroy();
 			chart = undefined;
@@ -59,9 +61,15 @@
 
 	function observeSize(): ResizeObserver {
 		const observer = new ResizeObserver(() => {
-			if (chart && host.clientWidth > 0) {
-				chart.setSize({ width: host.clientWidth, height: 200 });
-			}
+			if (resizeFrame) return;
+			// Resize after observation settles; repeated dimensions must not trigger layout again
+			resizeFrame = requestAnimationFrame(() => {
+				resizeFrame = 0;
+				const width = host.clientWidth;
+				if (chart && width > 0 && chart.width !== width) {
+					chart.setSize({ width, height: 200 });
+				}
+			});
 		});
 		observer.observe(host);
 		return observer;

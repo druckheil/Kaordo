@@ -288,8 +288,12 @@
   }
   function changeSounds(enabled: boolean) {
     soundsEnabled = enabled;
-    localStorage.setItem('kaordo-rondo-sounds', enabled ? 'on' : 'off');
     voiceConnection?.setSoundEnabled(enabled);
+    try {
+      localStorage.setItem('kaordo-rondo-sounds', enabled ? 'on' : 'off');
+    } catch {
+      // The live choice remains usable when browser storage is unavailable
+    }
   }
   function selectServer(id: string) {
     if (serverId !== id && (voiceConnection || voiceBusy)) void stopVoice();

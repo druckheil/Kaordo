@@ -7,7 +7,7 @@ import (
 	fsrs "github.com/open-spaced-repetition/go-fsrs/v4"
 )
 
-// LearningSteps is the zero-based step index used by ts-fsrs
+// Schedule persists FSRS state with the zero-based learning step used by ts-fsrs
 type Schedule struct {
 	Due           time.Time  `json:"due"`
 	Stability     float64    `json:"stability"`
@@ -20,15 +20,19 @@ type Schedule struct {
 	LearningSteps int        `json:"learningSteps"`
 }
 
+// Configuration stays private; the upstream scheduler copies parameters for every review
+var cardScheduler = fsrs.NewFSRS(fsrs.DefaultParam())
+
 func NewSchedule(now time.Time) Schedule { return fromFSRS(fsrs.NewCard(now)) }
 
 func NextSchedule(card Schedule, rating int, now time.Time) (Schedule, error) {
 	// Both clients use the published FSRS-6 defaults with deterministic intervals
-	scheduler := fsrs.NewFSRS(fsrs.DefaultParam())
-	result, err := scheduler.Next(card.core(), now, fsrs.Rating(rating))
+	result, err := cardScheduler.Next(card.core(), now, fsrs.Rating(rating))
 	if err != nil {
 		return Schedule{}, err
 	}
+	// The library caps Due but grade ordering can leave ScheduledDays above the cap
+	result.Card.ScheduledDays = min(result.Card.ScheduledDays, uint64(cardScheduler.MaximumInterval))
 	return fromFSRS(result.Card), nil
 }
 
@@ -39,10 +43,10 @@ func (s Schedule) core() fsrs.Card {
 		card.LastReview = *s.LastReview
 	}
 	if s.State == int(fsrs.Learning) {
-		card.RemainingSteps = max(0, len(fsrs.DefaultLearningSteps())-s.LearningSteps)
+		card.RemainingSteps = max(0, len(cardScheduler.LearningSteps)-s.LearningSteps)
 	}
 	if s.State == int(fsrs.Relearning) {
-		card.RemainingSteps = max(0, len(fsrs.DefaultRelearningSteps())-s.LearningSteps)
+		card.RemainingSteps = max(0, len(cardScheduler.RelearningSteps)-s.LearningSteps)
 	}
 	return card
 }
@@ -54,10 +58,10 @@ func fromFSRS(card fsrs.Card) Schedule {
 		s.LastReview = &card.LastReview
 	}
 	if card.State == fsrs.Learning {
-		s.LearningSteps = max(0, len(fsrs.DefaultLearningSteps())-card.RemainingSteps)
+		s.LearningSteps = max(0, len(cardScheduler.LearningSteps)-card.RemainingSteps)
 	}
 	if card.State == fsrs.Relearning {
-		s.LearningSteps = max(0, len(fsrs.DefaultRelearningSteps())-card.RemainingSteps)
+		s.LearningSteps = max(0, len(cardScheduler.RelearningSteps)-card.RemainingSteps)
 	}
 	return s
 }

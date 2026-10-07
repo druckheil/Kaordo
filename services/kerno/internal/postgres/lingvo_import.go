@@ -26,13 +26,19 @@ func (s *Lingvo) Import(ctx context.Context, actorID, dictionaryID string, input
 	columns := append(lingvoContentColumns(), c.DictionaryID, c.SourceKey, c.Schedule, c.DueAt)
 	query := c.INSERT(columns)
 	schedule := lingvo.NewSchedule(time.Now().UTC())
+	checkedFolders := make(map[string]bool)
 	for _, card := range cards {
-		if err := checkLingvoFolder(ctx, tx, dictionaryID, card.FolderID); err != nil {
-			return lingvo.ImportResult{}, err
+		if card.FolderID != nil && !checkedFolders[*card.FolderID] {
+			if err := checkLingvoFolder(ctx, tx, dictionaryID, card.FolderID); err != nil {
+				return lingvo.ImportResult{}, err
+			}
+			checkedFolders[*card.FolderID] = true
 		}
 		sourceKey := "catalog:" + card.ID
 		if card.ID == "" {
-			sourceKey = fmt.Sprintf("csv:%x", sha256.Sum256([]byte(card.Kind+"\n"+strings.ToLower(card.Term)+"\n"+strings.ToLower(card.Translation))))
+			// NUL is forbidden in validated fields, so separators cannot collide with card text
+			payload := card.Kind + "\x00" + strings.ToLower(card.Term) + "\x00" + strings.ToLower(card.Translation)
+			sourceKey = fmt.Sprintf("csv:v2:%x", sha256.Sum256([]byte(payload)))
 		}
 		values := append(lingvoContentValues(card.CardContent), jetUUID(dictionaryID), sourceKey, lingvoJSON(schedule), schedule.Due)
 		query = query.VALUES(values[0], values[1:]...)

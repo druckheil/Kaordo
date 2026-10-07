@@ -1,9 +1,40 @@
+// Verifies authenticated transport, abort boundaries and shared response/cache policies
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { bootstrapIdentity, createAdminApi, appendSentMessage, replaceCachedMessage } from '../packages/api-client/src/index.ts';
 import { createAuthorizedFetch } from '../packages/auth/src/index.ts';
 
 const user = { id: '0199a0c4-5a5f-7000-8000-000000000001', username: 'alice', displayName: 'alice', createdAt: '2026-09-29T00:00:00Z' };
+
+test('an already aborted request neither refreshes credentials nor reaches the network', async () => {
+  const signal = AbortSignal.abort();
+  const fetcher = createAuthorizedFetch(async () => assert.fail('credentials requested after cancellation'),
+    async () => assert.fail('network request after cancellation'));
+  await assert.rejects(fetcher('https://example.test', { signal }), { name: 'AbortError' });
+});
+
+test('abort during token refresh prevents sending the authenticated request', async () => {
+  const controller = new AbortController();
+  const fetcher = createAuthorizedFetch(async () => { controller.abort(); return 'test-token'; },
+    async () => assert.fail('network request after cancellation'));
+  await assert.rejects(fetcher('https://example.test', { signal: controller.signal }), { name: 'AbortError' });
+});
+
+test('account setup forwards cancellation and never retries after cancellation', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  await assert.rejects(bootstrapIdentity('https://example.test', {
+    fetch: async request => {
+      calls++;
+      assert.equal(request.signal.aborted, false);
+      controller.abort();
+      assert.equal(request.signal.aborted, true);
+      return Response.json({ error: 'Expired token.' }, { status: 401 });
+    },
+    refresh: async () => assert.fail('credentials refreshed after cancellation')
+  }, controller.signal), { name: 'AbortError' });
+  assert.equal(calls, 1);
+});
 
 test('the OpenAPI client sends the access token as a bearer header', async () => {
   const result = await bootstrapIdentity('http://127.0.0.1:8081', {

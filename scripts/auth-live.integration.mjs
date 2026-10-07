@@ -26,6 +26,30 @@ async function identityContext(browser, options = {}) {
   return context;
 }
 
+async function checkSoundStorageFallback(page) {
+  const errors = [];
+  const rememberError = error => errors.push(error.message);
+  page.on('pageerror', rememberError);
+  await page.evaluate(() => {
+    const persist = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === 'kaordo-rondo-sounds') throw new DOMException('Browser storage is unavailable', 'QuotaExceededError');
+      return persist.call(this, key, value);
+    };
+    window.restoreSoundStorage = () => { Storage.prototype.setItem = persist; delete window.restoreSoundStorage; };
+  });
+  try {
+    await page.getByRole('button', { name: 'Mute interface sounds', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Enable interface sounds', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Enable interface sounds', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Mute interface sounds', exact: true })).toBeVisible();
+    assert.deepEqual(errors, [], 'Live sound controls keep working when the browser cannot save a preference');
+  } finally {
+    await page.evaluate(() => window.restoreSoundStorage());
+    page.off('pageerror', rememberError);
+  }
+}
+
 function identityEntryURL() {
   const url = new URL(`${identity}/realms/kaordo/protocol/openid-connect/auth`);
   url.search = new URLSearchParams({
@@ -792,6 +816,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
               voiceErrorText, voiceResponses, pageErrors, currentUrl: page.url(), mainNavigations
             })}`, { cause });
           }
+          await checkSoundStorageFallback(page);
           await page.getByRole('button', { name: 'Turn on camera' }).click();
           await page.getByLabel('Live video streams').locator('video').waitFor({ timeout: 15_000 });
           await capture(page, 'rondo-voice');

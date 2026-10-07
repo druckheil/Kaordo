@@ -53,58 +53,14 @@ func actionHandler(run commandRunner, replication *replicationMonitor) http.Hand
 			http.Error(w, "invalid action request", http.StatusBadRequest)
 			return
 		}
-		args, ok := actions[name]
-		if !ok && name != "scrub-filesystem" && name != "configure-storage" && name != "check-storage" && name != "repair-storage" {
-			http.Error(w, "unsupported action", http.StatusBadRequest)
+		if err := request.validate(name); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		var output string
-		switch name {
-		case "check-storage", "repair-storage":
-			if request.Identity != "" || request.Filesystem != "" {
-				http.Error(w, "unsupported storage-check fields", http.StatusBadRequest)
-				return
-			}
-			err = replication.start(ctx, run, request.Target, name == "repair-storage")
-			output = "Storage check started. Progress appears in File copies."
-			if name == "repair-storage" {
-				output = "Storage repair started. Progress appears in File copies."
-			}
-		case "scrub-filesystem":
-			if request.Identity != "" || request.Filesystem != "" {
-				http.Error(w, "identity and filesystem are not supported for this action", http.StatusBadRequest)
-				return
-			}
-			output, err = startFilesystemScrub(ctx, run, request.Target)
-		case "configure-storage":
-			var desired layoutRequest
-			desired, err = legacyStorageLayout(ctx, run, storageActionRequest{
-				Target: request.Target, Identity: request.Identity, Filesystem: request.Filesystem,
-			})
-			if err == nil {
-				var plan storagePlan
-				plan, err = previewStoragePlan(ctx, run, desired)
-				if err == nil {
-					desired.Fingerprint, desired.Confirmation = plan.Fingerprint, desired.Device
-					err = replication.startLayout(ctx, run, desired)
-					output = "Disko setup queued. Progress appears on the device card."
-				}
-			}
-
-		default:
-			if request.Target != "" || request.Identity != "" || request.Filesystem != "" {
-				http.Error(w, "target is not supported for this action", http.StatusBadRequest)
-				return
-			}
-			if name == "restart-ddclient" {
-				output, err = updateDNS(ctx, run)
-			} else {
-				output, err = run(ctx, args...)
-			}
-		}
+		output, err := executeAction(ctx, run, replication, name, request)
 		if len(output) > 2000 {
 			output = output[:2000]
 		}
@@ -116,6 +72,61 @@ type actionRequest struct {
 	Target     string `json:"target"`
 	Identity   string `json:"identity"`
 	Filesystem string `json:"filesystem"`
+}
+
+func (request actionRequest) validate(name string) error {
+	if _, ok := actions[name]; !ok && name != "scrub-filesystem" && name != "configure-storage" && name != "check-storage" && name != "repair-storage" {
+		return errors.New("unsupported action")
+	}
+	switch name {
+	case "check-storage", "repair-storage":
+		if request.Identity != "" || request.Filesystem != "" {
+			return errors.New("unsupported storage-check fields")
+		}
+	case "scrub-filesystem":
+		if request.Identity != "" || request.Filesystem != "" {
+			return errors.New("identity and filesystem are not supported for this action")
+		}
+	case "configure-storage":
+		// Device identity and pool validation belong to the storage planning boundary
+	default:
+		if request.Target != "" || request.Identity != "" || request.Filesystem != "" {
+			return errors.New("target is not supported for this action")
+		}
+	}
+	return nil
+}
+
+func executeAction(ctx context.Context, run commandRunner, replication *replicationMonitor, name string, request actionRequest) (string, error) {
+	switch name {
+	case "check-storage", "repair-storage":
+		err := replication.start(ctx, run, request.Target, name == "repair-storage")
+		if name == "repair-storage" {
+			return "Storage repair started. Progress appears in File copies.", err
+		}
+		return "Storage check started. Progress appears in File copies.", err
+	case "scrub-filesystem":
+		return startFilesystemScrub(ctx, run, request.Target)
+	case "configure-storage":
+		desired, err := legacyStorageLayout(ctx, run, storageActionRequest(request))
+		if err != nil {
+			return "", err
+		}
+		plan, err := previewStoragePlan(ctx, run, desired)
+		if err != nil {
+			return "", err
+		}
+		desired.Fingerprint, desired.Confirmation = plan.Fingerprint, plan.Device
+		return "Disko setup queued. Progress appears on the device card.", replication.startLayout(ctx, run, desired)
+	case "restart-ddclient":
+		return updateDNS(ctx, run)
+	default:
+		args, ok := actions[name]
+		if !ok {
+			return "", errors.New("unsupported action")
+		}
+		return run(ctx, args...)
+	}
 }
 
 func decodeActionRequest(w http.ResponseWriter, r *http.Request) (actionRequest, error) {

@@ -1,6 +1,40 @@
 package ligoevents
 
-import "testing"
+// Verifies scoped activity hints, backpressure and owned listener shutdown
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+)
+
+func TestHubCloseJoinsListenerAndIsConcurrentSafe(t *testing.T) {
+	hub := New(t.Context(), "invalid-dsn", nil)
+	var pending sync.WaitGroup
+	for range 16 {
+		pending.Go(hub.Close)
+	}
+	finished := make(chan struct{})
+	go func() { pending.Wait(); close(finished) }()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("listener did not stop")
+	}
+	select {
+	case <-hub.done:
+	default:
+		t.Fatal("Close returned before the worker stopped")
+	}
+}
+
+func TestReconnectWaitStopsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if waitForReconnect(ctx) {
+		t.Fatal("cancelled listener retried")
+	}
+}
 
 func TestHubScopesHintsAndResynchronizesSlowListeners(t *testing.T) {
 	hub := &Hub{listeners: make(map[string]map[chan string]struct{})}

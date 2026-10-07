@@ -20,12 +20,24 @@ type Hub struct {
 	store     ligo.Store
 	mu        sync.Mutex
 	listeners map[string]map[chan string]struct{}
+	cancel    context.CancelFunc
+	done      chan struct{}
 }
 
 func New(ctx context.Context, dsn string, store ligo.Store) *Hub {
-	hub := &Hub{store: store, listeners: make(map[string]map[chan string]struct{})}
-	go hub.run(ctx, dsn)
+	ctx, cancel := context.WithCancel(ctx)
+	hub := &Hub{store: store, listeners: make(map[string]map[chan string]struct{}), cancel: cancel, done: make(chan struct{})}
+	go func() { defer close(hub.done); hub.run(ctx, dsn) }()
 	return hub
+}
+
+// Close stops the listener before its store and database dependencies are released
+func (hub *Hub) Close() {
+	if hub.cancel == nil {
+		return
+	}
+	hub.cancel()
+	<-hub.done
 }
 
 func (hub *Hub) Subscribe(userID string) (<-chan string, func()) {
@@ -109,7 +121,11 @@ func (hub *Hub) listen(ctx context.Context, dsn string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close(context.Background())
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = conn.Close(closeCtx)
+	}()
 
 	if err := subscribeToActivity(ctx, conn); err != nil {
 		return err

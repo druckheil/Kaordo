@@ -71,62 +71,77 @@ func Catalog(nativeLanguage string) ([]CatalogSet, error) {
 }
 
 func ImportCards(input Import, nativeLanguage string) ([]CatalogCard, error) {
-	if (input.SetID == "") == (len(input.Cards) == 0) {
-		return nil, invalid("Choose a starter set or supply cards to import.")
-	}
-	if len(input.Cards) > 500 || len(input.CardKeys) > 500 {
-		return nil, invalid("Import up to 500 cards at a time.")
-	}
-	if input.SetID != "" && input.CardKeys != nil && len(input.CardKeys) == 0 {
-		return nil, invalid("Choose at least one card from the set.")
+	if err := validateImportSelection(input); err != nil {
+		return nil, err
 	}
 	if input.SetID == "" {
-		if len(input.CardKeys) > 0 {
-			return nil, ErrInvalid
-		}
-		cards := make([]CatalogCard, 0, len(input.Cards))
-		for _, content := range input.Cards {
-			content.Normalize()
-			if err := content.Validate(); err != nil {
-				return nil, err
-			}
-			cards = append(cards, CatalogCard{CardContent: content})
-		}
-		return cards, nil
-	}
-	if input.Status != "" && input.Status != "active" && input.Status != "known" {
-		return nil, ErrInvalid
+		return importedCustomCards(input.Cards)
 	}
 	sets, err := Catalog(nativeLanguage)
 	if err != nil {
 		return nil, err
 	}
+	for _, set := range sets {
+		if set.ID == input.SetID {
+			return selectedCatalogCards(set, input)
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func validateImportSelection(input Import) error {
+	catalog, custom := input.SetID != "", len(input.Cards) > 0
+	if catalog == custom {
+		return invalid("Choose a starter set or supply cards to import.")
+	}
+	if len(input.Cards) > 500 || len(input.CardKeys) > 500 {
+		return invalid("Import up to 500 cards at a time.")
+	}
+	if catalog && input.CardKeys != nil && len(input.CardKeys) == 0 {
+		return invalid("Choose at least one card from the set.")
+	}
+	if !catalog && len(input.CardKeys) > 0 {
+		return ErrInvalid
+	}
+	if catalog && input.Status != "" && input.Status != "active" && input.Status != "known" {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func importedCustomCards(contents []CardContent) ([]CatalogCard, error) {
+	cards := make([]CatalogCard, 0, len(contents))
+	for _, content := range contents {
+		content.Normalize()
+		if err := content.Validate(); err != nil {
+			return nil, err
+		}
+		cards = append(cards, CatalogCard{CardContent: content})
+	}
+	return cards, nil
+}
+
+func selectedCatalogCards(set CatalogSet, input Import) ([]CatalogCard, error) {
 	keys := make(map[string]bool, len(input.CardKeys))
 	for _, key := range input.CardKeys {
 		keys[key] = true
 	}
-	for _, set := range sets {
-		if set.ID != input.SetID {
+	cards := make([]CatalogCard, 0, len(set.Cards))
+	for _, card := range set.Cards {
+		if len(keys) > 0 && !keys[card.ID] {
 			continue
 		}
-		cards := make([]CatalogCard, 0, len(set.Cards))
-		for _, card := range set.Cards {
-			if len(keys) > 0 && !keys[card.ID] {
-				continue
-			}
-			card.FolderID = input.FolderID
-			if input.Status != "" {
-				card.Status = input.Status
-			}
-			if err := card.Validate(); err != nil {
-				return nil, err
-			}
-			cards = append(cards, card)
+		card.FolderID = input.FolderID
+		if input.Status != "" {
+			card.Status = input.Status
 		}
-		if len(keys) > 0 && len(cards) != len(keys) {
-			return nil, ErrInvalid
+		if err := card.Validate(); err != nil {
+			return nil, err
 		}
-		return cards, nil
+		cards = append(cards, card)
 	}
-	return nil, ErrNotFound
+	if len(keys) > 0 && len(cards) != len(keys) {
+		return nil, ErrInvalid
+	}
+	return cards, nil
 }

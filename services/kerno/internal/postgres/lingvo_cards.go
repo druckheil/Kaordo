@@ -59,7 +59,7 @@ func lingvoCardWhere(dictionaryID string, filter lingvo.CardFilter) jetpg.BoolEx
 	}
 	if filter.Search != "" {
 		// Treat user input literally rather than allowing LIKE wildcard expansion
-		pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(filter.Search) + "%"
+		pattern := "%" + escapeLikeLiteral(filter.Search) + "%"
 		conditions = append(conditions, jetpg.OR(jetpg.LOWER(c.Term).LIKE(jetpg.String(strings.ToLower(pattern))),
 			jetpg.LOWER(c.Translation).LIKE(jetpg.String(strings.ToLower(pattern)))))
 	}

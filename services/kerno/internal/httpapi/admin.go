@@ -389,57 +389,20 @@ func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Unsupported system action.")
 		return
 	}
-	var body struct {
-		Reason     string `json:"reason"`
-		Target     string `json:"target"`
-		Identity   string `json:"identity"`
-		Filesystem string `json:"filesystem"`
-	}
+	var body systemActionInput
 	if !decodeAdminBody(w, r, &body) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if !validAdminReason(body.Reason, 10, 500) {
-		writeError(w, http.StatusBadRequest, "A reason of 10 to 500 characters is required.")
+	if err := body.validate(action); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	switch action {
-	case "scrub-filesystem", "check-storage", "repair-storage":
-		if body.Target == "" || (action != "scrub-filesystem" && body.Target == "/") || len(body.Target) > 1024 || !filepath.IsAbs(body.Target) || filepath.Clean(body.Target) != body.Target || body.Identity != "" || body.Filesystem != "" {
-			writeError(w, http.StatusBadRequest, "A mounted filesystem path is required.")
-			return
-		}
-	case "configure-storage":
-		if !strings.HasPrefix(body.Target, "/dev/") || len(body.Target) > 256 || filepath.Clean(body.Target) != body.Target ||
-			!validStorageIdentity(body.Identity) || body.Filesystem == "/" || len(body.Filesystem) > 1024 ||
-			!filepath.IsAbs(body.Filesystem) || filepath.Clean(body.Filesystem) != body.Filesystem {
-			writeError(w, http.StatusBadRequest, "A physical device, stable identity, and mounted data-pool path are required.")
-			return
-		}
-	default:
-		if body.Target != "" || body.Identity != "" || body.Filesystem != "" {
-			writeError(w, http.StatusBadRequest, "This operation does not accept a storage target.")
-			return
-		}
-	}
-	var mediaDirectory string
+	var mediaMaintenance bool
 	if action == "check-storage" || action == "repair-storage" {
-		if h.deps.Maintenance == nil {
-			writeError(w, http.StatusServiceUnavailable, "File-reference checks are unavailable.")
-			return
-		}
-		status, err := h.deps.Maintenance.StorageStatus(r.Context())
-		var media struct {
-			Directory string `json:"directory"`
-			State     string `json:"state"`
-		}
-		if err != nil || json.Unmarshal(status, &media) != nil || media.Directory == "" {
-			writeError(w, http.StatusServiceUnavailable, "File-reference checks are unavailable.")
-			return
-		}
-		mediaDirectory = media.Directory
-		if (media.Directory == body.Target || strings.HasPrefix(media.Directory, body.Target+"/")) && (media.State == "checking" || media.State == "repairing") {
-			writeError(w, http.StatusConflict, "A file-copy operation is already running.")
+		var ready bool
+		mediaMaintenance, ready = h.prepareStorageMaintenance(w, r, body.Target)
+		if !ready {
 			return
 		}
 	}
@@ -451,7 +414,7 @@ func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
 	result, err := h.deps.System.Action(r.Context(), action, regado.ActionRequest{
 		Target: body.Target, Identity: body.Identity, Filesystem: body.Filesystem,
 	})
-	if err == nil && mediaDirectory != "" && (mediaDirectory == body.Target || strings.HasPrefix(mediaDirectory, body.Target+"/")) {
+	if err == nil && mediaMaintenance {
 		err = h.deps.Maintenance.StartStorageMaintenance(r.Context(), action == "repair-storage")
 	}
 	if err != nil {
@@ -463,6 +426,56 @@ func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Regado outcome audit failed: %v", err)
 	}
 	writeJSON(w, http.StatusAccepted, result)
+}
+
+type systemActionInput struct {
+	Reason     string `json:"reason"`
+	Target     string `json:"target"`
+	Identity   string `json:"identity"`
+	Filesystem string `json:"filesystem"`
+}
+
+func (body systemActionInput) validate(action string) error {
+	if !validAdminReason(body.Reason, 10, 500) {
+		return errors.New("A reason of 10 to 500 characters is required.")
+	}
+	switch action {
+	case "scrub-filesystem", "check-storage", "repair-storage":
+		if body.Target == "" || (action != "scrub-filesystem" && body.Target == "/") || len(body.Target) > 1024 || !filepath.IsAbs(body.Target) || filepath.Clean(body.Target) != body.Target || body.Identity != "" || body.Filesystem != "" {
+			return errors.New("A mounted filesystem path is required.")
+		}
+	case "configure-storage":
+		if !strings.HasPrefix(body.Target, "/dev/") || len(body.Target) > 256 || filepath.Clean(body.Target) != body.Target || !validStorageIdentity(body.Identity) || body.Filesystem == "/" || len(body.Filesystem) > 1024 || !filepath.IsAbs(body.Filesystem) || filepath.Clean(body.Filesystem) != body.Filesystem {
+			return errors.New("A physical device, stable identity, and mounted data-pool path are required.")
+		}
+	default:
+		if body.Target != "" || body.Identity != "" || body.Filesystem != "" {
+			return errors.New("This operation does not accept a storage target.")
+		}
+	}
+	return nil
+}
+
+func (h adminHandler) prepareStorageMaintenance(w http.ResponseWriter, r *http.Request, target string) (required, ready bool) {
+	if h.deps.Maintenance == nil {
+		writeError(w, http.StatusServiceUnavailable, "File-reference checks are unavailable.")
+		return false, false
+	}
+	status, err := h.deps.Maintenance.StorageStatus(r.Context())
+	var media struct {
+		Directory string `json:"directory"`
+		State     string `json:"state"`
+	}
+	if err != nil || json.Unmarshal(status, &media) != nil || media.Directory == "" {
+		writeError(w, http.StatusServiceUnavailable, "File-reference checks are unavailable.")
+		return false, false
+	}
+	required = media.Directory == target || strings.HasPrefix(media.Directory, target+"/")
+	if required && (media.State == "checking" || media.State == "repairing") {
+		writeError(w, http.StatusConflict, "A file-copy operation is already running.")
+		return false, false
+	}
+	return required, true
 }
 
 func validSystemAction(action string) bool {

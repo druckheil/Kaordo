@@ -98,7 +98,8 @@ func run() error {
 		return err
 	}
 
-	server := newHTTPServer(ctx, cfg, pool, verify)
+	server, closeDependencies := newHTTPServer(ctx, cfg, pool, verify)
+	defer closeDependencies()
 	return serve(ctx, server)
 }
 
@@ -202,19 +203,20 @@ func newTokenVerifier(ctx context.Context, cfg config) (tokenVerifier, error) {
 	}, nil
 }
 
-func newHTTPServer(ctx context.Context, cfg config, pool *pgxpool.Pool, verify tokenVerifier) *http.Server {
+func newHTTPServer(ctx context.Context, cfg config, pool *pgxpool.Pool, verify tokenVerifier) (*http.Server, func()) {
+	router, closeDependencies := newHTTPRouter(ctx, cfg, pool, verify)
 	return &http.Server{
 		Addr:              cfg.ListenAddress,
-		Handler:           newHTTPRouter(ctx, cfg, pool, verify),
+		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
-	}
+	}, closeDependencies
 }
 
-func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify tokenVerifier) http.Handler {
+func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify tokenVerifier) (http.Handler, func()) {
 	ligoStore := postgres.NewLigo(pool)
 	ligoEvents := ligoevents.New(ctx, cfg.DatabaseURL, ligoStore)
 	mediaClient := httpapi.NodoClient{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey}
@@ -232,7 +234,7 @@ func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify t
 		},
 		cfg.AllowedOrigins,
 	)
-	return router
+	return router, ligoEvents.Close
 }
 
 func fluoDependencies(cfg config, pool *pgxpool.Pool, media httpapi.NodoClient) httpapi.FluoDependencies {

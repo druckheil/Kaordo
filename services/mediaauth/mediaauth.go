@@ -65,7 +65,7 @@ func SignedURL(baseURL, id string, expiry time.Time, key []byte) (string, error)
 
 func parsePublicBaseURL(raw string) (*url.URL, error) {
 	base, err := url.Parse(strings.TrimRight(raw, "/"))
-	if err != nil || base.Scheme == "" || base.Host == "" || base.User != nil || base.RawQuery != "" {
+	if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
 		return nil, errors.New("invalid Nodo public URL")
 	}
 	return base, nil

@@ -100,24 +100,8 @@ func previewStoragePlan(ctx context.Context, run commandRunner, request layoutRe
 		}
 	}
 	if plan.Backend == "systemd-repart" && len(plan.Issues) == 0 {
-		definitions, err := repartDefinitions(device, plan)
-		if err != nil {
-			plan.Issues = append(plan.Issues, err.Error())
-		} else {
-			work, err := writeLayoutWorkspace(definitions, "")
-			if err != nil {
-				return storagePlan{}, err
-			}
-			defer os.RemoveAll(work)
-			raw, err := run(ctx, repartArgs(work, request.Device, true)...)
-			if err != nil {
-				plan.Issues = append(plan.Issues, "systemd-repart cannot fit the requested areas without moving existing partitions.")
-			} else {
-				plan.Steps, err = validatedRepartSteps(raw, device, plan)
-				if err != nil {
-					plan.Issues = append(plan.Issues, err.Error())
-				}
-			}
+		if err := previewRepartAllocation(ctx, run, device, &plan); err != nil {
+			return storagePlan{}, err
 		}
 	}
 	plan.Supported = len(plan.Issues) == 0 && len(plan.Steps) > 0
@@ -132,6 +116,29 @@ func previewStoragePlan(ctx context.Context, run commandRunner, request layoutRe
 	sum := sha256.Sum256(raw)
 	plan.Fingerprint = hex.EncodeToString(sum[:])
 	return plan, nil
+}
+
+func previewRepartAllocation(ctx context.Context, run commandRunner, device disk, plan *storagePlan) error {
+	definitions, err := repartDefinitions(device, *plan)
+	if err != nil {
+		plan.Issues = append(plan.Issues, err.Error())
+		return nil
+	}
+	work, err := writeLayoutWorkspace(definitions, "")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(work)
+	raw, err := run(ctx, repartArgs(work, plan.Device, true)...)
+	if err != nil {
+		plan.Issues = append(plan.Issues, "systemd-repart cannot fit the requested areas without moving existing partitions.")
+		return nil
+	}
+	plan.Steps, err = validatedRepartSteps(raw, device, *plan)
+	if err != nil {
+		plan.Issues = append(plan.Issues, err.Error())
+	}
+	return nil
 }
 
 func layoutInventory(ctx context.Context, run commandRunner, request layoutRequest) (disk, []mount, error) {
@@ -160,6 +167,7 @@ func planIdentity(device disk) disk {
 	device.Health = nil
 	device.StorageState, device.ConfigureReason = "", ""
 	device.ConfigureEligible = false
+	device.Children = slices.Clone(device.Children)
 	for i := range device.Children {
 		device.Children[i] = planIdentity(device.Children[i])
 	}
@@ -174,57 +182,10 @@ func buildStoragePlan(device disk, request layoutRequest) storagePlan {
 		return plan
 	}
 	if len(device.Children) == 0 && valueOrEmpty(device.FSType) == "" && !device.LayoutAvailable {
-		reserve := 2 * partitionAlignment
-		if plan.SystemBytes > 0 {
-			reserve += bootMetadataBytes(hostBootMode())
-		}
-		plan.AvailableBytes = alignDown(device.Size - reserve)
-		if plan.SystemBytes > plan.AvailableBytes || plan.StorageBytes > plan.AvailableBytes-plan.SystemBytes {
-			plan.Issues = append(plan.Issues, "Requested areas exceed usable capacity after GPT and boot metadata.")
-		}
-		if plan.SystemBytes > 0 {
-			plan.Steps = append(plan.Steps, layoutStep{Kind: "create", Role: "system", Size: plan.SystemBytes})
-		}
-		if plan.StorageBytes > 0 {
-			plan.Steps = append(plan.Steps, layoutStep{Kind: "create", Role: "storage", Size: plan.StorageBytes})
-		}
+		planBlankDevice(device, &plan)
 	} else {
-		plan.Backend = "systemd-repart"
-		if !device.LayoutAvailable || valueOrEmpty(device.FSType) != "" {
-			plan.Issues = append(plan.Issues, "Existing geometry must be discovered before incremental changes.")
+		if !planExistingDevice(device, &plan) {
 			return plan
-		}
-		current := map[string]int64{}
-		for _, part := range device.Children {
-			if part.BootKind != "" {
-				continue
-			}
-			if part.Type != "part" || part.Role == "unassigned" {
-				plan.Issues = append(plan.Issues, fmt.Sprintf("%s is an unmanaged volume; its data will be preserved.", part.Path))
-				continue
-			}
-			if part.BootKind == "" {
-				current[part.Role] += part.Size
-			}
-			plan.AvailableBytes += part.Size
-		}
-		for _, region := range device.Unallocated {
-			plan.AvailableBytes += region.Size
-		}
-		for role, desired := range map[string]int64{"system": plan.SystemBytes, "storage": plan.StorageBytes} {
-			if desired < current[role] {
-				plan.Issues = append(plan.Issues, "Shrinking or removing an existing area requires an offline migration. Disko declarations can be exported; live repartitioning never erases data.")
-			}
-			if current[role] > 0 && desired != current[role] && role == "system" {
-				plan.Issues = append(plan.Issues, "The existing System area is protected; resize it through an offline maintenance workflow.")
-			}
-		}
-		pending := slices.ContainsFunc(device.Children, partitionNeedsActivation)
-		if plan.SystemBytes == current["system"] && plan.StorageBytes == current["storage"] && !pending {
-			plan.Issues = append(plan.Issues, "The requested layout already matches this device.")
-		}
-		if plan.SystemBytes > plan.AvailableBytes || plan.StorageBytes > plan.AvailableBytes-plan.SystemBytes {
-			plan.Issues = append(plan.Issues, "Requested areas exceed usable capacity.")
 		}
 	}
 	if plan.SystemBytes > 0 && plan.SystemBytes < 256*partitionAlignment {
@@ -236,6 +197,66 @@ func buildStoragePlan(device disk, request layoutRequest) storagePlan {
 	plan.Warnings = append(plan.Warnings, "System volumes are prepared for operating-system or service data. Installing NixOS and moving existing service data are separate maintenance operations.")
 	plan.Supported = len(plan.Issues) == 0
 	return plan
+}
+
+func planBlankDevice(device disk, plan *storagePlan) {
+	reserve := 2 * partitionAlignment
+	if plan.SystemBytes > 0 {
+		reserve += bootMetadataBytes(hostBootMode())
+	}
+	plan.AvailableBytes = alignDown(device.Size - reserve)
+	if plan.SystemBytes > plan.AvailableBytes || plan.StorageBytes > plan.AvailableBytes-plan.SystemBytes {
+		plan.Issues = append(plan.Issues, "Requested areas exceed usable capacity after GPT and boot metadata.")
+	}
+	if plan.SystemBytes > 0 {
+		plan.Steps = append(plan.Steps, layoutStep{Kind: "create", Role: "system", Size: plan.SystemBytes})
+	}
+	if plan.StorageBytes > 0 {
+		plan.Steps = append(plan.Steps, layoutStep{Kind: "create", Role: "storage", Size: plan.StorageBytes})
+	}
+}
+
+func planExistingDevice(device disk, plan *storagePlan) bool {
+	plan.Backend = "systemd-repart"
+	if !device.LayoutAvailable || valueOrEmpty(device.FSType) != "" {
+		plan.Issues = append(plan.Issues, "Existing geometry must be discovered before incremental changes.")
+		return false
+	}
+	current := map[string]int64{}
+	for _, part := range device.Children {
+		if part.BootKind != "" {
+			continue
+		}
+		if part.Type != "part" || part.Role == "unassigned" {
+			plan.Issues = append(plan.Issues, fmt.Sprintf("%s is an unmanaged volume; its data will be preserved.", part.Path))
+			continue
+		}
+		current[part.Role] += part.Size
+		plan.AvailableBytes += part.Size
+	}
+	for _, region := range device.Unallocated {
+		plan.AvailableBytes += region.Size
+	}
+	for _, role := range []string{"system", "storage"} {
+		desired := plan.SystemBytes
+		if role == "storage" {
+			desired = plan.StorageBytes
+		}
+		if desired < current[role] {
+			plan.Issues = append(plan.Issues, "Shrinking or removing an existing area requires an offline migration. Disko declarations can be exported; live repartitioning never erases data.")
+		}
+		if current[role] > 0 && desired != current[role] && role == "system" {
+			plan.Issues = append(plan.Issues, "The existing System area is protected; resize it through an offline maintenance workflow.")
+		}
+	}
+	pending := slices.ContainsFunc(device.Children, partitionNeedsActivation)
+	if plan.SystemBytes == current["system"] && plan.StorageBytes == current["storage"] && !pending {
+		plan.Issues = append(plan.Issues, "The requested layout already matches this device.")
+	}
+	if plan.SystemBytes > plan.AvailableBytes || plan.StorageBytes > plan.AvailableBytes-plan.SystemBytes {
+		plan.Issues = append(plan.Issues, "Requested areas exceed usable capacity.")
+	}
+	return true
 }
 
 func repartDefinitions(device disk, plan storagePlan) (map[string]string, error) {
@@ -326,48 +347,35 @@ func validatedRepartSteps(raw string, device disk, plan storagePlan) ([]layoutSt
 	seen := map[string]bool{}
 	roles := map[string]int64{}
 	nodes := map[string]bool{}
+	existingParts := make(map[string]disk, len(device.Children))
+	for _, part := range device.Children {
+		existingParts[part.Path] = part
+	}
 	for _, candidate := range proposed {
 		if nodes[candidate.Node] || candidate.Number < 0 || partitionNumber(device.Path, candidate.Node) != candidate.Number+1 || candidate.Offset <= 0 || candidate.Size <= 0 || candidate.Offset > device.Size || candidate.Size > device.Size-candidate.Offset {
 			return nil, errors.New("Invalid partition geometry was refused.")
 		}
 		nodes[candidate.Node] = true
-		var existing *disk
-		for i := range device.Children {
-			if device.Children[i].Path == candidate.Node {
-				existing = &device.Children[i]
-				break
-			}
-		}
-		if existing != nil {
+		if existing, found := existingParts[candidate.Node]; found {
 			seen[existing.Path] = true
 			if existing.BootKind == "" {
 				roles[existing.Role] += candidate.Size
 			}
-			if candidate.Offset != existing.Start || candidate.OldSize != existing.Size || candidate.Size < existing.Size {
-				return nil, errors.New("The preview would move or shrink existing data.")
+			step, err := preservedPartitionStep(existing, candidate)
+			if err != nil {
+				return nil, err
 			}
-			if candidate.Size > existing.Size {
-				if existing.Role != "storage" || valueOrEmpty(existing.FSType) != "btrfs" {
-					return nil, errors.New("Only a Btrfs Storage partition can grow online.")
-				}
-				steps = append(steps, layoutStep{Kind: "resize", Role: "storage", Number: existing.Number, Start: existing.Start, Size: candidate.Size, PreviousSize: existing.Size, Source: existing.Path})
-			} else if partitionNeedsActivation(*existing) {
-				steps = append(steps, layoutStep{Kind: "activate", Role: existing.Role, Number: existing.Number, Start: existing.Start, Size: existing.Size, Source: existing.Path})
+			if step != nil {
+				steps = append(steps, *step)
 			}
-		} else {
-			role := ""
-			if candidate.Label == "kaordo-system" {
-				role = "system"
-			}
-			if candidate.Label == "kaordo-storage" {
-				role = "storage"
-			}
-			if role == "" || candidate.OldSize != 0 || candidate.Activity != "create" || candidate.Size <= 0 {
-				return nil, errors.New("Unexpected partition change was refused.")
-			}
-			steps = append(steps, layoutStep{Kind: "create", Role: role, Number: candidate.Number + 1, Start: candidate.Offset, Size: candidate.Size, Source: candidate.Node})
-			roles[role] += candidate.Size
+			continue
 		}
+		step, err := createdPartitionStep(candidate)
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, step)
+		roles[step.Role] += step.Size
 	}
 	if len(seen) != len(device.Children) {
 		return nil, errors.New("The preview did not preserve every existing partition.")
@@ -383,6 +391,33 @@ func validatedRepartSteps(raw string, device disk, plan storagePlan) ([]layoutSt
 		}
 	}
 	return steps, nil
+}
+
+func preservedPartitionStep(existing disk, candidate repartPartition) (*layoutStep, error) {
+	if candidate.Offset != existing.Start || candidate.OldSize != existing.Size || candidate.Size < existing.Size {
+		return nil, errors.New("The preview would move or shrink existing data.")
+	}
+	if candidate.Size > existing.Size {
+		if existing.Role != "storage" || valueOrEmpty(existing.FSType) != "btrfs" {
+			return nil, errors.New("Only a Btrfs Storage partition can grow online.")
+		}
+		return &layoutStep{Kind: "resize", Role: "storage", Number: existing.Number, Start: existing.Start,
+			Size: candidate.Size, PreviousSize: existing.Size, Source: existing.Path}, nil
+	}
+	if partitionNeedsActivation(existing) {
+		return &layoutStep{Kind: "activate", Role: existing.Role, Number: existing.Number, Start: existing.Start,
+			Size: existing.Size, Source: existing.Path}, nil
+	}
+	return nil, nil
+}
+
+func createdPartitionStep(candidate repartPartition) (layoutStep, error) {
+	role := map[string]string{"kaordo-system": "system", "kaordo-storage": "storage"}[candidate.Label]
+	if role == "" || candidate.OldSize != 0 || candidate.Activity != "create" || candidate.Size <= 0 {
+		return layoutStep{}, errors.New("Unexpected partition change was refused.")
+	}
+	return layoutStep{Kind: "create", Role: role, Number: candidate.Number + 1, Start: candidate.Offset,
+		Size: candidate.Size, Source: candidate.Node}, nil
 }
 
 func partitionNeedsActivation(part disk) bool {

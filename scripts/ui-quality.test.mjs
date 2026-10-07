@@ -194,15 +194,25 @@ for (const app of ['ligo', 'rondo']) {
   });
 }
 
-test('Lingvo learning, dictionary, library and card forms reflow and support keyboard input', async ({ startAppFixture }, testInfo) => {
-  const { page, origin, errors } = await startAppFixture('lingvo');
-  const state = await installQualityFixture(page, 'lingvo');
-  await page.goto(origin + '/lingvo/?dictionary=' + state.dictionary.id);
-  await page.getByRole('heading', { name: 'Make it stick.' }).waitFor();
+const lingvoTest = test.extend({
+  lingvo: async ({ startAppFixture }, use) => {
+    const { page, origin, errors } = await startAppFixture('lingvo');
+    const state = await installQualityFixture(page, 'lingvo');
+    await page.goto(origin + '/lingvo/?dictionary=' + state.dictionary.id);
+    await expect(page.getByRole('heading', { name: 'Make it stick.' })).toBeVisible();
+    await use({ page, origin, state });
+    expect(errors).toEqual([]);
+  },
+});
+
+lingvoTest('Lingvo learning dashboard reflows across viewports', async ({ lingvo: { page } }, testInfo) => {
   await responsiveAudit(page, testInfo, 'lingvo-learn');
+});
+
+lingvoTest('Lingvo card form supports articles and applies AI input without saving', async ({ lingvo: { page, state } }, testInfo) => {
   await page.getByRole('button', { name: 'Add card', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('heading', { name: 'Add a card' }).waitFor();
+  await expect(dialog.getByRole('heading', { name: 'Add a card' })).toBeVisible();
   await responsiveAudit(page, testInfo, 'lingvo-add-card');
   await dialog.getByRole('radio', { name: 'der', exact: true }).click();
   await expect(dialog.getByRole('radio', { name: 'der', exact: true })).toBeChecked();
@@ -211,58 +221,69 @@ test('Lingvo learning, dictionary, library and card forms reflow and support key
   await expect(dialog.getByRole('textbox', { name: 'German word', exact: true })).toHaveValue('Baum');
   await responsiveAudit(page, testInfo, 'lingvo-ai-details');
   expect(state.requests.filter(request => request.method === 'POST' && request.path.endsWith('/cards'))).toHaveLength(0);
-  await page.keyboard.press('Escape');
-  for (const [view, heading] of [['dictionary', 'My dictionary'], ['library', 'A little library of German']]) {
-    await page.getByRole('navigation', { name: 'Lingvo', exact: true }).getByRole('link', { name: view === 'dictionary' ? 'My dictionary' : 'Library', exact: true }).click();
-    await page.getByRole('heading', { level: 1, name: heading }).waitFor();
-    await page.getByText(view === 'dictionary' ? 'book' : 'Everyday essentials', { exact: true }).waitFor();
-    if (view === 'dictionary') await expect(page.getByText('1 word', { exact: true })).toBeVisible();
-    await responsiveAudit(page, testInfo, 'lingvo-' + view);
-  }
+});
+
+lingvoTest('Lingvo dictionary presents saved words with a clear responsive hierarchy', async ({ lingvo: { page } }, testInfo) => {
+  await page.getByRole('navigation', { name: 'Lingvo', exact: true }).getByRole('link', { name: 'My dictionary', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'My dictionary' })).toBeVisible();
+  await expect(page.getByText('book', { exact: true })).toBeVisible();
+  await expect(page.getByText('1 word', { exact: true })).toBeVisible();
+  await responsiveAudit(page, testInfo, 'lingvo-dictionary');
+});
+
+lingvoTest('Lingvo library and set preview reflow across viewports', async ({ lingvo: { page } }, testInfo) => {
+  await page.getByRole('navigation', { name: 'Lingvo', exact: true }).getByRole('link', { name: 'Library', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'A little library of German' })).toBeVisible();
+  await expect(page.getByText('Everyday essentials', { exact: true })).toBeVisible();
+  await responsiveAudit(page, testInfo, 'lingvo-library');
   await page.getByRole('button', { name: 'Preview Everyday essentials' }).click();
-  await dialog.getByRole('heading', { name: 'Everyday essentials' }).waitFor();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Everyday essentials' })).toBeVisible();
   await responsiveAudit(page, testInfo, 'lingvo-set-preview');
-  await page.keyboard.press('Escape');
+});
+
+lingvoTest('Lingvo word practice keeps the question and answer accessible', async ({ lingvo: { page, origin, state } }, testInfo) => {
   await page.goto(origin + '/lingvo/?dictionary=' + state.dictionary.id + '&view=study&kind=word');
-  await page.getByRole('button', { name: 'Show answer', exact: true }).waitFor();
+  await expect(page.getByRole('button', { name: 'Show answer', exact: true })).toBeVisible();
   await responsiveAudit(page, testInfo, 'lingvo-study-question');
   await page.getByRole('button', { name: 'Show answer', exact: true }).click();
   await responsiveAudit(page, testInfo, 'lingvo-study-answer');
-  expect(errors).toEqual([]);
 });
 
-test('Lingvo preferences, transfer, folder management and phrase exercise remain clear on small screens', async ({ startAppFixture }, testInfo) => {
-  const { page, origin, errors } = await startAppFixture('lingvo');
-  const state = await installQualityFixture(page, 'lingvo');
-  await page.goto(origin + '/lingvo/?dictionary=' + state.dictionary.id);
-  await page.getByRole('heading', { name: 'Make it stick.' }).waitFor();
+lingvoTest('Lingvo preferences support keyboard goal adjustment and explicit saving', async ({ lingvo: { page, state } }, testInfo) => {
+  await page.getByRole('button', { name: 'Dictionary settings' }).click();
+  await page.getByRole('menuitem', { name: 'Learning preferences', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  for (const [menu, heading] of [['Learning preferences', 'Find your rhythm'], ['Import / export cards', 'Bring your words with you']]) {
-    await page.getByRole('button', { name: 'Dictionary settings' }).click();
-    await page.getByRole('menuitem', { name: menu, exact: true }).click();
-    await dialog.getByRole('heading', { name: heading }).waitFor();
-    await responsiveAudit(page, testInfo, 'lingvo-' + menu.split(' ')[0].toLowerCase());
-    if (menu === 'Learning preferences') {
-      const goal = dialog.getByRole('slider', { name: 'Daily review goal' });
-      await goal.focus();
-      await page.keyboard.press('ArrowRight');
-      await expect(goal).toHaveAttribute('aria-valuenow', '25');
-      await dialog.getByRole('button', { name: 'Save preferences' }).click();
-      await expect(dialog).toBeHidden();
-      expect(state.dictionary.dailyGoal).toBe(25);
-    } else {
-      await dialog.getByRole('radio', { name: 'Export', exact: true }).click();
-      await responsiveAudit(page, testInfo, 'lingvo-export');
-      await page.keyboard.press('Escape');
-    }
-  }
+  await expect(dialog.getByRole('heading', { name: 'Find your rhythm' })).toBeVisible();
+  await responsiveAudit(page, testInfo, 'lingvo-learning');
+  const goal = dialog.getByRole('slider', { name: 'Daily review goal' });
+  await goal.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(goal).toHaveAttribute('aria-valuenow', '25');
+  await dialog.getByRole('button', { name: 'Save preferences' }).click();
+  await expect(dialog).toBeHidden();
+  expect(state.dictionary.dailyGoal).toBe(25);
+});
+
+lingvoTest('Lingvo import and export forms remain accessible across viewports', async ({ lingvo: { page } }, testInfo) => {
+  await page.getByRole('button', { name: 'Dictionary settings' }).click();
+  await page.getByRole('menuitem', { name: 'Import / export cards', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: 'Bring your words with you' })).toBeVisible();
+  await responsiveAudit(page, testInfo, 'lingvo-import');
+  await dialog.getByRole('radio', { name: 'Export', exact: true }).click();
+  await responsiveAudit(page, testInfo, 'lingvo-export');
+});
+
+lingvoTest('Lingvo folder management reflows across viewports', async ({ lingvo: { page } }, testInfo) => {
   await page.getByRole('navigation', { name: 'Lingvo' }).getByRole('link', { name: 'My dictionary', exact: true }).click();
   await page.getByRole('button', { name: 'Manage folders' }).click();
-  await dialog.getByRole('heading', { name: 'Your folders' }).waitFor();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Your folders' })).toBeVisible();
   await responsiveAudit(page, testInfo, 'lingvo-folders');
-  await page.keyboard.press('Escape');
+});
+
+lingvoTest('Lingvo phrase tiles, writing and answer feedback support keyboard input', async ({ lingvo: { page, origin, state } }, testInfo) => {
   await page.goto(origin + '/lingvo/?dictionary=' + state.dictionary.id + '&view=study&kind=phrase');
-  await page.getByRole('button', { name: 'Check answer', exact: true }).waitFor();
+  await expect(page.getByRole('button', { name: 'Check answer', exact: true })).toBeVisible();
   await responsiveAudit(page, testInfo, 'lingvo-phrase-tiles');
   await page.getByRole('radio', { name: 'Write it', exact: true }).click();
   await page.getByRole('textbox', { name: 'Your German answer' }).fill('Einen Kaffee, bitte.');
@@ -271,7 +292,6 @@ test('Lingvo preferences, transfer, folder management and phrase exercise remain
   await expect(page.getByText('That is right.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Again ·/ })).toBeFocused();
   await auditScreen(page, testInfo, 'lingvo-phrase-answer');
-  expect(errors).toEqual([]);
 });
 
 test('Lingvo preserves drafts on errors and scopes review shortcuts to the focused practice', async ({ startAppFixture }, testInfo) => {

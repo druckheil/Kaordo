@@ -72,9 +72,12 @@ func (client *SystemClient) requestBody(ctx context.Context, method, path string
 }
 
 func readJSONResponse(body io.Reader) (json.RawMessage, error) {
-	data, err := io.ReadAll(io.LimitReader(body, maxResponseSize))
+	data, err := io.ReadAll(io.LimitReader(body, maxResponseSize+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(data) > maxResponseSize {
+		return nil, errors.New("system response exceeds the size limit")
 	}
 	if !json.Valid(data) {
 		return nil, errors.New("invalid system agent response")
@@ -187,8 +190,12 @@ func (client *MetricsClient) rangeRequest(ctx context.Context, query string, sta
 }
 
 func decodeRangeSamples(body io.Reader) ([]sample, error) {
+	data, err := readJSONResponse(body)
+	if err != nil {
+		return nil, err
+	}
 	var result rangeResponse
-	if err := json.NewDecoder(io.LimitReader(body, maxResponseSize)).Decode(&result); err != nil {
+	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, err
 	}
 	if result.Status != "success" {
