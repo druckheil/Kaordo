@@ -238,7 +238,7 @@ async function startFrontendApplications() {
     await waitFor(`${siteOrigin}/login/`, 10_000, child);
     return [['Static applications', child]];
   }
-  console.log('Starting five Vite development servers with HMR…');
+  console.log(`Starting ${localFrontendServers.length} Vite development servers with HMR…`);
   const environment = { ...process.env, KAORDO_LOCAL_DEV: '1' };
   const applications = localFrontendServers.map((application) => {
     const appDirectory = resolve(root, 'apps', application.id);

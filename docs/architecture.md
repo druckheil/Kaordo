@@ -1,6 +1,6 @@
 # Kaordo architecture boundary
 
-Scope 0.0.1 establishes package boundaries. Working slices include local registration, TOTP, shared account identity, Fluo social posting, Ligo messaging, Rondo communities and Regado administration.
+Scope 0.0.1 establishes package boundaries. Working slices include local registration, TOTP, shared account identity, Fluo social posting, Ligo messaging, Rondo communities, Lingvo language learning and Regado administration.
 
 ```mermaid
 flowchart LR
@@ -27,9 +27,16 @@ All apps use the shared STaSBRL stack (Svelte/SvelteKit, Tailwind CSS, shadcn-sv
 
 Regado is absent from the public app directory and is available at `/regado/` to accounts with the current database `admin` role. Kerno checks that role and the disabled-account flag on every admin request. The dashboard uses shared STaSBRL components and uPlot for Prometheus history. A root Regado agent reads Btrfs, SMART and service journals over a group-protected Unix socket; fixed maintenance actions require an audited reason. User status and role changes are transactional. A 15-minute content access case writes an immutable notification to the target's Ligo Saved messages, audits reads and can be closed early. Existing plaintext data has no user-held encryption key or system escrow key.
 
-The root Pages build has paths `/`, `/login/`, `/register/`, `/agordoj/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. The local development profile proxies each Vite server at those paths; production serves the static release. The NixOS production deployment uses Caddy HTTPS at `kaordo.link` with Namecheap dynamic DNS; Cloudflare Pages and Tunnel are not used by that profile. Fluo's initial discovery order is reverse chronological with a following filter; it works from one account onward without training data. Nodo processes uploaded media in its configured directory. Production PostgreSQL, media, metrics, static releases and secrets are stored on Data1, a two-device Btrfs RAID1 filesystem. NixOS has one separate 64 GiB root partition. Private-content encryption and an independent backup destination remain unconfigured. Deployment details are in `deploy/nixos/README.md`.
+The root Pages build has paths `/`, `/login/`, `/register/`, `/agordoj/`, `/ligo/`, `/fluo/`, `/rondo/`, `/lingvo/`, and `/regado/`. The local development profile proxies each Vite server at those paths; production serves the static release. The NixOS production deployment uses Caddy HTTPS at `kaordo.link` with Namecheap dynamic DNS; Cloudflare Pages and Tunnel are not used by that profile. Fluo's initial discovery order is reverse chronological with a following filter; it works from one account onward without training data. Nodo processes uploaded media in its configured directory. Production PostgreSQL, media, metrics, static releases and secrets are stored on Data1, a two-device Btrfs RAID1 filesystem. NixOS has one separate 64 GiB root partition. Private-content encryption and an independent backup destination remain unconfigured. Deployment details are in `deploy/nixos/README.md`.
 
 ## Refactored ownership
+
+Lingvo stores a separate private dictionary for each user/learning/native-language
+triple. German words and phrases share validated card content and transactional
+review history. Kerno uses official Go FSRS-6 for saved schedules; `lingvo-client`
+uses pinned ts-fsrs for interval previews, plus browser speech, phrase comparison
+and CSV. Views load on demand and compose shared Rhea/Bits UI controls. See
+[Lingvo's workflows and boundaries](../apps/lingvo/README.md).
 
 Apps compose feature-specific panels and dialogs; `api-client` owns typed requests and query policies, including Regado cancellation/cache keys. Ligo and Rondo share one `chat-ui` composer, message renderer and immutable cache helpers. Fluo's controller owns navigation/actions; separate feed, header, composer and detail components own their presentation. Post dialogs use SvelteKit shallow history APIs rather than mutating router state directly.
 

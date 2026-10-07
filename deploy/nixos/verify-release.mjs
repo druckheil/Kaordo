@@ -11,7 +11,7 @@ const requiredFiles = [
   'etc/nixos/deploy/nixos/sync-keycloak-production.mjs', 'etc/nixos/scripts/sync-keycloak.mjs',
   'etc/nixos/deploy/keycloak/themes/kaordo/login/resources/js/session.js',
   'site/index.html', 'site/fluo/index.html', 'site/ligo/index.html',
-  'site/rondo/index.html', 'site/regado/index.html', 'site/silent-check-sso.html'
+  'site/rondo/index.html', 'site/lingvo/index.html', 'site/regado/index.html', 'site/silent-check-sso.html'
 ];
 
 export async function verifyPayload(directory, expectedRelease, expectedOrigin, expectedRealm) {
@@ -52,7 +52,7 @@ export async function verifyLiveRelease(directory, manifest, {
     if (result.status !== expectedStatus) throw new Error(`Release check returned HTTP ${result.status}: ${new URL(url).pathname}`);
     return Buffer.from(await result.arrayBuffer());
   }
-  for (const app of ['', 'fluo/', 'ligo/', 'rondo/', 'regado/']) {
+  for (const app of ['', 'fluo/', 'ligo/', 'rondo/', 'lingvo/', 'regado/']) {
     const path = `site/${app}index.html`;
     if (digest(await response(`${manifest.origin}/${app}`)) !== manifest.files[path]) {
       throw new Error(`Public application differs from the release: ${app || 'portal'}`);
@@ -95,6 +95,7 @@ export async function verifyLiveRelease(directory, manifest, {
   await response('http://127.0.0.1:9090/-/ready');
   await response('http://127.0.0.1:9100/metrics');
   await response(`${manifest.origin}/v1/fluo/posts/01a10fd2-692b-7966-be35-037f86108801/thread`, 401);
+  await response(`${manifest.origin}/v1/lingvo/dictionaries`, 401);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

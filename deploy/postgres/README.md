@@ -1,5 +1,16 @@
 # Postgres
 
+Migration 016 adds Lingvo dictionaries unique to `(user, learning language,
+native language)`, personal folders, German word/phrase cards and review history.
+Owned dictionary locks serialize writes and card revisions protect changes across
+tabs. FSRS schedules and previous schedules are server-owned JSONB; a due index
+bounds study queues and trigram indexes reuse the existing `pg_trgm` extension for literal text search.
+Known and paused cards stay outside practice. Review UUIDs make answer retries
+idempotent; undo restores the previous schedule without deleting historical rows.
+Account deletion cascades through Lingvo; card deletion keeps historical totals
+through a nullable review reference. Numbered migration replay preserves existing
+cards and reviews. See [Lingvo's guide](../../apps/lingvo/README.md).
+
 Local Compose runs separate PostgreSQL 18.6 instances for Kaordo application data and Keycloak credentials. `001_users.sql` initializes the Kaordo database on a fresh volume. It stores the stable UUIDv7 account ID and Keycloak subject mapping, never credentials or OTP secrets.
 
 The official PostgreSQL 18 image stores its data under `/var/lib/postgresql/18/docker`; the Compose volumes mount `/var/lib/postgresql` to retain it. The initialization SQL is not automatically reapplied to a nonempty volume.

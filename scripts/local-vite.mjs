@@ -5,7 +5,8 @@ export const localFrontendServers = [
   { id: 'fluo', name: 'Fluo', port: 18766, base: '/fluo', readyPath: '/fluo/' },
   { id: 'ligo', name: 'Ligo', port: 18767, base: '/ligo', readyPath: '/ligo/' },
   { id: 'rondo', name: 'Rondo', port: 18768, base: '/rondo', readyPath: '/rondo/' },
-  { id: 'regado', name: 'Regado', port: 18769, base: '/regado', readyPath: '/regado/' }
+  { id: 'regado', name: 'Regado', port: 18769, base: '/regado', readyPath: '/regado/' },
+  { id: 'lingvo', name: 'Lingvo', port: 18770, base: '/lingvo', readyPath: '/lingvo/' }
 ];
 
 export const localDevelopmentPorts = [

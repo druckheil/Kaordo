@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -48,6 +49,19 @@ func NewRouterWithRondo(verify VerifyFunc, users UserStore, social FluoDependenc
 }
 
 func NewRouterWithAdmin(verify VerifyFunc, users UserStore, social FluoDependencies, messaging LigoDependencies, communities RondoDependencies, admin AdminDependencies, allowedOrigins []string) http.Handler {
+	return NewRouterWithServices(verify, users, Modules{Fluo: social, Ligo: messaging, Rondo: communities, Admin: admin}, allowedOrigins)
+}
+
+type Modules struct {
+	Fluo   FluoDependencies
+	Ligo   LigoDependencies
+	Rondo  RondoDependencies
+	Admin  AdminDependencies
+	Lingvo LingvoDependencies
+}
+
+func NewRouterWithServices(verify VerifyFunc, users UserStore, modules Modules, allowedOrigins []string) http.Handler {
+	social, messaging, communities, admin := modules.Fluo, modules.Ligo, modules.Rondo, modules.Admin
 	router := chi.NewRouter()
 	router.Use(corsMiddleware(allowedOrigins))
 	mountAccountRoutes(router, verify, users)
@@ -62,6 +76,9 @@ func NewRouterWithAdmin(verify VerifyFunc, users UserStore, social FluoDependenc
 	}
 	if admin.Store != nil {
 		mountAdmin(router, verify, users, admin)
+	}
+	if modules.Lingvo.Store != nil {
+		mountLingvo(router, verify, users, modules.Lingvo)
 	}
 	return router
 }
@@ -199,11 +216,15 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, destination any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	return decodeBodyLimit(w, r, destination, 64*1024)
+}
+
+func decodeBodyLimit(w http.ResponseWriter, r *http.Request, destination any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body or body exceeds 64 KiB.")
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid request body or body exceeds the %d KiB limit.", limit/1024))
 		return false
 	}
 	var extra any

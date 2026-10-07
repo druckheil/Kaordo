@@ -90,10 +90,13 @@ staging="$temporary_root/$release_id"
 mkdir "$staging"
 tar -xzf "$archive" -C "$staging" --no-same-owner
 site="$staging/site"
-if [[ ! -s "$site/index.html" || ! -s "$site/silent-check-sso.html" || ! -d "$site/regado" ]]; then
+if [[ ! -s "$site/index.html" || ! -s "$site/silent-check-sso.html" ]]; then
   echo 'static release is incomplete' >&2
   exit 1
 fi
+for app in fluo ligo rondo lingvo regado; do
+  [[ -s "$site/$app/index.html" ]] || { printf 'static release is missing %s\n' "$app" >&2; exit 1; }
+done
 if grep -R -E -q --include='*.js' 'http://localhost:8080|http://localhost:8081|http://127\.0\.0\.1:8082' "$site"; then
   echo 'static release contains local service URLs' >&2
   exit 1
@@ -113,8 +116,10 @@ mv -Tf "$web_root/.current-$release_id" "$web_root/current"
 response="$temporary_root/$release_id-response.html"
 curl --location --fail --silent --show-error --max-time 10 "${resolve_args[@]}" "$origin/" -o "$response"
 cmp -s "$response" "$web_root/current/index.html"
-curl --location --fail --silent --show-error --max-time 10 "${resolve_args[@]}" "$origin/regado/" -o "$response"
-cmp -s "$response" "$web_root/current/regado/index.html"
+for app in fluo ligo rondo lingvo regado; do
+  curl --location --fail --silent --show-error --max-time 10 "${resolve_args[@]}" "$origin/$app/" -o "$response"
+  cmp -s "$response" "$web_root/current/$app/index.html"
+done
 curl --location --fail --silent --show-error --max-time 10 "${resolve_args[@]}" "$origin/silent-check-sso.html" -o /dev/null
 curl --location --fail --silent --show-error --max-time 10 "${resolve_args[@]}" "$origin/realms/$auth_realm/.well-known/openid-configuration" -o /dev/null
 curl --location --fail --silent --show-error --max-time 10 "${resolve_args[@]}" "$origin/realms/$auth_realm/protocol/openid-connect/login-status-iframe.html" -o /dev/null

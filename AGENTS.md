@@ -6,7 +6,7 @@ Product UI and all user-facing copy must be in English. Repository documentation
 
 The rebuild started at scope 0.0.1 with a new Git root. The previous code and full history remain at `/Users/druckheil/Projects/Archive/Kaordo-before-0.0.1`. Do not restore old D1 schemas, wire formats, Tauri commands, or release artifacts for compatibility.
 
-Implemented applications are Portal authentication/account entry, Fluo social posting with activity notifications and notification/privacy settings, Ligo messaging, Rondo communities and LiveKit calls, and Regado administration. Notifications outside Fluo, other account settings, Matrix integration, content encryption and cryptographic recovery remain incomplete or reserved. Describe actual capabilities and evidence, not the scaffold's original plans.
+Implemented applications are Portal authentication/account entry, Fluo social posting with activity notifications and notification/privacy settings, Ligo messaging, Rondo communities and LiveKit calls, Lingvo private German vocabulary/phrase learning with FSRS, and Regado administration. Notifications outside Fluo, other account settings, Matrix integration, content encryption and cryptographic recovery remain incomplete or reserved. Describe actual capabilities and evidence, not the scaffold's original plans.
 
 ## Architecture
 
@@ -15,6 +15,7 @@ Implemented applications are Portal authentication/account entry, Fluo social po
 - `packages/contracts/openapi.yaml` defines service routes and wire schemas. Generate TypeScript types; do not edit generated `openapi.d.ts` or PostgreSQL Jet tables/models manually.
 - `auth` owns in-memory OIDC tokens; `account-ui` owns account gates and the presentation-only session preview. `api-client` owns requests, retry, TanStack Query options and shared message-cache updates. UI components own rendering and interaction.
 - `chat-ui` owns the shared composer, bubbles, grouping and native message scrolling for Ligo and Rondo. `media-client` owns uploads/image resizing; `media-ui` owns PhotoSwipe, Vidstack and media geometry; `voice-client` owns LiveKit tracks and interface sounds.
+- `lingvo-client` owns card presentation, phrase exercises, speech, CSV and lazy ts-fsrs previews. Kerno owns private dictionaries and authoritative FSRS scheduling; browser previews must match the server scheduler configuration and step representation.
 - Four Go modules are in `go.work`: Kerno coordinates business metadata/access; Nodo owns tus uploads and bytes; mediaauth signs/verifies media links; regado-agent exposes fixed Linux operations through a protected Unix socket.
 - Kerno uses Jet query builders with pgx transactions. Domain packages validate data; HTTP handlers coordinate authorization and services; PostgreSQL files are split by feature and operation. Keep transaction and access boundaries intact.
 - The local Compose profile runs PostgreSQL, Keycloak and LiveKit. The NixOS production profile includes Caddy, Namecheap DDNS, Prometheus, Node Exporter and regado-agent. Cloudflare and Synapse directories are reserved integrations, not active production dependencies.

@@ -4,6 +4,198 @@
  */
 
 export interface paths {
+    "/v1/lingvo/dictionaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listLingvoDictionaries"];
+        put?: never;
+        post: operations["createLingvoDictionary"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/dictionaries/{dictionaryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getLingvoOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/dictionaries/{dictionaryId}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateLingvoSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/dictionaries/{dictionaryId}/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listLingvoCards"];
+        put?: never;
+        post: operations["createLingvoCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateLingvoCard"];
+        post?: never;
+        delete: operations["deleteLingvoCard"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/dictionaries/{dictionaryId}/study": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getLingvoStudyQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reviewLingvoCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/dictionaries/{dictionaryId}/reviews/{reviewId}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["undoLingvoReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/dictionaries/{dictionaryId}/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createLingvoFolder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/dictionaries/{dictionaryId}/folders/{folderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteLingvoFolder"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/dictionaries/{dictionaryId}/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["importLingvoCards"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lingvo/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getLingvoCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/fluo/settings": {
         parameters: {
             query?: never;
@@ -824,6 +1016,175 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        LingvoDictionary: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            learningLanguage: "de";
+            /** @enum {string} */
+            nativeLanguage: "en" | "ru";
+            dailyGoal: number;
+            timeZone: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        LingvoDictionaryPage: {
+            items: components["schemas"]["LingvoDictionary"][];
+        };
+        LingvoNewDictionary: {
+            /** @enum {string} */
+            learningLanguage: "de";
+            /** @enum {string} */
+            nativeLanguage: "en" | "ru";
+            timeZone: string;
+        };
+        LingvoSettings: {
+            dailyGoal: number;
+            timeZone: string;
+        };
+        LingvoFolder: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            dictionaryId: string;
+            name: string;
+        };
+        LingvoCardContent: {
+            /** @enum {string} */
+            kind: "word" | "phrase";
+            term: string;
+            translation: string;
+            /** @enum {string} */
+            partOfSpeech: "" | "noun" | "verb" | "adjective" | "adverb" | "other";
+            /** @enum {string} */
+            article: "" | "der" | "die" | "das";
+            plural: string;
+            grammar: string;
+            example: string;
+            exampleTranslation: string;
+            notes: string;
+            /** Format: uuid */
+            folderId: string | null;
+            /** @enum {string} */
+            status: "active" | "known" | "suspended";
+        };
+        LingvoSchedule: {
+            /** Format: date-time */
+            due: string;
+            stability: number;
+            difficulty: number;
+            scheduledDays: number;
+            reps: number;
+            lapses: number;
+            /** @enum {integer} */
+            state: 0 | 1 | 2 | 3;
+            /** Format: date-time */
+            lastReview: string | null;
+            learningSteps: number;
+        };
+        LingvoCard: components["schemas"]["LingvoCardContent"] & {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            dictionaryId: string;
+            sourceKey: string | null;
+            schedule: components["schemas"]["LingvoSchedule"];
+            revision: number;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        LingvoNewCard: components["schemas"]["LingvoCardContent"] & {
+            /**
+             * Format: uuid
+             * @description Stable client-generated ID for retrying the same create request.
+             */
+            id: string;
+        };
+        LingvoCardUpdate: components["schemas"]["LingvoCardContent"] & {
+            revision: number;
+        };
+        LingvoCardPage: {
+            items: components["schemas"]["LingvoCard"][];
+            total: number;
+        };
+        LingvoStudyPage: {
+            items: components["schemas"]["LingvoCard"][];
+        };
+        LingvoCounts: {
+            /** @enum {string} */
+            kind: "word" | "phrase";
+            total: number;
+            due: number;
+            new: number;
+            learning: number;
+            review: number;
+            known: number;
+            suspended: number;
+            /** Format: date-time */
+            nextDue: string | null;
+        };
+        LingvoActivity: {
+            /** Format: date */
+            day: string;
+            reviews: number;
+        };
+        LingvoOverview: {
+            dictionary: components["schemas"]["LingvoDictionary"];
+            counts: components["schemas"]["LingvoCounts"][];
+            folders: components["schemas"]["LingvoFolder"][];
+            activity: components["schemas"]["LingvoActivity"][];
+            studiedToday: number;
+            totalReviews: number;
+            streak: number;
+            /** Format: date */
+            today: string;
+        };
+        LingvoReview: {
+            /** Format: uuid */
+            id: string;
+            revision: number;
+            /** @enum {integer} */
+            rating: 1 | 2 | 3 | 4;
+            /** @enum {string} */
+            direction: "recognition" | "recall" | "listening" | "phrase";
+        };
+        LingvoReviewResult: {
+            /** Format: uuid */
+            id: string;
+            card: components["schemas"]["LingvoCard"];
+        };
+        /** @description Supply either a starter set ID (optionally with selected card keys) or up to 500 personal cards. Existing imported cards are preserved. */
+        LingvoImport: {
+            setId?: string;
+            cardKeys?: string[];
+            cards?: components["schemas"]["LingvoCardContent"][];
+            /** Format: uuid */
+            folderId?: string | null;
+            /**
+             * @description Status for catalog cards. Personal cards use their individual status fields.
+             * @enum {string}
+             */
+            status?: "active" | "known";
+        };
+        LingvoImportResult: {
+            added: number;
+            skipped: number;
+        };
+        LingvoCatalogCard: components["schemas"]["LingvoCardContent"] & {
+            id: string;
+        };
+        LingvoCatalogSet: {
+            id: string;
+            title: string;
+            description: string;
+            /** @enum {string} */
+            kind: "word" | "phrase";
+            level: string;
+            cards: components["schemas"]["LingvoCatalogCard"][];
+        };
+        LingvoCatalog: {
+            items: components["schemas"]["LingvoCatalogSet"][];
+        };
         UserIdentity: {
             /**
              * Format: uuid
@@ -1606,6 +1967,510 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listLingvoDictionaries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoDictionaryPage"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createLingvoDictionary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LingvoNewDictionary"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoDictionary"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getLingvoOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dictionaryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoOverview"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateLingvoSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dictionaryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LingvoSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoDictionary"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listLingvoCards: {
+        parameters: {
+            query?: {
+                kind?: "word" | "phrase";
+                status?: "active" | "known" | "suspended";
+                folder?: string;
+                q?: string;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                dictionaryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoCardPage"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createLingvoCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dictionaryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LingvoNewCard"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoCard"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateLingvoCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dictionaryId: string;
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LingvoCardUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoCard"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteLingvoCard: {
+        parameters: {
+            query: {
+                revision: number;
+            };
+            header?: never;
+            path: {
+                dictionaryId: string;
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getLingvoStudyQueue: {
+        parameters: {
+            query: {
+                kind: "word" | "phrase";
+                folder?: string;
+            };
+            header?: never;
+            path: {
+                dictionaryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoStudyPage"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reviewLingvoCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dictionaryId: string;
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LingvoReview"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoReviewResult"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    undoLingvoReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dictionaryId: string;
+                reviewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoCard"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createLingvoFolder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dictionaryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoFolder"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteLingvoFolder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dictionaryId: string;
+                folderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    importLingvoCards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dictionaryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LingvoImport"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoImportResult"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getLingvoCatalog: {
+        parameters: {
+            query: {
+                nativeLanguage: "en" | "ru";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LingvoCatalog"];
+                };
+            };
+            /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     getFluoSettings: {
         parameters: {
             query?: never;

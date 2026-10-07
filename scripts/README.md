@@ -2,7 +2,7 @@
 
 Run scripts from the repository root through `package.json` where a command exists. Modules are ordinary Node ESM with purpose comments before imports; shell launchers remain for starting individual Go services.
 
-- `dev-local.mjs` orchestrates configuration, Docker services, migrations and Go builds. It serves five Vite servers behind one local origin for HMR; `--static` serves the already-built apps for integration without HMR. `local-vite.mjs` owns their ports and proxy paths. `local-session.mjs` records checkout-owned processes; `stop-local.mjs` stops those processes without killing unrelated port owners.
+- `dev-local.mjs` orchestrates configuration, Docker services, migrations and Go builds. It serves six Vite servers behind one local origin for HMR; `--static` serves the already-built apps for integration without HMR. `local-vite.mjs` owns their ports and proxy paths. `local-session.mjs` records checkout-owned processes; `stop-local.mjs` stops those processes without killing unrelated port owners.
 - `sync-keycloak.mjs` reconciles realm/client/profile policy and validates token mapping. It preserves accounts and keeps admin credentials out of output.
 - `build-pages.mjs` assembles independently built apps; `serve-pages.mjs` serves the local combined artifact.
 - `deploy-pages.mjs` builds and verifies production frontend assets before uploading a checksummed release; `deploy/nixos/deploy-static.sh` performs preflight, atomic activation and rollback checks on the host.

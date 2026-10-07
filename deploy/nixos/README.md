@@ -88,9 +88,9 @@ back through the Admin API. The frontend is activated under the same lock.
 
 Success requires the built NixOS closure to be active, all declared long-running
 services and the DDNS timer to be active, and each running Go executable to match
-its installed binary. Final checks compare installed files and all five public
+its installed binary. Final checks compare installed files and all six public
 applications with the manifest, validate OIDC discovery/iframes and the protected
-Fluo route, and fetch the native login form and its actual custom theme resources.
+Fluo and Lingvo routes, and fetch the native login form and its actual custom theme resources.
 An old theme or a missing **Stay signed in** control fails deployment even when
 the service health endpoints respond successfully. LiveKit, Prometheus and Node
 Exporter HTTP endpoints are also checked.

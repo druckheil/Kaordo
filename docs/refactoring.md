@@ -14,11 +14,13 @@ This is an engineering review with automated evidence, not a new ISO score or a 
 | Fluo | Controller for selection/navigation/post actions; notification/settings query controllers and separate feed/header, settings, composer/editor/publishing, replies/detail |
 | Ligo | Conversation selection and SSE/query coordination; separate sidebar and conversation dialog |
 | Rondo | Server/channel coordination, member panel, layout helpers and voice views; shared chat pipeline |
+| Lingvo | Dictionary/view selection and lazy screens; vocabulary, phrase practice, library, folders and CSV transfer |
 | Regado | Independent query resources and mutations; overview/storage/system/users/audit/log panels and action/access dialogs |
 | auth / account-ui | In-memory OIDC tokens; verified account bootstrap and nonauthorizing per-tab preview |
 | api-client / contracts | Typed requests, response/refresh policy, query keys, pagination, cancellation and immutable message/Fluo cache helpers; generated wire schemas |
 | ui / chat-ui | STaSBRL primitives and shared message/composer/native-scroll interaction |
 | media-client / media-ui / voice-client | Upload/resize workflow; metadata-based layout, PhotoSwipe/Vidstack; LiveKit room/track lifecycle and sounds |
+| lingvo-client | German presentation, pronunciation, answer comparison, CSV and official ts-fsrs interval previews |
 | Kerno | Configuration/wiring, HTTP authorization/orchestration, domain validation, Jet/pgx persistence split by operation |
 | Nodo | HTTP upload/media handlers, owner/quota validation, processing queue, image/video/file processing, purge/GC and worker lifecycle |
 | mediaauth / regado-agent | Media signatures; protected Unix API, fixed commands, host/Btrfs/SMART/journal queries |
@@ -549,6 +551,66 @@ and `git diff --check` passed. Vite retained the existing Rondo advisory for a
 chunk larger than 500 kB; no size budget was changed. No functional/browser
 tests, real-device checks or hosted CI run were executed for this addition
 and refactor.
+
+## Lingvo language learning — 7 October 2026
+
+Lingvo is an independent static app with personal dictionaries identified by
+user, learning language and native language. German is the initial learning
+language; Russian and English have original starter catalogues. The app adds
+word recognition, recall and listening, phrase tiles and written answers,
+folders, bounded CSV transfers, daily goals and activity. Shared Rhea/Bits UI
+components own dialogs, choices and menus. Screens, editors, CSV parsing and
+the browser scheduler load on demand; animations respect reduced motion.
+
+OpenAPI defines the wire schemas and generates TypeScript declarations. Jet
+tables were generated from all migrations in an isolated PostgreSQL database;
+migration 016 adds owner-scoped dictionaries, cards, folders and review history.
+Kerno serializes writes on the owned dictionary, validates content and folder
+membership, and uses card revisions for concurrent edits and review undo.
+Stable request IDs make card creation and review retries idempotent. Import
+keys prevent repeated catalogue/CSV imports from resetting existing progress.
+
+The official Go FSRS-6 implementation owns saved scheduling; pinned ts-fsrs
+previews the four grades in the browser. Both use matching default parameters
+and deterministic intervals. The adapter translates the browser's step index
+to the Go library's remaining-step count. Daily activity uses the dictionary's
+server time zone. SvelteKit owns dictionary/view/filter navigation, while
+application teardown cancels requests, clears private query data and stops
+owned speech playback.
+
+Compilation evidence: `pnpm check:front` reported zero errors and warnings in
+all seven Svelte projects; `pnpm build:pages` built all six static applications.
+`go build` and `go vet` completed for all four Go modules. Contract generation,
+script syntax checks and `git diff --check` passed. The managed local launcher
+applied migration 016, rebuilt the services and started six frontend servers.
+The existing Rondo chunk-size advisory remains. No functional/browser tests
+or hosted CI run were executed for this addition; compilation and launcher
+readiness do not establish the complete learning workflow.
+
+See [Lingvo's workflows and boundaries](../apps/lingvo/README.md). Automated
+translation, an AI tutor, external media ingestion, community libraries and
+offline synchronization remain outside this implementation.
+
+The subsequent usability correction makes language-pair selection compact and
+collapses optional card details. Articles use the shared Radio Group with a
+controlled binding and visible selection; selecting an article identifies a
+noun. The editor constrains scrolling to its body and retains its actions.
+Activity groups by the projected day alias: repeating a parameterized time-zone
+expression had produced distinct Jet parameters and a PostgreSQL GROUP BY error.
+Unexpected Lingvo service errors now reach server logs while client errors stay
+generic. Targeted Lingvo type checking/build and Kerno build/vet passed; a
+read-only PostgreSQL EXPLAIN accepted the corrected grouping. No functional or
+browser suite was run for this correction.
+
+AI-assisted entry uses one language-aware prompt and a bounded Papa Parse
+template parser in `lingvo-client`. CSV and AI templates share content validation;
+folder names resolve to existing owned folders. The editor applies only fully
+validated replies to the draft and exposes populated details for review. Saving
+remains a separate user action. Clipboard feedback owns its completion timer and
+ignores results after teardown, with manual copying available on failure.
+Targeted Lingvo/UI type checks reported zero errors and warnings, Lingvo's static
+build passed, and `git diff --check` was clean. No functional/browser tests were
+run for this addition.
 
 ## Remaining boundaries
 

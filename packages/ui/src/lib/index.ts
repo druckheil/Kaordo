@@ -68,6 +68,7 @@ export { default as UsersIcon } from '@lucide/svelte/icons/users';
 export { default as UserPlusIcon } from '@lucide/svelte/icons/user-plus';
 export { default as UserMinusIcon } from '@lucide/svelte/icons/user-minus';
 export { default as CheckIcon } from '@lucide/svelte/icons/check';
+export { default as CopyIcon } from '@lucide/svelte/icons/copy';
 export { default as CheckCheckIcon } from '@lucide/svelte/icons/check-check';
 export { default as CircleIcon } from '@lucide/svelte/icons/circle';
 export { default as HashIcon } from '@lucide/svelte/icons/hash';
@@ -101,3 +102,18 @@ export { default as InfoIcon } from '@lucide/svelte/icons/info';
 export { default as HardDriveIcon } from '@lucide/svelte/icons/hard-drive';
 export { default as UsbIcon } from '@lucide/svelte/icons/usb';
 export { default as ServerIcon } from '@lucide/svelte/icons/server';
+
+// Language learning and dictionary icons
+export { default as LanguagesIcon } from '@lucide/svelte/icons/languages';
+export { default as BookOpenIcon } from '@lucide/svelte/icons/book-open';
+export { default as GraduationCapIcon } from '@lucide/svelte/icons/graduation-cap';
+export { default as LayersIcon } from '@lucide/svelte/icons/layers';
+export { default as FlameIcon } from '@lucide/svelte/icons/flame';
+export { default as TargetIcon } from '@lucide/svelte/icons/target';
+export { default as RotateCcwIcon } from '@lucide/svelte/icons/rotate-ccw';
+export { default as FolderIcon } from '@lucide/svelte/icons/folder';
+export { default as FolderPlusIcon } from '@lucide/svelte/icons/folder-plus';
+export { default as UploadIcon } from '@lucide/svelte/icons/upload';
+export { default as DownloadIcon } from '@lucide/svelte/icons/download';
+export { default as SparklesIcon } from '@lucide/svelte/icons/sparkles';
+export { default as LightbulbIcon } from '@lucide/svelte/icons/lightbulb';

@@ -9,7 +9,6 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func insertRondoChannel(ctx context.Context, tx pgx.Tx, serverID, ownerID, name string) (rondo.Channel, error) {
@@ -58,7 +57,7 @@ func (store *Rondo) CreateChannel(ctx context.Context, actorID, serverID, name s
 		return rondo.Channel{}, err
 	}
 	channel, err := insertRondoChannel(ctx, tx, serverID, actorID, name)
-	if isRondoUnique(err) {
+	if isUniqueViolation(err) {
 		return rondo.Channel{}, rondo.ErrConflict
 	}
 	if err != nil {
@@ -78,11 +77,6 @@ func enforceRondoChannelLimit(ctx context.Context, tx pgx.Tx, serverID string) e
 		return rondo.ErrLimit
 	}
 	return nil
-}
-
-func isRondoUnique(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func (store *Rondo) VoiceChannel(ctx context.Context, actorID, channelID string) (rondo.Channel, error) {

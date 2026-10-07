@@ -2,7 +2,7 @@
 	// Lists the independent Kaordo applications
 
 	import { appPaths } from "@kaordo/links";
-	import { ArrowUpRightIcon, HouseIcon, MessageCircleIcon, UsersIcon } from "@kaordo/ui";
+	import { ArrowUpRightIcon, HouseIcon, LanguagesIcon, MessageCircleIcon, UsersIcon } from "@kaordo/ui";
 
 	const applications = [
 		{
@@ -26,6 +26,13 @@
 			href: appPaths.rondo,
 			icon: UsersIcon,
 		},
+		{
+			name: "Lingvo",
+			description: "Make a language your own with personal flashcards and everyday phrases.",
+			category: "Languages",
+			href: appPaths.lingvo,
+			icon: LanguagesIcon,
+		},
 	];
 </script>
 
@@ -34,7 +41,7 @@
 		<p class="text-xs font-semibold uppercase tracking-[0.18em] text-link">Apps</p>
 		<h2 class="mt-1 text-2xl font-bold tracking-[-0.04em]">Choose an app</h2>
 	</div>
-	<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+	<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
 		{#each applications as application (application.name)}
 			{@const Icon = application.icon}
 			<a

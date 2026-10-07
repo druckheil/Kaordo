@@ -17,6 +17,329 @@ components:
       name: X-Kaordo-Internal-Token
       description: Derived token shared only by the local Kerno and Nodo processes.
   schemas:
+    LingvoDictionary:
+      type: "object"
+      required: ["id","learningLanguage","nativeLanguage","dailyGoal","timeZone","createdAt"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        learningLanguage:
+          type: "string"
+          enum: ["de"]
+        nativeLanguage:
+          type: "string"
+          enum: ["en","ru"]
+        dailyGoal:
+          type: "integer"
+          minimum: 5
+          maximum: 200
+        timeZone:
+          type: "string"
+        createdAt:
+          type: "string"
+          format: "date-time"
+    LingvoDictionaryPage:
+      type: "object"
+      required: ["items"]
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoDictionary"
+    LingvoNewDictionary:
+      type: "object"
+      required: ["learningLanguage","nativeLanguage","timeZone"]
+      properties:
+        learningLanguage:
+          type: "string"
+          enum: ["de"]
+        nativeLanguage:
+          type: "string"
+          enum: ["en","ru"]
+        timeZone:
+          type: "string"
+          minLength: 1
+          maxLength: 100
+    LingvoSettings:
+      type: "object"
+      required: ["dailyGoal","timeZone"]
+      properties:
+        dailyGoal:
+          type: "integer"
+          minimum: 5
+          maximum: 200
+        timeZone:
+          type: "string"
+          minLength: 1
+          maxLength: 100
+    LingvoFolder:
+      type: "object"
+      required: ["id","dictionaryId","name"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        dictionaryId:
+          type: "string"
+          format: "uuid"
+        name:
+          type: "string"
+          minLength: 1
+          maxLength: 60
+    LingvoCardContent:
+      type: "object"
+      required: ["kind","term","translation","partOfSpeech","article","plural","grammar","example","exampleTranslation","notes","folderId","status"]
+      properties:
+        kind:
+          type: "string"
+          enum: ["word","phrase"]
+        term:
+          type: "string"
+          minLength: 1
+          maxLength: 300
+        translation:
+          type: "string"
+          minLength: 1
+          maxLength: 500
+        partOfSpeech:
+          type: "string"
+          enum: ["","noun","verb","adjective","adverb","other"]
+        article:
+          type: "string"
+          enum: ["","der","die","das"]
+        plural:
+          type: "string"
+          maxLength: 100
+        grammar:
+          type: "string"
+          maxLength: 500
+        example:
+          type: "string"
+          maxLength: 500
+        exampleTranslation:
+          type: "string"
+          maxLength: 500
+        notes:
+          type: "string"
+          maxLength: 1000
+        folderId:
+          type: ["string","null"]
+          format: "uuid"
+        status:
+          type: "string"
+          enum: ["active","known","suspended"]
+    LingvoSchedule:
+      type: "object"
+      required: ["due","stability","difficulty","scheduledDays","reps","lapses","state","lastReview","learningSteps"]
+      properties:
+        due:
+          type: "string"
+          format: "date-time"
+        stability:
+          type: "number"
+          minimum: 0
+        difficulty:
+          type: "number"
+          minimum: 0
+        scheduledDays:
+          type: "integer"
+          minimum: 0
+        reps:
+          type: "integer"
+          minimum: 0
+        lapses:
+          type: "integer"
+          minimum: 0
+        state:
+          type: "integer"
+          enum: [0,1,2,3]
+        lastReview:
+          type: ["string","null"]
+          format: "date-time"
+        learningSteps:
+          type: "integer"
+          minimum: 0
+    LingvoCard:
+      allOf:
+        - {"$ref":"#/components/schemas/LingvoCardContent"}
+        - {"type":"object","required":["id","dictionaryId","sourceKey","schedule","revision","createdAt"],"properties":{"id":{"type":"string","format":"uuid"},"dictionaryId":{"type":"string","format":"uuid"},"sourceKey":{"type":["string","null"]},"schedule":{"$ref":"#/components/schemas/LingvoSchedule"},"revision":{"type":"integer","minimum":1},"createdAt":{"type":"string","format":"date-time"}}}
+    LingvoNewCard:
+      allOf:
+        - {"$ref":"#/components/schemas/LingvoCardContent"}
+        - {"type":"object","required":["id"],"properties":{"id":{"type":"string","format":"uuid","description":"Stable client-generated ID for retrying the same create request."}}}
+    LingvoCardUpdate:
+      allOf:
+        - {"$ref":"#/components/schemas/LingvoCardContent"}
+        - {"type":"object","required":["revision"],"properties":{"revision":{"type":"integer","minimum":1}}}
+    LingvoCardPage:
+      type: "object"
+      required: ["items","total"]
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoCard"
+        total:
+          type: "integer"
+    LingvoStudyPage:
+      type: "object"
+      required: ["items"]
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoCard"
+    LingvoCounts:
+      type: "object"
+      required: ["kind","total","due","new","learning","review","known","suspended","nextDue"]
+      properties:
+        kind:
+          type: "string"
+          enum: ["word","phrase"]
+        total:
+          type: "integer"
+        due:
+          type: "integer"
+        new:
+          type: "integer"
+        learning:
+          type: "integer"
+        review:
+          type: "integer"
+        known:
+          type: "integer"
+        suspended:
+          type: "integer"
+        nextDue:
+          type: ["string","null"]
+          format: "date-time"
+    LingvoActivity:
+      type: "object"
+      required: ["day","reviews"]
+      properties:
+        day:
+          type: "string"
+          format: "date"
+        reviews:
+          type: "integer"
+    LingvoOverview:
+      type: "object"
+      required: ["dictionary","counts","folders","activity","studiedToday","totalReviews","streak","today"]
+      properties:
+        dictionary:
+          $ref: "#/components/schemas/LingvoDictionary"
+        counts:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoCounts"
+        folders:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoFolder"
+        activity:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoActivity"
+        studiedToday:
+          type: "integer"
+        totalReviews:
+          type: "integer"
+        streak:
+          type: "integer"
+        today:
+          type: "string"
+          format: "date"
+    LingvoReview:
+      type: "object"
+      required: ["id","revision","rating","direction"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        revision:
+          type: "integer"
+          minimum: 1
+        rating:
+          type: "integer"
+          enum: [1,2,3,4]
+        direction:
+          type: "string"
+          enum: ["recognition","recall","listening","phrase"]
+    LingvoReviewResult:
+      type: "object"
+      required: ["id","card"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        card:
+          $ref: "#/components/schemas/LingvoCard"
+    LingvoImport:
+      type: "object"
+      properties:
+        setId:
+          type: "string"
+          maxLength: 100
+        cardKeys:
+          type: "array"
+          minItems: 1
+          maxItems: 500
+          items:
+            type: "string"
+            maxLength: 100
+        cards:
+          type: "array"
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/LingvoCardContent"
+        folderId:
+          type: ["string","null"]
+          format: "uuid"
+        status:
+          type: "string"
+          enum: ["active","known"]
+          description: "Status for catalog cards. Personal cards use their individual status fields."
+      description: "Supply either a starter set ID (optionally with selected card keys) or up to 500 personal cards. Existing imported cards are preserved."
+    LingvoImportResult:
+      type: "object"
+      required: ["added","skipped"]
+      properties:
+        added:
+          type: "integer"
+        skipped:
+          type: "integer"
+    LingvoCatalogCard:
+      allOf:
+        - {"$ref":"#/components/schemas/LingvoCardContent"}
+        - {"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}
+    LingvoCatalogSet:
+      type: "object"
+      required: ["id","title","description","kind","level","cards"]
+      properties:
+        id:
+          type: "string"
+        title:
+          type: "string"
+        description:
+          type: "string"
+        kind:
+          type: "string"
+          enum: ["word","phrase"]
+        level:
+          type: "string"
+        cards:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoCatalogCard"
+    LingvoCatalog:
+      type: "object"
+      required: ["items"]
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoCatalogSet"
     UserIdentity:
       type: object
       required: [id, username, displayName, createdAt, isAdmin]
@@ -828,6 +1151,353 @@ components:
       properties:
         referenced: { type: boolean }
 paths:
+  /v1/lingvo/dictionaries:
+    get:
+      operationId: "listLingvoDictionaries"
+      security:
+        - {"bearerAuth":[]}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoDictionaryPage"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      operationId: "createLingvoDictionary"
+      security:
+        - {"bearerAuth":[]}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoNewDictionary"
+      responses:
+        201:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoDictionary"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}:
+    get:
+      operationId: "getLingvoOverview"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoOverview"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/settings:
+    put:
+      operationId: "updateLingvoSettings"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoSettings"
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoDictionary"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/cards:
+    get:
+      operationId: "listLingvoCards"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"kind","in":"query","required":false,"schema":{"type":"string","enum":["word","phrase"]}}
+        - {"name":"status","in":"query","required":false,"schema":{"type":"string","enum":["active","known","suspended"]}}
+        - {"name":"folder","in":"query","required":false,"schema":{"type":"string"}}
+        - {"name":"q","in":"query","required":false,"schema":{"type":"string","maxLength":100}}
+        - {"name":"offset","in":"query","required":false,"schema":{"type":"integer","minimum":0,"maximum":10000}}
+        - {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200}}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoCardPage"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      operationId: "createLingvoCard"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoNewCard"
+      responses:
+        201:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoCard"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}:
+    put:
+      operationId: "updateLingvoCard"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"cardId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoCardUpdate"
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoCard"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: "deleteLingvoCard"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"cardId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"revision","in":"query","required":true,"schema":{"type":"integer","minimum":1}}
+      responses:
+        204:
+          description: "Completed"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/study:
+    get:
+      operationId: "getLingvoStudyQueue"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"kind","in":"query","required":true,"schema":{"type":"string","enum":["word","phrase"]}}
+        - {"name":"folder","in":"query","required":false,"schema":{"type":"string"}}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoStudyPage"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}/reviews:
+    post:
+      operationId: "reviewLingvoCard"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"cardId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoReview"
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoReviewResult"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/reviews/{reviewId}/undo:
+    post:
+      operationId: "undoLingvoReview"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"reviewId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoCard"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/folders:
+    post:
+      operationId: "createLingvoFolder"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              required: ["name"]
+              properties:
+                name:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 60
+      responses:
+        201:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoFolder"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/folders/{folderId}:
+    delete:
+      operationId: "deleteLingvoFolder"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"folderId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      responses:
+        204:
+          description: "Completed"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/imports:
+    post:
+      operationId: "importLingvoCards"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoImport"
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoImportResult"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/catalog:
+    get:
+      operationId: "getLingvoCatalog"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"nativeLanguage","in":"query","required":true,"schema":{"type":"string","enum":["en","ru"]}}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoCatalog"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /v1/fluo/settings:
     get:
       operationId: getFluoSettings

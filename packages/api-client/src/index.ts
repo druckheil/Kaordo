@@ -20,6 +20,10 @@ export {
 } from './fluo-notifications.ts';
 export { createLigoApi, ligoConversationOptions, ligoConversationDetailOptions, ligoUserSearchOptions, ligoMessageOptions, type LigoApi } from './ligo.ts';
 export { createRondoApi, rondoServersOptions, rondoDiscoverOptions, rondoServerOptions, type RondoApi } from './rondo.ts';
+export {
+  createLingvoApi, lingvoDictionariesOptions, lingvoOverviewOptions, lingvoCardsOptions,
+  lingvoStudyOptions, lingvoCatalogOptions, type LingvoApi, type LingvoCardFilter
+} from './lingvo.ts';
 export { createAdminApi, type AdminApi } from './admin.ts';
 
 export async function bootstrapIdentity(

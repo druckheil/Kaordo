@@ -49,6 +49,30 @@ export type RondoServerPage = Schemas['RondoServerPage'];
 export type RondoNewServer = Schemas['RondoNewServer'];
 export type RondoVoiceTicket = Schemas['RondoVoiceTicket'];
 
+// Lingvo dictionaries, German learning content and spaced repetition
+export type LingvoDictionary = Schemas['LingvoDictionary'];
+export type LingvoDictionaryPage = Schemas['LingvoDictionaryPage'];
+export type LingvoNewDictionary = Schemas['LingvoNewDictionary'];
+export type LingvoSettings = Schemas['LingvoSettings'];
+export type LingvoFolder = Schemas['LingvoFolder'];
+export type LingvoCardContent = Schemas['LingvoCardContent'];
+export type LingvoSchedule = Schemas['LingvoSchedule'];
+export type LingvoCard = Schemas['LingvoCard'];
+export type LingvoNewCard = Schemas['LingvoNewCard'];
+export type LingvoCardUpdate = Schemas['LingvoCardUpdate'];
+export type LingvoCardPage = Schemas['LingvoCardPage'];
+export type LingvoStudyPage = Schemas['LingvoStudyPage'];
+export type LingvoCounts = Schemas['LingvoCounts'];
+export type LingvoActivity = Schemas['LingvoActivity'];
+export type LingvoOverview = Schemas['LingvoOverview'];
+export type LingvoReview = Schemas['LingvoReview'];
+export type LingvoReviewResult = Schemas['LingvoReviewResult'];
+export type LingvoImport = Schemas['LingvoImport'];
+export type LingvoImportResult = Schemas['LingvoImportResult'];
+export type LingvoCatalogCard = Schemas['LingvoCatalogCard'];
+export type LingvoCatalogSet = Schemas['LingvoCatalogSet'];
+export type LingvoCatalog = Schemas['LingvoCatalog'];
+
 // Generated OpenAPI route map
 export type { paths };
 

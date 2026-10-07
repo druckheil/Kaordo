@@ -1,6 +1,6 @@
 # Kaordo
 
-Kaordo is being rebuilt as independent applications in one repository. Local account registration and sign-in use Keycloak, TOTP, and a shared Kerno identity API. Fluo has a social feed with posts, interactions, and photo/video uploads through Nodo. Ligo has direct and group chats, message reactions and file attachments. Rondo has community servers, text channels and local LiveKit rooms for voice, camera and screen sharing. Regado provides administrator-only account, audit, storage, service-log and system views.
+Kaordo is being rebuilt as independent applications in one repository. Local account registration and sign-in use Keycloak, TOTP, and a shared Kerno identity API. Fluo has a social feed with posts, interactions, and photo/video uploads through Nodo. Ligo has direct and group chats, message reactions and file attachments. Rondo has community servers, text channels and local LiveKit rooms for voice, camera and screen sharing. Lingvo has private German dictionaries, vocabulary flashcards and phrase practice with FSRS scheduling. Regado provides administrator-only account, audit, storage, service-log and system views.
 
 ## Layout
 
@@ -10,8 +10,10 @@ Kaordo is being rebuilt as independent applications in one repository. Local acc
 | `apps/ligo` | Messaging frontend |
 | `apps/fluo` | Social frontend |
 | `apps/rondo` | Community frontend |
+| `apps/lingvo` | Language-learning frontend |
 | `apps/regado` | Administration frontend |
 | `packages/ui` | Shared STaSBRL components with the Rhea style |
+| `packages/lingvo-client` | German cards, phrase practice, speech, CSV and ts-fsrs interval previews |
 | `packages/auth`, `api-client`, `account-ui`, `chat-ui`, `contracts`, `crypto`, `links`, `media-client`, `media-ui`, `voice-client` | Shared authentication, typed API, account and chat UI, contracts, links, media upload, and LiveKit client |
 | `services/kerno` | Go API and metadata coordinator |
 | `services/nodo` | Go file storage and tus uploads |
@@ -19,7 +21,7 @@ Kaordo is being rebuilt as independent applications in one repository. Local acc
 | `services/regado-agent` | Restricted Linux monitoring and maintenance over a Unix socket |
 | `deploy` | Local Compose and production NixOS profiles |
 
-Every frontend is a separate SvelteKit static build. `build:pages` assembles them under one Pages artifact: `/`, `/ligo/`, `/fluo/`, `/rondo/`, and `/regado/`. The UI package owns shadcn-svelte components, Bits UI primitives, Lucide icons, and the official Rhea preset. The rightmost header control opens `/agordoj/`, where users select Deep Purple (the default), Discord, Leadgen, Lara, Damon, Party Rock or Japan Blues. The shared theme and independent light/dark mode persist across navigation, reload and tabs; the initial mode follows the operating system.
+Every frontend is a separate SvelteKit static build. `build:pages` assembles them under one Pages artifact: `/`, `/ligo/`, `/fluo/`, `/rondo/`, `/lingvo/`, and `/regado/`. The UI package owns shadcn-svelte components, Bits UI primitives, Lucide icons, and the official Rhea preset. The rightmost header control opens `/agordoj/`, where users select Deep Purple (the default), Discord, Leadgen, Lara, Damon, Party Rock or Japan Blues. The shared theme and independent light/dark mode persist across navigation, reload and tabs; the initial mode follows the operating system.
 
 ## Run locally
 
@@ -30,9 +32,11 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:8765/register/` to create an account or `http://localhost:8765/login/` to sign in. After signing in, open `/fluo/`, `/ligo/` or `/rondo/` on the same origin. The command creates ignored local configuration if missing, starts PostgreSQL, Keycloak and LiveKit, applies the application migrations, builds Kerno and Nodo, then starts five Vite development servers behind one local origin. Frontend edits update through Vite HMR without restarting `pnpm dev`; the production build remains static. Install `ffmpeg` and `ffprobe` to process videos. Press Ctrl+C to stop Kerno, Nodo and the frontend servers, or run `pnpm dev:stop` from another terminal to stop those processes and the Docker containers together. For a static frontend-only preview, use `pnpm dev:web`; account and product actions need the full stack.
+Open `http://localhost:8765/register/` to create an account or `http://localhost:8765/login/` to sign in. After signing in, open `/fluo/`, `/ligo/`, `/rondo/` or `/lingvo/` on the same origin. The command creates ignored local configuration if missing, starts PostgreSQL, Keycloak and LiveKit, applies the application migrations, builds Kerno and Nodo, then starts six Vite development servers behind one local origin. Frontend edits update through Vite HMR without restarting `pnpm dev`; adding an application or changing Go code requires a restart. The production build remains static. Install `ffmpeg` and `ffprobe` to process videos. Press Ctrl+C to stop Kerno, Nodo and the frontend servers, or run `pnpm dev:stop` from another terminal to stop those processes and the Docker containers together. For a static frontend-only preview, use `pnpm dev:web`; account and product actions need the full stack.
 
 The [local setup details](deploy/local/README.md) describe the services and configuration. Database and administrator passwords stay in the ignored `deploy/local/.env`.
+
+The [Lingvo guide](apps/lingvo/README.md) describes language pairs, learning modes, the original starter library, imports and scheduler ownership.
 
 The [technical specification](docs/kaordo-technical-spec.txt) defines the identity and token contract.
 `packages/contracts/openapi.yaml` generates the shared TypeScript API types with `pnpm --filter @kaordo/contracts generate`.

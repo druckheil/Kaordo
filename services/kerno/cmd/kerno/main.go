@@ -57,6 +57,8 @@ var schemaRequirements = []requiredRelation{
 	{name: "fluo_settings", missing: "Fluo settings table is missing", migration: "deploy/postgres/015_fluo_settings.sql"},
 	{name: "ligo_conversations", missing: "Ligo tables are missing", migration: "deploy/postgres/007_ligo.sql"},
 	{name: "rondo_servers", missing: "Rondo tables are missing", migration: "deploy/postgres/010_rondo.sql"},
+	{name: "lingvo_dictionaries", missing: "Lingvo tables are missing", migration: "deploy/postgres/016_lingvo.sql"},
+	{name: "lingvo_cards_due_idx", missing: "Lingvo review queue index is missing", migration: "deploy/postgres/016_lingvo.sql"},
 	{name: "admin_audit", missing: "Regado tables are missing", migration: "deploy/postgres/011_regado.sql"},
 }
 
@@ -218,13 +220,16 @@ func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify t
 	mediaClient := httpapi.NodoClient{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey}
 	voice := newRondoVoice(cfg)
 
-	router := httpapi.NewRouterWithAdmin(
+	router := httpapi.NewRouterWithServices(
 		verify,
 		postgres.NewUsers(pool),
-		fluoDependencies(cfg, pool, mediaClient),
-		ligoDependencies(cfg, mediaClient, ligoStore, ligoEvents),
-		rondoDependencies(cfg, pool, voice),
-		adminDependencies(cfg, pool),
+		httpapi.Modules{
+			Fluo:   fluoDependencies(cfg, pool, mediaClient),
+			Ligo:   ligoDependencies(cfg, mediaClient, ligoStore, ligoEvents),
+			Rondo:  rondoDependencies(cfg, pool, voice),
+			Admin:  adminDependencies(cfg, pool),
+			Lingvo: httpapi.LingvoDependencies{Store: postgres.NewLingvo(pool)},
+		},
 		cfg.AllowedOrigins,
 	)
 	return router
