@@ -22,7 +22,8 @@ func (store *Fluo) SetVisibility(ctx context.Context, actorID, postID, visibilit
 	if err := lockPostThread(ctx, tx, postID); err != nil {
 		return err
 	}
-	if err := lockOwnedPost(ctx, tx, actorID, postID); err != nil {
+	previous, err := lockOwnedPost(ctx, tx, actorID, postID)
+	if err != nil {
 		return err
 	}
 	if visibility == fluo.VisibilityPublic {
@@ -36,6 +37,11 @@ func (store *Fluo) SetVisibility(ctx context.Context, actorID, postID, visibilit
 	}
 	if err := updatePostVisibility(ctx, tx, postID, visibility); err != nil {
 		return err
+	}
+	if visibility == fluo.VisibilityPublic && previous.visibility != visibility {
+		if err := recordRelationNotification(ctx, tx, actorID, postID, previous.parentID, previous.quoteID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

@@ -1,3 +1,5 @@
+// Migrates and exercises a disposable database against local Compose or a CI PostgreSQL service
+
 import { spawn, execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -6,7 +8,7 @@ import { productMigrations } from './product-migrations.mjs';
 
 const run = promisify(execFile);
 const database = `kaordo_test_${randomBytes(4).toString('hex')}`;
-const container = 'local-app-db-1';
+const container = process.env.KAORDO_TEST_DB_CONTAINER || 'local-app-db-1';
 
 async function migrate(file) {
   const sql = await readFile(new URL(file, import.meta.url));
@@ -22,7 +24,9 @@ async function migrate(file) {
   });
 }
 
-const config = parseEnv(await readFile('deploy/local/.env', 'utf8'));
+const config = process.env.KAORDO_DB_PASSWORD
+  ? { KAORDO_DB_PASSWORD: process.env.KAORDO_DB_PASSWORD }
+  : parseEnv(await readFile('deploy/local/.env', 'utf8'));
 if (!config.KAORDO_DB_PASSWORD) throw new Error('Local database credentials are missing. Run pnpm dev first.');
 await run('docker', ['exec', container, 'createdb', '-U', 'kaordo', database]);
 try {
@@ -31,7 +35,7 @@ try {
     await migrate(`../deploy/postgres/${migration}`);
   }
   const dsn = `postgres://kaordo:${encodeURIComponent(config.KAORDO_DB_PASSWORD)}@127.0.0.1:5432/${database}?sslmode=disable`;
-  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-race', '-cover', '-run', 'Test(Fluo|Ligo|Rondo|Admin)', '-count=1', '-v'], {
+  const { stdout } = await run('go', ['test', './services/kerno/internal/postgres', '-race', '-cover', '-run', 'Test(Fluo|Ligo|Rondo|Lingvo|Admin)', '-count=1', '-v'], {
     env: { ...process.env, KAORDO_TEST_DATABASE_URL: dsn }
   });
   process.stdout.write(stdout);

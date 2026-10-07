@@ -7,7 +7,9 @@ export async function sessionFetch(input: RequestInfo | URL, init?: RequestInit)
   const response = await authorizedFetch(request.clone());
   if (response.status !== 401) return response;
 
+  request.signal.throwIfAborted();
   await refreshAccessToken();
+  request.signal.throwIfAborted();
   return authorizedFetch(request.clone());
 }
 

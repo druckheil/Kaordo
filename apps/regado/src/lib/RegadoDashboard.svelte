@@ -2,6 +2,8 @@
 	// Coordinates Regado data loading, administrative actions, and dashboard panels
 
 	import { onDestroy } from "svelte";
+	import { goto } from "$app/navigation";
+	import { page } from "$app/state";
 	import { createQuery, createInfiniteQuery, QueryClient } from "@tanstack/svelte-query";
 	import {
 		createAdminApi, adminSummaryOptions, adminSystemOptions, adminMetricsOptions,
@@ -9,7 +11,7 @@
 	} from "@kaordo/api-client";
 	import type { AdminAccessCase, AdminDisk, AdminMount, AdminLayoutRequest, UserIdentity } from "@kaordo/contracts";
 	import { appPaths } from "@kaordo/links";
-	import { AgordojLink, ArrowUpRightIcon, Button, ShieldCheckIcon, ThemeToggle } from "@kaordo/ui";
+	import { AppHeader, Button } from "@kaordo/ui";
 	import AdminIntentDialog from "./AdminIntentDialog.svelte";
 	import AuditPanel from "./AuditPanel.svelte";
 	import LogsPanel from "./LogsPanel.svelte";
@@ -37,7 +39,7 @@
 			(typeof window !== "undefined" ? window.location.origin : ""),
 	);
 
-	let tab = $state<Tab>("Overview");
+	const tab = $derived<Tab>(tabs.find(item => item.toLowerCase() === page.url.searchParams.get('view')) ?? 'Overview');
 	let timeWindow = $state<MetricsWindow>("1h");
 	let search = $state("");
 	let submittedSearch = $state("");
@@ -97,11 +99,13 @@
 	});
 	const error = $derived(operationError || (sectionError ? errorMessage(sectionError) : ""));
 
-	onDestroy(() => queryClient.clear());
+	onDestroy(() => { void queryClient.cancelQueries(); queryClient.clear(); });
 
 	function openTab(next: Tab): void {
 		operationError = "";
-		tab = next;
+		const url = new URL(page.url);
+		url.searchParams.set('view', next.toLowerCase());
+		void goto(url, { noScroll: true, keepFocus: true });
 	}
 
 	async function refreshOverview(): Promise<void> {
@@ -253,45 +257,17 @@
 	}
 </script>
 
-<svelte:head><title>Regado | Kaordo</title></svelte:head>
+<svelte:head><title>{tab} | Regado | Kaordo</title></svelte:head>
 
-<a
-	href="#regado-main"
-	class="sr-only focus:not-sr-only fixed left-3 top-3 z-50 rounded-xl bg-card p-3 font-semibold shadow-lg"
-	>Skip to main content</a
->
 <div
 	class="min-h-dvh bg-[radial-gradient(circle_at_90%_0%,color-mix(in_oklch,var(--primary)_9%,transparent),transparent_38%)]"
 >
-	<header
-		class="sticky top-0 z-20 border-b border-border bg-background/90 px-4 py-3 backdrop-blur-xl sm:px-8"
-	>
-		<div class="mx-auto flex max-w-7xl items-center justify-between gap-4">
-			<div class="flex min-w-0 items-center gap-2 sm:gap-3">
-				<span
-					class="grid size-10 place-items-center rounded-[14px] bg-primary text-primary-foreground"
-					><ShieldCheckIcon class="size-5" /></span
-				>
-				<div>
-					<p class="text-sm font-bold tracking-tight">Regado</p>
-					<p class="hidden text-xs text-muted-foreground min-[400px]:block">Kaordo administration</p>
-				</div>
-			</div>
-			<div class="flex shrink-0 items-center gap-2 text-sm sm:gap-4">
-				<span class="hidden text-muted-foreground sm:inline"
-					>@{user.username}</span
-				>
-				<Button href={appPaths.portal} variant="ghost" size="sm" aria-label="All apps">
-					<span class="hidden min-[390px]:inline">All apps</span> <ArrowUpRightIcon class="size-4" />
-				</Button>
-				<ThemeToggle />
-				<AgordojLink />
-			</div>
-		</div>
-	</header>
+	<AppHeader name="Regado" homeHref={appPaths.portal} sticky wide>
+		{#snippet actions()}<span class="mr-2 hidden max-w-40 truncate text-xs text-muted-foreground md:inline">@{user.username}</span>{/snippet}
+	</AppHeader>
 
 	<main
-		id="regado-main"
+		id="main-content" tabindex="-1"
 		class="mx-auto max-w-7xl px-4 pb-16 pt-7 sm:px-8 sm:pt-10"
 	>
 		<div class="flex flex-wrap items-end justify-between gap-4">
@@ -300,7 +276,7 @@
 					Local operations
 				</p>
 				<h1 class="mt-1 text-3xl font-bold tracking-[-0.05em] sm:text-4xl">
-					System overview
+					{tab === 'Overview' ? 'System overview' : tab}
 				</h1>
 				<p class="mt-2 text-sm text-muted-foreground">
 					Live service health, dynamically discovered storage and accountable administration.
@@ -313,7 +289,7 @@
 			>
 		</div>
 		<nav
-			class="kaordo-scrollbar mt-7 flex gap-1 overflow-x-auto border-b border-border"
+			class="mt-7 grid grid-cols-3 gap-1 border-b border-border sm:flex"
 			aria-label="Regado sections"
 		>
 			{#each tabs as item}

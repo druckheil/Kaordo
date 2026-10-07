@@ -127,7 +127,7 @@
         <Message.Header class="px-1 text-xs font-semibold text-link">{message.sender.displayName}</Message.Header>
       {/if}
       <ContextMenu.Root>
-        <ContextMenu.Trigger class="block w-fit max-w-full rounded-[14px]" aria-label={`Message from ${message.sender.displayName}`}>
+        <ContextMenu.Trigger role="group" class="block w-fit max-w-full rounded-[14px]" aria-label={`Message from ${message.sender.displayName}`}>
           <Bubble.Root variant={message.deleted ? 'muted' : own ? 'tinted' : 'outline'} align={own ? 'end' : 'start'} class="max-w-full gap-0.5">
             <Bubble.Content class={`w-fit max-w-full rounded-[14px] border shadow-xs ${hasAttachments || editing ? 'p-[2px]' : 'px-2.5 py-1.5'} ${own ? 'border-primary/10' : 'border-border/75'}`}>
               {#if !message.deleted && visuals.length}
@@ -174,7 +174,7 @@
                   <button type="button" disabled={busy} onclick={() => void toggleReaction(reaction.emoji)}
                     aria-label={`${reaction.emoji} reaction, ${reaction.count}. ${reaction.mine ? 'Remove' : 'Add'} reaction`}
                     aria-pressed={reaction.mine}
-                    class={`rounded-full border px-2 py-0.5 text-xs transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring ${reaction.mine ? 'border-primary/35 bg-primary-soft' : 'border-border bg-card'}`}>
+					class={`inline-flex min-h-8 min-w-8 items-center justify-center gap-1 rounded-full border px-2 py-1 text-xs transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring ${reaction.mine ? 'border-primary/35 bg-primary-soft' : 'border-border bg-card'}`}>
                     {reaction.emoji} <span class="tabular-nums">{reaction.count}</span>
                   </button>
                 {/each}

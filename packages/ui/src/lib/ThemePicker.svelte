@@ -26,7 +26,7 @@
     {#each themes as candidate (candidate.id)}
       <label
         for={`theme-${candidate.id}`}
-        class="group/field-label cursor-pointer rounded-2xl border border-border bg-card p-3 transition-[border-color,box-shadow] hover:border-ring/50 has-data-[checked]:border-ring has-data-[checked]:ring-1 has-data-[checked]:ring-ring has-focus-visible:ring-3 has-focus-visible:ring-ring/30"
+        class="group/field-label cursor-pointer rounded-2xl border border-border bg-card p-3 transition-[border-color,box-shadow] hover:border-ring/50 has-data-[state=checked]:border-ring has-data-[state=checked]:ring-1 has-data-[state=checked]:ring-ring has-focus-visible:ring-3 has-focus-visible:ring-ring/30"
       >
         <div
           data-theme={candidate.id}
@@ -50,10 +50,12 @@
           </div>
         </div>
         <div class="flex items-center gap-2 px-1 pb-1 pt-4">
-          <span class="flex-1 text-sm font-semibold">{candidate.name}</span>
-          {#if candidate.id === defaultTheme.id}
-            <span class="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">Default</span>
-          {/if}
+          <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <span class="max-w-full text-sm font-semibold [overflow-wrap:anywhere]">{candidate.name}</span>
+            {#if candidate.id === defaultTheme.id}
+              <span class="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">Default</span>
+            {/if}
+          </div>
           <RadioGroup.Item
             id={`theme-${candidate.id}`}
             value={candidate.id}

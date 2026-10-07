@@ -1,8 +1,9 @@
+// Probes bind availability without retaining incoming connections from concurrent readiness checks
 import { createServer } from 'node:net';
 
 export async function assertAvailablePorts(services) {
   for (const { name, port } of services) {
-    const server = createServer();
+    const server = createServer(socket => socket.destroy());
     try {
       await new Promise((resolve, reject) => {
         server.once('error', reject);

@@ -4,37 +4,34 @@ import type { Feed } from "@kaordo/api-client";
 import type { FluoPost } from "@kaordo/contracts";
 import { mediaFrameHeightPx } from "@kaordo/media-ui";
 
-export type FluoView = "feed" | "search" | "notifications" | "saved" | "profile" | "settings";
+export type FluoSettingsSection = "notifications" | "privacy";
+export type FluoView = "feed" | "search" | "notifications" | "saved" | "profile" | "settings" | `settings/${FluoSettingsSection}`;
 
-export const fluoViews: readonly FluoView[] = [
-	"feed",
-	"search",
-	"notifications",
-	"saved",
-	"profile",
-	"settings",
-];
-
-const viewTitles: Record<FluoView, string> = {
-	feed: "Feed",
-	search: "Search",
-	notifications: "Notifications",
-	saved: "Saved posts",
-	profile: "Profile",
-	settings: "Settings",
-};
-
-const viewDescriptions: Record<FluoView, string> = {
-	feed: "Ideas, moments and conversations.",
-	search: "Find posts by text or author.",
-	notifications: "Updates from your community.",
-	saved: "Keep good things close.",
-	profile: "Everything you have shared.",
-	settings: "Your account at a glance.",
+export const fluoViews: Record<FluoView, {
+	title: string;
+	description: string;
+	settingsSection?: FluoSettingsSection;
+}> = {
+	feed: { title: "Feed", description: "Ideas, moments and conversations." },
+	search: { title: "Search", description: "Find posts by text or author." },
+	notifications: { title: "Notifications", description: "Updates from your community." },
+	saved: { title: "Saved posts", description: "Keep good things close." },
+	profile: { title: "Profile", description: "Everything you have shared." },
+	settings: { title: "Settings", description: "Make Fluo work for you." },
+	"settings/notifications": {
+		title: "Notifications", description: "Choose which updates reach you.", settingsSection: "notifications"
+	},
+	"settings/privacy": {
+		title: "Privacy", description: "Decide who sees your posts and likes.", settingsSection: "privacy"
+	},
 };
 
 export function isFluoView(value: unknown): value is FluoView {
-	return typeof value === "string" && fluoViews.includes(value as FluoView);
+	return typeof value === "string" && Object.hasOwn(fluoViews, value);
+}
+
+export function isFluoSettingsView(view: FluoView): boolean {
+	return view === "settings" || fluoViews[view].settingsSection !== undefined;
 }
 
 export function fluoViewFromHash(hash: string): FluoView | null {
@@ -49,14 +46,6 @@ export function postHashForId(id: string): string {
 export function postIdFromHash(hash: string): string | null {
 	const match = /^#post\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(hash);
 	return match?.[1] ?? null;
-}
-
-export function titleForView(view: FluoView): string {
-	return viewTitles[view];
-}
-
-export function descriptionForView(view: FluoView): string {
-	return viewDescriptions[view];
 }
 
 export function displayInitial(displayName: string): string {

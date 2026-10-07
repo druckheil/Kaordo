@@ -36,6 +36,7 @@
   <div
     bind:this={gallery}
     class={`grid w-full min-w-0 gap-0.5 ${gridClass}`}
+    role="group"
     aria-label="Message attachments"
   >
     {#each media as item, index (item.id)}

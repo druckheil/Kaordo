@@ -3,11 +3,17 @@ package postgres
 // Executes Jet statements through pgx and provides PostgreSQL helpers
 import (
 	"context"
+	"errors"
 
 	"github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
 
 // jetStatement keeps query construction in Jet while retaining pgx's pool,
 // transactions, error types, and efficient row scanning.

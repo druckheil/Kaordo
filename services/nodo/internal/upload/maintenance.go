@@ -124,12 +124,34 @@ func (server *Server) auditStorage(ctx context.Context, repair bool) (storageMai
 	if err != nil {
 		return report, err
 	}
+	groups, err := server.inventoryUploadArtifacts(ctx, entries, &report)
+	if err != nil {
+		return report, err
+	}
+	missing, err := server.missingDisplayArtifacts(ctx, groups, &report)
+	if err != nil {
+		return report, err
+	}
+	var auditErr error
+	candidates := expiredUploadIDs(server.config.Directory, entries)
+	for index, id := range candidates {
+		server.maintenanceProgress("references", int64(index), int64(len(candidates)), "uploads")
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
+		if err := server.auditUploadReferences(ctx, repair, id, groups[id], missing[id], &report); err != nil {
+			auditErr = err
+		}
+	}
+	return report, auditErr
+}
+
+func (server *Server) inventoryUploadArtifacts(ctx context.Context, entries []os.DirEntry, report *storageMaintenance) (map[string]uploadArtifacts, error) {
 	groups := make(map[string]uploadArtifacts)
-	missing := make(map[string]bool)
 	for index, entry := range entries {
 		server.maintenanceProgress("inventory", int64(index), int64(len(entries)), "files")
 		if ctx.Err() != nil {
-			return report, ctx.Err()
+			return nil, ctx.Err()
 		}
 		info, infoErr := entry.Info()
 		if infoErr != nil {
@@ -151,63 +173,63 @@ func (server *Server) auditStorage(ctx context.Context, repair bool) (storageMai
 		group.bytes += info.Size()
 		groups[id] = group
 	}
-	for id := range groups {
+	return groups, nil
+}
+
+func (server *Server) missingDisplayArtifacts(ctx context.Context, groups map[string]uploadArtifacts, report *storageMaintenance) (map[string]bool, error) {
+	missing := make(map[string]bool)
+	for id, group := range groups {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if _, err := os.Stat(server.readyPath(id)); err == nil {
 			if _, err := os.Stat(server.displayPath(id)); errors.Is(err, os.ErrNotExist) {
 				report.MissingFiles++
-				report.UnverifiedFiles += groups[id].files
+				report.UnverifiedFiles += group.files
 				missing[id] = true
 			}
 		}
 	}
-	var auditErr error
-	candidates := expiredUploadIDs(server.config.Directory, entries)
-	for index, id := range candidates {
-		server.maintenanceProgress("references", int64(index), int64(len(candidates)), "uploads")
-		if ctx.Err() != nil {
-			return report, ctx.Err()
-		}
-		group := groups[id]
-		eligible, err := server.gcEligible(id)
-		if err != nil {
-			report.UnverifiedFiles += group.files
-			auditErr = err
-			continue
-		}
-		if !eligible {
-			continue
-		}
-		referenced, err := server.referenced(ctx, id)
-		if err != nil {
-			if !missing[id] {
-				report.UnverifiedFiles += group.files
-			}
-			auditErr = err
-			continue
-		}
-		if referenced {
-			continue
-		}
-		if missing[id] {
-			report.UnverifiedFiles -= group.files
-		}
-		report.SurplusFiles += group.files
-		report.SurplusBytes += group.bytes
-		if !repair {
-			continue
-		}
-		// Recheck references at deletion time; never delete fresh uploads or unreadable records.
-		removed, err := server.removeIfUnreferenced(ctx, id)
-		if err != nil {
-			auditErr = err
-			continue
-		}
-		if removed {
-			report.RemovedFiles += group.files
-			report.RemovedBytes += group.bytes
-		}
+	return missing, nil
+}
+
+func (server *Server) auditUploadReferences(ctx context.Context, repair bool, id string, group uploadArtifacts, missing bool, report *storageMaintenance) error {
+	eligible, err := server.gcEligible(id)
+	if err != nil {
+		report.UnverifiedFiles += group.files
+		return err
 	}
-	return report, auditErr
+	if !eligible {
+		return nil
+	}
+	referenced, err := server.referenced(ctx, id)
+	if err != nil {
+		if !missing {
+			report.UnverifiedFiles += group.files
+		}
+		return err
+	}
+	if referenced {
+		return nil
+	}
+	if missing {
+		report.UnverifiedFiles -= group.files
+	}
+	report.SurplusFiles += group.files
+	report.SurplusBytes += group.bytes
+	if !repair {
+		return nil
+	}
+	// Recheck references at deletion time; never delete fresh uploads or unreadable records
+	removed, err := server.removeIfUnreferenced(ctx, id)
+	if err != nil {
+		return err
+	}
+	if removed {
+		report.RemovedFiles += group.files
+		report.RemovedBytes += group.bytes
+	}
+	return nil
 }
 
 func (server *Server) removeIfUnreferenced(ctx context.Context, id string) (bool, error) {

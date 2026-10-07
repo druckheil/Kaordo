@@ -1,3 +1,4 @@
+// Checks account publication, preview ownership and cancellation of obsolete bootstrap requests
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAccountSessionController, loadAccountSnapshot } from '../packages/account-ui/src/session.ts';
@@ -13,6 +14,30 @@ const user = { id: '019977a2-5c18-75e4-ab57-6d5f4bb515c8', username: 'tester' };
 function capture(controller) {
   const snapshots = [];
   return { snapshots, refresh: () => controller.refresh((snapshot) => snapshots.push(snapshot)) };
+}
+
+for (const action of ['cancelPending', 'dispose']) {
+  test(action + ' aborts the actual bootstrap request and retains no late account', async () => {
+    let started;
+    const ready = new Promise(resolve => { started = resolve; });
+    let signal;
+    const controller = createAccountSessionController(environment, {
+      initializeAuth: async () => ({ authenticated: true }),
+      bootstrapIdentity: async (_url, _auth, received) => new Promise((_resolve, reject) => {
+        signal = received;
+        received.addEventListener('abort', () => reject(received.reason), { once: true });
+        started();
+      }),
+      rememberPreview: () => assert.fail('obsolete account cached')
+    });
+    const { snapshots, refresh } = capture(controller);
+    const pending = refresh();
+    await ready;
+    controller[action]();
+    await pending;
+    assert.equal(signal.aborted, true);
+    assert.equal(snapshots.length, 1);
+  });
 }
 
 test('publishes a loading state before a resolved account', async () => {

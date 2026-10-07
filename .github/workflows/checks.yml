@@ -1,24 +1,130 @@
+# Runs independent validation layers against one commit and one static app artifact
 name: Checks
 
 on:
   push:
+    branches: [main, 'scope-*']
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+
 jobs:
-  checks:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  frontend:
+    name: Frontend and unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/setup@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@479c3cd2084b8e20207344a47dc10bdabea95adb # v3
         with:
           runtime: node@24
           cache: true
           require-lockfile: true
-      - uses: actions/setup-go@v7
+      - name: Check frontend and generated API contract
+        run: |
+          pnpm check:front
+          pnpm --filter @kaordo/contracts generate
+          git diff --exit-code -- packages/contracts/src/openapi.d.ts
+      - name: Test browser-independent behavior and deployment safeguards
+        run: pnpm test:unit
+
+  pages:
+    name: Static app artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      VITE_KAORDO_AUTH_URL: http://localhost:8080
+      VITE_KAORDO_AUTH_REALM: kaordo
+      VITE_KAORDO_AUTH_CLIENT_ID: kaordo-web
+      VITE_KAORDO_API_URL: http://localhost:8081
+      VITE_KAORDO_NODO_URL: http://127.0.0.1:8082
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@479c3cd2084b8e20207344a47dc10bdabea95adb # v3
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - name: Build and verify all static applications once
+        run: pnpm test:pages
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: static-apps
+          path: dist/pages/
+          if-no-files-found: error
+          retention-days: 1
+
+  browser:
+    name: Browser fixtures and accessibility (${{ matrix.shard }}/2)
+    needs: [frontend, pages]
+    runs-on: ubuntu-24.04
+    # Include fresh Chromium installation and leave time to upload failure diagnostics
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@479c3cd2084b8e20207344a47dc10bdabea95adb # v3
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: static-apps
+          path: dist/pages/
+      - name: Install Chromium and its system dependencies
+        run: pnpm exec playwright install --with-deps chromium --only-shell
+      - name: Check isolated product interactions and public screens
+        timeout-minutes: 5
+        # Test-level sharding runs on separate machines; each owns one Vite-generating worker
+        run: pnpm test:ui --fully-parallel --workers=1 --shard=${{ matrix.shard }}/2
+      - name: Keep failure traces, screenshots and the HTML report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: browser-failure-${{ matrix.shard }}
+          path: dist/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  services:
+    name: Go services and PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_DB: kaordo
+          POSTGRES_USER: kaordo
+          POSTGRES_PASSWORD: ci-disposable-database
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U kaordo -d kaordo"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.work
           cache-dependency-path: |
@@ -26,65 +132,51 @@ jobs:
             services/nodo/go.sum
             services/mediaauth/go.sum
             services/regado-agent/go.sum
-      - name: Check frontend and generated API contract
-        run: |
-          pnpm check:front
-          pnpm --filter @kaordo/contracts generate
-          git diff --exit-code -- packages/contracts/src/openapi.d.ts
-      - name: Test browser-independent code and static Pages artifact
-        run: |
-          pnpm test:auth
-          pnpm test:backup
-          pnpm test:dependencies
-          pnpm test:dev
-          pnpm test:media
-          pnpm test:ui-layout
-          pnpm test:pages
-      - name: Install headless Chromium for UI checks
-        run: pnpm exec playwright-core install --with-deps chromium --only-shell
-      - name: Check public screens and product interactions in Chromium
-        run: |
-          node --test --test-concurrency=1 scripts/ui-public.test.mjs scripts/product-ui.test.mjs scripts/regado-ui.test.mjs
-      - name: Check Go services
+      - name: Check all Go modules
         run: |
           go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
           go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
           go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
-      - name: Check Go dependency vulnerabilities
+      - name: Lint GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/checks.yml
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Test disposable PostgreSQL migrations and product access boundaries
+        run: node scripts/product-db.integration.mjs
+        env:
+          KAORDO_TEST_DB_CONTAINER: ${{ job.services.postgres.id }}
+          KAORDO_DB_PASSWORD: ci-disposable-database
+
+  integration:
+    name: Identity, product and recovery journeys
+    needs: [frontend, pages]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@479c3cd2084b8e20207344a47dc10bdabea95adb # v3
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            services/kerno/go.sum
+            services/nodo/go.sum
+            services/mediaauth/go.sum
+            services/regado-agent/go.sum
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: static-apps
+          path: dist/pages/
+      - name: Install Chromium, media and recovery tools
         run: |
-          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
-        working-directory: services/kerno
-      - name: Check Nodo dependency vulnerabilities
-        run: |
-          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
-        working-directory: services/nodo
-      - name: Check media authorization dependency vulnerabilities
-        run: |
-          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
-        working-directory: services/mediaauth
-      - name: Check Regado agent dependency vulnerabilities
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
-        working-directory: services/regado-agent
-      - name: Test product PostgreSQL integration
-        run: |
-          cat > deploy/local/.env <<EOF
-          KAORDO_DB_PASSWORD=$(openssl rand -hex 24)
-          KEYCLOAK_DB_PASSWORD=$(openssl rand -hex 24)
-          KEYCLOAK_ADMIN_USERNAME=admin
-          KEYCLOAK_ADMIN_PASSWORD=$(openssl rand -hex 24)
-          KAORDO_SITE_ORIGIN=http://localhost:8765
-          NODO_MEDIA_SIGNING_KEY=$(openssl rand -hex 32)
-          LIVEKIT_API_KEY=$(openssl rand -hex 16)
-          LIVEKIT_API_SECRET=$(openssl rand -hex 32)
-          EOF
-          chmod 600 deploy/local/.env
-          docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml up -d --wait app-db
-          pnpm test:product:db
-      - name: Reject npm advisories
-        run: pnpm audit --audit-level=low
-      - name: Install local recovery tools
-        run: |
-          sudo apt-get update -qq
+          pnpm exec playwright install --with-deps chromium --only-shell
           sudo apt-get install -y ffmpeg
           curl --fail --location --silent --show-error \
             https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2 \
@@ -92,24 +184,62 @@ jobs:
           echo "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c  $RUNNER_TEMP/restic.bz2" | sha256sum --check
           bzip2 --decompress "$RUNNER_TEMP/restic.bz2"
           sudo install -m 0755 "$RUNNER_TEMP/restic" /usr/local/bin/restic
-          restic version
-      - name: Test live identity, session and backup flows
-        run: |
-          pnpm dev > "$RUNNER_TEMP/kaordo-dev.log" 2>&1 &
-          for attempt in {1..120}; do
-            if curl -fsS http://127.0.0.1:8081/healthz > /dev/null 2>&1 &&
-               curl -fsS http://localhost:8765/login/ > /dev/null 2>&1; then
-              break
-            fi
-            sleep 2
-          done
-          if ! curl -fsS http://127.0.0.1:8081/healthz > /dev/null ||
-             ! curl -fsS http://localhost:8765/login/ > /dev/null; then
-            tail -n 100 "$RUNNER_TEMP/kaordo-dev.log"
-            exit 1
-          fi
-          pnpm test:auth:live:identity
-          pnpm test:backup:live
-      - name: Stop local services
+      - name: Run every live journey against the built apps
+        run: pnpm test:integration
+      - name: Stop local services and remove disposable CI volumes
         if: always()
-        run: pnpm dev:stop || true
+        run: |
+          pnpm dev:stop
+          if [ -f deploy/local/.env ]; then
+            docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml down --volumes
+          fi
+
+  security:
+    name: Dependency advisories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@479c3cd2084b8e20207344a47dc10bdabea95adb # v3
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            services/kerno/go.sum
+            services/nodo/go.sum
+            services/mediaauth/go.sum
+            services/regado-agent/go.sum
+      - name: Reject npm advisories
+        run: pnpm audit --audit-level=low
+      - name: Check vulnerabilities in every Go module
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          for module in kerno nodo mediaauth regado-agent; do
+            (cd "services/$module" && govulncheck ./...)
+          done
+
+  checks:
+    name: checks
+    needs: [frontend, pages, browser, services, integration, security]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Require every validation layer to pass
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['CHECK_RESULTS'])
+          for name, job in results.items():
+              print(f"{name}: {job['result']}")
+          if not all(job['result'] == 'success' for job in results.values()):
+              raise SystemExit('Every validation layer must pass; skipped or cancelled jobs are not success.')
+          PY

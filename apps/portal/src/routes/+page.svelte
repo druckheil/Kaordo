@@ -12,7 +12,7 @@
 	import { signOut } from "@kaordo/auth";
 	import type { UserIdentity } from "@kaordo/contracts";
 	import { appPaths } from "@kaordo/links";
-	import { AgordojLink, Button, LogOutIcon, ThemeToggle } from "@kaordo/ui";
+	import { AppHeader, Button, LogOutIcon } from "@kaordo/ui";
 	import PortalApps from "$lib/PortalApps.svelte";
 	import PortalWelcome from "$lib/PortalWelcome.svelte";
 
@@ -64,42 +64,17 @@
 
 <svelte:head><title>Kaordo</title></svelte:head>
 
-<a
-	href="#main-content"
-	class="sr-only focus:not-sr-only fixed left-3 top-3 z-50 rounded-xl bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-lg ring-2 ring-ring focus:outline-none"
->
-	Skip to main content
-</a>
+<AppHeader name="" homeHref={appPaths.portal} showAllApps={false}>
+	{#snippet actions()}
+		{#if authenticated || (authenticated === null && accountPreview)}
+			<Button variant="ghost" size="sm" onclick={logOut} aria-label="Sign out"><LogOutIcon class="size-4" /><span class="hidden min-[390px]:inline">Sign out</span></Button>
+		{:else if authenticated !== null}
+			<Button href="/login/" variant="outline" size="sm">Sign in</Button>
+		{/if}
+	{/snippet}
+</AppHeader>
 
-<main id="main-content" tabindex="-1" class="mx-auto max-w-6xl px-5 pb-16 pt-7 sm:px-8 sm:pt-10">
-	<header class="flex flex-wrap items-center justify-between gap-4">
-		<a
-			class="inline-flex items-center gap-2 rounded-xl text-lg font-bold tracking-[-0.04em] text-link focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring"
-			href={appPaths.portal}
-		>
-			<span class="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">K</span>
-			Kaordo
-		</a>
-
-		<div class="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1 sm:gap-2">
-			{#if authenticated === null}
-				{#if accountPreview}
-					<Button variant="ghost" onclick={logOut}><LogOutIcon class="size-4" /> Sign out</Button>
-				{:else}
-					<div class="h-10 w-40 rounded-xl bg-muted/70" aria-hidden="true"></div>
-				{/if}
-			{:else if authenticated}
-				<Button variant="ghost" onclick={logOut}><LogOutIcon class="size-4" /> Sign out</Button>
-			{:else}
-				<div class="flex gap-2">
-					<Button href="/login/" variant="outline">Sign in</Button>
-					<Button href="/register/">Create account</Button>
-				</div>
-			{/if}
-			<ThemeToggle />
-			<AgordojLink />
-		</div>
-	</header>
+<main id="main-content" tabindex="-1" class="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
 
 	<PortalWelcome
 		{loading}

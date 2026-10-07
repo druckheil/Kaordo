@@ -1,0 +1,1110 @@
+[
+  {
+    "id": "everyday-words",
+    "title": "Everyday essentials",
+    "description": "People, places and things you meet every day.",
+    "kind": "word",
+    "level": "A1–A2",
+    "cards": [
+      {
+        "id": "everyday-words:haus",
+        "term": "Haus",
+        "translation": {
+          "en": "house",
+          "ru": "дом"
+        },
+        "article": "das",
+        "plural": "die Häuser",
+        "example": "Das Haus ist sehr schön.",
+        "exampleTranslation": {
+          "en": "The house is very beautiful.",
+          "ru": "Дом очень красивый."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "everyday-words:mensch",
+        "term": "Mensch",
+        "translation": {
+          "en": "person; human",
+          "ru": "человек"
+        },
+        "article": "der",
+        "plural": "die Menschen",
+        "example": "Jeder Mensch ist anders.",
+        "exampleTranslation": {
+          "en": "Every person is different.",
+          "ru": "Каждый человек разный."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "everyday-words:zeit",
+        "term": "Zeit",
+        "translation": {
+          "en": "time",
+          "ru": "время"
+        },
+        "article": "die",
+        "plural": "die Zeiten",
+        "example": "Ich habe heute Zeit.",
+        "exampleTranslation": {
+          "en": "I have time today.",
+          "ru": "У меня сегодня есть время."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "everyday-words:tag",
+        "term": "Tag",
+        "translation": {
+          "en": "day",
+          "ru": "день"
+        },
+        "article": "der",
+        "plural": "die Tage",
+        "example": "Heute ist ein guter Tag.",
+        "exampleTranslation": {
+          "en": "Today is a good day.",
+          "ru": "Сегодня хороший день."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "everyday-words:woche",
+        "term": "Woche",
+        "translation": {
+          "en": "week",
+          "ru": "неделя"
+        },
+        "article": "die",
+        "plural": "die Wochen",
+        "example": "Ich bleibe eine Woche.",
+        "exampleTranslation": {
+          "en": "I am staying for a week.",
+          "ru": "Я остаюсь на неделю."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "everyday-words:buch",
+        "term": "Buch",
+        "translation": {
+          "en": "book",
+          "ru": "книга"
+        },
+        "article": "das",
+        "plural": "die Bücher",
+        "example": "Ich lese ein Buch.",
+        "exampleTranslation": {
+          "en": "I am reading a book.",
+          "ru": "Я читаю книгу."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "everyday-words:freund",
+        "term": "Freund",
+        "translation": {
+          "en": "friend (male)",
+          "ru": "друг"
+        },
+        "article": "der",
+        "plural": "die Freunde",
+        "example": "Mein Freund wohnt in Berlin.",
+        "exampleTranslation": {
+          "en": "My friend lives in Berlin.",
+          "ru": "Мой друг живёт в Берлине."
+        },
+        "partOfSpeech": "noun",
+        "grammar": "Feminine: die Freundin · plural: die Freundinnen"
+      },
+      {
+        "id": "everyday-words:freundin",
+        "term": "Freundin",
+        "translation": {
+          "en": "friend (female)",
+          "ru": "подруга"
+        },
+        "article": "die",
+        "plural": "die Freundinnen",
+        "example": "Meine Freundin lernt Deutsch.",
+        "exampleTranslation": {
+          "en": "My friend is learning German.",
+          "ru": "Моя подруга учит немецкий."
+        },
+        "partOfSpeech": "noun",
+        "grammar": "Masculine: der Freund · plural: die Freunde"
+      },
+      {
+        "id": "everyday-words:kind",
+        "term": "Kind",
+        "translation": {
+          "en": "child",
+          "ru": "ребёнок"
+        },
+        "article": "das",
+        "plural": "die Kinder",
+        "example": "Das Kind spielt im Garten.",
+        "exampleTranslation": {
+          "en": "The child is playing in the garden.",
+          "ru": "Ребёнок играет в саду."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "everyday-words:sprache",
+        "term": "Sprache",
+        "translation": {
+          "en": "language",
+          "ru": "язык"
+        },
+        "article": "die",
+        "plural": "die Sprachen",
+        "example": "Deutsch ist eine interessante Sprache.",
+        "exampleTranslation": {
+          "en": "German is an interesting language.",
+          "ru": "Немецкий — интересный язык."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "everyday-words:lernen",
+        "term": "lernen",
+        "translation": {
+          "en": "to learn",
+          "ru": "учить; учиться"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Ich lerne jeden Tag.",
+        "exampleTranslation": {
+          "en": "I learn every day.",
+          "ru": "Я учусь каждый день."
+        },
+        "partOfSpeech": "verb",
+        "grammar": "ich lerne · du lernst · er/sie lernt · hat gelernt"
+      },
+      {
+        "id": "everyday-words:sprechen",
+        "term": "sprechen",
+        "translation": {
+          "en": "to speak",
+          "ru": "говорить"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Wir sprechen Deutsch.",
+        "exampleTranslation": {
+          "en": "We speak German.",
+          "ru": "Мы говорим по-немецки."
+        },
+        "partOfSpeech": "verb",
+        "grammar": "ich spreche · du sprichst · er/sie spricht · hat gesprochen"
+      }
+    ]
+  },
+  {
+    "id": "food-words",
+    "title": "Food & coffee",
+    "description": "Order something good and explore the kitchen.",
+    "kind": "word",
+    "level": "A1–A2",
+    "cards": [
+      {
+        "id": "food-words:kaffee",
+        "term": "Kaffee",
+        "translation": {
+          "en": "coffee",
+          "ru": "кофе"
+        },
+        "article": "der",
+        "plural": "die Kaffees",
+        "example": "Ich trinke einen Kaffee.",
+        "exampleTranslation": {
+          "en": "I am drinking a coffee.",
+          "ru": "Я пью кофе."
+        },
+        "partOfSpeech": "noun",
+        "grammar": "Usually uncountable; Kaffees can refer to servings or varieties"
+      },
+      {
+        "id": "food-words:wasser",
+        "term": "Wasser",
+        "translation": {
+          "en": "water",
+          "ru": "вода"
+        },
+        "article": "das",
+        "plural": "",
+        "example": "Das Wasser ist kalt.",
+        "exampleTranslation": {
+          "en": "The water is cold.",
+          "ru": "Вода холодная."
+        },
+        "partOfSpeech": "noun",
+        "grammar": "Usually uncountable"
+      },
+      {
+        "id": "food-words:brot",
+        "term": "Brot",
+        "translation": {
+          "en": "bread",
+          "ru": "хлеб"
+        },
+        "article": "das",
+        "plural": "die Brote",
+        "example": "Das Brot ist frisch.",
+        "exampleTranslation": {
+          "en": "The bread is fresh.",
+          "ru": "Хлеб свежий."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "food-words:apfel",
+        "term": "Apfel",
+        "translation": {
+          "en": "apple",
+          "ru": "яблоко"
+        },
+        "article": "der",
+        "plural": "die Äpfel",
+        "example": "Ich esse einen Apfel.",
+        "exampleTranslation": {
+          "en": "I am eating an apple.",
+          "ru": "Я ем яблоко."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "food-words:milch",
+        "term": "Milch",
+        "translation": {
+          "en": "milk",
+          "ru": "молоко"
+        },
+        "article": "die",
+        "plural": "",
+        "example": "Ich kaufe Milch.",
+        "exampleTranslation": {
+          "en": "I am buying milk.",
+          "ru": "Я покупаю молоко."
+        },
+        "partOfSpeech": "noun",
+        "grammar": "Usually uncountable"
+      },
+      {
+        "id": "food-words:ei",
+        "term": "Ei",
+        "translation": {
+          "en": "egg",
+          "ru": "яйцо"
+        },
+        "article": "das",
+        "plural": "die Eier",
+        "example": "Ich brauche zwei Eier.",
+        "exampleTranslation": {
+          "en": "I need two eggs.",
+          "ru": "Мне нужны два яйца."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "food-words:rechnung",
+        "term": "Rechnung",
+        "translation": {
+          "en": "bill; invoice",
+          "ru": "счёт"
+        },
+        "article": "die",
+        "plural": "die Rechnungen",
+        "example": "Die Rechnung, bitte.",
+        "exampleTranslation": {
+          "en": "The bill, please.",
+          "ru": "Счёт, пожалуйста."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "food-words:essen",
+        "term": "essen",
+        "translation": {
+          "en": "to eat",
+          "ru": "есть; кушать"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Wir essen zusammen.",
+        "exampleTranslation": {
+          "en": "We eat together.",
+          "ru": "Мы едим вместе."
+        },
+        "partOfSpeech": "verb",
+        "grammar": "ich esse · du isst · er/sie isst · hat gegessen"
+      },
+      {
+        "id": "food-words:trinken",
+        "term": "trinken",
+        "translation": {
+          "en": "to drink",
+          "ru": "пить"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Was möchtest du trinken?",
+        "exampleTranslation": {
+          "en": "What would you like to drink?",
+          "ru": "Что ты хочешь выпить?"
+        },
+        "partOfSpeech": "verb",
+        "grammar": "ich trinke · du trinkst · er/sie trinkt · hat getrunken"
+      },
+      {
+        "id": "food-words:lecker",
+        "term": "lecker",
+        "translation": {
+          "en": "delicious",
+          "ru": "вкусный"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Das Essen ist lecker.",
+        "exampleTranslation": {
+          "en": "The food is delicious.",
+          "ru": "Еда вкусная."
+        },
+        "partOfSpeech": "adjective",
+        "grammar": ""
+      }
+    ]
+  },
+  {
+    "id": "travel-words",
+    "title": "Around the city",
+    "description": "Find a train, ask for directions and settle into a new place.",
+    "kind": "word",
+    "level": "A1–A2",
+    "cards": [
+      {
+        "id": "travel-words:bahnhof",
+        "term": "Bahnhof",
+        "translation": {
+          "en": "train station",
+          "ru": "вокзал"
+        },
+        "article": "der",
+        "plural": "die Bahnhöfe",
+        "example": "Der Bahnhof ist in der Nähe.",
+        "exampleTranslation": {
+          "en": "The station is nearby.",
+          "ru": "Вокзал поблизости."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "travel-words:strasse",
+        "term": "Straße",
+        "translation": {
+          "en": "street",
+          "ru": "улица"
+        },
+        "article": "die",
+        "plural": "die Straßen",
+        "example": "Die Straße ist ruhig.",
+        "exampleTranslation": {
+          "en": "The street is quiet.",
+          "ru": "Улица тихая."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "travel-words:zug",
+        "term": "Zug",
+        "translation": {
+          "en": "train",
+          "ru": "поезд"
+        },
+        "article": "der",
+        "plural": "die Züge",
+        "example": "Der Zug fährt um neun Uhr.",
+        "exampleTranslation": {
+          "en": "The train leaves at nine.",
+          "ru": "Поезд отправляется в девять."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "travel-words:fahrkarte",
+        "term": "Fahrkarte",
+        "translation": {
+          "en": "ticket (transport)",
+          "ru": "проездной билет"
+        },
+        "article": "die",
+        "plural": "die Fahrkarten",
+        "example": "Ich kaufe eine Fahrkarte.",
+        "exampleTranslation": {
+          "en": "I am buying a ticket.",
+          "ru": "Я покупаю билет."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "travel-words:zimmer",
+        "term": "Zimmer",
+        "translation": {
+          "en": "room",
+          "ru": "комната"
+        },
+        "article": "das",
+        "plural": "die Zimmer",
+        "example": "Das Zimmer ist frei.",
+        "exampleTranslation": {
+          "en": "The room is available.",
+          "ru": "Комната свободна."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "travel-words:stadt",
+        "term": "Stadt",
+        "translation": {
+          "en": "city; town",
+          "ru": "город"
+        },
+        "article": "die",
+        "plural": "die Städte",
+        "example": "Die Stadt ist groß.",
+        "exampleTranslation": {
+          "en": "The city is big.",
+          "ru": "Город большой."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "travel-words:fahren",
+        "term": "fahren",
+        "translation": {
+          "en": "to travel; to drive",
+          "ru": "ехать"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Ich fahre mit dem Zug.",
+        "exampleTranslation": {
+          "en": "I am travelling by train.",
+          "ru": "Я еду на поезде."
+        },
+        "partOfSpeech": "verb",
+        "grammar": "ich fahre · du fährst · er/sie fährt · ist gefahren (movement)"
+      },
+      {
+        "id": "travel-words:finden",
+        "term": "finden",
+        "translation": {
+          "en": "to find",
+          "ru": "находить"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Ich finde den Bahnhof.",
+        "exampleTranslation": {
+          "en": "I find the station.",
+          "ru": "Я нахожу вокзал."
+        },
+        "partOfSpeech": "verb",
+        "grammar": "ich finde · du findest · er/sie findet · hat gefunden"
+      },
+      {
+        "id": "travel-words:links",
+        "term": "links",
+        "translation": {
+          "en": "left; on the left",
+          "ru": "слева; налево"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Gehen Sie nach links.",
+        "exampleTranslation": {
+          "en": "Go left.",
+          "ru": "Идите налево."
+        },
+        "partOfSpeech": "adverb",
+        "grammar": ""
+      },
+      {
+        "id": "travel-words:rechts",
+        "term": "rechts",
+        "translation": {
+          "en": "right; on the right",
+          "ru": "справа; направо"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Die Apotheke ist rechts.",
+        "exampleTranslation": {
+          "en": "The pharmacy is on the right.",
+          "ru": "Аптека справа."
+        },
+        "partOfSpeech": "adverb",
+        "grammar": ""
+      }
+    ]
+  },
+  {
+    "id": "daily-words",
+    "title": "Your daily rhythm",
+    "description": "Useful verbs, feelings and small everyday routines.",
+    "kind": "word",
+    "level": "A1–A2",
+    "cards": [
+      {
+        "id": "daily-words:aufstehen",
+        "term": "aufstehen",
+        "translation": {
+          "en": "to get up",
+          "ru": "вставать"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Ich stehe um sieben Uhr auf.",
+        "exampleTranslation": {
+          "en": "I get up at seven.",
+          "ru": "Я встаю в семь."
+        },
+        "partOfSpeech": "verb",
+        "grammar": "Separable: ich stehe auf · du stehst auf · ist aufgestanden"
+      },
+      {
+        "id": "daily-words:einkaufen",
+        "term": "einkaufen",
+        "translation": {
+          "en": "to shop",
+          "ru": "делать покупки"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Wir kaufen am Samstag ein.",
+        "exampleTranslation": {
+          "en": "We go shopping on Saturday.",
+          "ru": "Мы делаем покупки в субботу."
+        },
+        "partOfSpeech": "verb",
+        "grammar": "Separable: ich kaufe ein · hat eingekauft"
+      },
+      {
+        "id": "daily-words:anrufen",
+        "term": "anrufen",
+        "translation": {
+          "en": "to call (on the phone)",
+          "ru": "звонить"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Ich rufe dich morgen an.",
+        "exampleTranslation": {
+          "en": "I will call you tomorrow.",
+          "ru": "Я позвоню тебе завтра."
+        },
+        "partOfSpeech": "verb",
+        "grammar": "Separable: ich rufe an · du rufst an · hat angerufen"
+      },
+      {
+        "id": "daily-words:brauchen",
+        "term": "brauchen",
+        "translation": {
+          "en": "to need",
+          "ru": "нуждаться (в чём-либо)"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Ich brauche Hilfe.",
+        "exampleTranslation": {
+          "en": "I need help.",
+          "ru": "Мне нужна помощь."
+        },
+        "partOfSpeech": "verb",
+        "grammar": "ich brauche · du brauchst · er/sie braucht · hat gebraucht"
+      },
+      {
+        "id": "daily-words:verstehen",
+        "term": "verstehen",
+        "translation": {
+          "en": "to understand",
+          "ru": "понимать"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Ich verstehe die Frage.",
+        "exampleTranslation": {
+          "en": "I understand the question.",
+          "ru": "Я понимаю вопрос."
+        },
+        "partOfSpeech": "verb",
+        "grammar": "ich verstehe · du verstehst · er/sie versteht · hat verstanden"
+      },
+      {
+        "id": "daily-words:arbeit",
+        "term": "Arbeit",
+        "translation": {
+          "en": "work",
+          "ru": "работа"
+        },
+        "article": "die",
+        "plural": "die Arbeiten",
+        "example": "Meine Arbeit beginnt um acht Uhr.",
+        "exampleTranslation": {
+          "en": "My work starts at eight.",
+          "ru": "Моя работа начинается в восемь."
+        },
+        "partOfSpeech": "noun",
+        "grammar": "Usually uncountable for employment; Arbeiten also means individual works or tasks"
+      },
+      {
+        "id": "daily-words:frage",
+        "term": "Frage",
+        "translation": {
+          "en": "question",
+          "ru": "вопрос"
+        },
+        "article": "die",
+        "plural": "die Fragen",
+        "example": "Ich habe eine Frage.",
+        "exampleTranslation": {
+          "en": "I have a question.",
+          "ru": "У меня есть вопрос."
+        },
+        "partOfSpeech": "noun",
+        "grammar": ""
+      },
+      {
+        "id": "daily-words:mude",
+        "term": "müde",
+        "translation": {
+          "en": "tired",
+          "ru": "уставший"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Ich bin heute müde.",
+        "exampleTranslation": {
+          "en": "I am tired today.",
+          "ru": "Сегодня я устал."
+        },
+        "partOfSpeech": "adjective",
+        "grammar": ""
+      },
+      {
+        "id": "daily-words:glucklich",
+        "term": "glücklich",
+        "translation": {
+          "en": "happy",
+          "ru": "счастливый"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Sie ist glücklich.",
+        "exampleTranslation": {
+          "en": "She is happy.",
+          "ru": "Она счастлива."
+        },
+        "partOfSpeech": "adjective",
+        "grammar": ""
+      },
+      {
+        "id": "daily-words:heute",
+        "term": "heute",
+        "translation": {
+          "en": "today",
+          "ru": "сегодня"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Heute lerne ich Deutsch.",
+        "exampleTranslation": {
+          "en": "Today I am learning German.",
+          "ru": "Сегодня я учу немецкий."
+        },
+        "partOfSpeech": "adverb",
+        "grammar": ""
+      },
+      {
+        "id": "daily-words:morgen",
+        "term": "morgen",
+        "translation": {
+          "en": "tomorrow",
+          "ru": "завтра"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Bis morgen!",
+        "exampleTranslation": {
+          "en": "See you tomorrow!",
+          "ru": "До завтра!"
+        },
+        "partOfSpeech": "adverb",
+        "grammar": "Do not confuse morgen (tomorrow) with der Morgen (the morning)"
+      },
+      {
+        "id": "daily-words:schon",
+        "term": "schön",
+        "translation": {
+          "en": "beautiful; lovely",
+          "ru": "красивый; прекрасный"
+        },
+        "article": "",
+        "plural": "",
+        "example": "Das ist ein schöner Tag.",
+        "exampleTranslation": {
+          "en": "That is a lovely day.",
+          "ru": "Это прекрасный день."
+        },
+        "partOfSpeech": "adjective",
+        "grammar": ""
+      }
+    ]
+  },
+  {
+    "id": "greeting-phrases",
+    "title": "First conversations",
+    "description": "Introduce yourself and keep a conversation going.",
+    "kind": "phrase",
+    "level": "A1–A2",
+    "cards": [
+      {
+        "id": "greeting-phrases:1",
+        "term": "Guten Morgen!",
+        "translation": {
+          "en": "Good morning!",
+          "ru": "Доброе утро!"
+        },
+        "grammar": "Greeting used in the morning"
+      },
+      {
+        "id": "greeting-phrases:2",
+        "term": "Wie geht es dir?",
+        "translation": {
+          "en": "How are you?",
+          "ru": "Как у тебя дела?"
+        },
+        "grammar": "Informal: dir · formal: Ihnen"
+      },
+      {
+        "id": "greeting-phrases:3",
+        "term": "Mir geht es gut.",
+        "translation": {
+          "en": "I am doing well.",
+          "ru": "У меня всё хорошо."
+        },
+        "grammar": "Dative: mir · es geht mir gut"
+      },
+      {
+        "id": "greeting-phrases:4",
+        "term": "Ich heiße Anna.",
+        "translation": {
+          "en": "My name is Anna.",
+          "ru": "Меня зовут Анна."
+        },
+        "grammar": "heißen: ich heiße · du heißt"
+      },
+      {
+        "id": "greeting-phrases:5",
+        "term": "Wie heißt du?",
+        "translation": {
+          "en": "What is your name?",
+          "ru": "Как тебя зовут?"
+        },
+        "grammar": "Informal: du · formal: Wie heißen Sie?"
+      },
+      {
+        "id": "greeting-phrases:6",
+        "term": "Woher kommst du?",
+        "translation": {
+          "en": "Where are you from?",
+          "ru": "Откуда ты?"
+        },
+        "grammar": "woher asks about origin"
+      },
+      {
+        "id": "greeting-phrases:7",
+        "term": "Ich komme aus Deutschland.",
+        "translation": {
+          "en": "I come from Germany.",
+          "ru": "Я из Германии."
+        },
+        "grammar": "aus + dative · Deutschland normally has no article"
+      },
+      {
+        "id": "greeting-phrases:8",
+        "term": "Schön, dich kennenzulernen.",
+        "translation": {
+          "en": "Nice to meet you.",
+          "ru": "Приятно познакомиться."
+        },
+        "grammar": "Informal: dich · formal: Sie"
+      }
+    ]
+  },
+  {
+    "id": "cafe-phrases",
+    "title": "At the café",
+    "description": "Order politely, explore the menu and pay the bill.",
+    "kind": "phrase",
+    "level": "A1–A2",
+    "cards": [
+      {
+        "id": "cafe-phrases:1",
+        "term": "Ich hätte gern einen Kaffee.",
+        "translation": {
+          "en": "I would like a coffee.",
+          "ru": "Я бы хотел кофе."
+        },
+        "grammar": "Polite: hätte gern · accusative: einen Kaffee"
+      },
+      {
+        "id": "cafe-phrases:2",
+        "term": "Ein Wasser, bitte.",
+        "translation": {
+          "en": "A water, please.",
+          "ru": "Воду, пожалуйста."
+        },
+        "grammar": "das Wasser → ein Wasser"
+      },
+      {
+        "id": "cafe-phrases:3",
+        "term": "Was empfehlen Sie?",
+        "translation": {
+          "en": "What do you recommend?",
+          "ru": "Что вы рекомендуете?"
+        },
+        "grammar": "Formal address: Sie"
+      },
+      {
+        "id": "cafe-phrases:4",
+        "term": "Ist das vegetarisch?",
+        "translation": {
+          "en": "Is that vegetarian?",
+          "ru": "Это вегетарианское?"
+        },
+        "grammar": "Yes/no question: verb first"
+      },
+      {
+        "id": "cafe-phrases:5",
+        "term": "Das schmeckt sehr gut.",
+        "translation": {
+          "en": "That tastes very good.",
+          "ru": "Это очень вкусно."
+        },
+        "grammar": "schmecken describes how something tastes"
+      },
+      {
+        "id": "cafe-phrases:6",
+        "term": "Die Rechnung, bitte.",
+        "translation": {
+          "en": "The bill, please.",
+          "ru": "Счёт, пожалуйста."
+        },
+        "grammar": "die Rechnung"
+      },
+      {
+        "id": "cafe-phrases:7",
+        "term": "Kann ich mit Karte bezahlen?",
+        "translation": {
+          "en": "Can I pay by card?",
+          "ru": "Можно оплатить картой?"
+        },
+        "grammar": "Modal verb: kann · infinitive bezahlen at the end"
+      },
+      {
+        "id": "cafe-phrases:8",
+        "term": "Zum Mitnehmen, bitte.",
+        "translation": {
+          "en": "To go, please.",
+          "ru": "С собой, пожалуйста."
+        },
+        "grammar": "zum = zu dem · mitnehmen is a separable verb"
+      }
+    ]
+  },
+  {
+    "id": "city-phrases",
+    "title": "Finding your way",
+    "description": "Navigate stations, streets and shops with confidence.",
+    "kind": "phrase",
+    "level": "A1–A2",
+    "cards": [
+      {
+        "id": "city-phrases:1",
+        "term": "Wo ist der Bahnhof?",
+        "translation": {
+          "en": "Where is the train station?",
+          "ru": "Где вокзал?"
+        },
+        "grammar": "Nominative: der Bahnhof"
+      },
+      {
+        "id": "city-phrases:2",
+        "term": "Ich suche die nächste Haltestelle.",
+        "translation": {
+          "en": "I am looking for the nearest stop.",
+          "ru": "Я ищу ближайшую остановку."
+        },
+        "grammar": "Accusative: die nächste Haltestelle"
+      },
+      {
+        "id": "city-phrases:3",
+        "term": "Wie komme ich zum Zentrum?",
+        "translation": {
+          "en": "How do I get to the centre?",
+          "ru": "Как пройти в центр?"
+        },
+        "grammar": "zum = zu dem · das Zentrum"
+      },
+      {
+        "id": "city-phrases:4",
+        "term": "Fährt dieser Zug nach Berlin?",
+        "translation": {
+          "en": "Does this train go to Berlin?",
+          "ru": "Этот поезд идёт в Берлин?"
+        },
+        "grammar": "nach + city without an article"
+      },
+      {
+        "id": "city-phrases:5",
+        "term": "Eine Fahrkarte nach Hamburg, bitte.",
+        "translation": {
+          "en": "A ticket to Hamburg, please.",
+          "ru": "Билет до Гамбурга, пожалуйста."
+        },
+        "grammar": "die Fahrkarte → eine Fahrkarte"
+      },
+      {
+        "id": "city-phrases:6",
+        "term": "Wie viel kostet das?",
+        "translation": {
+          "en": "How much does that cost?",
+          "ru": "Сколько это стоит?"
+        },
+        "grammar": "wie viel asks about price or quantity"
+      },
+      {
+        "id": "city-phrases:7",
+        "term": "Können Sie mir helfen?",
+        "translation": {
+          "en": "Can you help me?",
+          "ru": "Вы можете мне помочь?"
+        },
+        "grammar": "helfen + dative: mir"
+      },
+      {
+        "id": "city-phrases:8",
+        "term": "Ich habe mich verlaufen.",
+        "translation": {
+          "en": "I am lost.",
+          "ru": "Я заблудился."
+        },
+        "grammar": "Reflexive: sich verlaufen · perfect with haben"
+      }
+    ]
+  },
+  {
+    "id": "daily-phrases",
+    "title": "Everyday German",
+    "description": "Talk about your routine and practise German word order.",
+    "kind": "phrase",
+    "level": "A1–A2",
+    "cards": [
+      {
+        "id": "daily-phrases:1",
+        "term": "Ich lerne jeden Tag Deutsch.",
+        "translation": {
+          "en": "I learn German every day.",
+          "ru": "Я учу немецкий каждый день."
+        },
+        "grammar": "Verb in second position · time before the object"
+      },
+      {
+        "id": "daily-phrases:2",
+        "term": "Kannst du das bitte wiederholen?",
+        "translation": {
+          "en": "Can you repeat that, please?",
+          "ru": "Можешь повторить, пожалуйста?"
+        },
+        "grammar": "Modal verb: kannst · infinitive wiederholen at the end"
+      },
+      {
+        "id": "daily-phrases:3",
+        "term": "Ich verstehe das nicht.",
+        "translation": {
+          "en": "I do not understand that.",
+          "ru": "Я этого не понимаю."
+        },
+        "grammar": "nicht negates the statement"
+      },
+      {
+        "id": "daily-phrases:4",
+        "term": "Bitte sprechen Sie langsamer.",
+        "translation": {
+          "en": "Please speak more slowly.",
+          "ru": "Пожалуйста, говорите медленнее."
+        },
+        "grammar": "Formal imperative: sprechen Sie"
+      },
+      {
+        "id": "daily-phrases:5",
+        "term": "Ich stehe um sieben Uhr auf.",
+        "translation": {
+          "en": "I get up at seven.",
+          "ru": "Я встаю в семь."
+        },
+        "grammar": "Separable verb: aufstehen → stehe ... auf"
+      },
+      {
+        "id": "daily-phrases:6",
+        "term": "Morgen rufe ich dich an.",
+        "translation": {
+          "en": "I will call you tomorrow.",
+          "ru": "Завтра я тебе позвоню."
+        },
+        "grammar": "Verb remains second after morgen · anrufen is separable"
+      },
+      {
+        "id": "daily-phrases:7",
+        "term": "Ich freue mich auf das Wochenende.",
+        "translation": {
+          "en": "I am looking forward to the weekend.",
+          "ru": "Я с нетерпением жду выходных."
+        },
+        "grammar": "sich freuen auf + accusative · das Wochenende"
+      },
+      {
+        "id": "daily-phrases:8",
+        "term": "Ich bleibe zu Hause, weil ich müde bin.",
+        "translation": {
+          "en": "I am staying home because I am tired.",
+          "ru": "Я остаюсь дома, потому что устал."
+        },
+        "grammar": "weil introduces a subordinate clause: the verb goes last"
+      }
+    ]
+  }
+]

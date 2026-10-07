@@ -8,6 +8,7 @@
 	import { Button } from '@kaordo/ui';
 	import PostCard from './PostCard.svelte';
 	import PostItem from './PostItem.svelte';
+	import type { FluoPostActionHandlers } from './post-actions';
 
 	let {
 		thread,
@@ -36,10 +37,10 @@
 		onReply: (post: FluoPost) => void;
 		onQuote: (post: FluoPost) => void;
 		onOpenPost: (id: string) => void;
-		onReact: (post: FluoPost, value: 'good' | 'bad' | null) => Promise<void>;
-		onFollow: (post: FluoPost) => Promise<void>;
-		onSave: (post: FluoPost) => Promise<void>;
-		onVisibilityChange: (post: FluoPost, visibility: FluoPost['visibility']) => Promise<void>;
+		onReact: FluoPostActionHandlers['react'];
+		onFollow: FluoPostActionHandlers['follow'];
+		onSave: FluoPostActionHandlers['save'];
+		onVisibilityChange: FluoPostActionHandlers['setVisibility'];
 		onDelete: (post: FluoPost) => void;
 	} = $props();
 
@@ -113,6 +114,6 @@
 				{onDelete}
 			/>
 		{/key}
-		<div class="h-[max(0px,calc(100dvh-10rem))] lg:h-[max(0px,calc(100dvh-6.5rem))]" aria-hidden="true"></div>
+		<div class="h-[max(0px,calc(100dvh-9rem))] lg:h-[max(0px,calc(100dvh-5.5rem))]" aria-hidden="true"></div>
 	</div>
 {/if}

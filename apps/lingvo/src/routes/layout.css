@@ -1,0 +1,38 @@
+/* Loads shared tokens and reusable Lingvo learning surfaces */
+@import '@kaordo/ui/styles.css';
+@source '../../../../packages/ui/src/lib';
+@source '../../../../packages/account-ui/src';
+
+.lingvo-surface {
+  border: 1px solid var(--border);
+  border-radius: 1.75rem;
+  background: var(--card);
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--foreground), transparent 97%);
+}
+.lingvo-eyebrow {
+  color: var(--muted-foreground);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.german-article {
+  display: inline-flex;
+  align-items: center;
+  border-radius: .65rem;
+  padding: .2em .55em;
+  font-size: .7em;
+  font-weight: 700;
+  vertical-align: middle;
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.german-article[data-article='der'] { background: light-dark(#e8efff, #192c4c); color: light-dark(#3157b7, #99baff); }
+.german-article[data-article='die'] { background: light-dark(#fce8ef, #47212f); color: light-dark(#ac345c, #f5a1bc); }
+.german-article[data-article='das'] { background: light-dark(#e4f4ec, #17392e); color: light-dark(#22724d, #85d8b4); }
+.lingvo-enter { animation: lingvo-enter .3s ease-out both; }
+@keyframes lingvo-enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .lingvo-enter { animation: none; }
+  .lingvo-surface *, .lingvo-control { transition-duration: 0s !important; animation-duration: 0s !important; }
+}

@@ -32,6 +32,7 @@
   "dependencies": {
     "@kaordo/contracts": "workspace:*",
     "@kaordo/links": "workspace:*",
+    "@kaordo/media-client": "workspace:*",
     "@kaordo/media-ui": "workspace:*",
     "@kaordo/ui": "workspace:*"
   },

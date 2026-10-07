@@ -1,14 +1,17 @@
+// Verifies encrypted local backups by restoring disposable databases and media
+
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import { test } from '@playwright/test';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 
-test('encrypted local backup restores both databases into disposable copies', { timeout: 180_000 }, async () => {
+test('encrypted local backup restores both databases into disposable copies', async () => {
+  test.setTimeout(180_000);
   const directory = await mkdtemp(join(tmpdir(), 'kaordo-backup-test-'));
   const passwordFile = join(directory, 'password');
   const environment = {

@@ -15,6 +15,20 @@ import (
 
 const testGiB int64 = 1 << 30
 
+func TestPlanIdentityDoesNotMutateInventory(t *testing.T) {
+	device := nativeLayoutDevice()
+	device.Health = &smartHealth{State: "passed"}
+	device.Children[0].Health = &smartHealth{State: "passed"}
+	device.Children[0].StorageState = "working"
+	identity := planIdentity(device)
+	if identity.Health != nil || identity.Children[0].Health != nil || identity.Children[0].StorageState != "" {
+		t.Fatal("volatile counters entered the fingerprint")
+	}
+	if device.Health == nil || device.Children[0].Health == nil || device.Children[0].StorageState != "working" {
+		t.Fatal("fingerprint creation changed the source inventory")
+	}
+}
+
 func nativeLayoutDevice() disk {
 	return disk{Name: "sdc", Path: "/dev/sdc", Type: "disk", Size: 8 * testGiB, Serial: stringPointer("layout-disk"), LayoutAvailable: true,
 		Unallocated: []diskRegion{{Start: 3 * partitionAlignment, Size: 3*testGiB - 3*partitionAlignment}, {Start: 7 * testGiB, Size: testGiB - partitionAlignment}},

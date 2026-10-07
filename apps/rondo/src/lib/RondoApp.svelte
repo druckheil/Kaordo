@@ -2,6 +2,8 @@
   // Coordinates Rondo server navigation, chat activity, and voice sessions
 
   import { onDestroy, onMount, tick } from 'svelte';
+  import { pushState, replaceState } from '$app/navigation';
+  import { page } from '$app/state';
   import { createInfiniteQuery, createQuery, QueryClient, type InfiniteData } from '@tanstack/svelte-query';
   import {
     appendSentMessage, replaceCachedMessage, createLigoApi, createRondoApi, ligoMessageOptions, ligoUserSearchOptions,
@@ -19,16 +21,20 @@
   import type { VoiceConnection, VoiceSnapshot } from '@kaordo/voice-client';
   import { VoiceSounds } from '@kaordo/voice-client/sounds';
   import {
+    defaultVoicePreferences, devicePreferenceKeys, loadVoicePreferences, type VoicePreferences, type VoiceVolumeKey
+  } from '@kaordo/voice-client/preferences';
+  import {
     formatRondoRoute, getInitials as initials, parseLayoutPreferences,
     parseRondoRoute
   } from './rondo-state';
   import {
     AlertDialog, AppHeader, Button, ChevronLeftIcon, CompassIcon, Dialog, HashIcon,
     Input, LayoutGridIcon, MicIcon, PanelLeftIcon, PanelRightIcon,
-    PlusIcon, SearchIcon, Textarea, UsersIcon, UserPlusIcon
+    PlusIcon, SearchIcon, SettingsIcon, Textarea, UsersIcon, UserPlusIcon
   } from '@kaordo/ui';
   import MemberPanel from './MemberPanel.svelte';
   import VoiceStage from './VoiceStage.svelte';
+  import DeferredRondoSettings from './DeferredRondoSettings.svelte';
 
   type DialogMode = 'create' | 'discover' | 'channel' | 'invite';
 
@@ -64,6 +70,9 @@
   let dialogBusy = $state(false);
   let dialogError = $state('');
   let actionError = $state('');
+  let messageConnected = $state(true);
+  let liveUnavailable = $state(false);
+  let liveController: AbortController | null = null;
   let serverName = $state('');
   let serverDescription = $state('');
   let serverAccess = $state<'public' | 'private'>('private');
@@ -83,6 +92,9 @@
   let voiceChannelId = $state<string | null>(null);
   let voiceBusy = $state(false);
   let voiceError = $state('');
+  let voicePreferences = $state<VoicePreferences>(defaultVoicePreferences());
+  let disposed = false;
+  let settingsOpen = $state(false);
   const emptyVoice = (): VoiceSnapshot => ({ connected: false, reconnecting: false, microphoneEnabled: false,
     cameraEnabled: false, screenShareEnabled: false, deafened: false, canPlaybackAudio: true,
     canPlaybackVideo: true, participants: [], videos: [] });
@@ -101,6 +113,7 @@
   let hideChannelsButton = $state<HTMLButtonElement | null>(null);
   let showMembersButton = $state<HTMLButtonElement | null>(null);
   let hideMembersButton = $state<HTMLButtonElement | null>(null);
+  let layoutRoot: HTMLElement;
 
   const detailQuery = createQuery(() => rondoServerOptions(rondo, serverId), () => queryClient);
   const discoverQuery = createQuery(() => rondoDiscoverOptions(rondo, discoverTerm, dialog === 'discover'), () => queryClient);
@@ -114,7 +127,8 @@
   const membersVisible = $derived(wideMembers ? (membersOpen ?? true) : mobileMembersOpen);
   const channelsVisible = $derived(channelsOpen && (!narrowChannels || !channelId));
   const messagesQuery = createInfiniteQuery(() => ({
-    ...ligoMessageOptions(ligo, channel?.conversationId ?? ''), enabled: !!channel
+    ...ligoMessageOptions(ligo, channel?.conversationId ?? ''),
+    ...(!messageConnected ? { refetchInterval: 5000 } : {}), enabled: !!channel
   }), () => queryClient);
   const messages = $derived(messagesQuery.data?.pages.flatMap((page) => page.items).reverse() ?? []);
   const activePending = $derived(pending.filter((item) => item.conversationId === channel?.conversationId &&
@@ -126,52 +140,48 @@
   $effect(() => {
     if (!channel || LoadedMessageList || messageViewError) return;
     void import('@kaordo/chat-ui/message-list').then(({ default: MessageList }) => {
-      LoadedMessageList = MessageList;
+      if (!disposed) LoadedMessageList = MessageList;
     })
-      .catch(() => { messageViewError = true; });
+      .catch(() => { if (!disposed) messageViewError = true; });
   });
 
   onMount(() => {
     const removeBreakpointListeners = watchBreakpoints();
     restorePreferences();
     const removeRouteListener = watchRouteHash();
-    const stopLiveUpdates = subscribeToMessageUpdates();
+    subscribeToMessageUpdates();
 
     return () => {
       removeBreakpointListeners();
       removeRouteListener();
-      stopLiveUpdates();
+      liveController?.abort();
     };
   });
   onDestroy(() => {
+    disposed = true;
+    void queryClient.cancelQueries();
     queryClient.clear();
     if (searchTimer) clearTimeout(searchTimer);
     void stopVoice();
   });
 
   function watchBreakpoints(): () => void {
-    const memberBreakpoint = window.matchMedia('(min-width: 1280px)');
-    const channelBreakpoint = window.matchMedia('(max-width: 639px)');
-    const updateMembers = () => {
-      wideMembers = memberBreakpoint.matches;
-      mobileMembersOpen = false;
+    const update = () => {
+      const unit = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const nextWide = layoutRoot.clientWidth >= 80 * unit;
+      if (wideMembers !== nextWide) mobileMembersOpen = false;
+      wideMembers = nextWide;
+      narrowChannels = layoutRoot.clientWidth < 40 * unit;
     };
-    const updateChannels = () => {
-      narrowChannels = channelBreakpoint.matches;
-    };
-
-    updateMembers();
-    updateChannels();
-    memberBreakpoint.addEventListener('change', updateMembers);
-    channelBreakpoint.addEventListener('change', updateChannels);
-
-    return () => {
-      memberBreakpoint.removeEventListener('change', updateMembers);
-      channelBreakpoint.removeEventListener('change', updateChannels);
-    };
+    // Panel widths use rem units, so their breakpoints must also follow enlarged text
+    const observer = new ResizeObserver(update);
+    observer.observe(layoutRoot);
+    update();
+    return () => observer.disconnect();
   }
 
   function restorePreferences(): void {
+    voicePreferences = loadVoicePreferences();
     try {
       const saved = parseLayoutPreferences(localStorage.getItem('kaordo-rondo-layout'));
       if (saved.servers !== undefined) serversOpen = saved.servers;
@@ -185,28 +195,63 @@
 
   function watchRouteHash(): () => void {
     const syncRoute = () => {
-      const route = parseRondoRoute(window.location.hash);
+      settingsOpen = window.location.hash === '#settings';
+      const route = parseRondoRoute(window.location.hash) ??
+        (settingsOpen ? parseRondoRoute(page.state.rondoSettingsReturn ?? '') : null);
       if (!route) return;
+      if (serverId && serverId !== route.serverId && (voiceConnection || voiceBusy)) void stopVoice();
       serverId = route.serverId;
       channelId = route.channelId;
     };
-
     syncRoute();
     window.addEventListener('hashchange', syncRoute);
-    return () => window.removeEventListener('hashchange', syncRoute);
+    window.addEventListener('popstate', syncRoute);
+    return () => {
+      window.removeEventListener('hashchange', syncRoute);
+      window.removeEventListener('popstate', syncRoute);
+    };
   }
 
-  function subscribeToMessageUpdates(): () => void {
+  function openSettings(): void {
+    mobileMembersOpen = false;
+    pushState('#settings', { ...page.state, rondoSettingsReturn: window.location.hash });
+    settingsOpen = true;
+  }
+
+  function closeSettings(): void {
+    if (page.state.rondoSettingsReturn !== undefined) { window.history.back(); return; }
+    replaceState(serverId ? `#${formatRondoRoute(serverId, channelId)}` : '', page.state);
+    settingsOpen = false;
+  }
+
+  function syncRoomUrl(): void {
+    if (settingsOpen) return;
+    const hash = serverId ? `#${formatRondoRoute(serverId, channelId)}` : '';
+    if (window.location.hash !== hash) pushState(hash, page.state);
+  }
+
+  async function changeVoiceDevice(kind: MediaDeviceKind, deviceId: string): Promise<void> {
+    await voiceConnection?.setDevice(kind, deviceId);
+    if (!disposed) voicePreferences = { ...voicePreferences, [devicePreferenceKeys[kind]]: deviceId };
+  }
+
+  function changeVoiceVolume(key: VoiceVolumeKey, value: number): void {
+    voicePreferences = { ...voicePreferences, [key]: value };
+    voiceConnection?.setVolumes(voicePreferences.microphoneVolume, voicePreferences.speakerVolume);
+  }
+
+  function subscribeToMessageUpdates(): void {
+    liveController?.abort();
     const controller = new AbortController();
+    liveController = controller;
+    liveUnavailable = false;
+    messageConnected = false;
     void ligo.subscribe(controller.signal, (conversationId) => {
       if (!conversationId || conversationId === channel?.conversationId) {
         void queryClient.invalidateQueries({ queryKey: ['ligo', 'messages', channel?.conversationId] });
       }
-    }).catch(() => {
-      // Polling remains available when live updates disconnect.
-    });
-
-    return () => controller.abort();
+    }, value => { if (!controller.signal.aborted) messageConnected = value; }
+    ).catch(() => { if (!controller.signal.aborted) liveUnavailable = true; });
   }
 
   function saveLayout() {
@@ -243,21 +288,25 @@
   }
   function changeSounds(enabled: boolean) {
     soundsEnabled = enabled;
-    localStorage.setItem('kaordo-rondo-sounds', enabled ? 'on' : 'off');
     voiceConnection?.setSoundEnabled(enabled);
+    try {
+      localStorage.setItem('kaordo-rondo-sounds', enabled ? 'on' : 'off');
+    } catch {
+      // The live choice remains usable when browser storage is unavailable
+    }
   }
   function selectServer(id: string) {
     if (serverId !== id && (voiceConnection || voiceBusy)) void stopVoice();
     serverId = id;
     channelId = null;
-    window.location.hash = formatRondoRoute(id, null);
+    syncRoomUrl();
     actionError = '';
     voiceError = '';
     mobileMembersOpen = false;
   }
   function selectChannel(id: string | null) {
     channelId = id;
-    if (serverId) window.location.hash = formatRondoRoute(serverId, id);
+    syncRoomUrl();
     draft = '';
     files = [];
     actionError = '';
@@ -364,7 +413,7 @@
       await queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] });
       serverId = null;
       channelId = null;
-      window.location.hash = '';
+      syncRoomUrl();
       leaveOpen = false;
     } catch (error) {
       actionError = errorMessage(error);
@@ -493,7 +542,7 @@
       const { VoiceConnection } = await import('@kaordo/voice-client');
       if (!isVoiceAttemptCurrent(generation, target)) return;
 
-      const connection = new VoiceConnection(sounds);
+      const connection = new VoiceConnection(sounds, voicePreferences);
       connectedToSounds = true;
       connection.setSoundEnabled(soundsEnabled);
       voiceConnection = connection;
@@ -532,8 +581,13 @@
 </script>
 
 <div class="flex h-[100dvh] flex-col bg-background">
-  <AppHeader name="Rondo" homeHref={appPaths.portal} wide />
-  <div class="mx-auto flex h-11 w-full max-w-[110rem] shrink-0 items-center gap-1 border-x border-b border-border/70 bg-card px-2 sm:px-3" role="toolbar" aria-label="Rondo panels">
+  <AppHeader name="Rondo" homeHref={appPaths.portal} wide backAction={settingsOpen ? closeSettings : null} />
+  {#if settingsOpen}
+    <DeferredRondoSettings preferences={voicePreferences} connected={voice.connected}
+      onDeviceChange={changeVoiceDevice} onVolumeChange={changeVoiceVolume} onBack={closeSettings} />
+  {/if}
+  <div class={settingsOpen ? 'hidden' : 'contents'}>
+  <div class="mx-auto flex min-h-11 w-full max-w-[110rem] shrink-0 items-center gap-1 border-x border-b border-border/70 bg-card px-2 sm:px-3" role="group" aria-label="Rondo panels">
     {#if !serversOpen}
       <Button bind:ref={showServersButton} variant="ghost" size="icon-xs" aria-label="Show servers" title="Show servers" onclick={toggleServers}><LayoutGridIcon class="size-4" /></Button>
     {/if}
@@ -544,8 +598,11 @@
     {#if detail && !membersVisible}
       <Button bind:ref={showMembersButton} variant="ghost" size="icon-xs" aria-label="Show members" title="Show members" onclick={toggleMembers}><PanelRightIcon class="size-4" /></Button>
     {/if}
+    {#if !channel}
+      <Button variant="ghost" size="icon-xs" aria-label="Rondo settings" title="Voice & video settings" onclick={openSettings}><SettingsIcon class="size-4" /></Button>
+    {/if}
   </div>
-  <main id="main-content" tabindex="-1" class="relative mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 overflow-hidden border-x border-border/60">
+  <main bind:this={layoutRoot} id={settingsOpen ? undefined : 'main-content'} tabindex="-1" class="relative mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 overflow-hidden border-x border-border/60">
     {#if serversOpen}
       <nav id="rondo-servers" aria-label="Servers" class="flex w-14 shrink-0 flex-col items-center gap-1.5 overflow-hidden border-r border-border/75 bg-muted/35 px-1 py-2">
         <Button bind:ref={hideServersButton} variant="ghost" size="icon-xs" class="shrink-0" aria-label="Hide servers" title="Hide servers" onclick={toggleServers}><ChevronLeftIcon class="size-4" /></Button>
@@ -622,16 +679,23 @@
           onSoundsChanged={changeSounds} onDisconnect={() => { voiceError = ''; void stopVoice(); }} onError={(message) => { voiceError = message; }} />
       {/if}
       {#if channel}
-        <header class="grid min-h-16 shrink-0 grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-x-2 gap-y-2 border-b border-border/70 bg-card/75 px-3 py-2 shadow-xs sm:flex sm:gap-3 sm:px-6 sm:py-0">
+        <header class="grid min-h-16 shrink-0 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-border/70 bg-card/75 px-3 py-2 shadow-xs sm:flex sm:gap-3 sm:px-6 sm:py-0">
           <Button variant="ghost" size="icon-sm" class="sm:hidden" aria-label="Back to channels" onclick={() => selectChannel(null)}><ChevronLeftIcon class="size-5" /></Button>
           <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary-soft-foreground"><HashIcon class="size-5" /></span>
           <div class="min-w-0 flex-1"><h2 class="truncate text-sm font-bold">{channel.name}</h2><p class="truncate text-xs text-muted-foreground">{detail?.server.name} · text and voice</p></div>
+          <Button variant="ghost" size="icon-sm" aria-label="Rondo settings" title="Voice & video settings" onclick={openSettings}><SettingsIcon class="size-4" /></Button>
           {#if voiceChannelId === channel.id}
-            <span class="col-span-3 inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-primary-soft px-2.5 py-1.5 text-xs font-semibold text-primary-soft-foreground sm:w-auto"><span class="size-2 rounded-full bg-emerald-500"></span>Voice connected</span>
+            <span class="col-span-4 inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-primary-soft px-2.5 py-1.5 text-xs font-semibold text-primary-soft-foreground sm:w-auto"><span class="size-2 rounded-full bg-emerald-500"></span>Voice connected</span>
           {:else}
-            <Button size="sm" class="col-span-3 w-full sm:w-auto" disabled={voiceBusy} onclick={() => void startVoice(channel)}><MicIcon class="size-4" /> {voiceBusy ? 'Connecting…' : voiceChannelId ? 'Switch voice' : 'Join voice'}</Button>
+            <Button size="sm" class="col-span-4 w-full sm:w-auto" disabled={voiceBusy} onclick={() => void startVoice(channel)}><MicIcon class="size-4" /> {voiceBusy ? 'Connecting…' : voiceChannelId ? 'Switch voice' : 'Join voice'}</Button>
           {/if}
         </header>
+        {#if liveUnavailable}
+          <div class="flex shrink-0 items-center gap-3 border-b border-border bg-muted/35 px-4 py-2">
+            <p class="min-w-0 flex-1 text-xs leading-5 text-muted-foreground" role="status">Messages refresh automatically while live updates are paused.</p>
+            <Button variant="outline" size="xs" onclick={subscribeToMessageUpdates} aria-label="Reconnect live updates">Reconnect</Button>
+          </div>
+        {/if}
         {#if actionError}<p class="mx-4 mt-3 rounded-xl bg-destructive/10 p-3 text-sm text-destructive" role="alert">{actionError}</p>{/if}
         {#if messagesQuery.error}
           <div class="m-4 rounded-xl bg-destructive/10 p-4 text-sm text-destructive" role="alert">Could not load messages.<Button variant="outline" size="xs" class="ml-2" onclick={() => void messagesQuery.refetch()}>Retry</Button></div>
@@ -667,6 +731,7 @@
       </aside>
     {/if}
   </main>
+  </div>
 </div>
 
 <Dialog.Root open={!!detail && !wideMembers && membersVisible} onOpenChange={(open) => { if (!open) closeMembersDialog(); }}>

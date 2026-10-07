@@ -1,16 +1,9 @@
 // Checks public entry reflow, accessibility, and color-mode persistence across independent apps
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { resolve } from 'node:path';
-import test from 'node:test';
-import AxeBuilder from '@axe-core/playwright';
-import { chromium } from 'playwright-core';
-import sirv from 'sirv';
+import { assertAccessible as accessible } from './ui-accessibility.mjs';
+import { test, expect, installSignedOutIdentity } from './ui-fixture.mjs';
 
-const macChrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const chrome = process.env.CHROME_BIN || (existsSync(macChrome) ? macChrome : undefined);
-const pages = resolve(import.meta.dirname, '../dist/pages');
+test.beforeEach(async ({ context }) => { await installSignedOutIdentity(context); });
 
 async function colorMode(page, expected) {
   await page.waitForFunction((mode) =>
@@ -21,6 +14,7 @@ async function colorMode(page, expected) {
 
 async function themePreference(browser, base) {
   const context = await browser.newContext({ colorScheme: 'light', reducedMotion: 'reduce' });
+  await installSignedOutIdentity(context);
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -48,7 +42,7 @@ async function themePreference(browser, base) {
   // Blocking hydration verifies that the inline head script applies the preference independently
   const prepaint = await context.newPage();
   await prepaint.route('**/*.js', (route) => route.abort());
-  for (const route of ['/', '/fluo/', '/ligo/', '/rondo/', '/regado/']) {
+  for (const route of ['/', '/fluo/', '/ligo/', '/rondo/', '/lingvo/', '/regado/']) {
     await prepaint.goto(base + route, { waitUntil: 'domcontentloaded' });
     await colorMode(prepaint, 'dark');
     const primary = await prepaint.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim());
@@ -74,58 +68,38 @@ async function themePreference(browser, base) {
   await context.close();
 }
 
-test('public app entry screens reflow and meet automated WCAG 2.2 A/AA checks', async () => {
-  assert.ok(existsSync(resolve(pages, 'index.html')), 'run pnpm build:pages first');
-
-  const assets = sirv(pages, { dev: true });
-  const server = createServer((request, response) => assets(request, response));
-  await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  let browser;
-  try {
-    browser = await chromium.launch({ headless: true, executablePath: chrome });
-    const browserContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    const page = await browserContext.newPage();
-    for (const route of ['/', '/fluo/', '/ligo/', '/rondo/', '/regado/']) {
-      await page.goto(base + route, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('heading', { level: 1 }).first().waitFor();
-      await page.evaluate(() => document.documentElement.classList.remove('dark'));
-      await page.waitForTimeout(220);
-      for (const width of [320, 768, 1280]) {
-        await page.setViewportSize({ width, height: 800 });
-        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-        assert.ok(overflow <= 1, `${route} overflows ${width}px viewport by ${overflow}px`);
-        const { violations } = await new AxeBuilder({ page })
-          .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
-          .analyze();
-        assert.deepEqual(violations.map(({ id, nodes }) => ({
-          id, targets: nodes.map(({ target, html, failureSummary }) => ({ target, html, failureSummary }))
-        })), [], `${route} has automated accessibility violations at ${width}px`);
-      }
-      await page.setViewportSize({ width: 320, height: 800 });
-      await page.evaluate(() => document.documentElement.classList.add('dark'));
-      await page.waitForTimeout(220);
-      const darkOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      assert.ok(darkOverflow <= 1, `${route} overflows dark 320px viewport by ${darkOverflow}px`);
-      const { violations } = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
-        .analyze();
-      assert.deepEqual(violations.map(({ id, nodes }) => ({
-        id, targets: nodes.map(({ target, html, failureSummary }) => ({ target, html, failureSummary }))
-      })), [], `${route} has automated dark-theme accessibility violations at 320px`);
-    }
-
-    await page.goto(base + '/', { waitUntil: 'domcontentloaded' });
-    await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), 'Skip to main content');
+for (const route of ['/', '/fluo/', '/ligo/', '/rondo/', '/lingvo/', '/regado/']) {
+  test(`${route} public entry reflows and meets automated WCAG 2.2 A/AA checks`, async ({ page, staticOrigin, browserName }) => {
+    await page.goto(staticOrigin + route);
+    await page.getByRole('heading', { level: 1 }).first().waitFor();
+    await page.getByRole('link', { name: 'Sign in', exact: true }).first().waitFor();
+    await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+    await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused();
     await page.keyboard.press('Enter');
-    assert.equal(await page.evaluate(() => document.activeElement?.id), 'main-content',
-      'Keyboard users must be able to skip directly to the portal content');
-    const ligo = page.getByRole('link', { name: /Open Ligo/ });
-    assert.equal(await ligo.getAttribute('href'), '/ligo/', 'portal must link to the available Ligo app');
-    await themePreference(browser, base);
-  } finally {
-    await browser?.close();
-    await new Promise((resolveClose) => server.close(resolveClose));
-  }
+    await expect(page.locator('main')).toBeFocused();
+    for (const width of [320, 768, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+        { message: `${route} must reflow at ${width}px` }).toBeLessThanOrEqual(1);
+      await accessible(page, `${route} at ${width}px`);
+    }
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.evaluate(() => localStorage.setItem('kaordo.color-mode', 'dark'));
+    await page.reload();
+    await colorMode(page, 'dark');
+    await page.getByRole('link', { name: 'Sign in', exact: true }).first().waitFor();
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+      { message: `${route} dark entry must reflow at 320px` }).toBeLessThanOrEqual(1);
+    await accessible(page, `${route} dark at 320px`);
+  });
+}
+
+test('Portal supports skip navigation and color preferences persist across independent apps', async ({ page, browser, staticOrigin, browserName }) => {
+  await page.goto(staticOrigin);
+  await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), 'Skip to main content');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'main-content');
+  await expect(page.getByRole('link', { name: /Open Ligo/ })).toHaveAttribute('href', '/ligo/');
+  await themePreference(browser, staticOrigin);
 });

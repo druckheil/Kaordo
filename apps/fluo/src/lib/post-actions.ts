@@ -1,72 +1,64 @@
-// Coordinates post mutations and keeps feed cache updates consistent
+// Coordinates cancellable Fluo post mutations and shared content cache invalidation
 
-import type { QueryClient, InfiniteData } from '@tanstack/svelte-query';
-import type { FluoPage, FluoPost } from '@kaordo/contracts';
-import type { FluoApi } from '@kaordo/api-client';
+import type { QueryClient } from '@tanstack/svelte-query';
+import type { FluoPost } from '@kaordo/contracts';
+import { invalidateFluoPostQueries, type FluoApi } from '@kaordo/api-client';
 import { errorMessage } from './fluo-model';
-
-type PostReaction = 'good' | 'bad' | null;
 
 export function createFluoPostActions(
   api: FluoApi,
   queryClient: QueryClient,
   onError: (message: string) => void,
 ) {
-  async function run(
-    action: () => Promise<unknown>,
+  const lifetime = new AbortController();
+
+  async function run<T>(
+    action: (signal: AbortSignal) => Promise<T>,
     fallbackMessage: string,
-    refresh: () => Promise<unknown>,
-  ): Promise<void> {
+    refresh: () => Promise<unknown> = () => invalidateFluoPostQueries(queryClient),
+  ): Promise<T | undefined> {
+    if (lifetime.signal.aborted) return;
     try {
       onError('');
-      await action();
+      const result = await action(lifetime.signal);
+      if (lifetime.signal.aborted) return;
       await refresh();
+      return lifetime.signal.aborted ? undefined : result;
     } catch (cause) {
-      onError(errorMessage(cause, fallbackMessage));
+      if (!lifetime.signal.aborted) onError(errorMessage(cause, fallbackMessage));
     }
   }
 
   return {
-    react(post: FluoPost, value: PostReaction): Promise<void> {
+    dispose(): void {
+      lifetime.abort();
+    },
+    react(post: FluoPost, value: FluoPost['myReaction']): Promise<FluoPost | undefined> {
       return run(
-        () => api.react(post.id, value),
+        (signal) => api.react(post.id, value, signal),
         'Could not save your reaction.',
-        () => queryClient.invalidateQueries({ queryKey: ['fluo'] }),
       );
     },
     follow(post: FluoPost): Promise<void> {
       return run(
-        () => api.follow(post.author.id, !post.author.following),
+        (signal) => api.follow(post.author.id, !post.author.following, signal),
         'Could not change your follow list.',
-        () => queryClient.invalidateQueries({ queryKey: ['fluo'] }),
       );
     },
     save(post: FluoPost): Promise<void> {
       return run(
-        () => api.setSaved(post.id, !post.saved),
+        (signal) => api.setSaved(post.id, !post.saved, signal),
         'Could not update your saved posts.',
-        () => queryClient.invalidateQueries({ queryKey: ['fluo'] }),
       );
     },
     setVisibility(post: FluoPost, visibility: FluoPost['visibility']): Promise<void> {
       return run(
-        () => api.setVisibility(post.id, visibility),
+        (signal) => api.setVisibility(post.id, visibility, signal),
         'Could not change the post visibility.',
-        () => queryClient.invalidateQueries({ queryKey: ['fluo'] }),
+        () => invalidateFluoPostQueries(queryClient, { notifications: true }),
       );
     },
   };
 }
 
-export function removePostFromCachedFeeds(queryClient: QueryClient, postId: string): void {
-  queryClient.setQueriesData<InfiniteData<FluoPage>>({ queryKey: ['fluo', 'feed'] }, (cached) => {
-    if (!cached) return cached;
-    return {
-      ...cached,
-      pages: cached.pages.map((page) => ({
-        ...page,
-        items: page.items.filter((item) => item.id !== postId),
-      })),
-    };
-  });
-}
+export type FluoPostActionHandlers = ReturnType<typeof createFluoPostActions>;

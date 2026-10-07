@@ -2,20 +2,53 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseEnv, promisify } from 'node:util';
-import test from 'node:test';
-import AxeBuilder from '@axe-core/playwright';
-import { chromium } from 'playwright-core';
+import { assertAccessible as checkAccessibility } from './ui-accessibility.mjs';
+import { test, expect } from '@playwright/test';
 
 const run = promisify(execFile);
 const site = 'http://localhost:8765';
 const identity = 'http://localhost:8080';
-const macChrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const chrome = process.env.CHROME_BIN || (existsSync(macChrome) ? macChrome : undefined);
+
+test.afterEach(async ({ browser }) => {
+  await Promise.all(browser.contexts().map((context) => context.close()));
+});
+
+async function identityContext(browser, options = {}) {
+  const context = await browser.newContext({
+    locale: 'en-US', timezoneId: 'UTC', reducedMotion: 'reduce', ...options,
+  });
+  context.setDefaultTimeout(10_000);
+  context.setDefaultNavigationTimeout(15_000);
+  return context;
+}
+
+async function checkSoundStorageFallback(page) {
+  const errors = [];
+  const rememberError = error => errors.push(error.message);
+  page.on('pageerror', rememberError);
+  await page.evaluate(() => {
+    const persist = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === 'kaordo-rondo-sounds') throw new DOMException('Browser storage is unavailable', 'QuotaExceededError');
+      return persist.call(this, key, value);
+    };
+    window.restoreSoundStorage = () => { Storage.prototype.setItem = persist; delete window.restoreSoundStorage; };
+  });
+  try {
+    await page.getByRole('button', { name: 'Mute interface sounds', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Enable interface sounds', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Enable interface sounds', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Mute interface sounds', exact: true })).toBeVisible();
+    assert.deepEqual(errors, [], 'Live sound controls keep working when the browser cannot save a preference');
+  } finally {
+    await page.evaluate(() => window.restoreSoundStorage());
+    page.off('pageerror', rememberError);
+  }
+}
 
 function identityEntryURL() {
   const url = new URL(`${identity}/realms/kaordo/protocol/openid-connect/auth`);
@@ -40,19 +73,6 @@ function codeFor(secret) {
   const digest = createHmac('sha1', Buffer.from(secret, 'utf8')).update(counter).digest();
   const offset = digest.at(-1) & 15;
   return String((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, '0');
-}
-
-async function checkAccessibility(page, stage) {
-  await page.waitForLoadState('load');
-  const { violations } = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
-    .analyze();
-  const summary = violations.map((violation) => ({
-    id: violation.id,
-    impact: violation.impact,
-    targets: violation.nodes.map((node) => ({ target: node.target, html: node.html, data: node.any.map((check) => check.data) }))
-  }));
-  assert.deepEqual(summary, [], `${stage} must have no automated WCAG A/AA violations`);
 }
 
 async function waitForRestoredScroll(page, target) {
@@ -188,7 +208,7 @@ async function checkInvalidInputAppearance(input) {
     };
   });
   assert.equal(style.invalid, 'true', 'The server reports the field validation error');
-  assert.equal(style.outline, 'none', 'Invalid fields must not add a purple outline to their error ring');
+  assert.equal(style.outline, 'solid', 'An invalid field retains a distinct keyboard focus outline');
   assert.equal(style.shadow, unfocusedShadow, 'Focusing an invalid field preserves its single error indicator');
   assert.equal(style.background, 'none', 'Validation must not paint a background icon over the text');
   assert.deepEqual(style.widths, ['1px', '1px', '1px', '1px'], 'Validation must not thicken the bottom border');
@@ -211,7 +231,7 @@ async function checkPasswordAppearance(page) {
       };
     });
     assert.equal(appearance.after, 'none', `Password visibility has no inherited white border while ${state}`);
-    assert.equal(appearance.outline, 'none', `Password visibility uses one themed focus indicator while ${state}`);
+    assert.equal(appearance.outline, state === 'keyboard' ? 'solid' : 'none', `Password visibility has a distinct keyboard focus indicator while ${state}`);
     if (state === 'keyboard') assert.equal(appearance.focused, true, 'Visibility remains accessible with the keyboard');
   }
 }
@@ -279,7 +299,8 @@ async function administrator() {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function removeTemporaryUser(username, { applicationData = true } = {}) {
+async function cleanupTemporaryUser(browser, username, { applicationData = true } = {}) {
+  await Promise.all(browser.contexts().map((context) => context.close()));
   const headers = await administrator();
   const response = await fetch(`${identity}/admin/realms/kaordo/users?username=${encodeURIComponent(username)}&exact=true`, { headers });
   assert.equal(response.status, 200, 'Temporary identity lookup must succeed');
@@ -297,11 +318,10 @@ async function removeTemporaryUser(username, { applicationData = true } = {}) {
   }
 }
 
-test('remembered OIDC sessions survive browser restart, rotate independently, and end on logout', { timeout: 60_000 }, async () => {
+test('remembered OIDC sessions survive browser restart, rotate independently, and end on logout', async ({ browser }) => {
   const username = `test_sessions_${randomBytes(6).toString('hex')}`;
   const password = `Qa!${randomBytes(18).toString('hex')}`;
   const headers = await administrator();
-  const browser = await chromium.launch({ headless: true, executablePath: chrome });
   const tokenEndpoint = `${identity}/realms/kaordo/protocol/openid-connect/token`;
   const claims = (token) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
 
@@ -360,7 +380,7 @@ test('remembered OIDC sessions survive browser restart, rotate independently, an
   }
 
   async function createContext(cookies = []) {
-    const context = await browser.newContext();
+    const context = await identityContext(browser);
     await context.addCookies(cookies);
     await context.route(`${site}/**`, (route) => route.fulfill({
       contentType: 'text/html', body: '<!doctype html><title>Session test callback</title>'
@@ -432,73 +452,66 @@ test('remembered OIDC sessions survive browser restart, rotate independently, an
     await page.locator('#kc-form-login').waitFor();
     await resumed.close();
   } finally {
-    await browser.close();
-    await removeTemporaryUser(username, { applicationData: false });
+    await cleanupTemporaryUser(browser, username, { applicationData: false });
   }
 });
 
-test('identity theme follows persisted color mode on native credential forms', { timeout: 60_000 }, async () => {
-  const browser = await chromium.launch({ headless: true, executablePath: chrome });
-  try {
-    for (const mode of ['light', 'dark']) {
-      const context = await browser.newContext({ colorScheme: mode === 'dark' ? 'light' : 'dark' });
-      await context.addInitScript((preference) => localStorage.setItem('kaordo.color-mode', preference), mode);
-      const page = await context.newPage();
-      const url = identityEntryURL();
-      await page.goto(url);
-      await page.locator('#kc-form-login').waitFor();
-      await checkCredentialInputs(page, 'login');
-      assert.equal(await page.evaluate(() => document.documentElement.classList.contains('dark')), mode === 'dark',
-        'Saved preference overrides the opposite system setting before the form is shown');
-      assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'deep-purple');
-      for (const form of ['login', 'registration']) {
-        if (form === 'registration') {
-          await page.getByRole('link', { name: 'Register', exact: true }).click();
-          await page.locator('#kc-register-form').waitFor();
-        }
-        const inputs = await checkCredentialInputs(page, form === 'login' ? 'login' : 'register');
-        if (form === 'registration') {
-          const passwordVisibility = page.locator('#kc-register-form [data-password-toggle]');
-          assert.equal(await passwordVisibility.getAttribute('aria-controls'), 'password');
-          const originalLabel = await passwordVisibility.getAttribute('aria-label');
-          await passwordVisibility.click();
-          assert.equal(await page.locator('#password').getAttribute('type'), 'text',
-            'Keycloak visibility control reveals the registration password');
-          assert.notEqual(await passwordVisibility.getAttribute('aria-label'), originalLabel,
-            'Password visibility exposes its changed action to assistive technology');
-          await passwordVisibility.click();
-          assert.equal(await page.locator('#password').getAttribute('type'), 'password');
-          assert.ok(inputs[1].autocomplete === 'new-password');
-        }
-        await checkPasswordAppearance(page);
-        await capture(page, `identity-${form}-${mode}`);
-        for (const width of [1280, 320]) {
-          await page.setViewportSize({ width, height: 800 });
-          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-            `${form} reflows at ${width}px in ${mode} mode`);
-          await checkAccessibility(page, `${form} ${mode} ${width}px`);
-        }
+test('identity theme follows persisted color mode on native credential forms', async ({ browser }) => {
+  for (const mode of ['light', 'dark']) {
+    const context = await identityContext(browser, { colorScheme: mode === 'dark' ? 'light' : 'dark' });
+    await context.addInitScript((preference) => localStorage.setItem('kaordo.color-mode', preference), mode);
+    const page = await context.newPage();
+    const url = identityEntryURL();
+    await page.goto(url);
+    await page.locator('#kc-form-login').waitFor();
+    await checkCredentialInputs(page, 'login');
+    assert.equal(await page.evaluate(() => document.documentElement.classList.contains('dark')), mode === 'dark',
+      'Saved preference overrides the opposite system setting before the form is shown');
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'deep-purple');
+    for (const form of ['login', 'registration']) {
+      if (form === 'registration') {
+        await page.getByRole('link', { name: 'Register', exact: true }).click();
+        await page.locator('#kc-register-form').waitFor();
       }
-      await page.goto(url);
-      await page.locator('#kc-form-login').waitFor();
-      await page.locator('[name=username]').fill(`invalid_${randomBytes(5).toString('hex')}`);
-      await page.locator('[name=password]').fill('incorrect-password');
-      await page.locator('#kc-login').click();
-      await page.locator('#input-error').waitFor();
-      await checkCredentialErrorStyles(page);
-      await context.close();
+      const inputs = await checkCredentialInputs(page, form === 'login' ? 'login' : 'register');
+      if (form === 'registration') {
+        const passwordVisibility = page.locator('#kc-register-form [data-password-toggle]');
+        assert.equal(await passwordVisibility.getAttribute('aria-controls'), 'password');
+        const originalLabel = await passwordVisibility.getAttribute('aria-label');
+        await passwordVisibility.click();
+        assert.equal(await page.locator('#password').getAttribute('type'), 'text',
+          'Keycloak visibility control reveals the registration password');
+        assert.notEqual(await passwordVisibility.getAttribute('aria-label'), originalLabel,
+          'Password visibility exposes its changed action to assistive technology');
+        await passwordVisibility.click();
+        assert.equal(await page.locator('#password').getAttribute('type'), 'password');
+        assert.ok(inputs[1].autocomplete === 'new-password');
+      }
+      await checkPasswordAppearance(page);
+      await capture(page, `identity-${form}-${mode}`);
+      for (const width of [1280, 320]) {
+        await page.setViewportSize({ width, height: 800 });
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+          `${form} reflows at ${width}px in ${mode} mode`);
+        await checkAccessibility(page, `${form} ${mode} ${width}px`);
+      }
     }
-  } finally {
-    await browser.close();
+    await page.goto(url);
+    await page.locator('#kc-form-login').waitFor();
+    await page.locator('[name=username]').fill(`invalid_${randomBytes(5).toString('hex')}`);
+    await page.locator('[name=password]').fill('incorrect-password');
+    await page.locator('#kc-login').click();
+    await page.locator('#input-error').waitFor();
+    await checkCredentialErrorStyles(page);
+    await context.close();
   }
 });
 
-test('identity OTP errors keep one input boundary in both color modes', { timeout: 60_000 }, async () => {
+test('identity OTP errors keep one input boundary in both color modes', async ({ browser }) => {
   const username = `test_identity_${randomBytes(6).toString('hex')}`;
   const password = `Qa!${randomBytes(18).toString('hex')}`;
-  const browser = await chromium.launch({ headless: true, executablePath: chrome });
   try {
-    const context = await browser.newContext({ colorScheme: 'dark' });
+    const context = await identityContext(browser, { colorScheme: 'dark' });
     const page = await context.newPage();
     // Finish Keycloak's setup without bootstrapping an application account.
     await page.route(`${site}/**`, (route) => route.fulfill({
@@ -535,18 +548,16 @@ test('identity OTP errors keep one input boundary in both color modes', { timeou
       await capture(page, `identity-invalid-otp-${mode}`);
     }
   } finally {
-    await browser.close();
-    await removeTemporaryUser(username, { applicationData: false });
+    await cleanupTemporaryUser(browser, username, { applicationData: false });
   }
 });
 
-test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo and app SSO', { timeout: 210_000 }, async () => {
+test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo, Lingvo and app SSO', async ({ browser }) => {
+  test.setTimeout(120_000);
   const username = `test_${randomBytes(6).toString('hex')}`;
   const password = `Qa!${randomBytes(18).toString('hex')}`;
-  const browser = await chromium.launch({ headless: true, executablePath: chrome,
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
   try {
-    const context = await browser.newContext();
+    const context = await identityContext(browser);
     const page = await context.newPage();
     const pageErrors = [];
     const voiceTokenResponses = [];
@@ -683,295 +694,354 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame()) mainNavigations.push(frame.url());
     });
-    for (const app of ['ligo', 'fluo', 'rondo', 'regado']) {
-      if (app === 'ligo') {
-        await checkCachedPreview(page, () => page.goto(`${site}/${app}/`), `Welcome back, ${username}.`);
-      } else {
-        const appResponse = page.waitForResponse((response) => isApiResponse(response, '/v1/session', 'POST'));
-        await page.goto(`${site}/${app}/`);
-        assert.equal((await appResponse).status(), 200);
-      }
-      if (app === 'fluo') {
-        await page.getByRole('navigation', { name: 'Fluo navigation' }).waitFor();
-      } else if (app === 'ligo') {
-        await page.getByRole('heading', { name: 'Chats' }).waitFor();
-      } else if (app === 'rondo') {
-        await page.getByRole('navigation', { name: 'Servers' }).waitFor();
-      } else {
-        await page.getByRole("heading", { name: "Administrator access required", exact: true }).waitFor();
-      }
-      await checkAccessibility(page, `${app} account gate`);
-      await page.setViewportSize({ width: 320, height: 768 });
-      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-        `${app} must reflow at 320 CSS pixels`);
-      await checkAccessibility(page, `${app} at 320px`);
-      await page.setViewportSize({ width: 1280, height: 720 });
-      if (app === 'rondo') {
-        await page.getByRole('button', { name: 'Create server' }).click();
-        const serverDialog = page.getByRole('dialog', { name: 'Create a server' });
-        const serverName = `UI community ${randomBytes(3).toString('hex')}`;
-        await serverDialog.getByLabel('Server name').fill(serverName);
-        await serverDialog.getByRole('button', { name: 'Create server' }).click();
-        await serverDialog.waitFor({ state: 'detached' });
-        const closingDialogText = await page.locator('[data-slot="dialog-content"]').allTextContents();
-        assert.ok(closingDialogText.every((text) => !text.includes('Invite a member')),
-          'A closing server dialog must not morph into a different dialog during its exit animation');
-        await page.getByRole('heading', { name: serverName }).waitFor();
-        await page.getByRole('textbox', { name: 'Write a message' }).waitFor();
-        await page.waitForTimeout(180);
-        await capture(page, 'rondo-channel');
-        await checkAccessibility(page, 'Rondo channel');
-        await page.getByRole('button', { name: 'Hide servers' }).click();
-        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Show servers',
-          'Collapsing a panel must keep keyboard focus on its replacement control');
-        await page.getByRole('button', { name: 'Show servers' }).click();
-        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Hide servers');
-        await page.getByRole('button', { name: 'Hide channels' }).click();
-        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Show channels');
-        await page.getByRole('button', { name: 'Show channels' }).click();
-        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Hide channels');
-        const messageText = `Rondo UI check ${randomBytes(3).toString('hex')}`;
-        await page.getByRole('textbox', { name: 'Write a message' }).fill(messageText);
-        await page.getByRole('button', { name: 'Send message' }).click();
-        await page.getByRole('log', { name: 'Messages' }).getByText(messageText).waitFor();
-        await page.getByRole('button', { name: 'Join voice' }).click();
-        const voiceControls = page.getByRole('group', { name: 'Voice controls' });
-        try {
-          await voiceControls.waitFor({ timeout: 15_000 });
-        } catch (cause) {
-          const voiceErrorText = await page.getByRole('alert').allTextContents();
-          const voiceResponses = await Promise.all(voiceTokenResponses.map(async (response) => ({
-            status: response.status(),
-            error: response.ok() ? undefined : await response.text()
-          })));
-          throw new Error(`Rondo voice controls were not rendered: ${JSON.stringify({
-            voiceErrorText, voiceResponses, pageErrors, currentUrl: page.url(), mainNavigations
-          })}`, { cause });
+    for (const app of ['ligo', 'fluo', 'rondo', 'lingvo', 'regado']) {
+      await test.step(`${app} SSO, access and product interactions`, async () => {
+        if (app === 'ligo') {
+          await checkCachedPreview(page, () => page.goto(`${site}/${app}/`), `Welcome back, ${username}.`);
+        } else {
+          const appResponse = page.waitForResponse((response) => isApiResponse(response, '/v1/session', 'POST'));
+          await page.goto(`${site}/${app}/`);
+          assert.equal((await appResponse).status(), 200);
         }
-        await page.getByRole('button', { name: 'Turn on camera' }).click();
-        await page.getByLabel('Live video streams').locator('video').waitFor({ timeout: 15_000 });
-        await capture(page, 'rondo-voice');
-        await checkAccessibility(page, 'Rondo voice and video');
-        if (await page.evaluate(() => document.fullscreenEnabled)) {
-          const videoTile = page.locator('[data-voice-video-id]').first();
-          await videoTile.getByRole('button', { name: 'Fullscreen your camera' }).click();
-          await page.waitForFunction(() => document.fullscreenElement?.hasAttribute('data-voice-video-id'));
-          assert.equal(await videoTile.locator('video').evaluate((video) => getComputedStyle(video).objectFit), 'contain');
-          await videoTile.getByRole('button', { name: 'Exit fullscreen your camera' }).click();
-          await page.waitForFunction(() => !document.fullscreenElement);
-          await page.getByRole('button', { name: 'Fullscreen voice panel' }).click();
-          await page.waitForFunction(() => document.fullscreenElement?.classList.contains('voice-stage'));
+        if (app === 'fluo') {
+          await page.getByRole('navigation', { name: 'Fluo navigation' }).waitFor();
+        } else if (app === 'ligo') {
+          await page.getByRole('heading', { name: 'Chats' }).waitFor();
+        } else if (app === 'rondo') {
+          await page.getByRole('navigation', { name: 'Servers' }).waitFor();
+        } else if (app === 'lingvo') {
+          await page.getByRole('button', { name: 'Open my dictionary', exact: true }).waitFor();
+        } else {
+          await page.getByRole("heading", { name: "Administrator access required", exact: true }).waitFor();
+        }
+        await checkAccessibility(page, `${app} account gate`);
+        await page.setViewportSize({ width: 320, height: 768 });
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+          `${app} must reflow at 320 CSS pixels`);
+        await checkAccessibility(page, `${app} at 320px`);
+        await page.setViewportSize({ width: 1280, height: 720 });
+        if (app === 'lingvo') {
+          await page.getByRole('radiogroup', { name: 'My native language' }).getByRole('radio', { name: /English/ }).check();
+          const dictionaryResponse = page.waitForResponse(response => isApiResponse(response, '/v1/lingvo/dictionaries', 'POST'));
+          await page.getByRole('button', { name: 'Open my dictionary', exact: true }).click();
+          const createdDictionary = await dictionaryResponse;
+          assert.equal(createdDictionary.status(), 201, 'A language pair must create a private dictionary');
+          const dictionary = await createdDictionary.json();
+          assert.equal(dictionary.learningLanguage, 'de');
+          assert.equal(dictionary.nativeLanguage, 'en');
+          await page.getByRole('button', { name: 'Add card', exact: true }).click();
+          const editor = page.getByRole('dialog', { name: 'Add a card', exact: true });
+          await editor.getByLabel('German word', { exact: true }).fill('Buch');
+          await editor.getByLabel('English translation', { exact: true }).fill('book');
+          await editor.getByRole('button', { name: 'Part of speech', exact: true }).click();
+          await page.getByRole('menuitemradio', { name: 'Noun', exact: true }).click();
+          await editor.getByRole('radiogroup', { name: 'Article', exact: true }).getByRole('radio', { name: 'das', exact: true }).check();
+          const cardResponse = page.waitForResponse(response => isApiResponse(response, `/v1/lingvo/dictionaries/${dictionary.id}/cards`, 'POST'));
+          await editor.getByRole('button', { name: 'Add card', exact: true }).click();
+          const createdCard = await cardResponse;
+          assert.equal(createdCard.status(), 201, 'The editor must persist a complete German card');
+          const card = await createdCard.json();
+          assert.equal(card.article, 'das');
+          assert.equal(card.translation, 'book');
+          assert.equal(card.schedule.reps, 0);
+          await editor.waitFor({ state: 'detached' });
+          const navigation = page.getByRole('navigation', { name: 'Lingvo', exact: true });
+          await navigation.getByRole('link', { name: 'My dictionary', exact: true }).click();
+          await page.getByRole('heading', { name: 'My dictionary', exact: true }).waitFor();
+          await page.getByText('book', { exact: true }).waitFor();
+          await page.reload();
+          await page.getByText('book', { exact: true }).waitFor();
+          await expect(page.getByText('1 word', { exact: true })).toBeVisible();
+          await checkAccessibility(page, 'Lingvo saved dictionary');
+          await navigation.getByRole('link', { name: 'Learn words', exact: true }).click();
+          await page.getByRole('button', { name: /^Start learning/ }).click();
+          await page.getByRole('button', { name: 'Show answer', exact: true }).click();
+          const reviewResponse = page.waitForResponse(response => isApiResponse(response, `/v1/lingvo/dictionaries/${dictionary.id}/cards/${card.id}/reviews`, 'POST'));
+          await page.getByRole('button', { name: /^Good ·/ }).click();
+          const savedReview = await reviewResponse;
+          assert.equal(savedReview.status(), 200, 'Practice must save an authoritative review');
+          const review = await savedReview.json();
+          assert.equal(review.card.schedule.reps, 1);
+          assert.ok(review.card.revision > card.revision);
+          await page.getByRole('heading', { name: 'Good work for today.', exact: true }).waitFor();
+          const undoResponse = page.waitForResponse(response => isApiResponse(response, `/v1/lingvo/dictionaries/${dictionary.id}/reviews/${review.id}/undo`, 'POST'));
+          await page.getByRole('button', { name: 'Undo', exact: true }).click();
+          const undoneReview = await undoResponse;
+          assert.equal(undoneReview.status(), 200, 'Undo must restore the persisted card schedule');
+          const restored = await undoneReview.json();
+          assert.equal(restored.schedule.reps, 0);
+          assert.equal(restored.term, 'Buch');
+          await page.getByRole('button', { name: 'Show answer', exact: true }).waitFor();
+          await checkAccessibility(page, 'Lingvo restored flashcard practice');
+        }
+        if (app === 'rondo') {
+          await page.getByRole('button', { name: 'Create server' }).click();
+          const serverDialog = page.getByRole('dialog', { name: 'Create a server' });
+          const serverName = `UI community ${randomBytes(3).toString('hex')}`;
+          await serverDialog.getByLabel('Server name').fill(serverName);
+          await serverDialog.getByRole('button', { name: 'Create server' }).click();
+          await serverDialog.waitFor({ state: 'detached' });
+          const closingDialogText = await page.locator('[data-slot="dialog-content"]').allTextContents();
+          assert.ok(closingDialogText.every((text) => !text.includes('Invite a member')),
+            'A closing server dialog must not morph into a different dialog during its exit animation');
+          await page.getByRole('heading', { name: serverName }).waitFor();
+          await page.getByRole('textbox', { name: 'Write a message' }).waitFor();
+          await page.waitForTimeout(180);
+          await capture(page, 'rondo-channel');
+          await checkAccessibility(page, 'Rondo channel');
+          await page.getByRole('button', { name: 'Hide servers' }).click();
+          assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Show servers',
+            'Collapsing a panel must keep keyboard focus on its replacement control');
+          await page.getByRole('button', { name: 'Show servers' }).click();
+          assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Hide servers');
+          await page.getByRole('button', { name: 'Hide channels' }).click();
+          assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Show channels');
+          await page.getByRole('button', { name: 'Show channels' }).click();
+          assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Hide channels');
+          const messageText = `Rondo UI check ${randomBytes(3).toString('hex')}`;
+          await page.getByRole('textbox', { name: 'Write a message' }).fill(messageText);
+          await page.getByRole('button', { name: 'Send message' }).click();
+          await page.getByRole('log', { name: 'Messages' }).getByText(messageText).waitFor();
+          await page.getByRole('button', { name: 'Join voice' }).click();
+          const voiceControls = page.getByRole('group', { name: 'Voice controls' });
+          try {
+            await voiceControls.waitFor({ timeout: 15_000 });
+          } catch (cause) {
+            const voiceErrorText = await page.getByRole('alert').allTextContents();
+            const voiceResponses = await Promise.all(voiceTokenResponses.map(async (response) => ({
+              status: response.status(),
+              error: response.ok() ? undefined : await response.text()
+            })));
+            throw new Error(`Rondo voice controls were not rendered: ${JSON.stringify({
+              voiceErrorText, voiceResponses, pageErrors, currentUrl: page.url(), mainNavigations
+            })}`, { cause });
+          }
+          await checkSoundStorageFallback(page);
+          await page.getByRole('button', { name: 'Turn on camera' }).click();
+          await page.getByLabel('Live video streams').locator('video').waitFor({ timeout: 15_000 });
+          await capture(page, 'rondo-voice');
+          await checkAccessibility(page, 'Rondo voice and video');
+          if (await page.evaluate(() => document.fullscreenEnabled)) {
+            const videoTile = page.locator('[data-voice-video-id]').first();
+            await videoTile.getByRole('button', { name: 'Fullscreen your camera' }).click();
+            await page.waitForFunction(() => document.fullscreenElement?.hasAttribute('data-voice-video-id'));
+            assert.equal(await videoTile.locator('video').evaluate((video) => getComputedStyle(video).objectFit), 'contain');
+            await videoTile.getByRole('button', { name: 'Exit fullscreen your camera' }).click();
+            await page.waitForFunction(() => !document.fullscreenElement);
+            await page.getByRole('button', { name: 'Fullscreen voice panel' }).click();
+            await page.waitForFunction(() => document.fullscreenElement?.classList.contains('voice-stage'));
+            await page.keyboard.press('Escape');
+            // Headless Chromium does not always deliver Escape to its native fullscreen controller.
+            // Exit through the browser API in that case; the app observes the same fullscreenchange.
+            await page.evaluate(async () => {
+              if (document.fullscreenElement) await document.exitFullscreen();
+            });
+            await page.waitForFunction(() => !document.fullscreenElement);
+            assert.equal(await page.getByText('Fullscreen unavailable.', { exact: true }).count(), 0,
+              'Exiting fullscreen must not show an error');
+          }
+          await page.setViewportSize({ width: 320, height: 768 });
+          await page.waitForFunction(() => window.matchMedia('(max-width: 639px)').matches &&
+            document.querySelector('#rondo-channels') === null,
+          null, { timeout: 5_000 });
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+            'Rondo channel must reflow at 320 CSS pixels');
+          await capture(page, 'rondo-channel-mobile');
+          const channelHeader = await page.locator('section[aria-label="Channel conversation"] > header').evaluate((header) => {
+            const title = header.querySelector('h2').getBoundingClientRect();
+            const action = [...header.querySelectorAll('button, span')].find((item) =>
+              item.textContent?.trim() === 'Voice connected' || item.textContent?.trim() === 'Join voice');
+            return { titleBottom: title.bottom, actionTop: action?.getBoundingClientRect().top,
+              overflow: header.scrollWidth - header.clientWidth,
+              children: [...header.children].map((item) => ({ text: item.textContent?.trim(),
+                width: item.getBoundingClientRect().width, left: item.getBoundingClientRect().left,
+                right: item.getBoundingClientRect().right })) };
+          });
+          assert.ok(channelHeader.actionTop >= channelHeader.titleBottom - 1 && channelHeader.overflow <= 1,
+            `Rondo's mobile voice action must sit below the channel title without overlap: ${JSON.stringify(channelHeader)}`);
+          await checkAccessibility(page, 'Rondo channel at 320px');
+          await page.evaluate(() => document.documentElement.classList.add('dark'));
+          await page.waitForTimeout(220);
+          await checkAccessibility(page, 'Rondo voice at 320px in dark mode');
+          await capture(page, 'rondo-channel-dark-mobile');
+          await page.evaluate(() => document.documentElement.classList.remove('dark'));
+          await page.waitForTimeout(220);
+          const voiceStage = await page.locator('.voice-stage').evaluate((stage) => ({
+            height: stage.getBoundingClientRect().height, overflow: stage.scrollHeight - stage.clientHeight
+          }));
+          assert.ok(voiceStage.height < 330 && voiceStage.overflow <= 1,
+            `The compact mobile voice stage must not take over the conversation: ${JSON.stringify(voiceStage)}`);
+          await page.getByRole('button', { name: 'Show members' }).click();
+          await page.getByRole('dialog', { name: 'Server members' }).waitFor();
+          await checkAccessibility(page, 'Rondo mobile members panel');
           await page.keyboard.press('Escape');
-          // Headless Chromium does not always deliver Escape to its native fullscreen controller.
-          // Exit through the browser API in that case; the app observes the same fullscreenchange.
-          await page.evaluate(async () => {
-            if (document.fullscreenElement) await document.exitFullscreen();
-          });
-          await page.waitForFunction(() => !document.fullscreenElement);
-          assert.equal(await page.getByText('Fullscreen unavailable.', { exact: true }).count(), 0,
-            'Exiting fullscreen must not show an error');
+          await page.getByRole('dialog', { name: 'Server members' }).waitFor({ state: 'detached' });
+          assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Show members',
+            'Closing the mobile members panel must restore focus to its trigger');
+          await page.setViewportSize({ width: 1280, height: 720 });
+          await page.getByRole('button', { name: 'Disconnect from voice' }).click();
         }
-        await page.setViewportSize({ width: 320, height: 768 });
-        await page.waitForFunction(() => window.matchMedia('(max-width: 639px)').matches &&
-          document.querySelector('#rondo-channels') === null,
-        null, { timeout: 5_000 });
-        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-          'Rondo channel must reflow at 320 CSS pixels');
-        await capture(page, 'rondo-channel-mobile');
-        const channelHeader = await page.locator('section[aria-label="Channel conversation"] > header').evaluate((header) => {
-          const title = header.querySelector('h2').getBoundingClientRect();
-          const action = [...header.querySelectorAll('button, span')].find((item) =>
-            item.textContent?.trim() === 'Voice connected' || item.textContent?.trim() === 'Join voice');
-          return { titleBottom: title.bottom, actionTop: action?.getBoundingClientRect().top,
-            overflow: header.scrollWidth - header.clientWidth,
-            children: [...header.children].map((item) => ({ text: item.textContent?.trim(),
-              width: item.getBoundingClientRect().width, left: item.getBoundingClientRect().left,
-              right: item.getBoundingClientRect().right })) };
-        });
-        assert.ok(channelHeader.actionTop >= channelHeader.titleBottom - 1 && channelHeader.overflow <= 1,
-          `Rondo's mobile voice action must sit below the channel title without overlap: ${JSON.stringify(channelHeader)}`);
-        await checkAccessibility(page, 'Rondo channel at 320px');
-        await page.evaluate(() => document.documentElement.classList.add('dark'));
-        await page.waitForTimeout(220);
-        await checkAccessibility(page, 'Rondo voice at 320px in dark mode');
-        await capture(page, 'rondo-channel-dark-mobile');
-        await page.evaluate(() => document.documentElement.classList.remove('dark'));
-        await page.waitForTimeout(220);
-        const voiceStage = await page.locator('.voice-stage').evaluate((stage) => ({
-          height: stage.getBoundingClientRect().height, overflow: stage.scrollHeight - stage.clientHeight
-        }));
-        assert.ok(voiceStage.height < 330 && voiceStage.overflow <= 1,
-          `The compact mobile voice stage must not take over the conversation: ${JSON.stringify(voiceStage)}`);
-        await page.getByRole('button', { name: 'Show members' }).click();
-        await page.getByRole('dialog', { name: 'Server members' }).waitFor();
-        await checkAccessibility(page, 'Rondo mobile members panel');
-        await page.keyboard.press('Escape');
-        await page.getByRole('dialog', { name: 'Server members' }).waitFor({ state: 'detached' });
-        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Show members',
-          'Closing the mobile members panel must restore focus to its trigger');
-        await page.setViewportSize({ width: 1280, height: 720 });
-        await page.getByRole('button', { name: 'Disconnect from voice' }).click();
-      }
-      if (app === 'ligo') {
-        await page.getByRole('button', { name: 'Saved messages', exact: true }).first().click();
-        await page.getByRole('heading', { name: 'Saved messages' }).waitFor();
-        const messageText = `Ligo UI check ${randomBytes(3).toString('hex')}`;
-        await page.getByRole('textbox', { name: 'Write a message' }).fill(messageText);
-        await page.getByRole('button', { name: 'Send message' }).click();
-        const bubble = page.getByLabel(`Message from ${username}`).filter({ hasText: messageText });
-        await bubble.waitFor();
-        await capture(page, 'ligo-chat');
-        await checkAccessibility(page, 'Ligo saved conversation');
-        await page.getByRole('button', { name: 'New conversation' }).click();
-        const newChatDialog = page.getByRole('dialog', { name: 'New conversation' });
-        await newChatDialog.waitFor();
-        await page.keyboard.press('Escape');
-        await newChatDialog.waitFor({ state: 'detached' });
-        assert.ok((await page.locator('[data-slot="dialog-content"]').allTextContents())
-          .every((text) => !text.includes('Add people')),
-          'Closing the new-chat dialog must not change its content during the exit animation');
-        await bubble.click({ button: 'right' });
-        await page.getByRole('menuitem', { name: 'Heart' }).click();
-        await page.getByRole('button', { name: /❤️ reaction, 1/ }).waitFor();
-        await page.setViewportSize({ width: 320, height: 768 });
-        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-          'Ligo message view must reflow at 320 CSS pixels');
-        await checkAccessibility(page, 'Ligo saved conversation at 320px');
-        await page.setViewportSize({ width: 1280, height: 720 });
-        const conversationId = /^#c\/([0-9a-f-]{36})$/i.exec(new URL(page.url()).hash)?.[1];
-        assert.ok(conversationId, 'Saved conversation must have a stable link');
-        for (let index = 0; index < 36; index++) {
-          const body = index % 3 === 0
-            ? Array.from({ length: 16 }, (_, line) => `Scroll row ${index + 1}, line ${line + 1}`).join('\n')
-            : index % 3 === 1 ? `Scroll row ${index + 1}: ${'different message heights '.repeat(8)}`
-              : `Scroll row ${index + 1}`;
-          const response = await fetch(`http://localhost:8081/v1/ligo/conversations/${conversationId}/messages`, {
-            method: 'POST',
-            headers: { Authorization: bearer, Origin: site, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId: randomUUID(), text: body, attachmentIds: [] })
+        if (app === 'ligo') {
+          await page.getByRole('button', { name: 'Saved messages', exact: true }).first().click();
+          await page.getByRole('heading', { name: 'Saved messages' }).waitFor();
+          const messageText = `Ligo UI check ${randomBytes(3).toString('hex')}`;
+          await page.getByRole('textbox', { name: 'Write a message' }).fill(messageText);
+          await page.getByRole('button', { name: 'Send message' }).click();
+          const bubble = page.getByLabel(`Message from ${username}`).filter({ hasText: messageText });
+          await bubble.waitFor();
+          await capture(page, 'ligo-chat');
+          await checkAccessibility(page, 'Ligo saved conversation');
+          await page.getByRole('button', { name: 'New conversation' }).click();
+          const newChatDialog = page.getByRole('dialog', { name: 'New conversation' });
+          await newChatDialog.waitFor();
+          await page.keyboard.press('Escape');
+          await newChatDialog.waitFor({ state: 'detached' });
+          assert.ok((await page.locator('[data-slot="dialog-content"]').allTextContents())
+            .every((text) => !text.includes('Add people')),
+            'Closing the new-chat dialog must not change its content during the exit animation');
+          await bubble.click({ button: 'right' });
+          await page.getByRole('menuitem', { name: 'Heart' }).click();
+          await page.getByRole('button', { name: /❤️ reaction, 1/ }).waitFor();
+          await page.setViewportSize({ width: 320, height: 768 });
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+            'Ligo message view must reflow at 320 CSS pixels');
+          await checkAccessibility(page, 'Ligo saved conversation at 320px');
+          await page.setViewportSize({ width: 1280, height: 720 });
+          const conversationId = /^#c\/([0-9a-f-]{36})$/i.exec(new URL(page.url()).hash)?.[1];
+          assert.ok(conversationId, 'Saved conversation must have a stable link');
+          for (let index = 0; index < 36; index++) {
+            const body = index % 3 === 0
+              ? Array.from({ length: 16 }, (_, line) => `Scroll row ${index + 1}, line ${line + 1}`).join('\n')
+              : index % 3 === 1 ? `Scroll row ${index + 1}: ${'different message heights '.repeat(8)}`
+                : `Scroll row ${index + 1}`;
+            const response = await fetch(`http://localhost:8081/v1/ligo/conversations/${conversationId}/messages`, {
+              method: 'POST',
+              headers: { Authorization: bearer, Origin: site, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clientId: randomUUID(), text: body, attachmentIds: [] })
+            });
+            assert.equal(response.status, 201, `Scrollable message ${index + 1} must be created`);
+          }
+          await page.reload();
+          await page.getByRole('log', { name: 'Messages' }).waitFor({ state: 'visible' });
+          const historyText = Array.from({ length: 72 }, (_, index) => `History line ${index + 1}`).join('\n');
+          await page.getByRole('textbox', { name: 'Write a message' }).fill(historyText);
+          await page.getByRole('button', { name: 'Send message' }).click();
+          await page.getByLabel(`Message from ${username}`).filter({ hasText: 'History line 72' }).waitFor();
+          const lastMessageText = `Ligo media scroll check ${randomBytes(3).toString('hex')}`;
+          const ligoImage = await page.evaluate(() => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 96;
+            canvas.getContext('2d').fillRect(0, 0, 128, 96);
+            return canvas.toDataURL('image/png').split(',')[1];
           });
-          assert.equal(response.status, 201, `Scrollable message ${index + 1} must be created`);
+          await page.getByLabel('Choose files').setInputFiles({
+            name: 'ligo-scroll.png', mimeType: 'image/png', buffer: Buffer.from(ligoImage, 'base64')
+          });
+          await page.getByRole('textbox', { name: 'Write a message' }).fill(lastMessageText);
+          await page.getByRole('button', { name: 'Send message' }).click();
+          const lastBubble = page.getByLabel(`Message from ${username}`).filter({ hasText: lastMessageText });
+          await lastBubble.locator('img').waitFor();
+          await page.reload();
+          const messageLog = page.getByRole('log', { name: 'Messages' });
+          await messageLog.waitFor({ state: 'visible' });
+          assert.equal(await messageLog.evaluate((element) => getComputedStyle(element).overscrollBehaviorY),
+            'contain', 'Native boundary bounce must remain enabled inside the chat');
+          const chatPosition = async () => messageLog.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            const last = element.querySelector('[data-index]:last-child');
+            return {
+              distance: element.scrollHeight - element.clientHeight - element.scrollTop,
+              scrollTop: element.scrollTop,
+              scrollHeight: element.scrollHeight,
+              clientHeight: element.clientHeight,
+              rows: element.querySelectorAll('[data-index]').length,
+              lastBottom: last?.getBoundingClientRect().bottom ?? 0,
+              viewportBottom: rect.bottom
+            };
+          });
+          const initialPosition = await chatPosition();
+          assert.ok(initialPosition.distance >= -1 && initialPosition.distance <= 2,
+            `Ligo must open at the exact bottom, got ${JSON.stringify(initialPosition)}`);
+          assert.ok(initialPosition.lastBottom <= initialPosition.viewportBottom + 1,
+            'The latest media message must be fully inside the message viewport');
+          await lastBubble.locator('img').evaluate((image) => image.decode());
+          await page.waitForTimeout(250);
+          const settledPosition = await chatPosition();
+          assert.ok(settledPosition.distance >= -1 && settledPosition.distance <= 2,
+            `Media loading must not move the chat away from the bottom: ${JSON.stringify(settledPosition)}`);
+          await lastBubble.evaluate((element) => {
+            const probe = document.createElement('div');
+            probe.dataset.scrollResizeProbe = '';
+            probe.style.height = '96px';
+            element.append(probe);
+          });
+          await page.waitForTimeout(100);
+          const grownPosition = await chatPosition();
+          assert.ok(grownPosition.distance >= -1 && grownPosition.distance <= 2,
+            `A growing media message must keep the bottom anchor: ${JSON.stringify(grownPosition)}`);
+          await lastBubble.locator('[data-scroll-resize-probe]').evaluate((element) => element.remove());
+          await page.waitForTimeout(100);
+          const shrunkPosition = await chatPosition();
+          assert.ok(shrunkPosition.distance >= -1 && shrunkPosition.distance <= 2,
+            `A shrinking media message must keep the bottom anchor: ${JSON.stringify(shrunkPosition)}`);
+          const messageDraft = page.getByRole('textbox', { name: 'Write a message' });
+          await messageDraft.fill('Growing composer\n'.repeat(8));
+          await page.waitForTimeout(100);
+          const composerPosition = await chatPosition();
+          assert.ok(composerPosition.distance >= -1 && composerPosition.distance <= 2,
+            `Growing the composer must keep the newest message visible: ${JSON.stringify(composerPosition)}`);
+          await messageDraft.fill('');
+          await page.waitForTimeout(100);
+          const clearedComposerPosition = await chatPosition();
+          assert.ok(clearedComposerPosition.distance >= -1 && clearedComposerPosition.distance <= 2,
+            `Shrinking the composer must keep the bottom anchor: ${JSON.stringify(clearedComposerPosition)}`);
+          await messageLog.evaluate((element) => { element.scrollTop = 160; });
+          await page.waitForTimeout(50);
+          const readingOffset = await messageLog.evaluate((element) => element.scrollTop);
+          await messageDraft.fill('Growing composer\n'.repeat(8));
+          await page.waitForTimeout(100);
+          const resizedReadingOffset = await messageLog.evaluate((element) => element.scrollTop);
+          assert.ok(Math.abs(resizedReadingOffset - readingOffset) <= 2,
+            `Composer resizing must preserve the reading position (${readingOffset} → ${resizedReadingOffset})`);
+          await messageDraft.fill('');
+          await messageLog.evaluate((element) => { element.scrollTop = 0; });
+          const firstLoadedRow = await messageLog.locator('[data-index="0"]').elementHandle();
+          assert.ok(firstLoadedRow, 'A message must be available for the history anchor check');
+          const anchorBefore = await firstLoadedRow.evaluate((element) => element.getBoundingClientRect().top);
+          await page.getByRole('button', { name: 'Load older messages' }).waitFor({ state: 'detached' });
+          const anchorAfter = await firstLoadedRow.evaluate((element) => element.getBoundingClientRect().top);
+          assert.ok(Math.abs(anchorAfter - anchorBefore) <= 2,
+            `Loading older messages must retain the visible row (${anchorBefore} → ${anchorAfter})`);
+          await messageLog.evaluate((element) => { element.scrollTop = 0; });
+          await page.mouse.move(900, 300);
+          const topPosition = await messageLog.evaluate((element) => element.scrollTop);
+          assert.ok(topPosition <= 2, `Ligo must reach the first message before the fast-scroll test (${topPosition})`);
+          await page.mouse.wheel(0, 12_000);
+          await expect.poll(async () => (await chatPosition()).distance).toBeLessThanOrEqual(2);
+          const fastScrollPosition = await chatPosition();
+          assert.ok(fastScrollPosition.distance >= -1 && fastScrollPosition.distance <= 2,
+            `Fast scrolling must reach and stay at the bottom: ${JSON.stringify(fastScrollPosition)}`);
+          await page.mouse.wheel(0, 4000);
+          await expect.poll(async () => (await chatPosition()).distance).toBeLessThanOrEqual(2);
+          const overscrollPosition = await chatPosition();
+          assert.ok(overscrollPosition.distance >= -1 && overscrollPosition.distance <= 2,
+            `Overscrolling must not move the chat upward: ${JSON.stringify(overscrollPosition)}`);
+          await page.mouse.wheel(0, 4000);
+          await page.mouse.wheel(0, -1200);
+          await expect.poll(async () => (await chatPosition()).distance).toBeGreaterThan(50);
+          const readingPosition = await chatPosition();
+          assert.ok(readingPosition.distance > 50,
+            `Scrolling upward must cancel end pinning: ${JSON.stringify(readingPosition)}`);
+          await messageLog.evaluate((element) => { element.scrollTop = 0; });
+          await page.mouse.wheel(0, 12_000);
+          await expect.poll(async () => (await chatPosition()).distance).toBeLessThanOrEqual(2);
+          const secondFastScrollPosition = await chatPosition();
+          assert.ok(secondFastScrollPosition.distance >= -1 && secondFastScrollPosition.distance <= 2,
+            `A second fast scroll must also remain at the bottom: ${JSON.stringify(secondFastScrollPosition)}`);
         }
-        await page.reload();
-        await page.getByRole('log', { name: 'Messages' }).waitFor({ state: 'visible' });
-        const historyText = Array.from({ length: 72 }, (_, index) => `History line ${index + 1}`).join('\n');
-        await page.getByRole('textbox', { name: 'Write a message' }).fill(historyText);
-        await page.getByRole('button', { name: 'Send message' }).click();
-        await page.getByLabel(`Message from ${username}`).filter({ hasText: 'History line 72' }).waitFor();
-        const lastMessageText = `Ligo media scroll check ${randomBytes(3).toString('hex')}`;
-        const ligoImage = await page.evaluate(() => {
-          const canvas = document.createElement('canvas');
-          canvas.width = 128;
-          canvas.height = 96;
-          canvas.getContext('2d').fillRect(0, 0, 128, 96);
-          return canvas.toDataURL('image/png').split(',')[1];
-        });
-        await page.getByLabel('Choose files').setInputFiles({
-          name: 'ligo-scroll.png', mimeType: 'image/png', buffer: Buffer.from(ligoImage, 'base64')
-        });
-        await page.getByRole('textbox', { name: 'Write a message' }).fill(lastMessageText);
-        await page.getByRole('button', { name: 'Send message' }).click();
-        const lastBubble = page.getByLabel(`Message from ${username}`).filter({ hasText: lastMessageText });
-        await lastBubble.locator('img').waitFor();
-        await page.reload();
-        const messageLog = page.getByRole('log', { name: 'Messages' });
-        await messageLog.waitFor({ state: 'visible' });
-        assert.equal(await messageLog.evaluate((element) => getComputedStyle(element).overscrollBehaviorY),
-          'contain', 'Native boundary bounce must remain enabled inside the chat');
-        const chatPosition = async () => messageLog.evaluate((element) => {
-          const rect = element.getBoundingClientRect();
-          const last = element.querySelector('[data-index]:last-child');
-          return {
-            distance: element.scrollHeight - element.clientHeight - element.scrollTop,
-            scrollTop: element.scrollTop,
-            scrollHeight: element.scrollHeight,
-            clientHeight: element.clientHeight,
-            rows: element.querySelectorAll('[data-index]').length,
-            lastBottom: last?.getBoundingClientRect().bottom ?? 0,
-            viewportBottom: rect.bottom
-          };
-        });
-        const initialPosition = await chatPosition();
-        assert.ok(initialPosition.distance >= -1 && initialPosition.distance <= 2,
-          `Ligo must open at the exact bottom, got ${JSON.stringify(initialPosition)}`);
-        assert.ok(initialPosition.lastBottom <= initialPosition.viewportBottom + 1,
-          'The latest media message must be fully inside the message viewport');
-        await lastBubble.locator('img').evaluate((image) => image.decode());
-        await page.waitForTimeout(250);
-        const settledPosition = await chatPosition();
-        assert.ok(settledPosition.distance >= -1 && settledPosition.distance <= 2,
-          `Media loading must not move the chat away from the bottom: ${JSON.stringify(settledPosition)}`);
-        await lastBubble.evaluate((element) => {
-          const probe = document.createElement('div');
-          probe.dataset.scrollResizeProbe = '';
-          probe.style.height = '96px';
-          element.append(probe);
-        });
-        await page.waitForTimeout(100);
-        const grownPosition = await chatPosition();
-        assert.ok(grownPosition.distance >= -1 && grownPosition.distance <= 2,
-          `A growing media message must keep the bottom anchor: ${JSON.stringify(grownPosition)}`);
-        await lastBubble.locator('[data-scroll-resize-probe]').evaluate((element) => element.remove());
-        await page.waitForTimeout(100);
-        const shrunkPosition = await chatPosition();
-        assert.ok(shrunkPosition.distance >= -1 && shrunkPosition.distance <= 2,
-          `A shrinking media message must keep the bottom anchor: ${JSON.stringify(shrunkPosition)}`);
-        const messageDraft = page.getByRole('textbox', { name: 'Write a message' });
-        await messageDraft.fill('Growing composer\n'.repeat(8));
-        await page.waitForTimeout(100);
-        const composerPosition = await chatPosition();
-        assert.ok(composerPosition.distance >= -1 && composerPosition.distance <= 2,
-          `Growing the composer must keep the newest message visible: ${JSON.stringify(composerPosition)}`);
-        await messageDraft.fill('');
-        await page.waitForTimeout(100);
-        const clearedComposerPosition = await chatPosition();
-        assert.ok(clearedComposerPosition.distance >= -1 && clearedComposerPosition.distance <= 2,
-          `Shrinking the composer must keep the bottom anchor: ${JSON.stringify(clearedComposerPosition)}`);
-        await messageLog.evaluate((element) => { element.scrollTop = 160; });
-        await page.waitForTimeout(50);
-        const readingOffset = await messageLog.evaluate((element) => element.scrollTop);
-        await messageDraft.fill('Growing composer\n'.repeat(8));
-        await page.waitForTimeout(100);
-        const resizedReadingOffset = await messageLog.evaluate((element) => element.scrollTop);
-        assert.ok(Math.abs(resizedReadingOffset - readingOffset) <= 2,
-          `Composer resizing must preserve the reading position (${readingOffset} → ${resizedReadingOffset})`);
-        await messageDraft.fill('');
-        await messageLog.evaluate((element) => { element.scrollTop = 0; });
-        const firstLoadedRow = await messageLog.locator('[data-index="0"]').elementHandle();
-        assert.ok(firstLoadedRow, 'A message must be available for the history anchor check');
-        const anchorBefore = await firstLoadedRow.evaluate((element) => element.getBoundingClientRect().top);
-        await page.getByRole('button', { name: 'Load older messages' }).waitFor({ state: 'detached' });
-        const anchorAfter = await firstLoadedRow.evaluate((element) => element.getBoundingClientRect().top);
-        assert.ok(Math.abs(anchorAfter - anchorBefore) <= 2,
-          `Loading older messages must retain the visible row (${anchorBefore} → ${anchorAfter})`);
-        await messageLog.evaluate((element) => { element.scrollTop = 0; });
-        await page.mouse.move(900, 300);
-        const topPosition = await messageLog.evaluate((element) => element.scrollTop);
-        assert.ok(topPosition <= 2, `Ligo must reach the first message before the fast-scroll test (${topPosition})`);
-        await page.mouse.wheel(0, 12_000);
-        await page.waitForTimeout(1000);
-        const fastScrollPosition = await chatPosition();
-        assert.ok(fastScrollPosition.distance >= -1 && fastScrollPosition.distance <= 2,
-          `Fast scrolling must reach and stay at the bottom: ${JSON.stringify(fastScrollPosition)}`);
-        await page.mouse.wheel(0, 4000);
-        await page.waitForTimeout(1000);
-        const overscrollPosition = await chatPosition();
-        assert.ok(overscrollPosition.distance >= -1 && overscrollPosition.distance <= 2,
-          `Overscrolling must not move the chat upward: ${JSON.stringify(overscrollPosition)}`);
-        await page.mouse.wheel(0, 4000);
-        await page.mouse.wheel(0, -1200);
-        await page.waitForTimeout(1000);
-        const readingPosition = await chatPosition();
-        assert.ok(readingPosition.distance > 50,
-          `Scrolling upward must cancel end pinning: ${JSON.stringify(readingPosition)}`);
-        await messageLog.evaluate((element) => { element.scrollTop = 0; });
-        await page.mouse.wheel(0, 12_000);
-        await page.waitForTimeout(1000);
-        const secondFastScrollPosition = await chatPosition();
-        assert.ok(secondFastScrollPosition.distance >= -1 && secondFastScrollPosition.distance <= 2,
-          `A second fast scroll must also remain at the bottom: ${JSON.stringify(secondFastScrollPosition)}`);
-      }
-      assert.equal(await page.getByRole('link', { name: 'Sign in' }).count(), 0);
+        assert.equal(await page.getByRole('link', { name: 'Sign in' }).count(), 0);
+      });
     }
     await page.goto(`${site}/fluo/`);
     const fluoNav = page.getByRole('navigation', { name: 'Fluo navigation' });
@@ -993,12 +1063,14 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     assert.equal(await composer.getByRole('button', { name: 'Bold' }).count(), 0,
       'Formatting controls must stay closed until requested');
     await composer.getByRole('button', { name: 'Post options' }).click();
-    await composer.getByRole('combobox', { name: 'Post visibility' }).selectOption('private');
-    await composer.getByRole('combobox', { name: 'Post visibility' }).selectOption('public');
+    await composer.getByRole('button', { name: 'Post visibility', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Only me', exact: true }).click();
+    await composer.getByRole('button', { name: 'Post visibility', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Public', exact: true }).click();
     await composer.getByRole('button', { name: 'Close post options' }).click();
     const postText = `Fluo image test ${randomBytes(4).toString('hex')}`;
     await composer.locator('[contenteditable=true]').fill(postText);
-    assert.equal(await composer.getByRole('combobox', { name: 'Post visibility' }).count(), 0,
+    assert.equal(await composer.getByRole('button', { name: 'Post visibility', exact: true }).count(), 0,
       'Typing must not reopen the optional post settings');
     const imageBase64 = await page.evaluate(() => {
       const canvas = document.createElement('canvas');
@@ -1032,7 +1104,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     const compactActions = await composer.evaluate((dialog) => {
       const media = dialog.querySelector('button[aria-label="Add media"]');
       const options = dialog.querySelector('button[aria-label="Post options"]');
-      const publish = Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Publish');
+      const publish = Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Post');
       return media && options && publish && {
         mediaTop: media.getBoundingClientRect().top,
         optionsTop: options.getBoundingClientRect().top,
@@ -1045,16 +1117,26 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     await checkAccessibility(page, 'Fluo composer at 320px');
     await capture(page, 'fluo-composer-mobile');
     await page.setViewportSize({ width: 1280, height: 720 });
-    const publishedFeed = page.waitForResponse(async (response) => {
-      if (!isApiResponse(response, '/v1/fluo/posts', 'GET')) return false;
-      const payload = await response.json();
-      return payload.items?.some((item) => JSON.stringify(item.content).includes(postText)) ?? false;
-    }, { timeout: 60_000 });
-    await composer.getByRole('button', { name: 'Publish' }).click();
-    const publishedFeedResponse = await publishedFeed;
-    const postBearer = (await publishedFeedResponse.request().allHeaders()).authorization;
-    assert.match(postBearer ?? '', /^Bearer /, 'The refreshed feed request must carry the signed-in account');
-    await composer.waitFor({ state: 'detached', timeout: 60_000 });
+    const publishedResponse = await test.step('Upload four images and publish a post', async () => {
+      const uploadResponses = [];
+      const recordUpload = response => {
+        const url = new URL(response.url());
+        if (url.pathname.startsWith('/v1/uploads')) uploadResponses.push({ method: response.request().method(), path: url.pathname, status: response.status() });
+      };
+      page.on('response', recordUpload);
+      const response = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'), { timeout: 20_000 });
+      try {
+        const [published] = await Promise.all([response, composer.getByRole('button', { name: 'Post', exact: true }).click()]);
+        assert.equal(published.status(), 201, 'The publish request must create the post');
+        return published;
+      } catch (cause) {
+        throw new Error(`Publishing failed: ${JSON.stringify({ alerts: await composer.getByRole('alert').allTextContents(),
+          status: await composer.getByRole('status').allTextContents(), uploadResponses, pageErrors })}`, { cause });
+      } finally { page.off('response', recordUpload); }
+    });
+    const postBearer = (await publishedResponse.request().allHeaders()).authorization;
+    assert.match(postBearer ?? '', /^Bearer /, 'Publishing must carry the signed-in account');
+    await composer.waitFor({ state: 'detached' });
     const publishedCard = page.locator('article[data-post-id]').filter({ hasText: postText });
     await publishedCard.waitFor();
     const postId = await publishedCard.getAttribute('data-post-id');
@@ -1163,7 +1245,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       }))
     );
     const twoPhotoResponsePromise = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'));
-    await twoPhotoComposer.getByRole('button', { name: 'Publish' }).click();
+    await twoPhotoComposer.getByRole('button', { name: 'Post', exact: true }).click();
     const twoPhotoResponse = await twoPhotoResponsePromise;
     assert.equal(twoPhotoResponse.status(), 201);
     const twoPhotoPost = await twoPhotoResponse.json();
@@ -1185,7 +1267,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
         name: 'fluo-test.mp4', mimeType: 'video/mp4', buffer: await readFile(videoPath)
       });
       const videoPostResponsePromise = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'));
-      await videoComposer.getByRole('button', { name: 'Publish' }).click();
+      await videoComposer.getByRole('button', { name: 'Post', exact: true }).click();
       const videoPostResponse = await videoPostResponsePromise;
       assert.equal(videoPostResponse.status(), 201, 'Fluo must publish a video attachment');
       const videoPost = await videoPostResponse.json();
@@ -1240,18 +1322,21 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       const image = article?.querySelector('img');
       return image?.complete && image.naturalWidth === 8;
     }, postText);
+    const likeResponsePromise = page.waitForResponse((response) =>
+      isApiResponse(response, `/v1/fluo/posts/${postId}/reaction`, 'PUT'));
     await card.getByRole('button', { name: 'Like, 0', exact: true }).click();
-    await card.getByRole('button', { name: 'Like, 1', exact: true }).waitFor();
-    await card.getByRole('button', { name: 'Like, 1', exact: true }).hover();
-    await page.waitForFunction((postId) => {
-      const dislike = document.querySelector(`article[data-post-id="${postId}"] [aria-label="Dislike, 0"]`);
-      return dislike && Number(getComputedStyle(dislike).opacity) > 0.5;
-    }, postId, { timeout: 2_000 });
-    await page.mouse.move(0, 0);
-    await card.getByRole('button', { name: 'Like, 1', exact: true }).focus();
+    assert.equal((await likeResponsePromise).status(), 200, 'Liking a post must succeed');
+    const liked = card.getByRole('button', { name: 'Like, 1', exact: true });
+    await expect(liked).toBeEnabled();
+    await expect(liked).toHaveAttribute('aria-pressed', 'true');
+    await liked.focus();
     await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Dislike, 0',
-      'Keyboard focus must reach the dislike action after Like');
+    const reactionOptions = card.getByRole('button', { name: 'Reaction options', exact: true });
+    await expect(reactionOptions).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('menuitemradio', { name: 'Dislike, 0', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(reactionOptions).toBeFocused();
     const replyText = `Reply ${randomBytes(3).toString('hex')}`;
     await card.getByRole('button', { name: 'Reply, 0', exact: true }).click();
     const replyComposer = page.getByRole('dialog', { name: 'Reply to post' });
@@ -1269,7 +1354,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     await replyComposer.getByRole('button', { name: 'Post options' }).click();
     assert.equal(await replyComposer.getByRole('button', { name: 'Bold' }).count(), 1,
       'Replies must have the same optional formatting tools as posts');
-    assert.equal(await replyComposer.getByRole('combobox', { name: 'Post visibility' }).isDisabled(), true,
+    assert.equal(await replyComposer.getByRole('button', { name: 'Post visibility', exact: true }).isDisabled(), true,
       'Replies must inherit the original post visibility');
     await replyComposer.getByRole('button', { name: 'Close post options' }).click();
     await replyEditor.fill(replyText);
@@ -1311,7 +1396,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       'A quote must be written above the quoted post');
     await quoteComposer.locator('[contenteditable=true]').fill(quoteText);
     const quoteResponsePromise = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'));
-    await quoteComposer.getByRole('button', { name: 'Publish' }).click();
+    await quoteComposer.getByRole('button', { name: 'Quote', exact: true }).click();
     const quoteResponse = await quoteResponsePromise;
     assert.equal(quoteResponse.status(), 201);
     const quotedPost = await quoteResponse.json();
@@ -1371,6 +1456,8 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     await page.waitForFunction(() => location.hash === '#feed');
     await card.waitFor();
     await page.setViewportSize({ width: 1280, height: 720 });
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await page.waitForFunction(() => window.scrollY === 0);
     await capture(page, 'fluo');
     await checkAccessibility(page, 'Fluo feed with media, reply and quote');
     for (const item of media) {
@@ -1479,7 +1566,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       name: 'single-photo.png', mimeType: 'image/png', buffer: Buffer.from(imageBase64, 'base64')
     });
     const singlePhotoResponsePromise = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'));
-    await singlePhotoComposer.getByRole('button', { name: 'Publish' }).click();
+    await singlePhotoComposer.getByRole('button', { name: 'Post', exact: true }).click();
     const singlePhotoResponse = await singlePhotoResponsePromise;
     assert.equal(singlePhotoResponse.status(), 201);
     const singlePhotoPost = await singlePhotoResponse.json();
@@ -1566,7 +1653,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
       name: item.name, mimeType: 'image/png', buffer: Buffer.from(item.data, 'base64')
     })));
     const aspectResponsePromise = page.waitForResponse((response) => isApiResponse(response, '/v1/fluo/posts', 'POST'));
-    await aspectComposer.getByRole('button', { name: 'Publish' }).click();
+    await aspectComposer.getByRole('button', { name: 'Post', exact: true }).click();
     const aspectResponse = await aspectResponsePromise;
     assert.equal(aspectResponse.status(), 201);
     const aspectPost = await aspectResponse.json();
@@ -1699,7 +1786,6 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo 
     console.error('Live flow failed before temporary-user cleanup:', error);
     throw error;
   } finally {
-    await browser.close();
-    await removeTemporaryUser(username);
+    await cleanupTemporaryUser(browser, username);
   }
 });

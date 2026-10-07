@@ -17,6 +17,329 @@ components:
       name: X-Kaordo-Internal-Token
       description: Derived token shared only by the local Kerno and Nodo processes.
   schemas:
+    LingvoDictionary:
+      type: "object"
+      required: ["id","learningLanguage","nativeLanguage","dailyGoal","timeZone","createdAt"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        learningLanguage:
+          type: "string"
+          enum: ["de"]
+        nativeLanguage:
+          type: "string"
+          enum: ["en","ru"]
+        dailyGoal:
+          type: "integer"
+          minimum: 5
+          maximum: 200
+        timeZone:
+          type: "string"
+        createdAt:
+          type: "string"
+          format: "date-time"
+    LingvoDictionaryPage:
+      type: "object"
+      required: ["items"]
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoDictionary"
+    LingvoNewDictionary:
+      type: "object"
+      required: ["learningLanguage","nativeLanguage","timeZone"]
+      properties:
+        learningLanguage:
+          type: "string"
+          enum: ["de"]
+        nativeLanguage:
+          type: "string"
+          enum: ["en","ru"]
+        timeZone:
+          type: "string"
+          minLength: 1
+          maxLength: 100
+    LingvoSettings:
+      type: "object"
+      required: ["dailyGoal","timeZone"]
+      properties:
+        dailyGoal:
+          type: "integer"
+          minimum: 5
+          maximum: 200
+        timeZone:
+          type: "string"
+          minLength: 1
+          maxLength: 100
+    LingvoFolder:
+      type: "object"
+      required: ["id","dictionaryId","name"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        dictionaryId:
+          type: "string"
+          format: "uuid"
+        name:
+          type: "string"
+          minLength: 1
+          maxLength: 60
+    LingvoCardContent:
+      type: "object"
+      required: ["kind","term","translation","partOfSpeech","article","plural","grammar","example","exampleTranslation","notes","folderId","status"]
+      properties:
+        kind:
+          type: "string"
+          enum: ["word","phrase"]
+        term:
+          type: "string"
+          minLength: 1
+          maxLength: 300
+        translation:
+          type: "string"
+          minLength: 1
+          maxLength: 500
+        partOfSpeech:
+          type: "string"
+          enum: ["","noun","verb","adjective","adverb","other"]
+        article:
+          type: "string"
+          enum: ["","der","die","das"]
+        plural:
+          type: "string"
+          maxLength: 100
+        grammar:
+          type: "string"
+          maxLength: 500
+        example:
+          type: "string"
+          maxLength: 500
+        exampleTranslation:
+          type: "string"
+          maxLength: 500
+        notes:
+          type: "string"
+          maxLength: 1000
+        folderId:
+          type: ["string","null"]
+          format: "uuid"
+        status:
+          type: "string"
+          enum: ["active","known","suspended"]
+    LingvoSchedule:
+      type: "object"
+      required: ["due","stability","difficulty","scheduledDays","reps","lapses","state","lastReview","learningSteps"]
+      properties:
+        due:
+          type: "string"
+          format: "date-time"
+        stability:
+          type: "number"
+          minimum: 0
+        difficulty:
+          type: "number"
+          minimum: 0
+        scheduledDays:
+          type: "integer"
+          minimum: 0
+        reps:
+          type: "integer"
+          minimum: 0
+        lapses:
+          type: "integer"
+          minimum: 0
+        state:
+          type: "integer"
+          enum: [0,1,2,3]
+        lastReview:
+          type: ["string","null"]
+          format: "date-time"
+        learningSteps:
+          type: "integer"
+          minimum: 0
+    LingvoCard:
+      allOf:
+        - {"$ref":"#/components/schemas/LingvoCardContent"}
+        - {"type":"object","required":["id","dictionaryId","sourceKey","schedule","revision","createdAt"],"properties":{"id":{"type":"string","format":"uuid"},"dictionaryId":{"type":"string","format":"uuid"},"sourceKey":{"type":["string","null"]},"schedule":{"$ref":"#/components/schemas/LingvoSchedule"},"revision":{"type":"integer","minimum":1},"createdAt":{"type":"string","format":"date-time"}}}
+    LingvoNewCard:
+      allOf:
+        - {"$ref":"#/components/schemas/LingvoCardContent"}
+        - {"type":"object","required":["id"],"properties":{"id":{"type":"string","format":"uuid","description":"Stable client-generated ID for retrying the same create request."}}}
+    LingvoCardUpdate:
+      allOf:
+        - {"$ref":"#/components/schemas/LingvoCardContent"}
+        - {"type":"object","required":["revision"],"properties":{"revision":{"type":"integer","minimum":1}}}
+    LingvoCardPage:
+      type: "object"
+      required: ["items","total"]
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoCard"
+        total:
+          type: "integer"
+    LingvoStudyPage:
+      type: "object"
+      required: ["items"]
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoCard"
+    LingvoCounts:
+      type: "object"
+      required: ["kind","total","due","new","learning","review","known","suspended","nextDue"]
+      properties:
+        kind:
+          type: "string"
+          enum: ["word","phrase"]
+        total:
+          type: "integer"
+        due:
+          type: "integer"
+        new:
+          type: "integer"
+        learning:
+          type: "integer"
+        review:
+          type: "integer"
+        known:
+          type: "integer"
+        suspended:
+          type: "integer"
+        nextDue:
+          type: ["string","null"]
+          format: "date-time"
+    LingvoActivity:
+      type: "object"
+      required: ["day","reviews"]
+      properties:
+        day:
+          type: "string"
+          format: "date"
+        reviews:
+          type: "integer"
+    LingvoOverview:
+      type: "object"
+      required: ["dictionary","counts","folders","activity","studiedToday","totalReviews","streak","today"]
+      properties:
+        dictionary:
+          $ref: "#/components/schemas/LingvoDictionary"
+        counts:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoCounts"
+        folders:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoFolder"
+        activity:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoActivity"
+        studiedToday:
+          type: "integer"
+        totalReviews:
+          type: "integer"
+        streak:
+          type: "integer"
+        today:
+          type: "string"
+          format: "date"
+    LingvoReview:
+      type: "object"
+      required: ["id","revision","rating","direction"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        revision:
+          type: "integer"
+          minimum: 1
+        rating:
+          type: "integer"
+          enum: [1,2,3,4]
+        direction:
+          type: "string"
+          enum: ["recognition","recall","listening","phrase"]
+    LingvoReviewResult:
+      type: "object"
+      required: ["id","card"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        card:
+          $ref: "#/components/schemas/LingvoCard"
+    LingvoImport:
+      type: "object"
+      properties:
+        setId:
+          type: "string"
+          maxLength: 100
+        cardKeys:
+          type: "array"
+          minItems: 1
+          maxItems: 500
+          items:
+            type: "string"
+            maxLength: 100
+        cards:
+          type: "array"
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/LingvoCardContent"
+        folderId:
+          type: ["string","null"]
+          format: "uuid"
+        status:
+          type: "string"
+          enum: ["active","known"]
+          description: "Status for catalog cards. Personal cards use their individual status fields."
+      description: "Supply either a starter set ID (optionally with selected card keys) or up to 500 personal cards. Existing imported cards are preserved."
+    LingvoImportResult:
+      type: "object"
+      required: ["added","skipped"]
+      properties:
+        added:
+          type: "integer"
+        skipped:
+          type: "integer"
+    LingvoCatalogCard:
+      allOf:
+        - {"$ref":"#/components/schemas/LingvoCardContent"}
+        - {"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}
+    LingvoCatalogSet:
+      type: "object"
+      required: ["id","title","description","kind","level","cards"]
+      properties:
+        id:
+          type: "string"
+        title:
+          type: "string"
+        description:
+          type: "string"
+        kind:
+          type: "string"
+          enum: ["word","phrase"]
+        level:
+          type: "string"
+        cards:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoCatalogCard"
+    LingvoCatalog:
+      type: "object"
+      required: ["items"]
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/LingvoCatalogSet"
     UserIdentity:
       type: object
       required: [id, username, displayName, createdAt, isAdmin]
@@ -713,6 +1036,103 @@ components:
       required: [value]
       properties:
         value: { type: string, enum: [good, bad] }
+    FluoNotificationPolicy:
+      type: string
+      enum: [all, off, following]
+      description: Notify for all actors, nobody, or only accounts the recipient follows at the time of the action.
+    FluoNotificationPreferences:
+      type: object
+      additionalProperties: false
+      required: [likes, dislikes, replies, follows, unfollows, quotes]
+      properties:
+        likes: { $ref: '#/components/schemas/FluoNotificationPolicy', default: all }
+        dislikes: { $ref: '#/components/schemas/FluoNotificationPolicy', default: all }
+        replies: { $ref: '#/components/schemas/FluoNotificationPolicy', default: all }
+        follows: { $ref: '#/components/schemas/FluoNotificationPolicy', default: all }
+        unfollows: { $ref: '#/components/schemas/FluoNotificationPolicy', default: off }
+        quotes: { $ref: '#/components/schemas/FluoNotificationPolicy', default: all }
+    FluoPrivacySettings:
+      type: object
+      additionalProperties: false
+      required: [accountVisibility, showLikes]
+      properties:
+        accountVisibility:
+          type: string
+          enum: [public, private]
+          default: public
+          description: Private account posts are accessible only to their author and accounts the author follows. Individual private posts remain author-only.
+        showLikes:
+          type: boolean
+          default: true
+          description: Hidden likes still contribute to counts, but do not create identifying notifications. Existing like notifications are hidden while this setting is false.
+    FluoSettings:
+      type: object
+      required: [notifications, privacy]
+      properties:
+        notifications: { $ref: '#/components/schemas/FluoNotificationPreferences' }
+        privacy: { $ref: '#/components/schemas/FluoPrivacySettings' }
+    FluoSettingsPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        notifications:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            likes: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+            dislikes: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+            replies: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+            follows: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+            unfollows: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+            quotes: { $ref: '#/components/schemas/FluoNotificationPolicy' }
+        privacy:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            accountVisibility: { type: string, enum: [public, private] }
+            showLikes: { type: boolean }
+    FluoNotification:
+      type: object
+      description: Activity from another account, visible only to its recipient while its posts remain accessible.
+      required: [id, kind, actor, post, createdAt, readAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [like, dislike, reply, quote, follow, unfollow] }
+        actor: { $ref: '#/components/schemas/FluoAuthor' }
+        post:
+          anyOf:
+            - type: object
+              required: [id, text, media]
+              properties:
+                id: { type: string, format: uuid, description: Open this post; replies include their ancestor thread and quotes include the quoted post. }
+                text: { type: string, maxLength: 280, description: Accessible plain-text preview. }
+                media: { type: array, maxItems: 4, items: { $ref: '#/components/schemas/FluoMedia' }, description: Destination post attachments for bounded notification previews. }
+            - { type: 'null' }
+        createdAt: { type: string, format: date-time }
+        readAt: { type: [string, 'null'], format: date-time, description: Server read timestamp; null means unread. }
+    FluoNotificationSummary:
+      type: object
+      required: [unreadCount]
+      properties:
+        unreadCount: { type: integer, format: int64, minimum: 0 }
+    FluoNotificationPage:
+      type: object
+      required: [items, nextCursor, through, unreadCount]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/FluoNotification' } }
+        nextCursor: { type: [string, 'null'] }
+        through: { type: [string, 'null'], description: Opaque cursor of the newest item on this page; use the first page's boundary to mark existing notifications read. }
+        unreadCount: { type: integer, format: int64, minimum: 0, description: Count of all accessible unread notifications in the same snapshot. }
+    FluoNotificationReadState:
+      type: object
+      required: [id, readAt, unreadCount]
+      properties:
+        id: { type: string, format: uuid }
+        readAt: { type: string, format: date-time }
+        unreadCount: { type: integer, format: int64, minimum: 0 }
     NodoUpload:
       type: object
       required: [id, kind, mimeType, filename, width, height, size, complete]
@@ -731,6 +1151,378 @@ components:
       properties:
         referenced: { type: boolean }
 paths:
+  /v1/lingvo/dictionaries:
+    get:
+      operationId: "listLingvoDictionaries"
+      security:
+        - {"bearerAuth":[]}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoDictionaryPage"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      operationId: "createLingvoDictionary"
+      security:
+        - {"bearerAuth":[]}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoNewDictionary"
+      responses:
+        201:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoDictionary"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}:
+    get:
+      operationId: "getLingvoOverview"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoOverview"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/settings:
+    put:
+      operationId: "updateLingvoSettings"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoSettings"
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoDictionary"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/cards:
+    get:
+      operationId: "listLingvoCards"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"kind","in":"query","required":false,"schema":{"type":"string","enum":["word","phrase"]}}
+        - {"name":"status","in":"query","required":false,"schema":{"type":"string","enum":["active","known","suspended"]}}
+        - {"name":"folder","in":"query","required":false,"schema":{"type":"string"}}
+        - {"name":"q","in":"query","required":false,"schema":{"type":"string","maxLength":100}}
+        - {"name":"offset","in":"query","required":false,"schema":{"type":"integer","minimum":0,"maximum":10000}}
+        - {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200}}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoCardPage"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      operationId: "createLingvoCard"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoNewCard"
+      responses:
+        201:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoCard"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}:
+    put:
+      operationId: "updateLingvoCard"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"cardId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoCardUpdate"
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoCard"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: "deleteLingvoCard"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"cardId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"revision","in":"query","required":true,"schema":{"type":"integer","minimum":1}}
+      responses:
+        204:
+          description: "Completed"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/study:
+    get:
+      operationId: "getLingvoStudyQueue"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"kind","in":"query","required":true,"schema":{"type":"string","enum":["word","phrase"]}}
+        - {"name":"folder","in":"query","required":false,"schema":{"type":"string"}}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoStudyPage"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}/reviews:
+    post:
+      operationId: "reviewLingvoCard"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"cardId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoReview"
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoReviewResult"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/reviews/{reviewId}/undo:
+    post:
+      operationId: "undoLingvoReview"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"reviewId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoCard"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/folders:
+    post:
+      operationId: "createLingvoFolder"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              required: ["name"]
+              properties:
+                name:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 60
+      responses:
+        201:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoFolder"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/folders/{folderId}:
+    delete:
+      operationId: "deleteLingvoFolder"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"name":"folderId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      responses:
+        204:
+          description: "Completed"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/dictionaries/{dictionaryId}/imports:
+    post:
+      operationId: "importLingvoCards"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LingvoImport"
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoImportResult"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/lingvo/catalog:
+    get:
+      operationId: "getLingvoCatalog"
+      security:
+        - {"bearerAuth":[]}
+      parameters:
+        - {"name":"nativeLanguage","in":"query","required":true,"schema":{"type":"string","enum":["en","ru"]}}
+      responses:
+        200:
+          description: "Successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LingvoCatalog"
+        default:
+          description: "Request rejected"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/fluo/settings:
+    get:
+      operationId: getFluoSettings
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current account settings, including defaults for unchanged preferences.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FluoSettings' } } }
+        default:
+          description: Access or server error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    patch:
+      operationId: updateFluoSettings
+      security: [{ bearerAuth: [] }]
+      description: Atomically updates only supplied preferences. Notification preferences govern future activity; privacy applies to existing posts and notification reads.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/FluoSettingsPatch' } } }
+      responses:
+        '200':
+          description: Saved account settings.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FluoSettings' } } }
+        default:
+          description: Validation, access or server error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
   /v1/uploads/{id}/meta:
     servers:
       - url: http://localhost:8082
@@ -820,6 +1612,80 @@ paths:
               schema: { $ref: '#/components/schemas/ApiError' }
         default:
           description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/notifications:
+    get:
+      operationId: listFluoNotifications
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+      responses:
+        '200':
+          description: Recipient's accessible notifications, newest first; listing does not mark them read.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoNotificationPage' }
+        default:
+          description: Validation, access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/notifications/unread-count:
+    get:
+      operationId: getFluoNotificationSummary
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Recipient's accessible unread notification count.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoNotificationSummary' }
+        default:
+          description: Access or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/notifications/{id}/read:
+    put:
+      operationId: readFluoNotification
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Marked the recipient's notification read; repeated reads preserve the original timestamp. Read notifications cannot be made unread.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoNotificationReadState' }
+        default:
+          description: Validation, access, unavailable notification or server error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /v1/fluo/notifications/read:
+    put:
+      operationId: readFluoNotificationsThrough
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [through]
+              properties:
+                through: { type: string, description: First page's opaque boundary; newer notifications remain unread. }
+      responses:
+        '200':
+          description: Marked the recipient's accessible notifications at or before the supplied boundary read.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FluoNotificationSummary' }
+        default:
+          description: Validation, access or server error.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }

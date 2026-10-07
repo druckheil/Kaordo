@@ -7,7 +7,7 @@ import './sync-theme.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const output = resolve(root, 'dist/pages');
-const apps = ['portal', 'ligo', 'fluo', 'rondo', 'regado'];
+const apps = ['portal', 'ligo', 'fluo', 'rondo', 'lingvo', 'regado'];
 const environment = createBuildEnvironment(process.argv.includes('--production'));
 
 for (const app of apps) {

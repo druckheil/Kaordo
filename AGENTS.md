@@ -6,15 +6,16 @@ Product UI and all user-facing copy must be in English. Repository documentation
 
 The rebuild started at scope 0.0.1 with a new Git root. The previous code and full history remain at `/Users/druckheil/Projects/Archive/Kaordo-before-0.0.1`. Do not restore old D1 schemas, wire formats, Tauri commands, or release artifacts for compatibility.
 
-Implemented applications are Portal authentication/account entry, Fluo social posting, Ligo messaging, Rondo communities and LiveKit calls, and Regado administration. Notifications, complete settings, Matrix integration, content encryption and cryptographic recovery remain incomplete or reserved. Describe actual capabilities and evidence, not the scaffold's original plans.
+Implemented applications are Portal authentication/account entry, Fluo social posting with activity notifications and notification/privacy settings, Ligo messaging, Rondo communities and LiveKit calls, Lingvo private German vocabulary/phrase learning with FSRS, and Regado administration. Notifications outside Fluo, other account settings, Matrix integration, content encryption and cryptographic recovery remain incomplete or reserved. Describe actual capabilities and evidence, not the scaffold's original plans.
 
 ## Architecture
 
 - Independent static SvelteKit apps live in `apps/`. Shared browser behavior lives in `packages/`; each package declares the dependencies it imports.
 - `packages/ui` owns Tailwind tokens, shadcn-svelte Rhea components, Bits UI behavior and Lucide icons. Compose these components rather than reimplementing their interaction primitives.
-- `contracts/openapi.yaml` defines service routes and wire schemas. Generate TypeScript types; do not edit generated `openapi.d.ts` or PostgreSQL Jet tables/models manually.
+- `packages/contracts/openapi.yaml` defines service routes and wire schemas. Generate TypeScript types; do not edit generated `openapi.d.ts` or PostgreSQL Jet tables/models manually.
 - `auth` owns in-memory OIDC tokens; `account-ui` owns account gates and the presentation-only session preview. `api-client` owns requests, retry, TanStack Query options and shared message-cache updates. UI components own rendering and interaction.
 - `chat-ui` owns the shared composer, bubbles, grouping and native message scrolling for Ligo and Rondo. `media-client` owns uploads/image resizing; `media-ui` owns PhotoSwipe, Vidstack and media geometry; `voice-client` owns LiveKit tracks and interface sounds.
+- `lingvo-client` owns card presentation, phrase exercises, speech, CSV and lazy ts-fsrs previews. Kerno owns private dictionaries and authoritative FSRS scheduling; browser previews must match the server scheduler configuration and step representation.
 - Four Go modules are in `go.work`: Kerno coordinates business metadata/access; Nodo owns tus uploads and bytes; mediaauth signs/verifies media links; regado-agent exposes fixed Linux operations through a protected Unix socket.
 - Kerno uses Jet query builders with pgx transactions. Domain packages validate data; HTTP handlers coordinate authorization and services; PostgreSQL files are split by feature and operation. Keep transaction and access boundaries intact.
 - The local Compose profile runs PostgreSQL, Keycloak and LiveKit. The NixOS production profile includes Caddy, Namecheap DDNS, Prometheus, Node Exporter and regado-agent. Cloudflare and Synapse directories are reserved integrations, not active production dependencies.
@@ -33,12 +34,15 @@ Implemented applications are Portal authentication/account entry, Fluo social po
 
 ## Verification
 
-See `docs/refactoring.md` for the current code map and verified refactor evidence. Main commands:
+See `docs/refactoring.md` for the current code map and verified refactor evidence. Follow `docs/ci.md` for suite ownership, isolation, failure diagnosis and GitHub Actions rules. Main commands:
 
 ```sh
 pnpm check:front
 pnpm --filter @kaordo/contracts generate
 pnpm test:pages
+pnpm test:unit
+pnpm test:ui
+pnpm test:integration # static apps built; Docker, ffmpeg and restic available
 pnpm test:auth
 pnpm test:dev
 pnpm test:media
@@ -46,7 +50,7 @@ pnpm test:dependencies
 pnpm test:ui-layout
 pnpm test:product:ui
 pnpm test:regado:ui
-node --test scripts/ui-public.test.mjs
+pnpm exec playwright test --project=browser ui-public.test.mjs
 pnpm test:product:db # local application database running
 pnpm test:auth:live # pnpm dev running
 pnpm test:backup:live # both local database containers running
@@ -55,3 +59,12 @@ go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/... 
 go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
 go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
 ```
+
+## CI changes
+
+- Use Playwright Test for browser scenarios and its fixtures/assertions/lifecycle; keep Node tests for browser-independent code. Tests use English role/label selectors.
+- Integration must use the built static app artifact and the complete live project. Never replace the full journey with an identity-only subset to make CI green.
+- Diagnose the first failed action from logs/traces. Fix reloads, missing requests, unsettled state or application defects before adding waits. Do not weaken checks or add blanket retries.
+- Keep the stable `checks` gate dependent on every validation layer, cancel obsolete runs, cache dependencies/compilation only, and pin external Actions/tools. Preserve ephemeral database/account/backup ownership and cleanup.
+- Browser fixture traces are safe only with synthetic data. Disable credential-flow traces/screenshots and never upload environments, tokens, browser storage, database dumps or user media.
+- Verify workflow edits with actionlint and a complete hosted run; record the exact commit and measured cold/warm durations in `docs/ci.md`.

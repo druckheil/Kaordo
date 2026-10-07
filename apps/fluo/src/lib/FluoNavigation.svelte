@@ -15,18 +15,20 @@
 		UserRoundIcon,
 	} from "@kaordo/ui";
 	import type { FluoView } from "./fluo-model";
-	import { displayInitial } from "./fluo-model";
+	import { displayInitial, isFluoSettingsView } from "./fluo-model";
 
 	let {
 		view,
 		user,
 		dialogsLoading,
+		unreadCount,
 		onNavigate,
 		onOpenComposer,
 	}: {
 		view: FluoView;
 		user: UserIdentity;
 		dialogsLoading: boolean;
+		unreadCount: number;
 		onNavigate: (view: FluoView) => void;
 		onOpenComposer: () => void;
 	} = $props();
@@ -43,20 +45,31 @@
 	const mobileNavigation = navigation.filter(({ id }) =>
 		id === "feed" || id === "search" || id === "saved" || id === "profile",
 	);
+	const notificationsLabel = $derived(unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications');
+	const settingsActive = $derived(isFluoSettingsView(view));
 </script>
 
-<aside class="hidden flex-col lg:sticky lg:top-24 lg:flex lg:h-[calc(100dvh-7rem)] lg:self-start">
+{#snippet unreadBadge()}
+	{#if unreadCount > 0}
+		<span class="ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold tabular-nums text-primary-foreground" aria-hidden="true">{unreadCount.toLocaleString('en')}</span>
+	{/if}
+{/snippet}
+
+<aside class="hidden flex-col lg:sticky lg:top-20 lg:flex lg:h-[calc(100dvh-6rem)] lg:self-start">
 	<p class="mb-5 px-4 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Explore Fluo</p>
 	<nav class="grid gap-1" aria-label="Fluo navigation">
 		{#each navigation as item (item.id)}
 			{@const Icon = item.icon}
+			{@const selected = item.id === 'settings' ? settingsActive : view === item.id}
 			<Button
 				class="h-11 w-full justify-start gap-3 rounded-xl px-4 text-[14px]"
-				variant={view === item.id ? "secondary" : "ghost"}
-				aria-current={view === item.id ? "page" : undefined}
+				variant={selected ? "secondary" : "ghost"}
+				aria-current={selected ? "page" : undefined}
+				aria-label={item.id === "notifications" ? notificationsLabel : item.label}
 				onclick={() => onNavigate(item.id)}
 			>
 				<Icon class="size-5 shrink-0" /> <span class="truncate">{item.label}</span>
+				{#if item.id === "notifications"}{@render unreadBadge()}{/if}
 			</Button>
 		{/each}
 	</nav>
@@ -110,17 +123,27 @@
 				<Button
 					{...props}
 					aria-label="More Fluo sections"
-					variant={view === "notifications" || view === "settings" ? "secondary" : "ghost"}
-					class={`h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold ${view === "notifications" || view === "settings" ? "" : "text-muted-foreground"}`}
+					title={unreadCount > 0 ? notificationsLabel : 'More Fluo sections'}
+					aria-describedby={unreadCount > 0 ? 'fluo-mobile-notification-count' : undefined}
+					variant={view === "notifications" || settingsActive ? "secondary" : "ghost"}
+					class={`h-14 min-w-0 flex-col gap-0.5 rounded-lg px-0 text-xs font-semibold ${view === "notifications" || settingsActive ? "" : "text-muted-foreground"}`}
 				>
-					<EllipsisIcon class="size-5" /><span>More</span>
+					<span class="relative" aria-hidden="true">
+						{#if unreadCount > 0}
+							<BellIcon class="size-5" />
+							<span class="absolute -right-3 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground">{unreadCount > 99 ? '99+' : unreadCount}</span>
+						{:else}<EllipsisIcon class="size-5" />{/if}
+					</span>
+					<span>More</span>
+					{#if unreadCount > 0}<span id="fluo-mobile-notification-count" class="sr-only">{unreadCount} unread notifications</span>{/if}
 				</Button>
 			{/snippet}
 		</DropdownMenu.Trigger>
 		<DropdownMenu.Content side="top" align="end" class="mb-2 min-w-44">
 			<DropdownMenu.Label>More in Fluo</DropdownMenu.Label>
-			<DropdownMenu.Item onSelect={() => onNavigate("notifications")}>
+			<DropdownMenu.Item onSelect={() => onNavigate("notifications")} aria-label={notificationsLabel}>
 				<BellIcon class="size-4" />Notifications
+				{@render unreadBadge()}
 			</DropdownMenu.Item>
 			<DropdownMenu.Item onSelect={() => onNavigate("settings")}>
 				<SettingsIcon class="size-4" />Settings

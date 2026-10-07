@@ -103,33 +103,60 @@ func (monitor *replicationMonitor) executeLayout(ctx context.Context, run comman
 	if err := layoutPoolPreflight(ctx, run, request, plan, device); err != nil {
 		return err
 	}
-	work := ""
-	if plan.Backend == "disko" {
-		signatures, err := run(ctx, "wipefs", "--no-act", "--noheadings", "--output", "TYPE", request.Device)
-		if err != nil {
-			return err
+	work, err := monitor.prepareLayoutWorkspace(ctx, run, request, plan, device)
+	if err != nil {
+		return err
+	}
+	if err := approveLayoutWorkspace(ctx, run, request, plan, work); err != nil {
+		return err
+	}
+	if err := monitor.applyPartitionDeclaration(ctx, run, request, plan, device, work); err != nil {
+		return err
+	}
+	for _, step := range plan.Steps {
+		if step.Kind != "keep" {
+			if err := activateRoleArea(ctx, run, request, step); err != nil {
+				return err
+			}
 		}
-		if strings.TrimSpace(signatures) != "" || len(device.Children) != 0 {
-			return errors.New("Disko initialization accepts only an empty physical device")
-		}
-		work, err = writeLayoutWorkspace(nil, plan.Declaration)
-		if err != nil {
-			return err
-		}
-		monitor.layoutProgress(request.Device, "Compiling Disko declaration", 0, 0)
-		if _, err := run(ctx, "disko", "--mode", "format", "--dry-run", filepath.Join(work, "disko.nix")); err != nil {
-			return errors.New("Disko declaration could not be compiled; no partition was changed")
-		}
-	} else {
-		definitions, definitionErr := repartDefinitions(device, plan)
-		if definitionErr != nil {
-			return definitionErr
-		}
-		work, err = writeLayoutWorkspace(definitions, "")
-		if err != nil {
+	}
+	monitor.layoutProgress(request.Device, "Volumes available", 2, 3)
+	if request.StorageBytes > 0 {
+		if err := monitor.restoreLayoutRedundancy(ctx, run, request); err != nil {
 			return err
 		}
 	}
+	monitor.layoutProgress(request.Device, "Layout applied", 3, 3)
+	return nil
+}
+
+func (monitor *replicationMonitor) prepareLayoutWorkspace(ctx context.Context, run commandRunner, request layoutRequest, plan storagePlan, device disk) (string, error) {
+	if plan.Backend != "disko" {
+		definitions, definitionErr := repartDefinitions(device, plan)
+		if definitionErr != nil {
+			return "", definitionErr
+		}
+		return writeLayoutWorkspace(definitions, "")
+	}
+	signatures, err := run(ctx, "wipefs", "--no-act", "--noheadings", "--output", "TYPE", request.Device)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(signatures) != "" || len(device.Children) != 0 {
+		return "", errors.New("Disko initialization accepts only an empty physical device")
+	}
+	work, err := writeLayoutWorkspace(nil, plan.Declaration)
+	if err != nil {
+		return "", err
+	}
+	monitor.layoutProgress(request.Device, "Compiling Disko declaration", 0, 0)
+	if _, err := run(ctx, "disko", "--mode", "format", "--dry-run", filepath.Join(work, "disko.nix")); err != nil {
+		return "", errors.New("Disko declaration could not be compiled; no partition was changed")
+	}
+	return work, nil
+}
+
+func approveLayoutWorkspace(ctx context.Context, run commandRunner, request layoutRequest, plan storagePlan, work string) error {
 	// Retain the approved declaration for operator review; nothing is applied automatically at boot
 	if err := os.WriteFile(filepath.Join(work, "approved.json"), mustJSON(request), 0600); err != nil {
 		return err
@@ -150,9 +177,13 @@ func (monitor *replicationMonitor) executeLayout(ctx context.Context, run comman
 			return err
 		}
 	}
+	return nil
+}
+
+func (monitor *replicationMonitor) applyPartitionDeclaration(ctx context.Context, run commandRunner, request layoutRequest, plan storagePlan, device disk, work string) error {
 	monitor.layoutProgress(request.Device, "Applying "+plan.Backend+" declaration", 0, 0)
 	if plan.Backend == "disko" {
-		if _, err = run(ctx, "disko", "--mode", "format", filepath.Join(work, "disko.nix")); err != nil {
+		if _, err := run(ctx, "disko", "--mode", "format", filepath.Join(work, "disko.nix")); err != nil {
 			return errors.New("Disko initialization stopped; inspect the device before retrying")
 		}
 	} else {
@@ -160,10 +191,10 @@ func (monitor *replicationMonitor) executeLayout(ctx context.Context, run comman
 		if err != nil {
 			return err
 		}
-		if _, err = validatedRepartSteps(fresh, device, plan); err != nil {
+		if _, err := validatedRepartSteps(fresh, device, plan); err != nil {
 			return err
 		}
-		if _, err = run(ctx, repartArgs(work, request.Device, false)...); err != nil {
+		if _, err := run(ctx, repartArgs(work, request.Device, false)...); err != nil {
 			return errors.New("systemd-repart stopped; existing files were retained")
 		}
 	}
@@ -171,33 +202,24 @@ func (monitor *replicationMonitor) executeLayout(ctx context.Context, run comman
 		return err
 	}
 	monitor.layoutProgress(request.Device, "Partition layout ready", 1, 3)
-	for _, step := range plan.Steps {
-		if step.Kind == "keep" {
-			continue
-		}
-		if err := activateRoleArea(ctx, run, request, step); err != nil {
-			return err
-		}
-	}
-	monitor.layoutProgress(request.Device, "Volumes available", 2, 3)
-	if request.StorageBytes > 0 {
-		pool := readFilesystemIntegrity(ctx, run, request.Filesystem)
-		if pool == nil {
-			return errors.New("Storage pool status is unavailable")
-		}
-		args := repairConversionArgs(pool, request.Filesystem)
-		if len(args) > 0 {
-			if _, err := repairPreflight(ctx, run, request.Filesystem); err != nil {
-				return err
-			}
-			monitor.layoutProgress(request.Device, "Restoring two-copy allocation", 0, 0)
-			if _, err := monitor.runLayoutBalance(ctx, run, request.Device, request.Filesystem, args); err != nil {
-				return err
-			}
-		}
-	}
-	monitor.layoutProgress(request.Device, "Layout applied", 3, 3)
 	return nil
+}
+
+func (monitor *replicationMonitor) restoreLayoutRedundancy(ctx context.Context, run commandRunner, request layoutRequest) error {
+	pool := readFilesystemIntegrity(ctx, run, request.Filesystem)
+	if pool == nil {
+		return errors.New("Storage pool status is unavailable")
+	}
+	args := repairConversionArgs(pool, request.Filesystem)
+	if len(args) == 0 {
+		return nil
+	}
+	if _, err := repairPreflight(ctx, run, request.Filesystem); err != nil {
+		return err
+	}
+	monitor.layoutProgress(request.Device, "Restoring two-copy allocation", 0, 0)
+	_, err := monitor.runLayoutBalance(ctx, run, request.Device, request.Filesystem, args)
+	return err
 }
 
 func mustJSON(value any) []byte { raw, _ := json.Marshal(value); return raw }

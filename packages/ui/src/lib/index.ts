@@ -4,6 +4,7 @@ export { Button, buttonVariants } from './components/ui/button/index.js';
 export type { ButtonProps, ButtonSize, ButtonVariant } from './components/ui/button/index.js';
 export { Input } from './components/ui/input/index.js';
 export { Textarea } from './components/ui/textarea/index.js';
+export { Slider } from './components/ui/slider/index.js';
 
 // Shared application shells
 export { default as ModuleLanding } from './ModuleLanding.svelte';
@@ -15,10 +16,12 @@ export { default as ThemePicker } from './ThemePicker.svelte';
 export { withIdentityAppearance } from './themes/identity-appearance.js';
 
 // Composite interaction components
+export { IsUsingKeyboard } from 'bits-ui';
 export * as Dialog from './components/ui/dialog/index.js';
 export * as AlertDialog from './components/ui/alert-dialog/index.js';
 export * as ContextMenu from './components/ui/context-menu/index.js';
 export * as DropdownMenu from './components/ui/dropdown-menu/index.js';
+export * as ToggleGroup from './components/ui/toggle-group/index.js';
 export * as Message from './components/ui/message/index.js';
 export * as Bubble from './components/ui/bubble/index.js';
 export * as Attachment from './components/ui/attachment/index.js';
@@ -29,6 +32,7 @@ export { default as ArrowUpRightIcon } from '@lucide/svelte/icons/arrow-up-right
 export { default as ArrowRightIcon } from '@lucide/svelte/icons/arrow-right';
 export { default as ChevronLeftIcon } from '@lucide/svelte/icons/chevron-left';
 export { default as ChevronRightIcon } from '@lucide/svelte/icons/chevron-right';
+export { default as ChevronDownIcon } from '@lucide/svelte/icons/chevron-down';
 export { default as EllipsisIcon } from '@lucide/svelte/icons/ellipsis';
 export { default as XIcon } from '@lucide/svelte/icons/x';
 export { default as ShieldCheckIcon } from '@lucide/svelte/icons/shield-check';
@@ -37,10 +41,13 @@ export { default as LogOutIcon } from '@lucide/svelte/icons/log-out';
 
 // Post and message icons
 export { default as MessageCircleIcon } from '@lucide/svelte/icons/message-circle';
+export { default as HeartIcon } from '@lucide/svelte/icons/heart';
 export { default as ThumbsUpIcon } from '@lucide/svelte/icons/thumbs-up';
 export { default as ThumbsDownIcon } from '@lucide/svelte/icons/thumbs-down';
 export { default as Repeat2Icon } from '@lucide/svelte/icons/repeat-2';
 export { default as Share2Icon } from '@lucide/svelte/icons/share-2';
+export { default as GlobeIcon } from '@lucide/svelte/icons/globe';
+export { default as LockIcon } from '@lucide/svelte/icons/lock';
 export { default as ImagePlusIcon } from '@lucide/svelte/icons/image-plus';
 export { default as PlusIcon } from '@lucide/svelte/icons/plus';
 export { default as PlayIcon } from '@lucide/svelte/icons/play';
@@ -60,7 +67,9 @@ export { default as SendIcon } from '@lucide/svelte/icons/send';
 export { default as PaperclipIcon } from '@lucide/svelte/icons/paperclip';
 export { default as UsersIcon } from '@lucide/svelte/icons/users';
 export { default as UserPlusIcon } from '@lucide/svelte/icons/user-plus';
+export { default as UserMinusIcon } from '@lucide/svelte/icons/user-minus';
 export { default as CheckIcon } from '@lucide/svelte/icons/check';
+export { default as CopyIcon } from '@lucide/svelte/icons/copy';
 export { default as CheckCheckIcon } from '@lucide/svelte/icons/check-check';
 export { default as CircleIcon } from '@lucide/svelte/icons/circle';
 export { default as HashIcon } from '@lucide/svelte/icons/hash';
@@ -80,7 +89,6 @@ export { default as PanelLeftIcon } from '@lucide/svelte/icons/panel-left';
 export { default as PanelRightIcon } from '@lucide/svelte/icons/panel-right';
 export { default as LayoutGridIcon } from '@lucide/svelte/icons/layout-grid';
 export { default as CompassIcon } from '@lucide/svelte/icons/compass';
-export { default as HeartIcon } from '@lucide/svelte/icons/heart';
 export { default as SmilePlusIcon } from '@lucide/svelte/icons/smile-plus';
 export { default as PencilIcon } from '@lucide/svelte/icons/pencil';
 export { default as LoaderCircleIcon } from '@lucide/svelte/icons/loader-circle';
@@ -95,3 +103,18 @@ export { default as InfoIcon } from '@lucide/svelte/icons/info';
 export { default as HardDriveIcon } from '@lucide/svelte/icons/hard-drive';
 export { default as UsbIcon } from '@lucide/svelte/icons/usb';
 export { default as ServerIcon } from '@lucide/svelte/icons/server';
+
+// Language learning and dictionary icons
+export { default as LanguagesIcon } from '@lucide/svelte/icons/languages';
+export { default as BookOpenIcon } from '@lucide/svelte/icons/book-open';
+export { default as GraduationCapIcon } from '@lucide/svelte/icons/graduation-cap';
+export { default as LayersIcon } from '@lucide/svelte/icons/layers';
+export { default as FlameIcon } from '@lucide/svelte/icons/flame';
+export { default as TargetIcon } from '@lucide/svelte/icons/target';
+export { default as RotateCcwIcon } from '@lucide/svelte/icons/rotate-ccw';
+export { default as FolderIcon } from '@lucide/svelte/icons/folder';
+export { default as FolderPlusIcon } from '@lucide/svelte/icons/folder-plus';
+export { default as UploadIcon } from '@lucide/svelte/icons/upload';
+export { default as DownloadIcon } from '@lucide/svelte/icons/download';
+export { default as SparklesIcon } from '@lucide/svelte/icons/sparkles';
+export { default as LightbulbIcon } from '@lucide/svelte/icons/lightbulb';

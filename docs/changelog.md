@@ -11,6 +11,12 @@ The Portal release history is data-driven. Keep release content in versioned Typ
 5. Keep entries short, user-facing, and in English. Group related changes by app or capability. Describe working behavior, not implementation steps, plans, or reserved integrations.
 6. Preserve all prior release modules. Do not add unreleased work to this public history.
 
+Release history is public. Exclude administration panels, privileged operations,
+host configuration, internal monitoring, and operational access details from
+both Portal notes and GitHub release descriptions. Apply privacy corrections to
+older descriptions while preserving their versions and release dates. Keep
+verification and deployment evidence in the internal engineering documentation.
+
 ## Data and loading rules
 
 - The filename is the version identifier. The per-version module is the source of truth for its date, summary, and grouped changes. Do not duplicate release details in a central manifest or in the page component.

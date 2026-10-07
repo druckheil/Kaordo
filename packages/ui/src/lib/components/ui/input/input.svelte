@@ -4,7 +4,7 @@
 	import type { HTMLInputAttributes, HTMLInputTypeAttribute } from "svelte/elements";
 
 	const inputClasses = [
-		"bg-card border-input focus-visible:border-ring focus-visible:ring-ring/30",
+		"bg-card border-[var(--control-border)] focus-visible:border-ring focus-visible:ring-ring/30",
 		"aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
 		"aria-invalid:border-destructive dark:aria-invalid:border-destructive/50",
 		"h-11 rounded-xl border px-3.5 py-2 text-base transition-[color,box-shadow] duration-200",

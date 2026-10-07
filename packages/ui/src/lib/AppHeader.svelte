@@ -1,5 +1,6 @@
 <script lang="ts">
   // Provides the shared Kaordo header and accessible app navigation
+  import type { Snippet } from 'svelte';
   import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { Button } from './components/ui/button/index.js';
@@ -13,6 +14,8 @@
     wide?: boolean;
     settingsActive?: boolean;
     backAction?: (() => void) | null;
+    actions?: Snippet;
+    showAllApps?: boolean;
   }
 
   let {
@@ -21,17 +24,19 @@
     sticky = false,
     wide = false,
     settingsActive = false,
-    backAction = null
+    backAction = null,
+    actions,
+    showAllApps = true
   }: Props = $props();
 
   const headerClass = $derived(
     `shrink-0 border-b border-border/80 bg-background/95 backdrop-blur-xl ${sticky ? 'sticky top-0 z-20' : ''}`
   );
   const contentClass = $derived(
-    `mx-auto h-16 items-center px-4 sm:px-6 ${
+    `mx-auto min-h-12 flex flex-wrap items-center px-4 py-1 sm:px-6 ${
       backAction
-        ? 'grid grid-cols-[minmax(0,1fr)_auto] gap-1 xl:grid-cols-[14rem_minmax(0,1fr)_auto] xl:gap-10'
-        : 'flex justify-between gap-3'
+        ? 'justify-between gap-3 xl:grid xl:grid-cols-[14rem_minmax(0,1fr)_auto] xl:gap-10'
+        : 'justify-between gap-3'
     } ${wide ? 'max-w-[90rem]' : 'max-w-6xl'}`
   );
 </script>
@@ -44,11 +49,12 @@
 </a>
 <header class={headerClass}>
   <div class={contentClass}>
-    <div class="flex min-w-0 items-center gap-2.5">
+    <div class="flex min-w-0 max-w-full items-center gap-2.5">
       <a
         href={homeHref}
         rel="external"
         aria-label="Kaordo home"
+        data-slot="app-home"
         class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-sm font-bold text-primary-foreground transition-transform hover:scale-105 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         K
@@ -56,8 +62,10 @@
       <span class="hidden text-sm font-bold tracking-tight text-link min-[390px]:inline">
         Kaordo
       </span>
-      <span class="text-border" aria-hidden="true">/</span>
-      <span class="truncate text-base font-bold tracking-tight">{name}</span>
+      {#if name}
+        <span class="text-muted-foreground/60" aria-hidden="true">/</span>
+        <span class="truncate text-base font-bold tracking-tight">{name}</span>
+      {/if}
     </div>
     {#if backAction}
       <Button
@@ -73,10 +81,13 @@
       </Button>
     {/if}
     <div class={`flex shrink-0 items-center gap-1 sm:gap-2 ${backAction ? 'col-start-2 row-start-1 xl:col-start-3' : ''}`}>
+      {@render actions?.()}
+      {#if showAllApps}
       <Button href={homeHref} rel="external" variant="ghost" size="sm" class="shrink-0" aria-label="All apps">
-        <span class="hidden min-[390px]:inline">All apps</span>
+        <span class="hidden sm:inline">All apps</span>
         <ArrowUpRightIcon class="size-4" />
       </Button>
+      {/if}
       <ThemeToggle />
       <AgordojLink current={settingsActive} />
     </div>

@@ -1,7 +1,7 @@
 {
   "name": "kaordo",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
@@ -12,10 +12,10 @@
     "test:account-preview": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs",
     "backup:local": "node scripts/local-backup.mjs backup",
     "backup:verify": "node scripts/local-backup.mjs verify",
-    "test:backup:live": "node --test scripts/backup-live.integration.mjs",
+    "test:backup:live": "playwright test --project=live backup-live.integration.mjs --workers=1",
     "test:auth": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs scripts/api-client.test.mjs scripts/auth-config.test.mjs",
-    "test:auth:live": "node --test --test-concurrency=1 scripts/auth-live.integration.mjs",
-    "test:auth:live:identity": "node --test --test-concurrency=1 --test-name-pattern=\"remembered OIDC|identity theme|identity OTP\" scripts/auth-live.integration.mjs",
+    "test:auth:live": "playwright test --project=live auth-live.integration.mjs --workers=1",
+    "test:auth:live:identity": "pnpm test:auth:live --grep \"remembered OIDC|identity theme|identity OTP\"",
     "test:product:db": "node scripts/product-db.integration.mjs",
     "test:fluo:db": "node scripts/product-db.integration.mjs",
     "test:ligo:db": "node scripts/product-db.integration.mjs",
@@ -32,14 +32,22 @@
     "check:front": "pnpm -r --filter \"@kaordo/*\" check",
     "test:pages": "pnpm build:pages && node --test scripts/pages.test.mjs scripts/build-pages-config.test.mjs",
     "test:ui-layout": "node --test scripts/media-layout.test.mjs scripts/ligo-message-layout.test.mjs",
-    "test:ui-public": "pnpm build:pages && node --test scripts/ui-public.test.mjs",
-    "test:regado:ui": "node --test scripts/regado-ui.test.mjs",
-    "test:product:ui": "node --test scripts/product-ui.test.mjs",
-    "test:rondo:db": "node scripts/product-db.integration.mjs"
+    "test:ui-public": "pnpm build:pages && playwright test --project=browser ui-public.test.mjs",
+    "test:regado:ui": "playwright test --project=browser regado-ui.test.mjs",
+    "test:product:ui": "playwright test --project=browser product-ui.test.mjs",
+    "test:rondo:db": "node scripts/product-db.integration.mjs",
+    "dev:integration": "node scripts/dev-local.mjs --static",
+    "test:unit": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs scripts/api-client.test.mjs scripts/auth-config.test.mjs scripts/backup-config.test.mjs scripts/build-pages-config.test.mjs scripts/dependencies.test.mjs scripts/deploy-production.test.mjs scripts/dev-local.test.mjs scripts/ligo-message-layout.test.mjs scripts/lingvo-client.test.mjs scripts/media-layout.test.mjs scripts/media-upload-storage.test.mjs scripts/media-clipboard.test.mjs scripts/ci-config.test.mjs",
+    "test:ui": "playwright test --project=browser",
+    "test:ui:browsers": "playwright test --config=playwright.audit.config.mjs",
+    "test:integration": "KAORDO_START_SERVICES=1 playwright test --project=live --workers=1 --reporter=line"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "playwright-core": "^1.63.0",
-    "sirv": "3.0.2"
+    "@playwright/test": "1.63.0",
+    "postcss": "^8.5.28",
+    "sirv": "3.0.2",
+    "svelte": "^5.57.1",
+    "typescript": "^6.0.3"
   }
 }

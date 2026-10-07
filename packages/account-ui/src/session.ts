@@ -30,16 +30,19 @@ const defaultDependencies: Dependencies = { initializeAuth, bootstrapIdentity };
 
 export async function loadAccountSnapshot(
   environment: Record<string, string | undefined>,
-  dependencies: Dependencies = defaultDependencies
+  dependencies: Dependencies = defaultDependencies,
+  signal?: AbortSignal
 ): Promise<AccountSnapshot> {
   let authenticated = false;
   try {
+    signal?.throwIfAborted();
     const session = await dependencies.initializeAuth(authConfigFromEnv(environment));
+    signal?.throwIfAborted();
     authenticated = session.authenticated;
     if (!session.authenticated) return completedSnapshot(false, null);
 
     const apiUrl = requireApiUrl(environment);
-    const user = await dependencies.bootstrapIdentity(apiUrl);
+    const user = await dependencies.bootstrapIdentity(apiUrl, undefined, signal);
     return completedSnapshot(true, user);
   } catch (cause) {
     return failedSnapshot(cause, authenticated);
@@ -71,6 +74,7 @@ export function createAccountSessionController(
 ) {
   let generation = 0;
   let disposed = false;
+  let pending: AbortController | undefined;
   const rememberPreview = dependencies.rememberPreview ?? rememberAccountPreview;
   const clearPreview = dependencies.clearPreview ?? clearAccountPreview;
 
@@ -86,19 +90,27 @@ export function createAccountSessionController(
   return {
     async refresh(publish: (snapshot: AccountSnapshot) => void): Promise<void> {
       if (disposed) return;
+      pending?.abort();
+      const controller = new AbortController();
+      pending = controller;
       const request = ++generation;
       publish({ loading: true, authenticated: false, user: null, error: null });
-      const snapshot = await loadAccountSnapshot(environment, dependencies);
+      const snapshot = await loadAccountSnapshot(environment, dependencies, controller.signal);
+      if (pending === controller) pending = undefined;
       if (!isCurrent(request)) return;
 
       updatePreview(snapshot);
       publish(snapshot);
     },
     cancelPending(): void {
+      pending?.abort();
+      pending = undefined;
       generation++;
     },
     dispose(): void {
       disposed = true;
+      pending?.abort();
+      pending = undefined;
       generation++;
     }
   };

@@ -1,5 +1,7 @@
 # Refactor review — 3 October 2026
 
+Latest assessment: [7 October 2026 ISO/IEC 25010 quality audit](audits/iso-iec-25010-2023-2026-10-07.md). The dated sections below preserve their original verification boundaries.
+
 ## Scope and outcome
 
 Reviewed the accumulated, uncommitted maintainability refactor across all five apps, shared packages, four Go modules and repository scripts. The refactor preserves wire schemas and existing product workflows. Generated OpenAPI/Jet files, credentials, user content and build output are not refactor targets. No production deployment accompanies this change.
@@ -11,14 +13,16 @@ This is an engineering review with automated evidence, not a new ISO score or a 
 | Layer | Responsibility |
 | --- | --- |
 | Portal | Welcome/app entry/auth presentation; shared account controller handles the session |
-| Fluo | Controller for selection/navigation/mutations; separate feed/header, composer/editor/publishing, post actions/replies/detail |
+| Fluo | Controller for selection/navigation/post actions; notification/settings query controllers and separate feed/header, settings, composer/editor/publishing, replies/detail |
 | Ligo | Conversation selection and SSE/query coordination; separate sidebar and conversation dialog |
 | Rondo | Server/channel coordination, member panel, layout helpers and voice views; shared chat pipeline |
+| Lingvo | Dictionary/view selection and lazy screens; vocabulary, phrase practice, library, folders and CSV transfer |
 | Regado | Independent query resources and mutations; overview/storage/system/users/audit/log panels and action/access dialogs |
 | auth / account-ui | In-memory OIDC tokens; verified account bootstrap and nonauthorizing per-tab preview |
-| api-client / contracts | Typed requests, response/refresh policy, query keys, pagination, cancellation and immutable message-cache helpers; generated wire schemas |
+| api-client / contracts | Typed requests, response/refresh policy, query keys, pagination, cancellation and immutable message/Fluo cache helpers; generated wire schemas |
 | ui / chat-ui | STaSBRL primitives and shared message/composer/native-scroll interaction |
 | media-client / media-ui / voice-client | Upload/resize workflow; metadata-based layout, PhotoSwipe/Vidstack; LiveKit room/track lifecycle and sounds |
+| lingvo-client | German presentation, pronunciation, answer comparison, CSV and official ts-fsrs interval previews |
 | Kerno | Configuration/wiring, HTTP authorization/orchestration, domain validation, Jet/pgx persistence split by operation |
 | Nodo | HTTP upload/media handlers, owner/quota validation, processing queue, image/video/file processing, purge/GC and worker lifecycle |
 | mediaauth / regado-agent | Media signatures; protected Unix API, fixed commands, host/Btrfs/SMART/journal queries |
@@ -300,10 +304,369 @@ full product integration suite was not rerun. Local policy reconciliation was
 applied. Read-only inspection of production Keycloak 26.7.5 confirmed its prior
 30-minute idle/10-hour maximum policy; production rollout was not performed.
 
+## Fluo activity notifications — 6 October 2026
+
+Fluo now records likes, dislikes, direct replies, quotes and new followers in
+Kerno's PostgreSQL transaction for the originating action. Migration 014 adds
+recipient-owned read timestamps, timeline/partial unread indexes and cascading
+post/account cleanup, including an indexed one-hour cooldown shared by all
+kinds for a recipient, actor, kind and destination post. Actual repeats append
+a fresh row after the hour while retaining earlier read history; every new
+reply/quote ID notifies separately.
+Originating relation/post writes serialize repeats before the cooldown query;
+unchanged action requests do not create new alerts. Self-actions and private
+saved-post identities do not produce alerts. Private replies/quotes notify
+when actually published. Existing engagement is not backfilled.
+
+Notification pages, previews and counts apply current post/ancestor access
+checks. Shared media and recursive-access expressions use Jet column references
+for correlation, and feed/notification pagination shares one cursor predicate.
+Each list page, its count and bulk-read boundary use one read snapshot; bulk
+reads leave newer events unread. Reactions use a shared post row lock while
+authorization, the mutation, notification insertion and response reading remain
+in one transaction, allowing different users' reactions to proceed concurrently.
+
+The existing focused-post/history flow opens notification destinations and
+returns to Notifications. A cohesive Svelte controller owns query cancellation
+and one scoped TanStack read mutation for single-item and bounded bulk reads.
+Read-cache transformations and page merging live in api-client. Reading is
+one-way in the API and UI.
+Unread cards expose a full-height right bookmark strip with no transparent
+button-border/baseline gap. It slides away on confirmed reads, with
+reduced-motion and keyboard-focus handling. The bulk-read button is present
+only when the recipient has unread notifications; its reserved toolbar rows
+keep the list in place when it disappears. Destination media uses
+shared medium previews capped at 176 pixels high; videos render a static
+black frame with a Play symbol, mounting no player and fetching no video URL.
+The normal Vidstack player loads in the focused post. Existing media
+signatures stay stable within each minute to avoid four-second image reloads.
+
+The latest page or lighter unread summary polls every four seconds in the
+foreground, with a margin within the five-second update target, and refreshes
+on focus/reconnection. Native cursor pagination reuses the recent page without
+a second first-page request and joins history at the exact current boundary,
+so older-page refreshes cannot delay current activity. A missing boundary
+rebuilds history through native query invalidation. Older pages refresh every
+five minutes to renew media links and access state. Activating either polling
+query refreshes it immediately. Ordinary posting, reaction, follow and save
+mutations invalidate post queries without refetching notification history;
+visibility/deletion still invalidate every affected resource. Queries consume
+AbortSignal and the app clears its cache on teardown. Desktop navigation and
+the mobile More control/menu show unread counts. Existing browser fixtures
+were adapted to the new read endpoints.
+
+OpenAPI types and Jet table definitions were generated from their sources.
+The uncommitted migrations were consolidated into 014 before publication;
+its final schema preserves the already-created local notification history.
+Reaction/follow write helpers keep each relation change and notification in
+one transaction with guard clauses for unchanged requests. The self-follow
+guard accepts UUID letter case consistently with ID validation and PostgreSQL.
+The Fluo coordinator also suppresses obsolete error, dialog and scroll
+callbacks after teardown.
+
+Refactor evidence: `pnpm check:front` reported zero errors and warnings in all
+six Svelte projects. `pnpm build:pages` built all five applications; the final
+Fluo build also completed after the last notification layout/query edits.
+OpenAPI declarations were regenerated. All four Go modules built and passed
+`go vet`. Generated Jet SQL was inspected for preview/subject column correlation;
+this was source inspection, with no product query executed. Modified fixture
+and migration scripts passed `node --check`; `git diff --check` was clean.
+No functional notification tests were added or run in this change.
+
+## Fluo notification/privacy settings and refactor — 6 October 2026
+
+Settings now opens separate Notifications and Privacy sections through the
+existing SvelteKit shallow navigation. Rhea/Bits UI radio groups own keyboard
+selection; TanStack Query owns cancellation and serialized mutations. Pending
+patches from its mutation cache overlay confirmed query data, keeping selection
+immediate while earlier responses arrive. Each change uses a partial
+authenticated settings request, and PostgreSQL upserts only supplied columns,
+preserving preferences changed in another section or session. Migration 015
+stores account-owned settings with defaults and constraints; OpenAPI and Jet
+declarations are generated. Validation requires each supplied preference group
+to contain a change, matching the OpenAPI request constraints.
+
+Likes, dislikes, replies, follows and quotes default to **Notify**; unfollows
+default to **Off**. Every category also offers **Only people I follow**, evaluated
+from the recipient's follow relation when the action occurs. Preferences govern
+future notifications and preserve existing read history. A real unfollow now
+records activity in its relation transaction, using the same one-hour cooldown
+as other repeated actions. New reply/quote IDs still notify independently.
+
+Account privacy is public by default. A private account grants post access to
+its author and the accounts its author follows. Individual private posts remain
+author-only. A shared lineage predicate applies this policy to feeds, search,
+saved posts, focused threads, quoted previews, interactions and notifications;
+reply/quote counts omit inaccessible posts. Administrative access remains
+governed by the existing audited access-case workflow.
+
+Likes are visible by default. Hidden likes contribute to the aggregate count
+without inserting an identifying notification. Reads also hide existing like
+notifications while their actor hides likes, including unread counts and read
+mutations. Returning to visible likes does not backfill actions performed while
+hidden. Ordinary post mutations invalidate only feed/comment/thread resources;
+privacy saves invalidate affected content and notification resources.
+
+Preference controls stay enabled during saves. A single CSS highlight follows
+equal grid tracks; the chosen policy also tints its section and icon. Responsive
+layout and Bits UI arrow navigation use the same breakpoint. Focus rings and
+reduced-motion preferences remain supported. The shared Rhea radio indicator
+stays mounted for opacity/scale transitions, and its selection styles and
+`ThemePicker` now match the installed Bits UI `data-state="checked"` attribute.
+
+The accumulated settings changes were reviewed through their related feed,
+thread, interaction, media and notification paths. Maintainability changes:
+
+- One row template renders notification and privacy preferences. A typed
+  single-field mutation replaces generic nested-patch error bookkeeping;
+  obsolete failures are superseded only by a newer choice for that field.
+  The native mutation scope serializes saves and application teardown aborts
+  requests without repopulating cleared caches.
+- One view registry owns valid hashes, titles, descriptions and settings
+  sections; navigation no longer casts a split URL segment into a section.
+- `api-client` owns post cache removal and selective invalidation. Privacy,
+  visibility and deletion refresh content/notifications without refetching
+  account settings. Query Core types use a declared dependency.
+- Post access uses explicit public-account/audience grants. Notification policy
+  uses Jet's simple `CASE` to read the stored/default policy once, with defaults
+  taken from the domain model. Existing transaction boundaries and shared
+  lineage restrictions remain in place.
+- Post row scanning maps absence to `ErrNotFound` consistently, including
+  access revoked between a reaction's access check and its final read.
+
+Compilation evidence: `pnpm check:front` reported zero errors and warnings in
+all six Svelte projects; `pnpm build:pages` built all five static applications.
+All four Go modules built and passed `go vet`. OpenAPI declarations were
+regenerated; the migration runner passed `node --check`; `git diff --check`
+was clean. Migration 015 was applied to the local development database during
+implementation. No production release accompanied this refactor. Access and
+policy predicates were reviewed from source; functional/browser tests were
+not added or run for these changes.
+
+## Fluo reaction controls and refactor — 6 October 2026
+
+Post reactions use a red heart for Like and a larger, heavier X for Dislike.
+A permanent adjacent trigger opens the existing Rhea/Bits UI menu, which owns
+keyboard selection, dismissal and focus restoration. The primary button
+removes an active reaction. Motion is local CSS with reduced-motion support;
+selection and counts remain tied to confirmed server data.
+
+The accumulated changes were reviewed through feed, reply, focused-post,
+notification, settings, request and live-journey paths. Maintainability changes:
+
+- One reaction description supplies both the primary glyphs and menu choices.
+  CSS flex layout distributes action widths without JavaScript column counts,
+  hover tracking or separate pointer-specific layouts.
+- Shared controller callback types derive from the existing implementation
+  and generated post schema. Reaction results reach the animation component,
+  allowing a failed save to clear pending motion without shadowing counts.
+- Function bindings keep reaction and both visibility radio menus tied to
+  confirmed values, including after a failed request.
+- `api-client` accepts cancellation signals for reactions, follows, saved
+  posts and visibility changes. The application aborts its post-action scope
+  before clearing query caches; obsolete callbacks do not report errors.
+- Notification and settings icons match the reaction symbols. The existing
+  live journey now observes the reaction response separately from the UI and
+  uses native menu roles, keyboard access and Escape focus restoration.
+
+Compilation evidence: `pnpm check:front` reported zero errors and warnings in
+all six Svelte projects; `pnpm build:pages` built all five static applications.
+Vite emitted its advisory for a chunk larger than 500 kB; no size budget was
+changed. The updated live-journey script passed `node --check`, and
+`git diff --check` was clean. No functional/browser tests or hosted CI run were
+executed for this refactor. No production release accompanied these changes.
+
+## Fluo composer layout and refactor — 6 October 2026
+
+The editable text starts at four line heights and grows with content. Native
+flex layout sizes the centered Bits UI dialog to the text, replies, quotes and
+attachments up to a 44rem/90dvh cap. The draft viewport then scrolls independently
+while the publishing controls remain visible. Options mounts in normal flow;
+short dialogs grow around their center, and capped dialogs give the panel space
+from the draft viewport. There is no hidden-panel reserve, measured height formula,
+custom positional offset or geometry transition. The viewport has one text line
+of bottom padding, and a native viewport-height binding preserves its last visible
+text line when space changes. The editor keeps a neutral border when focused.
+
+Formatting composes the shared Rhea Toggle Group and Tiptap mark commands;
+Public/Only me uses the existing Dropdown Menu radio items. Bits UI owns keyboard
+selection, dismissal, focus and dialog presence. The formatting subscription
+follows editor transactions and is removed on teardown. Shared toggle variants
+have one owner, and Svelte's typed `createContext` replaces string keys,
+context assertions and unused orientation state.
+
+The review covered all accumulated composer changes, editor/publishing/media
+helpers, shared primitives and existing fixture/live journey selectors.
+Refactoring removes the duplicate close-animation timer and flags, retains only
+the reply/quote context for native dialog presence, and consolidates the
+character limit and options focus/scroll handling. Native dimension bindings own
+measurement cleanup; scroll adjustments require a connected viewport. Editor CSS
+is scoped locally; the existing editor configuration already owns its focus
+outline. No wire schema, upload workflow or production deployment is changed.
+
+Refactor compilation evidence: `pnpm check:front` reported zero errors and warnings in
+all six Svelte projects; `pnpm build:pages` built all five static applications.
+The updated live-journey script passed `node --check`, and `git diff --check`
+was clean. No functional/browser tests or hosted CI run were executed for this
+refactor. Vite retained the existing Rondo advisory for a chunk larger than
+500 kB; no size budget was changed.
+
+The subsequent spacing correction replaced the 12rem region minimum with a
+four-line minimum on the editable document and removed the hidden-options
+reserve from the preferred height. Quotes and attachments follow the editor's
+actual height without a separate empty area beneath them. The final simplification
+removes all document/header/control measurements, custom height/position variables
+and options layout animation. Standard dialog centering and CSS flex layout own
+growth; local `transition-none` prevents implicit transitions of dialog geometry
+while retaining Bits UI's entrance and exit animations.
+Targeted Fluo `check` and `build` passed; functional/browser tests were not run
+for these corrections.
+
+## Rondo voice and video settings — 6 October 2026
+
+The channel header opens a lazily loaded settings screen through SvelteKit
+shallow navigation. The channel view stays mounted, preserving the call,
+message draft and scroll position; browser Back/Forward synchronize the view.
+Device choices use the shared Dropdown Menu radio group and the official Rhea
+Slider, with accessible labels on the slider thumbs.
+
+`voice-client` owns validated browser defaults, LiveKit device switching,
+microphone gain processing before publication, remote/screen/interface audio
+volume, and isolated microphone/speaker checks. Checks release capture tracks,
+audio graphs and scheduled work on stop/teardown, including late permission
+results. Output selection uses browser capabilities and falls back to system
+output where selection is unsupported. Defaults are browser-local preferences,
+not server account settings.
+
+The maintainability pass separates lazy loading/retries into
+`DeferredRondoSettings`, stores the settings return location in typed router
+history, and shares one device-action error/refresh boundary. Device choices are
+normalized once; volume validation belongs to `voice-client`. The microphone
+meter scales its measured level without an extra gain node, and the speaker
+check owns its completion timer rather than duplicating it in the view.
+Connection teardown is idempotent; disposed sounds cannot recreate audio
+contexts, and obsolete capture results are stopped before publication.
+
+Compilation evidence: `pnpm check:front` reported zero errors and warnings in
+all six Svelte projects; `pnpm build:pages` built all five static applications,
+and `git diff --check` passed. Vite retained the existing Rondo advisory for a
+chunk larger than 500 kB; no size budget was changed. No functional/browser
+tests, real-device checks or hosted CI run were executed for this addition
+and refactor.
+
+## Lingvo language learning — 7 October 2026
+
+Lingvo is an independent static app with personal dictionaries identified by
+user, learning language and native language. German is the initial learning
+language; Russian and English have original starter catalogues. The app adds
+word recognition, recall and listening, phrase tiles and written answers,
+folders, bounded CSV transfers, daily goals and activity. Shared Rhea/Bits UI
+components own dialogs, choices and menus. Screens, editors, CSV parsing and
+the browser scheduler load on demand; animations respect reduced motion.
+
+OpenAPI defines the wire schemas and generates TypeScript declarations. Jet
+tables were generated from all migrations in an isolated PostgreSQL database;
+migration 016 adds owner-scoped dictionaries, cards, folders and review history.
+Kerno serializes writes on the owned dictionary, validates content and folder
+membership, and uses card revisions for concurrent edits and review undo.
+Stable request IDs make card creation and review retries idempotent. Import
+keys prevent repeated catalogue/CSV imports from resetting existing progress.
+
+The official Go FSRS-6 implementation owns saved scheduling; pinned ts-fsrs
+previews the four grades in the browser. Both use matching default parameters
+and deterministic intervals. The adapter translates the browser's step index
+to the Go library's remaining-step count. Daily activity uses the dictionary's
+server time zone. SvelteKit owns dictionary/view/filter navigation, while
+application teardown cancels requests, clears private query data and stops
+owned speech playback.
+
+Compilation evidence: `pnpm check:front` reported zero errors and warnings in
+all seven Svelte projects; `pnpm build:pages` built all six static applications.
+`go build` and `go vet` completed for all four Go modules. Contract generation,
+script syntax checks and `git diff --check` passed. The managed local launcher
+applied migration 016, rebuilt the services and started six frontend servers.
+The existing Rondo chunk-size advisory remains. No functional/browser tests
+or hosted CI run were executed for this addition; compilation and launcher
+readiness do not establish the complete learning workflow.
+
+See [Lingvo's workflows and boundaries](../apps/lingvo/README.md). Automated
+translation, an AI tutor, external media ingestion, community libraries and
+offline synchronization remain outside this implementation.
+
+The subsequent usability correction makes language-pair selection compact and
+collapses optional card details. Articles use the shared Radio Group with a
+controlled binding and visible selection; selecting an article identifies a
+noun. The editor constrains scrolling to its body and retains its actions.
+Activity groups by the projected day alias: repeating a parameterized time-zone
+expression had produced distinct Jet parameters and a PostgreSQL GROUP BY error.
+Unexpected Lingvo service errors now reach server logs while client errors stay
+generic. Targeted Lingvo type checking/build and Kerno build/vet passed; a
+read-only PostgreSQL EXPLAIN accepted the corrected grouping. No functional or
+browser suite was run for this correction.
+
+AI-assisted entry uses one language-aware prompt and a bounded Papa Parse
+template parser in `lingvo-client`. CSV and AI templates share content validation;
+folder names resolve to existing owned folders. The editor applies only fully
+validated replies to the draft and exposes populated details for review. Saving
+remains a separate user action. Clipboard feedback owns its completion timer and
+ignores results after teardown, with manual copying available on failure.
+Targeted Lingvo/UI type checks reported zero errors and warnings, Lingvo's static
+build passed, and `git diff --check` was clean. No functional/browser tests were
+run for this addition.
+
+## Quality audit and refactor — 7 October 2026
+
+The [full assessment](audits/iso-iec-25010-2023-2026-10-07.md) covers all nine
+ISO/IEC 25010:2023 characteristics and 40 subcharacteristics of the implemented
+product. Its 95.9/100 engineering score does not meet the requested 99 threshold;
+the independent production backup remains an open High operational finding.
+This audit used automated tests rather than manual website exploration.
+
+Correctness changes include versioned CSV identities and migration 017 to avoid
+multiline-field collisions, matching Go/TypeScript FSRS caps, cancellation across
+account bootstrap and token refresh, joined PostgreSQL listener shutdown, bounded
+Regado JSON decoding, HTTP(S)-only media bases and nonmutating storage fingerprints.
+Rondo applies live sound choices even when browser persistence is unavailable.
+Regado chart resizing coalesces updates into an owned animation frame, skips
+unchanged dimensions and cancels the frame before destroying uPlot. Repeated
+viewport checks preserve strict browser runtime-error assertions.
+Official libraries still own scheduling, parsing, UI interaction and protocols.
+
+Storage planning/application, maintenance, admin actions and Lingvo import now
+have cohesive phase helpers. Production Go maximum cognitive complexity drops
+from 51 to 26 while preserving locked transactions, ownership checks, native
+partition tools, audit ordering and worker exclusivity. Reused immutable FSRS
+configuration reduces per-review allocation from 1432 B/11 allocations to
+1120 B/8 allocations. Imports validate each distinct folder once per transaction.
+
+Dependency ownership uses TypeScript, Svelte and PostCSS parsers, with explicit
+root dependencies for the parsers actually imported. CEL/gRPC/crypto support and
+compression dependencies are patched. Separate `GOWORK=off` verification checks
+the versions each Go module builds independently; a workspace-selected safe
+version must not conceal an older module declaration.
+
+New domain, handler, LiveKit and isolated Lingvo database tests cover validation,
+authorization, import migration/retry/Unicode/atomicity, capacity, 12 concurrent
+review attempts, undo/replay and 32 matching scheduler state/grade cases. The
+product database runner includes Lingvo. Regado and Lingvo browser scenarios
+are split by task with per-test API state; launcher preflight assertions use
+existing occupied ports without skipping or closing another process's listener.
+Bind probes and test port blockers release incoming readiness connections so
+their teardown cannot wait on an unread accepted socket.
+All previous assertions remain and Playwright retries remain zero.
+
+The audit ledger records frontend/static builds, 164 fast checks, Chromium and
+WebKit/Firefox suites, all five real static integration journeys, PostgreSQL,
+Go race/vet/build/static analysis and dependency scans. The PostgreSQL package
+reaches 70.1% statement coverage, Lingvo domain 96.2%, executable Ligo domain and
+mediaauth 100%, and the LiveKit adapter 73.3%. These are coverage measurements,
+not quality scores. Workflow files, production deployment and Git remotes were
+not changed; historical hosted runs do not verify this assessed refactor.
+
 ## Remaining boundaries
 
 - No content E2EE, user-held decryption keys or system escrow lifecycle; Regado cases authorize existing plaintext data and notify/audit access.
 - Data1 RAID1 mirrors two physical disks, but an independently recoverable backup destination/key copy/schedule still require configuration. Local development does not mirror disks.
 - Public voice quality depends on reachable signaling/RTC/TURN, actual devices and external networks. Synthetic local camera/room tests do not establish that quality.
 - Chromium/axe/reflow tests do not cover every browser, screen reader or native macOS trackpad rubber-band interaction. No participant UEQ/VisAWI study or production load test was performed.
-- Notifications, full settings, ownership transfer/moderation, Matrix and Cloudflare integrations remain outside implemented workflows. Reserved crypto is intentionally empty.
+- Notifications outside Fluo, other account settings, ownership transfer/moderation, Matrix and Cloudflare integrations remain outside implemented workflows. Reserved crypto is intentionally empty.

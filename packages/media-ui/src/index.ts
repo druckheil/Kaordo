@@ -1,6 +1,7 @@
 // Exports media components and shared layout utilities
 export { default as MediaGallery } from './MediaGallery.svelte';
 export { default as MessageMediaGrid } from './MessageMediaGrid.svelte';
+export { default as MediaPreview } from './MediaPreview.svelte';
 
 export {
   mediaFrameHeightPx,

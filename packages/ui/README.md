@@ -2,7 +2,7 @@
 
 Shared STaSBLR components: Svelte/SvelteKit, Tailwind CSS, shadcn-svelte, Bits UI, Lucide and Rhea. Component source belongs here and is consumed by every app.
 
-Components remain wrappers/compositions of shadcn-svelte/Rhea and Bits UI rather than custom copies of their keyboard/focus behavior. Purpose comments and small helpers explain local style/slot behavior. Shared Bubble, Message, Attachment, Dialog, Context Menu, Dropdown Menu, Avatar, Input and Textarea primitives are consumed by product packages; application queries and access policy belong elsewhere.
+Components remain wrappers/compositions of shadcn-svelte/Rhea and Bits UI rather than custom copies of their keyboard/focus behavior. Purpose comments and small helpers explain local style/slot behavior. Shared Bubble, Message, Attachment, Dialog, Context Menu, Dropdown Menu, Toggle Group, Avatar, Input and Textarea primitives are consumed by product packages; application queries and access policy belong elsewhere.
 
 ## Appearance
 
@@ -16,6 +16,10 @@ The browser stores `kaordo.color-mode` and `kaordo.theme` independently per orig
 
 Always pair a solid semantic background with its foreground (`bg-accent text-accent-foreground`, `bg-secondary text-secondary-foreground`, `bg-primary text-primary-foreground`). A brand fill is not a text color: `text-link` provides readable colored text on neutral surfaces. `bg-primary-soft` is a shared tint against the card color, with `text-primary-soft-foreground` for accent labels; message bodies keep `text-foreground` and use the same tint so links and timestamps remain legible. Raw list rows use neutral hover surfaces when they contain independently styled secondary text. Navigation and menu selection inherit the shared component colors. Hover effects preserve the contrast of primary fills rather than changing brightness or opacity.
 
+`themes/controls.css` supplies `control-border` and `focus-color` independently of decorative dividers. Inputs, textareas, radios and slider thumbs use these tokens; field boundaries and keyboard outlines meet the 3:1 non-text contrast target across all seven palettes in both modes. A solid keyboard outline supplements soft rings. Touch buttons and text fields have a 44px minimum; associated radio/checkbox labels own their hit area. Forced colors use system button/link/focus colors, and reduced motion removes decorative movement. Dialogs and popovers fit the available viewport and retain native scrolling. Compose these shared behaviors instead of adding app-specific focus or viewport workarounds.
+
+For a composite field, place its keyboard focus outline on the rounded owning surface instead of drawing a second rectangular frame around the inner editor. The exported Bits UI `IsUsingKeyboard` state owns modality listeners and their cleanup; reuse it when pointer and keyboard focus need different presentation.
+
 `node scripts/sync-theme.mjs` generates Keycloak's palette files and native preference script from the shared catalog. The root Pages build runs this automatically. The production identity forms and apps share one origin and read the same appearance preferences. See [identity theme](../../deploy/keycloak/README.md).
 
-Exports are declared by the package entry and subpaths; source consumers keep their dependencies scoped. Reflow, keyboard and axe checks are in the public/product/Regado headless suites and live journey. These checks do not establish full WCAG conformance or user-study scores. See [refactor evidence](../../docs/refactoring.md).
+Exports are declared by the package entry and subpaths; source consumers keep their dependencies scoped. Reflow, keyboard, touch, enlarged text, forced colors, palette contrast and axe checks are in the public/product/Regado/quality headless suites and live journey. These checks do not establish full WCAG conformance or user-study scores. See [UI/UX audit](../../docs/ui-ux-audit.md) and [refactor evidence](../../docs/refactoring.md).

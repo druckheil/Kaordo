@@ -60,7 +60,7 @@ body.login-pf,
 }
 
 .login-pf-page :is(.form-control, .pf-c-form-control, .pf-c-input-group) {
-  --kaordo-field-border: var(--input);
+  --kaordo-field-border: var(--control-border);
   --kaordo-field-ring: transparent;
   border: 1px solid var(--kaordo-field-border);
   border-radius: 12px;
@@ -80,8 +80,10 @@ body.login-pf,
 /* Match Rhea input states, with one border and one semantic focus/error ring */
 .login-pf-page :is(.form-control, .pf-c-form-control):focus-visible,
 .login-pf-page .pf-c-input-group:has(.pf-c-form-control:focus-visible) {
-  --kaordo-field-border: var(--ring);
-  --kaordo-field-ring: color-mix(in oklch, var(--ring) 30%, transparent);
+  --kaordo-field-border: var(--focus-color);
+  --kaordo-field-ring: color-mix(in oklch, var(--focus-color) 30%, transparent);
+  outline: 2px solid var(--focus-color);
+  outline-offset: 2px;
 }
 
 .login-pf-page :is(.form-control, .pf-c-form-control)[aria-invalid="true"],
@@ -116,6 +118,7 @@ body.login-pf,
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  outline: none;
 }
 
 .login-pf-page .pf-c-button.pf-m-control {
@@ -142,7 +145,9 @@ body.login-pf,
 }
 
 .login-pf-page .pf-c-button.pf-m-control:focus-visible {
-  box-shadow: inset 0 0 0 3px color-mix(in oklch, var(--ring) 35%, transparent);
+  box-shadow: none;
+  outline: 2px solid var(--focus-color);
+  outline-offset: -2px;
 }
 
 /* These buttons use real borders; PatternFly's extra pseudo border is redundant */
@@ -206,7 +211,7 @@ a:hover { color: var(--link); text-decoration: underline; }
 a:focus-visible,
 button:not(.pf-c-button.pf-m-control):focus-visible,
 input[type="submit"]:focus-visible {
-  outline: 3px solid var(--ring);
+  outline: 2px solid var(--focus-color);
   outline-offset: 2px;
 }
 
@@ -219,4 +224,14 @@ input[type="submit"]:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; }
+}
+
+@media (pointer: coarse) {
+  .login-pf-page .checkbox > label { min-height: 44px; }
+  .login-pf-page .pf-c-button.pf-m-control { min-height: 44px; flex-basis: 44px; }
+}
+
+@media (forced-colors: active) {
+  :is(a, button, input, .pf-c-input-group):focus-visible,
+  .login-pf-page .pf-c-input-group:has(:focus-visible) { outline-color: Highlight; }
 }

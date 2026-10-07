@@ -43,17 +43,22 @@ type config struct {
 
 type tokenVerifier = httpapi.VerifyFunc
 
-type requiredTable struct {
+type requiredRelation struct {
 	name      string
 	missing   string
 	migration string
 }
 
-var schemaRequirements = []requiredTable{
+var schemaRequirements = []requiredRelation{
 	{name: "users", missing: "users table is missing", migration: "deploy/postgres/001_users.sql"},
 	{name: "fluo_posts", missing: "Fluo tables are missing", migration: "deploy/postgres/002_fluo.sql"},
+	{name: "fluo_notifications", missing: "Fluo notifications table is missing", migration: "deploy/postgres/014_fluo_notifications.sql"},
+	{name: "fluo_notifications_event_lookup_idx", missing: "Fluo notification cooldown index is missing", migration: "deploy/postgres/014_fluo_notifications.sql"},
+	{name: "fluo_settings", missing: "Fluo settings table is missing", migration: "deploy/postgres/015_fluo_settings.sql"},
 	{name: "ligo_conversations", missing: "Ligo tables are missing", migration: "deploy/postgres/007_ligo.sql"},
 	{name: "rondo_servers", missing: "Rondo tables are missing", migration: "deploy/postgres/010_rondo.sql"},
+	{name: "lingvo_dictionaries", missing: "Lingvo tables are missing", migration: "deploy/postgres/016_lingvo.sql"},
+	{name: "lingvo_cards_due_idx", missing: "Lingvo review queue index is missing", migration: "deploy/postgres/016_lingvo.sql"},
 	{name: "admin_audit", missing: "Regado tables are missing", migration: "deploy/postgres/011_regado.sql"},
 }
 
@@ -93,7 +98,8 @@ func run() error {
 		return err
 	}
 
-	server := newHTTPServer(ctx, cfg, pool, verify)
+	server, closeDependencies := newHTTPServer(ctx, cfg, pool, verify)
+	defer closeDependencies()
 	return serve(ctx, server)
 }
 
@@ -165,19 +171,19 @@ func splitOrigins(raw string) []string {
 
 func verifySchema(ctx context.Context, pool *pgxpool.Pool) error {
 	for _, requirement := range schemaRequirements {
-		if err := verifyRequiredTable(ctx, pool, requirement); err != nil {
+		if err := verifyRequiredRelation(ctx, pool, requirement); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func verifyRequiredTable(ctx context.Context, pool *pgxpool.Pool, requirement requiredTable) error {
+func verifyRequiredRelation(ctx context.Context, pool *pgxpool.Pool, requirement requiredRelation) error {
 	var exists bool
-	query := jetpg.SELECT(jetpg.RawBool("to_regclass(#table_name) IS NOT NULL",
-		jetpg.RawArgs{"#table_name": "public." + requirement.name}))
+	query := jetpg.SELECT(jetpg.RawBool("to_regclass(#relation_name) IS NOT NULL",
+		jetpg.RawArgs{"#relation_name": "public." + requirement.name}))
 	if err := postgres.JetQueryRow(ctx, pool, query).Scan(&exists); err != nil {
-		return fmt.Errorf("check schema table %q: %w", requirement.name, err)
+		return fmt.Errorf("check schema relation %q: %w", requirement.name, err)
 	}
 	if !exists {
 		return fmt.Errorf("%s; apply %s", requirement.missing, requirement.migration)
@@ -197,42 +203,49 @@ func newTokenVerifier(ctx context.Context, cfg config) (tokenVerifier, error) {
 	}, nil
 }
 
-func newHTTPServer(ctx context.Context, cfg config, pool *pgxpool.Pool, verify tokenVerifier) *http.Server {
+func newHTTPServer(ctx context.Context, cfg config, pool *pgxpool.Pool, verify tokenVerifier) (*http.Server, func()) {
+	router, closeDependencies := newHTTPRouter(ctx, cfg, pool, verify)
 	return &http.Server{
 		Addr:              cfg.ListenAddress,
-		Handler:           newHTTPRouter(ctx, cfg, pool, verify),
+		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
-	}
+	}, closeDependencies
 }
 
-func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify tokenVerifier) http.Handler {
+func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify tokenVerifier) (http.Handler, func()) {
 	ligoStore := postgres.NewLigo(pool)
 	ligoEvents := ligoevents.New(ctx, cfg.DatabaseURL, ligoStore)
 	mediaClient := httpapi.NodoClient{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey}
 	voice := newRondoVoice(cfg)
 
-	router := httpapi.NewRouterWithAdmin(
+	router := httpapi.NewRouterWithServices(
 		verify,
 		postgres.NewUsers(pool),
-		fluoDependencies(cfg, pool, mediaClient),
-		ligoDependencies(cfg, mediaClient, ligoStore, ligoEvents),
-		rondoDependencies(cfg, pool, voice),
-		adminDependencies(cfg, pool),
+		httpapi.Modules{
+			Fluo:   fluoDependencies(cfg, pool, mediaClient),
+			Ligo:   ligoDependencies(cfg, mediaClient, ligoStore, ligoEvents),
+			Rondo:  rondoDependencies(cfg, pool, voice),
+			Admin:  adminDependencies(cfg, pool),
+			Lingvo: httpapi.LingvoDependencies{Store: postgres.NewLingvo(pool)},
+		},
 		cfg.AllowedOrigins,
 	)
-	return router
+	return router, ligoEvents.Close
 }
 
 func fluoDependencies(cfg config, pool *pgxpool.Pool, media httpapi.NodoClient) httpapi.FluoDependencies {
+	store := postgres.NewFluo(pool)
 	return httpapi.FluoDependencies{
-		Store:        postgres.NewFluo(pool),
-		Media:        media,
-		MediaBaseURL: cfg.NodoPublicURL,
-		MediaSignKey: cfg.MediaSigningKey,
+		Store:         store,
+		Notifications: store,
+		Settings:      store,
+		Media:         media,
+		MediaBaseURL:  cfg.NodoPublicURL,
+		MediaSignKey:  cfg.MediaSigningKey,
 	}
 }
 

@@ -48,7 +48,7 @@ async function payloadFixture() {
     'etc/nixos/deploy/keycloak/themes/kaordo/login/theme.properties': 'scripts=js/session.js\n',
     'site/index.html': 'new-portal', 'site/fluo/index.html': 'new-fluo',
     'site/ligo/index.html': 'new-ligo', 'site/rondo/index.html': 'new-rondo',
-    'site/regado/index.html': 'new-regado', 'site/silent-check-sso.html': 'new-sso'
+    'site/lingvo/index.html': 'new-lingvo', 'site/regado/index.html': 'new-regado', 'site/silent-check-sso.html': 'new-sso'
   };
   for (const [path, bytes] of Object.entries(files)) await put(join(directory, path), bytes);
   const manifest = { format: 1, release, sourceCommit: revision, origin, realm: 'kaordo', files: Object.fromEntries(Object.entries(files).map(([path, bytes]) => [path, hash(bytes)])) };
@@ -86,13 +86,13 @@ test('live verification checks all applications and rejects an old Keycloak them
     if (url.pathname.endsWith('/.well-known/openid-configuration')) return Response.json({ issuer: `${origin}/realms/kaordo` });
     if (url.pathname.endsWith('/auth')) return new Response('<input name="rememberMe"><label>Stay signed in</label><script src="/resources/cache/login/kaordo/js/session.js"></script>');
     if (url.pathname.endsWith('/js/session.js')) return new Response(staleTheme ? 'old-session-script' : 'new-session-script');
-    if (url.pathname.endsWith('/thread')) return new Response(null, { status: 401 });
+    if (url.pathname.endsWith('/thread') || url.pathname === '/v1/lingvo/dictionaries') return new Response(null, { status: 401 });
     if (url.pathname === '/healthz') return new Response(null, { status: 204 });
     return new Response('healthy');
   };
   try {
     await verifyLiveRelease(fixture.directory, fixture.manifest, { ...fixture, fetcher });
-    for (const path of ['/', '/fluo/', '/ligo/', '/rondo/', '/regado/']) assert.ok(requests.includes(path));
+    for (const path of ['/', '/fluo/', '/ligo/', '/rondo/', '/lingvo/', '/regado/']) assert.ok(requests.includes(path));
     staleTheme = true;
     await assert.rejects(verifyLiveRelease(fixture.directory, fixture.manifest, { ...fixture, fetcher }), /Keycloak theme differs/);
     await put(join(fixture.dataRoot, 'bin/nodo'), 'old-nodo');

@@ -84,7 +84,9 @@ export function createAuthorizedFetch(
 ): typeof fetch {
   return async (input, init) => {
     const request = new Request(input, init);
+    request.signal.throwIfAborted();
     request.headers.set('Authorization', `Bearer ${await getToken()}`);
+    request.signal.throwIfAborted();
     return fetcher(request);
   };
 }

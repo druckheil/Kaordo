@@ -266,10 +266,6 @@ func diskContainsPath(item disk, path string) bool {
 	return false
 }
 
-func countPoolFiles(ctx context.Context, path string) (files, bytes, unreadable int64, err error) {
-	return countPoolFilesMeasured(ctx, path, nil)
-}
-
 func countPoolFilesMeasured(ctx context.Context, path string, progress func(int64)) (files, bytes, unreadable int64, err error) {
 	root, err := os.Stat(path)
 	if err != nil {

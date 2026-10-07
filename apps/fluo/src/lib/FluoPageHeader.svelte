@@ -6,7 +6,7 @@
 	import type { UserIdentity } from "@kaordo/contracts";
 	import { BookmarkIcon, Button, Input, SearchIcon } from "@kaordo/ui";
 	import type { FluoView } from "./fluo-model";
-	import { descriptionForView, displayInitial, titleForView } from "./fluo-model";
+	import { displayInitial, fluoViews } from "./fluo-model";
 
 	let {
 		view,
@@ -25,8 +25,7 @@
 	let searchInput = $state(searchTerm);
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
-	const pageTitle = $derived(titleForView(view));
-	const pageDescription = $derived(descriptionForView(view));
+	const details = $derived(fluoViews[view]);
 
 	onDestroy(() => {
 		if (searchTimer) clearTimeout(searchTimer);
@@ -46,9 +45,9 @@
 
 <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
 	<div>
-		<p class="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-link">Fluo / {pageTitle}</p>
-		<h1 class="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">{pageTitle}</h1>
-		<p class="mt-2 text-sm text-muted-foreground">{pageDescription}</p>
+		<p class="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-link">Fluo / {details.settingsSection ? 'Settings / ' : ''}{details.title}</p>
+		<h1 class="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">{details.title}</h1>
+		<p class="mt-2 text-sm text-muted-foreground">{details.description}</p>
 	</div>
 	{#if view === "feed"}
 		<div class="flex rounded-xl border border-border bg-card p-1" role="group" aria-label="Feed order">

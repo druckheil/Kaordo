@@ -1,6 +1,9 @@
 // Provides typed Fluo and Nodo requests plus their feed pagination options
 
-import type { FluoNewPost, FluoPage, FluoPost, FluoPostThread, NodoUpload, paths } from '@kaordo/contracts';
+import type {
+  FluoNewPost, FluoPage, FluoPost, FluoPostThread, FluoNotificationPage,
+  FluoNotificationSummary, FluoNotificationReadState, FluoSettings, FluoSettingsPatch, NodoUpload, paths
+} from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
 import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
 
@@ -12,6 +15,34 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
   const nodoClient = createClient<paths>({ baseUrl: nodo, fetch: sessionFetch });
 
   return {
+    async settings(signal?: AbortSignal): Promise<FluoSettings> {
+      const { data, error, response } = await client.GET('/v1/fluo/settings', { signal });
+      return requireResponseData(data, error, response.status);
+    },
+    async updateSettings(patch: FluoSettingsPatch, signal?: AbortSignal): Promise<FluoSettings> {
+      const { data, error, response } = await client.PATCH('/v1/fluo/settings', { body: patch, signal });
+      return requireResponseData(data, error, response.status);
+    },
+    async notifications(cursor?: string, signal?: AbortSignal): Promise<FluoNotificationPage> {
+      const { data, error, response } = await client.GET('/v1/fluo/notifications', {
+        params: { query: { cursor, limit: 20 } }, signal
+      });
+      return requireResponseData(data, error, response.status);
+    },
+    async notificationSummary(signal?: AbortSignal): Promise<FluoNotificationSummary> {
+      const { data, error, response } = await client.GET('/v1/fluo/notifications/unread-count', { signal });
+      return requireResponseData(data, error, response.status);
+    },
+    async readNotification(id: string): Promise<FluoNotificationReadState> {
+      const { data, error, response } = await client.PUT('/v1/fluo/notifications/{id}/read', {
+        params: { path: { id } }
+      });
+      return requireResponseData(data, error, response.status);
+    },
+    async readNotifications(through: string): Promise<FluoNotificationSummary> {
+      const { data, error, response } = await client.PUT('/v1/fluo/notifications/read', { body: { through } });
+      return requireResponseData(data, error, response.status);
+    },
     async list(feed: Feed, cursor?: string, signal?: AbortSignal, search?: string): Promise<FluoPage> {
       const { data, error, response } = await client.GET('/v1/fluo/posts', {
         params: { query: { feed, cursor, limit: 20, q: search } }, signal
@@ -38,9 +69,9 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { data, error, response } = await client.POST('/v1/fluo/posts', { body: input });
       return requireResponseData(data, error, response.status);
     },
-    async setVisibility(id: string, visibility: FluoPost['visibility']): Promise<void> {
+    async setVisibility(id: string, visibility: FluoPost['visibility'], signal?: AbortSignal): Promise<void> {
       const { error, response } = await client.PATCH('/v1/fluo/posts/{id}', {
-        params: { path: { id } }, body: { visibility }
+        params: { path: { id } }, body: { visibility }, signal
       });
       requireResponseOk(response, error);
     },
@@ -48,22 +79,22 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { error, response } = await client.DELETE('/v1/fluo/posts/{id}', { params: { path: { id } } });
       requireResponseOk(response, error);
     },
-    async setSaved(id: string, saved: boolean): Promise<void> {
+    async setSaved(id: string, saved: boolean, signal?: AbortSignal): Promise<void> {
       const result = saved
-        ? await client.PUT('/v1/fluo/posts/{id}/saved', { params: { path: { id } } })
-        : await client.DELETE('/v1/fluo/posts/{id}/saved', { params: { path: { id } } });
+        ? await client.PUT('/v1/fluo/posts/{id}/saved', { params: { path: { id } }, signal })
+        : await client.DELETE('/v1/fluo/posts/{id}/saved', { params: { path: { id } }, signal });
       requireResponseOk(result.response, result.error);
     },
-    async react(id: string, value: 'good' | 'bad' | null): Promise<FluoPost> {
+    async react(id: string, value: FluoPost['myReaction'], signal?: AbortSignal): Promise<FluoPost> {
       const result = value
-        ? await client.PUT('/v1/fluo/posts/{id}/reaction', { params: { path: { id } }, body: { value } })
-        : await client.DELETE('/v1/fluo/posts/{id}/reaction', { params: { path: { id } } });
+        ? await client.PUT('/v1/fluo/posts/{id}/reaction', { params: { path: { id } }, body: { value }, signal })
+        : await client.DELETE('/v1/fluo/posts/{id}/reaction', { params: { path: { id } }, signal });
       return requireResponseData(result.data, result.error, result.response.status);
     },
-    async follow(id: string, following: boolean): Promise<void> {
+    async follow(id: string, following: boolean, signal?: AbortSignal): Promise<void> {
       const result = following
-        ? await client.PUT('/v1/fluo/users/{id}/follow', { params: { path: { id } } })
-        : await client.DELETE('/v1/fluo/users/{id}/follow', { params: { path: { id } } });
+        ? await client.PUT('/v1/fluo/users/{id}/follow', { params: { path: { id } }, signal })
+        : await client.DELETE('/v1/fluo/users/{id}/follow', { params: { path: { id } }, signal });
       requireResponseOk(result.response, result.error);
     },
     async uploadMetadata(id: string): Promise<NodoUpload | null> {
@@ -77,6 +108,16 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
 }
 
 export type FluoApi = ReturnType<typeof createFluoApi>;
+
+export const fluoSettingsKey = ['fluo', 'settings'] as const;
+
+export function fluoSettingsOptions(api: FluoApi) {
+  return {
+    queryKey: fluoSettingsKey,
+    queryFn: ({ signal }: { signal: AbortSignal }) => api.settings(signal),
+    staleTime: 30_000
+  };
+}
 
 export function feedOptions(api: FluoApi, feed: Feed, search?: string) {
   return {

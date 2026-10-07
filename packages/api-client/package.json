@@ -13,6 +13,7 @@
     "@kaordo/auth": "workspace:*",
     "@kaordo/contracts": "workspace:*",
     "@microsoft/fetch-event-source": "^2.0.1",
+    "@tanstack/query-core": "^5.104.0",
     "openapi-fetch": "^0.17.0"
   }
 }

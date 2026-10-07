@@ -1,55 +1,112 @@
 <script lang="ts">
-	// Controls post formatting and visibility options
+	// Controls native formatting toggles and the post audience menu
 
 	import type { Editor } from "@tiptap/core";
-	import { BoldIcon, Button, ItalicIcon, StrikethroughIcon, XIcon } from "@kaordo/ui";
+	import {
+		BoldIcon, Button, ChevronDownIcon, DropdownMenu, GlobeIcon,
+		ItalicIcon, LockIcon, StrikethroughIcon, ToggleGroup, XIcon,
+	} from "@kaordo/ui";
 
 	let {
 		editor,
 		visibility = $bindable("public"),
 		pending,
 		replying,
-		open,
 		onClose,
 	}: {
 		editor: Editor | null;
 		visibility?: "public" | "private";
 		pending: boolean;
 		replying: boolean;
-		open: boolean;
 		onClose: () => void;
 	} = $props();
+
+	const formats = [
+		{ value: "bold", label: "Bold", icon: BoldIcon },
+		{ value: "italic", label: "Italic", icon: ItalicIcon },
+		{ value: "strike", label: "Strike through", icon: StrikethroughIcon },
+	] as const;
+	const audiences = {
+		public: { label: "Public", description: "Share with your audience", icon: GlobeIcon },
+		private: { label: "Only me", description: "Visible only to you", icon: LockIcon },
+	} as const;
+	const audienceChoices = Object.entries(audiences);
+	const audience = $derived(audiences[visibility]);
+	let activeFormats = $state.raw<string[]>([]);
+
+	$effect(() => {
+		if (!editor) {
+			activeFormats = [];
+			return;
+		}
+		const current = editor;
+		const syncFormatting = () => {
+			activeFormats = formats.filter(({ value }) => current.isActive(value)).map(({ value }) => value);
+		};
+		syncFormatting();
+		current.on("transaction", syncFormatting);
+		return () => { current.off("transaction", syncFormatting); };
+	});
+
+	function changeFormatting(values: string[]): void {
+		const current = editor;
+		if (!current || pending) return;
+		const changed = formats.find(({ value }) => values.includes(value) !== current.isActive(value));
+		if (changed) current.chain().focus().toggleMark(changed.value).run();
+	}
+
+	function changeVisibility(value: string): void {
+		if (!pending && !replying && (value === "public" || value === "private")) visibility = value;
+	}
 </script>
 
-<div id="fluo-post-options" hidden={!open} class="mt-4 rounded-xl border border-border bg-muted/35 p-3">
-	<div class="flex items-center justify-between gap-2">
-		<p class="text-xs font-semibold text-muted-foreground">Post options</p>
-		<Button variant="ghost" size="icon-xs" aria-label="Close post options" disabled={pending} onclick={onClose}>
-			<XIcon class="size-4" />
-		</Button>
-	</div>
-	<div class="mt-2 flex flex-wrap items-center justify-between gap-3">
-		<div class="flex gap-1" aria-label="Text formatting">
-			<Button variant="ghost" size="icon-sm" aria-label="Bold" aria-pressed={editor?.isActive("bold") ?? false}
-				disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleBold().run()}>
-				<BoldIcon class="size-4" />
-			</Button>
-			<Button variant="ghost" size="icon-sm" aria-label="Italic" aria-pressed={editor?.isActive("italic") ?? false}
-				disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleItalic().run()}>
-				<ItalicIcon class="size-4" />
-			</Button>
-			<Button variant="ghost" size="icon-sm" aria-label="Strike through" aria-pressed={editor?.isActive("strike") ?? false}
-				disabled={!editor || pending} onclick={() => editor?.chain().focus().toggleStrike().run()}>
-				<StrikethroughIcon class="size-4" />
-			</Button>
-		</div>
-		<select aria-label="Post visibility" bind:value={visibility} disabled={pending || replying}
-			class="h-9 rounded-xl border border-input bg-card px-3 text-xs font-medium focus-visible:outline-3 focus-visible:outline-ring">
-			<option value="public">Public</option>
-			<option value="private">Only me</option>
-		</select>
-	</div>
+<div id="fluo-post-options" class="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-2xl border border-border bg-muted/35 p-2 min-[420px]:grid-cols-[auto_minmax(0,1fr)_auto]">
+	<ToggleGroup.Root
+		type="multiple" variant="outline" size="lg" aria-label="Text formatting"
+		bind:value={() => activeFormats, changeFormatting} disabled={!editor || pending}
+	>
+		{#each formats as format (format.value)}
+			{@const Icon = format.icon}
+			<ToggleGroup.Item value={format.value} aria-label={format.label} title={format.label}
+				class="size-10 data-[state=on]:bg-primary-soft data-[state=on]:text-primary-soft-foreground transition-[background-color,color,box-shadow] duration-200 motion-reduce:transition-none">
+				<Icon class="size-4" />
+			</ToggleGroup.Item>
+		{/each}
+	</ToggleGroup.Root>
+	<DropdownMenu.Root>
+		<DropdownMenu.Trigger>
+			{#snippet child({ props })}
+				{@const Icon = audience.icon}
+				<Button {...props} variant="outline" size="sm"
+					class="col-span-2 col-start-1 row-start-2 h-10 gap-2 bg-background min-[420px]:col-span-1 min-[420px]:col-start-2 min-[420px]:row-start-1 min-[420px]:justify-self-end"
+					aria-label="Post visibility" disabled={pending || replying}>
+					<Icon class="size-4 text-muted-foreground" />
+					{audience.label}
+					<ChevronDownIcon class="size-3.5 text-muted-foreground transition-transform duration-200 group-aria-expanded/button:rotate-180 motion-reduce:transition-none" />
+				</Button>
+			{/snippet}
+		</DropdownMenu.Trigger>
+		<DropdownMenu.Content align="end" sideOffset={6} class="w-60">
+			<DropdownMenu.RadioGroup bind:value={() => visibility, changeVisibility} aria-label="Post visibility">
+				{#each audienceChoices as [value, choice] (value)}
+					{@const Icon = choice.icon}
+					<DropdownMenu.RadioItem {value} closeOnSelect disabled={pending || replying}
+						aria-label={choice.label} class="min-h-14 gap-3 px-3 pr-8">
+						<Icon class="size-4 text-muted-foreground" />
+						<span class="flex flex-col gap-0.5">
+							<span class="font-medium">{choice.label}</span>
+							<span class="text-xs text-muted-foreground">{choice.description}</span>
+						</span>
+					</DropdownMenu.RadioItem>
+				{/each}
+			</DropdownMenu.RadioGroup>
+		</DropdownMenu.Content>
+	</DropdownMenu.Root>
+	<Button variant="ghost" size="icon-xs" class="col-start-2 row-start-1 min-[420px]:col-start-3"
+		aria-label="Close post options" disabled={pending} onclick={onClose}>
+		<XIcon class="size-4" />
+	</Button>
 	{#if replying}
-		<p class="mt-2 text-xs text-muted-foreground">Replies use the original post&apos;s visibility.</p>
+		<p class="col-span-full text-xs text-muted-foreground">Replies use the original post&apos;s visibility.</p>
 	{/if}
 </div>
