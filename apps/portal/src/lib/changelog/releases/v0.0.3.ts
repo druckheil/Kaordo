@@ -3,7 +3,7 @@
 import type { ReleaseNotes } from "../types";
 
 const release = {
-	releasedAt: "2026-10-07",
+	releasedAt: "2026-10-08",
 	summary: "0.0.3 introduces Lingvo for learning German, adds Fluo activity and privacy controls, and improves conversations, calls, and accessibility across the apps.",
 	sections: [
 		{

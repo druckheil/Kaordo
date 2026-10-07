@@ -91,7 +91,7 @@ jobs:
           name: static-apps
           path: dist/pages/
       - name: Install Chromium and its system dependencies
-        run: pnpm exec playwright install --with-deps chromium --only-shell
+        uses: ./.github/actions/setup-chromium
       - name: Check isolated product interactions and public screens
         timeout-minutes: 5
         # Test-level sharding runs on separate machines; each owns one Vite-generating worker
@@ -174,9 +174,10 @@ jobs:
         with:
           name: static-apps
           path: dist/pages/
-      - name: Install Chromium, media and recovery tools
+      - name: Install Chromium and its system dependencies
+        uses: ./.github/actions/setup-chromium
+      - name: Install media and recovery tools
         run: |
-          pnpm exec playwright install --with-deps chromium --only-shell
           sudo apt-get install -y ffmpeg
           curl --fail --location --silent --show-error \
             https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2 \

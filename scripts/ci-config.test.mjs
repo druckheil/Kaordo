@@ -20,6 +20,15 @@ test('hosted browser shards use native test-level distribution with one fixture 
   assert.match(workflow, /name: browser-failure-\$\{\{ matrix\.shard \}\}/);
 });
 
+test('browser and live jobs share pinned Chromium setup using the official signed Ubuntu archive', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/checks.yml', import.meta.url), 'utf8');
+  const setup = readFileSync(new URL('../.github/actions/setup-chromium/action.yml', import.meta.url), 'utf8');
+  assert.equal(workflow.match(/uses: \.\/\.github\/actions\/setup-chromium/g)?.length, 2);
+  assert.match(setup, /https:\/\/archive\.ubuntu\.com\/ubuntu/);
+  assert.match(setup, /pnpm exec playwright install --with-deps chromium --only-shell/);
+  assert.doesNotMatch(setup, /allow-unauthenticated|trusted=yes|curl.*\|.*(?:sh|bash)/);
+});
+
 test('every regression file has an explicit unit, browser, live, database or artifact suite', () => {
   assert.deepEqual(files.filter((name) => !unitFiles.has(name) && !browserFiles.has(name) && !artifactFiles.has(name) && !databaseFiles.has(name)), [],
     'Assign new regression files to test:unit, a Playwright project or an artifact verification suite');

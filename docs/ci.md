@@ -23,6 +23,10 @@ a five-minute budget inside a seven-minute job, allowing fresh Chromium setup
 and diagnostic uploads. Action/navigation/test budgets and zero retries remain
 unchanged. Failure artifacts have distinct shard names. Scale independent shards
 when coverage grows; do not add workers sharing generated app source on one host.
+Both browser and live jobs use the local `setup-chromium` composite action. It
+selects the official HTTPS Ubuntu archive in the ephemeral runner's existing
+APT sources, preserving Ubuntu signing keys, suites and components, then installs
+Chromium through the pinned Playwright CLI. It does not affect production hosts.
 
 Push checks run on `main` and `scope-*` branches. Feature branches are checked through pull requests. Tags do not repeat branch checks. `workflow_dispatch` supports explicit runs once the workflow is on the default branch. A new commit cancels obsolete work for the same branch or PR, while unrelated branches remain independent.
 
@@ -144,3 +148,14 @@ correctly rejected that incomplete run. The repair splits the unchanged scenario
 between separate runners using [Playwright sharding](https://playwright.dev/docs/test-sharding);
 it does not extend action waits or drop coverage. Hosted verification of the
 repair is recorded with its exact commit after the complete run.
+
+The [sharded follow-up](https://github.com/druckheil/Kaordo/actions/runs/37692138978)
+at `00be873f70654e5411e71809fd4607399df9c39f` exposed a separate runner setup issue:
+the first shard passed all 29 scenarios in 3.1m, but APT spent 2m58s downloading
+27.3 MB, including a stalled `fonts-freefont-ttf` download from
+`azure.archive.ubuntu.com`. The second runner spent 6m17s downloading 32.5 MB and
+exhausted its job budget shortly after starting the unchanged tests. This matches the
+[runner-image mirror report](https://github.com/actions/runner-images/issues/14594).
+The release hotfix shares official-archive browser setup across browser and live
+jobs; retries and test budgets remain unchanged. This failed run is not counted
+as a complete verification.
