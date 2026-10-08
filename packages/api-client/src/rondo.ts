@@ -19,39 +19,39 @@ export function createRondoApi(apiBaseUrl: string) {
       });
       return requireResponseData(data, error, response.status);
     },
-    async create(input: RondoNewServer): Promise<RondoDetail> {
-      const { data, error, response } = await client.POST('/v1/rondo/servers', { body: input });
+    async create(input: RondoNewServer, signal?: AbortSignal): Promise<RondoDetail> {
+      const { data, error, response } = await client.POST('/v1/rondo/servers', { body: input, signal });
       return requireResponseData(data, error, response.status);
     },
     async get(id: string, signal?: AbortSignal): Promise<RondoDetail> {
       const { data, error, response } = await client.GET('/v1/rondo/servers/{id}', { params: { path: { id } }, signal });
       return requireResponseData(data, error, response.status);
     },
-    async join(id: string): Promise<RondoDetail> {
-      const { data, error, response } = await client.POST('/v1/rondo/servers/{id}/join', { params: { path: { id } } });
+    async join(id: string, signal?: AbortSignal): Promise<RondoDetail> {
+      const { data, error, response } = await client.POST('/v1/rondo/servers/{id}/join', { params: { path: { id } }, signal });
       return requireResponseData(data, error, response.status);
     },
-    async invite(id: string, userId: string): Promise<RondoDetail> {
+    async invite(id: string, userId: string, signal?: AbortSignal): Promise<RondoDetail> {
       const { data, error, response } = await client.POST('/v1/rondo/servers/{id}/members', {
-        params: { path: { id } }, body: { userId }
+        params: { path: { id } }, body: { userId }, signal
       });
       return requireResponseData(data, error, response.status);
     },
-    async leave(id: string): Promise<void> {
+    async leave(id: string, signal?: AbortSignal): Promise<void> {
       const { error, response } = await client.DELETE('/v1/rondo/servers/{id}/membership', {
-        params: { path: { id } }
+        params: { path: { id } }, signal
       });
       requireResponseOk(response, error);
     },
-    async createChannel(id: string, name: string): Promise<RondoChannel> {
+    async createChannel(id: string, name: string, signal?: AbortSignal): Promise<RondoChannel> {
       const { data, error, response } = await client.POST('/v1/rondo/servers/{id}/channels', {
-        params: { path: { id } }, body: { name }
+        params: { path: { id } }, body: { name }, signal
       });
       return requireResponseData(data, error, response.status);
     },
-    async voiceToken(id: string): Promise<RondoVoiceTicket> {
+    async voiceToken(id: string, signal?: AbortSignal): Promise<RondoVoiceTicket> {
       const { data, error, response } = await client.POST('/v1/rondo/channels/{id}/voice-token', {
-        params: { path: { id } }
+        params: { path: { id } }, signal
       });
       return requireResponseData(data, error, response.status);
     }

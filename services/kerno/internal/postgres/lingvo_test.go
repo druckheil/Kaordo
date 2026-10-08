@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/lingvo"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,7 +24,7 @@ type lingvoDatabase struct {
 	ctx          context.Context
 	pool         *pgxpool.Pool
 	store        *Lingvo
-	owner, other User
+	owner, other account.User
 	dictionary   lingvo.Dictionary
 }
 
@@ -41,7 +42,7 @@ func newLingvoDatabase(t *testing.T) lingvoDatabase {
 	}
 	t.Cleanup(pool.Close)
 	users := NewUsers(pool)
-	createUser := func() User {
+	createUser := func() account.User {
 		t.Helper()
 		id := uuid.NewString()
 		user, err := users.Upsert(ctx, "lingvo-test-"+id, "learner-"+id[:8], "Learner")

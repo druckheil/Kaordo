@@ -4,25 +4,12 @@ package postgres
 import (
 	"context"
 	"strings"
-	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 )
-
-type AdminUser struct {
-	ID           string     `json:"id"`
-	Username     string     `json:"username"`
-	DisplayName  string     `json:"displayName"`
-	IsAdmin      bool       `json:"isAdmin"`
-	DisabledAt   *time.Time `json:"disabledAt"`
-	PostCount    int64      `json:"postCount"`
-	MessageCount int64      `json:"messageCount"`
-	MediaBytes   int64      `json:"mediaBytes"`
-	LastActivity *time.Time `json:"lastActivity"`
-	CreatedAt    time.Time  `json:"createdAt"`
-}
 
 func adminUserQuery() (jetpg.SelectStatement, *table.UsersTable) {
 	u := table.Users.AS("u")
@@ -49,14 +36,14 @@ func adminUserQuery() (jetpg.SelectStatement, *table.UsersTable) {
 	).FROM(u), u
 }
 
-func scanAdminUser(row pgx.Row) (AdminUser, error) {
-	var user AdminUser
+func scanAdminUser(row pgx.Row) (admin.User, error) {
+	var user admin.User
 	err := row.Scan(&user.ID, &user.Username, &user.DisplayName, &user.IsAdmin, &user.DisabledAt,
 		&user.PostCount, &user.MessageCount, &user.MediaBytes, &user.LastActivity, &user.CreatedAt)
 	return user, err
 }
 
-func (store *Admin) Users(ctx context.Context, search string) ([]AdminUser, error) {
+func (store *Admin) Users(ctx context.Context, search string) ([]admin.User, error) {
 	search = strings.TrimSpace(search)
 	literal := escapeLikeLiteral(search)
 	query, u := adminUserQuery()
@@ -71,7 +58,7 @@ func (store *Admin) Users(ctx context.Context, search string) ([]AdminUser, erro
 		return nil, err
 	}
 	defer rows.Close()
-	users := make([]AdminUser, 0)
+	users := make([]admin.User, 0)
 	for rows.Next() {
 		user, err := scanAdminUser(rows)
 		if err != nil {

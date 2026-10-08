@@ -80,6 +80,11 @@ only during practice. Views, editors and transfers are lazy Svelte components.
 Dropdown Menu, Slider, Progress and shared Lucide icons. Card turns, word-tile
 movement and feedback respect reduced-motion preferences.
 
+`study-state` owns the due queue, stable review request IDs, revision recovery,
+undo and request cancellation. `Study` owns card presentation, pronunciation,
+keyboard/drag interaction and focus. Server scheduling and browser interval
+previews retain the same FSRS configuration.
+
 Kerno owns access, content validation and authoritative FSRS-6 scheduling through
 the official Go FSRS implementation. Jet/pgx transactions serialize writes on the
 owned dictionary and protect card revisions. PostgreSQL migration 016 creates

@@ -10,9 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
-	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
-	"github.com/druckheil/Kaordo/services/kerno/internal/regado"
+	"github.com/druckheil/Kaordo/services/kerno/internal/nodoclient"
 	"github.com/druckheil/Kaordo/services/mediaauth"
 )
 
@@ -27,7 +28,7 @@ func (fixture *storageAdminFixture) Snapshot(context.Context) (json.RawMessage, 
 	return json.RawMessage(`{"replicationReports":[]}`), nil
 }
 func (*storageAdminFixture) Logs(context.Context, string) (json.RawMessage, error) { return nil, nil }
-func (fixture *storageAdminFixture) Action(_ context.Context, action string, request regado.ActionRequest) (json.RawMessage, error) {
+func (fixture *storageAdminFixture) Action(_ context.Context, action string, request admin.ActionRequest) (json.RawMessage, error) {
 	fixture.actions++
 	if fixture.store.records != 1 {
 		return nil, errors.New("operation reached the agent before audit")
@@ -70,11 +71,11 @@ func TestAdminStorageChecksAuthorizeAndAuditBeforeStartingWorkers(t *testing.T) 
 				store.recordError = errors.New("audit unavailable")
 			}
 			fixture := &storageAdminFixture{store: store, directory: test.directory, state: test.state}
-			users := &fakeUsers{user: postgres.User{ID: "01999111-2222-7333-8444-555555555551", IsAdmin: test.administrator}}
+			users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555551", IsAdmin: test.administrator}}
 			verify := func(context.Context, string) (identity.Claims, error) {
 				return identity.Claims{Subject: "operator"}, nil
 			}
-			handler := NewRouterWithAdmin(verify, users, FluoDependencies{}, LigoDependencies{}, RondoDependencies{}, AdminDependencies{Store: store, System: fixture, Maintenance: fixture}, nil)
+			handler := NewRouter(verify, users, Modules{Fluo: FluoDependencies{}, Ligo: LigoDependencies{}, Rondo: RondoDependencies{}, Admin: AdminDependencies{Store: store, System: fixture, Maintenance: fixture}}, nil)
 			body, _ := json.Marshal(map[string]string{"target": test.target, "reason": "Verify and repair file copies"})
 			request := httptest.NewRequest("POST", "/v1/admin/actions/repair-storage", strings.NewReader(string(body)))
 			request.Header.Set("Authorization", "Bearer valid")
@@ -110,7 +111,7 @@ func TestNodoStorageClientAuthenticatesAndRejectsUnavailableOperations(t *testin
 		w.WriteHeader(409)
 	}))
 	defer server.Close()
-	client := NodoClient{BaseURL: server.URL, InternalKey: key}
+	client := nodoclient.Client{BaseURL: server.URL, InternalKey: key}
 	if value, err := client.StorageStatus(context.Background()); err != nil || !strings.Contains(string(value), "/srv/data/media") {
 		t.Fatalf("status = %s / %v", value, err)
 	}

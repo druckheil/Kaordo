@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	adminmodel "github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -52,17 +53,17 @@ func TestAdminAccessFlow(t *testing.T) {
 			t.Fatalf("users for %q = %+v, %v", query, listed, err)
 		}
 	}
-	if _, err := store.SetDisabled(ctx, admin.ID, admin.ID, true, "self lockout attempt"); !errors.Is(err, ErrAdminTarget) {
+	if _, err := store.SetDisabled(ctx, admin.ID, admin.ID, true, "self lockout attempt"); !errors.Is(err, adminmodel.ErrTarget) {
 		t.Fatalf("self disable = %v", err)
 	}
-	if _, err := store.SetAdmin(ctx, admin.ID, admin.ID, false, "self revocation attempt"); !errors.Is(err, ErrAdminTarget) {
+	if _, err := store.SetAdmin(ctx, admin.ID, admin.ID, false, "self revocation attempt"); !errors.Is(err, adminmodel.ErrTarget) {
 		t.Fatalf("self role change = %v", err)
 	}
 	promoted, err := store.SetAdmin(ctx, admin.ID, target.ID, true, "Assign administrator responsibilities")
 	if err != nil || !promoted.IsAdmin {
 		t.Fatalf("role grant = %+v, %v", promoted, err)
 	}
-	if _, err := store.SetDisabled(ctx, admin.ID, target.ID, true, "disable privileged target"); !errors.Is(err, ErrAdminTarget) {
+	if _, err := store.SetDisabled(ctx, admin.ID, target.ID, true, "disable privileged target"); !errors.Is(err, adminmodel.ErrTarget) {
 		t.Fatalf("administrator was disabled: %v", err)
 	}
 	revoked, err := store.SetAdmin(ctx, admin.ID, target.ID, false, "Administrator responsibilities concluded")
@@ -206,7 +207,7 @@ func TestAdminMutualRevocationPreservesAdministrator(t *testing.T) {
 	for err := range results {
 		if err == nil {
 			success++
-		} else if !errors.Is(err, ErrAdminTarget) {
+		} else if !errors.Is(err, adminmodel.ErrTarget) {
 			t.Fatal(err)
 		}
 	}

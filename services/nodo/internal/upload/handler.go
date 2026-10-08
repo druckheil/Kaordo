@@ -39,10 +39,7 @@ type Server struct {
 	tus                *tusd.Handler
 	origins            map[string]bool
 	jobs               chan string
-	quotaMu            sync.Mutex
-	pending            map[string]usage
-	used               map[string]usage
-	indexed            map[string]indexedUpload
+	quota              *uploadQuota
 	maintenanceMu      sync.Mutex
 	maintenance        storageMaintenance
 	maintenanceRunning bool
@@ -114,7 +111,7 @@ func applyQuotaDefaults(config *Config) {
 }
 
 func newServer(config Config) (*Server, error) {
-	used, indexed, err := loadQuotaUsage(config.Directory)
+	quota, err := newUploadQuota(config)
 	if err != nil {
 		return nil, err
 	}
@@ -122,9 +119,7 @@ func newServer(config Config) (*Server, error) {
 		config:  config,
 		origins: configuredOrigins(config.AllowedOrigins),
 		jobs:    make(chan string, 16),
-		pending: make(map[string]usage),
-		used:    used,
-		indexed: indexed,
+		quota:   quota,
 	}, nil
 }
 

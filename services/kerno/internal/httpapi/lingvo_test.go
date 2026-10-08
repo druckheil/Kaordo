@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
 	"github.com/druckheil/Kaordo/services/kerno/internal/lingvo"
-	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
 )
 
 const lingvoResourceID = "01999abc-1234-7000-8000-000000000001"
@@ -36,8 +36,8 @@ func (store *lingvoRouteStore) Cards(_ context.Context, actor, _ string, filter 
 	return lingvo.CardPage{Items: []lingvo.Card{}}, store.err
 }
 
-func lingvoRouter(store *lingvoRouteStore, user postgres.User) http.Handler {
-	return NewRouterWithServices(func(_ context.Context, token string) (identity.Claims, error) {
+func lingvoRouter(store *lingvoRouteStore, user account.User) http.Handler {
+	return NewRouter(func(_ context.Context, token string) (identity.Claims, error) {
 		if token != "valid" {
 			return identity.Claims{}, errors.New("invalid synthetic token")
 		}
@@ -55,7 +55,7 @@ func lingvoRequest(handler http.Handler, method, path, body, authorization strin
 
 func TestLingvoEveryRouteRequiresAuthentication(t *testing.T) {
 	store := &lingvoRouteStore{}
-	handler := lingvoRouter(store, postgres.User{ID: lingvoResourceID})
+	handler := lingvoRouter(store, account.User{ID: lingvoResourceID})
 	dictionary := "/v1/lingvo/dictionaries/" + lingvoResourceID
 	for _, route := range []struct{ method, path string }{
 		{"GET", "/v1/lingvo/catalog?nativeLanguage=en"}, {"GET", "/v1/lingvo/dictionaries"}, {"POST", "/v1/lingvo/dictionaries"},
@@ -80,15 +80,15 @@ func TestLingvoEveryRouteRequiresAuthentication(t *testing.T) {
 func TestLingvoIdentityAndResourceBoundaries(t *testing.T) {
 	store := &lingvoRouteStore{}
 	for _, scenario := range []struct {
-		user   postgres.User
+		user   account.User
 		status int
-	}{{postgres.User{}, 409}, {postgres.User{ID: lingvoResourceID, DisabledAt: timePointer(time.Now())}, 403}} {
+	}{{account.User{}, 409}, {account.User{ID: lingvoResourceID, DisabledAt: timePointer(time.Now())}, 403}} {
 		response := lingvoRequest(lingvoRouter(store, scenario.user), "GET", "/v1/lingvo/dictionaries", "", "Bearer valid")
 		if response.Code != scenario.status {
 			t.Fatalf("unavailable actor = %d", response.Code)
 		}
 	}
-	handler := lingvoRouter(store, postgres.User{ID: lingvoResourceID})
+	handler := lingvoRouter(store, account.User{ID: lingvoResourceID})
 	for _, route := range []struct{ method, path string }{{"GET", "/v1/lingvo/dictionaries/not-an-id/cards"}, {"PUT", "/v1/lingvo/dictionaries/" + lingvoResourceID + "/cards/not-an-id"}, {"DELETE", "/v1/lingvo/dictionaries/" + lingvoResourceID + "/folders/not-an-id"}, {"POST", "/v1/lingvo/dictionaries/" + lingvoResourceID + "/reviews/not-an-id/undo"}} {
 		response := lingvoRequest(handler, route.method, route.path, "", "Bearer valid")
 		if response.Code != http.StatusBadRequest {
@@ -108,7 +108,7 @@ func timePointer(value time.Time) *time.Time { return &value }
 
 func TestLingvoFiltersAndBodiesRejectInvalidInputBeforeStore(t *testing.T) {
 	store := &lingvoRouteStore{}
-	handler := lingvoRouter(store, postgres.User{ID: lingvoResourceID})
+	handler := lingvoRouter(store, account.User{ID: lingvoResourceID})
 	base := "/v1/lingvo/dictionaries/" + lingvoResourceID
 	for _, query := range []string{"kind=other", "status=other", "folder=invalid", "limit=0", "limit=201", "offset=-1", "offset=10001", "limit=1.5", "q=%00", "q=" + strings.Repeat("x", 101)} {
 		response := lingvoRequest(handler, "GET", base+"/cards?"+query, "", "Bearer valid")

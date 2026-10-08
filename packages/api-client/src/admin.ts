@@ -31,15 +31,15 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
       });
       return requireResponseData(data, error, response.status);
     },
-    async setStatus(id: string, disabled: boolean, reason: string): Promise<AdminUser> {
+    async setStatus(id: string, disabled: boolean, reason: string, signal?: AbortSignal): Promise<AdminUser> {
       const { data, error, response } = await client.PATCH('/v1/admin/users/{id}/status', {
-        params: { path: { id } }, body: { disabled, reason },
+        params: { path: { id } }, body: { disabled, reason }, signal,
       });
       return requireResponseData(data, error, response.status);
     },
-    async setRole(id: string, isAdmin: boolean, reason: string): Promise<AdminUser> {
+    async setRole(id: string, isAdmin: boolean, reason: string, signal?: AbortSignal): Promise<AdminUser> {
       const { data, error, response } = await client.PATCH('/v1/admin/users/{id}/role', {
-        params: { path: { id } }, body: { isAdmin, reason },
+        params: { path: { id } }, body: { isAdmin, reason }, signal,
       });
       return requireResponseData(data, error, response.status);
     },
@@ -47,15 +47,15 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
       const { data, error, response } = await client.GET('/v1/admin/audit', { signal });
       return requireResponseData(data, error, response.status);
     },
-    async createCase(targetUserId: string, reason: string): Promise<AdminAccessCase> {
+    async createCase(targetUserId: string, reason: string, signal?: AbortSignal): Promise<AdminAccessCase> {
       const { data, error, response } = await client.POST('/v1/admin/cases', {
-        body: { targetUserId, reason },
+        body: { targetUserId, reason }, signal,
       });
       return requireResponseData(data, error, response.status);
     },
-    async closeCase(id: string): Promise<void> {
+    async closeCase(id: string, signal?: AbortSignal): Promise<void> {
       const { error, response } = await client.POST('/v1/admin/cases/{id}/close', {
-        params: { path: { id } },
+        params: { path: { id } }, signal,
       });
       requireResponseOk(response, error);
     },
@@ -71,9 +71,9 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
       });
       return requireResponseData(data, error, response.status);
     },
-    async setLogRetention(retentionDays: AdminLogRetentionDays, reason: string): Promise<AdminJournal> {
+    async setLogRetention(retentionDays: AdminLogRetentionDays, reason: string, signal?: AbortSignal): Promise<AdminJournal> {
       const { data, error, response } = await client.PATCH('/v1/admin/logs/retention', {
-        body: { retentionDays, reason },
+        body: { retentionDays, reason }, signal,
       });
       return requireResponseData(data, error, response.status);
     },
@@ -81,17 +81,18 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
       const { data, error, response } = await client.POST('/v1/admin/storage/plan', { body, signal });
       return requireResponseData(data, error, response.status);
     },
-    async applyStorageLayout(body: AdminLayoutRequest & { reason: string; fingerprint: string; confirmation: string }) {
-      const { data, error, response } = await client.POST('/v1/admin/storage/apply', { body });
+    async applyStorageLayout(body: AdminLayoutRequest & { reason: string; fingerprint: string; confirmation: string }, signal?: AbortSignal) {
+      const { data, error, response } = await client.POST('/v1/admin/storage/apply', { body, signal });
       return requireResponseData(data, error, response.status);
     },
     async action(
       action: 'restart-nodo' | 'restart-livekit' | 'restart-ddclient' | 'scrub-filesystem' | 'configure-storage' | 'check-storage' | 'repair-storage',
       reason: string,
       options: { target?: string; identity?: string; filesystem?: string } = {},
+      signal?: AbortSignal,
     ) {
       const { data, error, response } = await client.POST('/v1/admin/actions/{action}', {
-        params: { path: { action } }, body: { reason, ...options },
+        params: { path: { action } }, body: { reason, ...options }, signal,
       });
       return requireResponseData(data, error, response.status);
     },

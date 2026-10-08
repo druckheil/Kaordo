@@ -8,17 +8,6 @@ import (
 	"strings"
 )
 
-func (server *Server) removeFiles(id string) error {
-	server.quotaMu.Lock()
-	defer server.quotaMu.Unlock()
-
-	if err := removeUploadFiles(server.config.Directory, id); err != nil {
-		return err
-	}
-	server.removeFromUsageIndex(id)
-	return nil
-}
-
 func removeUploadFiles(directory, id string) error {
 	for _, suffix := range []string{"", ".display", ".ready.json", ".error"} {
 		if err := removeIfPresent(filepath.Join(directory, id+suffix)); err != nil {
@@ -51,22 +40,6 @@ func removeIfPresent(path string) error {
 		return err
 	}
 	return nil
-}
-
-func (server *Server) removeFromUsageIndex(id string) {
-	item, exists := server.indexed[id]
-	if !exists {
-		return
-	}
-	used := server.used[item.owner]
-	used.count--
-	used.bytes -= item.size
-	if used.count == 0 {
-		delete(server.used, item.owner)
-	} else {
-		server.used[item.owner] = used
-	}
-	delete(server.indexed, id)
 }
 
 func uploadIDFromFilename(name string) string {

@@ -4,6 +4,10 @@ Independent Go upload and byte-storage service. tusd v2 implements tus protocol 
 
 `cmd/nodo` wires configuration and drains HTTP before closing the upload server. `internal/upload/handler.go` assembles routing and owns the server lifecycle; upload/media handlers, quota/identity, processing queue, image/video/file processors and cleanup/GC are separate files. `Server.Close` cancels and waits for background processing/GC; FFmpeg follows the processing context. Cancelled work remains resumable rather than being marked a permanent processing failure.
 
+The private quota object owns pending/completed usage indexes and their mutex.
+Reservation, reconciliation and file removal retain the same critical sections,
+so moving state out of the HTTP server does not loosen quota/deletion ordering.
+
 Kerno links processed metadata (dimensions, MIME and size) and signs media access URLs; these reserve image/video geometry before download. Files are mode 0600. Active references protect bytes from purge, including references shared across Fluo, Ligo and Rondo. Final-reference deletion requests immediate purge; a six-hour scan removes unreferenced uploads older than 24 hours. Failed reference checks keep bytes for retry.
 
 `maintenance.go` exposes authenticated internal status and background check/repair

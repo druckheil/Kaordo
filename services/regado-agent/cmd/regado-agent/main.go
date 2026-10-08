@@ -12,6 +12,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/agent"
 )
 
 const (
@@ -29,7 +31,7 @@ func run() error {
 	if len(os.Args) == 2 && os.Args[1] == "--mount-system-volumes" {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		return mountPreparedSystemVolumes(ctx, runCommand)
+		return agent.MountSystemVolumes(ctx)
 	}
 	path := socketPath()
 	listener, err := listenOnUnixSocket(path)
@@ -38,9 +40,9 @@ func run() error {
 	}
 	defer listener.Close()
 
-	replication := newReplicationMonitor()
-	defer replication.Close()
-	server := newHTTPServer(newHandler(runCommand, replication))
+	handler := agent.NewHandler()
+	defer handler.Close()
+	server := newHTTPServer(handler)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	log.Printf("Regado agent listening on %s", path)

@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Coordinates Regado data loading, administrative actions, and dashboard panels
+	// Composes Regado query resources, navigation and dashboard panels
 
 	import { onDestroy } from "svelte";
 	import { goto } from "$app/navigation";
@@ -9,7 +9,7 @@
 		createAdminApi, adminSummaryOptions, adminSystemOptions, adminMetricsOptions,
 		adminUsersOptions, adminAuditOptions, adminLogsOptions, adminCaseContentOptions,
 	} from "@kaordo/api-client";
-	import type { AdminAccessCase, AdminDisk, AdminMount, AdminLayoutRequest, UserIdentity } from "@kaordo/contracts";
+	import type { UserIdentity } from "@kaordo/contracts";
 	import { appPaths } from "@kaordo/links";
 	import { AppHeader, Button } from "@kaordo/ui";
 	import AdminIntentDialog from "./AdminIntentDialog.svelte";
@@ -19,18 +19,16 @@
 	import StoragePanel from "./StoragePanel.svelte";
 	import SystemPanel from "./SystemPanel.svelte";
 	import UsersPanel from "./UsersPanel.svelte";
+	import { createAdminActionState } from "./admin-action-state.svelte";
 	import {
 		dashboardTabs as tabs,
 		errorMessage,
 		isRefreshableTab,
 		logServices,
-		restartActions,
-		type AdminIntent,
 		type ContentKind,
 		type DashboardTab as Tab,
 		type LogPriority,
 		type MetricsWindow,
-		type RestartableService,
 	} from "./regado-model";
 
 	let { user }: { user: UserIdentity } = $props();
@@ -46,17 +44,17 @@
 	let logService = $state<string>(logServices[0]);
 	let logLevel = $state<LogPriority>("all");
 	let logSearch = $state("");
-	let caseRecord = $state<AdminAccessCase | null>(null);
 	let contentKind = $state<ContentKind>("posts");
-	let operationError = $state("");
-	let actionError = $state("");
-	let notice = $state("");
-	let busy = $state(false);
-	let intent = $state<AdminIntent | null>(null);
-	let reason = $state("");
-	let confirmation = $state("");
 
 	const queryClient = new QueryClient();
+
+	const commands = createAdminActionState({
+		api, queryClient, refreshOverview, loadUsers, onCaseOpened: () => { contentKind = "posts"; }
+	});
+	const { form, status } = commands;
+	const caseRecord = $derived(status.caseRecord);
+	const busy = $derived(status.busy);
+	const notice = $derived(status.notice);
 	const refreshable = $derived(isRefreshableTab(tab));
 	const overviewPolicy = $derived({ enabled: refreshable, refetchInterval: refreshable ? 30_000 : false as const });
 	const summaryQuery = createQuery(() => ({ ...adminSummaryOptions(api), ...overviewPolicy }), () => queryClient);
@@ -97,12 +95,12 @@
 		if (tab === "Audit") return auditQuery.error;
 		return null;
 	});
-	const error = $derived(operationError || (sectionError ? errorMessage(sectionError) : ""));
+	const error = $derived(status.operationError || (sectionError ? errorMessage(sectionError) : ""));
 
-	onDestroy(() => { void queryClient.cancelQueries(); queryClient.clear(); });
+	onDestroy(() => { commands.dispose(); void queryClient.cancelQueries(); queryClient.clear(); });
 
 	function openTab(next: Tab): void {
-		operationError = "";
+		commands.clearOperationError();
 		const url = new URL(page.url);
 		url.searchParams.set('view', next.toLowerCase());
 		void goto(url, { noScroll: true, keepFocus: true });
@@ -130,131 +128,6 @@
 		if (caseRecord && contentQuery.hasNextPage && !contentQuery.isFetching) await contentQuery.fetchNextPage();
 	}
 
-	async function closeCase(): Promise<void> {
-		if (!caseRecord || busy) return;
-		busy = true;
-		try {
-			await api.closeCase(caseRecord.id);
-			caseRecord = null;
-			queryClient.removeQueries({ queryKey: ["regado", "case"] });
-			notice = "Access case closed.";
-			operationError = "";
-		} catch (cause) {
-			operationError = errorMessage(cause);
-		} finally {
-			busy = false;
-		}
-	}
-
-	function openIntent(next: AdminIntent): void {
-		intent = next;
-		reason = "";
-		confirmation = "";
-		actionError = "";
-		notice = "";
-	}
-
-	async function requestCopyCheck(path: string): Promise<void> {
-		if (busy) return;
-		busy = true;
-		operationError = "";
-		try {
-			const result = await api.action("check-storage", "Verify file copies, checksums and expired upload references", { target: path });
-			notice = result.output;
-			await refreshOverview();
-		} catch (cause) { operationError = errorMessage(cause); }
-		finally { busy = false; }
-	}
-
- async function applyStorageLayout(body: AdminLayoutRequest & { fingerprint: string; confirmation: string; reason: string }): Promise<void> {
-  const result = await api.applyStorageLayout(body);
-  notice = result.output;
-  await refreshOverview();
- }
-
-	function requestCopyRepair(path: string): void {
-		openIntent({
-			type: "action",
-			id: "repair-storage",
-			name: `Repair file copies in ${path}`,
-			target: path,
-		});
-		reason = "Restore two-copy storage and remove expired unreferenced uploads";
-	}
-
-	function requestDnsRestart(): void {
-		openIntent({
-			type: "action",
-			id: "restart-ddclient",
-			name: "Update DNS now",
-		});
-	}
-
-	function requestServiceRestart(serviceId: RestartableService): void {
-		openIntent({
-			type: "action",
-			id: restartActions[serviceId],
-			name: serviceId === "ddclient" ? "Update DNS now" : `Restart ${serviceId}`,
-		});
-	}
-
-	async function confirmIntent(): Promise<void> {
-		const selectedIntent = intent;
-		if (!selectedIntent || busy) return;
-
-		busy = true;
-		actionError = "";
-		operationError = "";
-		notice = "";
-		try {
-			await performIntent(selectedIntent);
-			await Promise.all([
-				queryClient.invalidateQueries({ queryKey: ["regado", "summary"] }),
-				queryClient.invalidateQueries({ queryKey: ["regado", "audit"] }),
-			]);
-			intent = null;
-		} catch (cause) {
-			actionError = errorMessage(cause);
-		} finally {
-			busy = false;
-		}
-	}
-
-	async function performIntent(selected: AdminIntent): Promise<void> {
-		switch (selected.type) {
-			case "log-retention": {
-				const result = await api.setLogRetention(selected.days, reason);
-				notice = result.warning || "Journal retention updated.";
-				await queryClient.invalidateQueries({ queryKey: ["regado", "logs"] });
-				return;
-			}
-			case "status":
-				await api.setStatus(selected.id, selected.disabled, reason);
-				notice = `${selected.name} ${selected.disabled ? "disabled" : "enabled"}.`;
-				await loadUsers();
-				return;
-			case "role":
-				await api.setRole(selected.id, selected.isAdmin, reason);
-				notice = `Administrator role ${selected.isAdmin ? "granted to" : "revoked from"} @${selected.name}.`;
-				await loadUsers();
-				return;
-			case "case": {
-				const createdCase = await api.createCase(selected.id, reason);
-				caseRecord = createdCase;
-				contentKind = "posts";
-				notice = `Access case opened for @${createdCase.targetUsername}. The account was notified in Ligo Saved messages.`;
-				return;
-			}
-			case "action":
-				const result = await api.action(selected.id, reason, {
-					target: selected.target,
-					identity: selected.identity,
-					filesystem: selected.filesystem,
-				});
-				notice = result.output || `${selected.name} requested.`;
-				await refreshOverview();
-		}
-	}
 </script>
 
 <svelte:head><title>{tab} | Regado | Kaordo</title></svelte:head>
@@ -331,10 +204,10 @@
 				{summary}
 				{metrics}
 				actionBusy={busy}
-				onCheckCopies={(path) => void requestCopyCheck(path)}
-				onRepairCopies={requestCopyRepair}
+				onCheckCopies={(path) => void commands.requestCopyCheck(path)}
+				onRepairCopies={commands.requestCopyRepair}
     onPreviewLayout={(body, signal) => api.previewStorageLayout(body, signal)}
-    onApplyLayout={applyStorageLayout}
+    onApplyLayout={commands.applyStorageLayout}
 			/>
 		{:else if tab === "Logs"}
 			<LogsPanel
@@ -345,7 +218,7 @@
 				bind:search={logSearch}
 				onRefresh={loadLogs}
 				{busy}
-				onRetentionChange={(days) => openIntent({ type: "log-retention", days, name: "Change journal retention" })}
+				onRetentionChange={(days) => commands.openIntent({ type: "log-retention", days, name: "Change journal retention" })}
 			/>
 		{:else if tab === "Users"}
 			<UsersPanel
@@ -355,10 +228,10 @@
 				contentLoading={contentQuery.isFetching}
 				currentUserId={user.id}
 				onSearch={loadUsers}
-				onIntent={openIntent}
+				onIntent={commands.openIntent}
 				{caseRecord}
 				{busy}
-				onCloseCase={closeCase}
+				onCloseCase={commands.closeCase}
 				bind:contentKind
 				{content}
 				onLoadContent={loadContent}
@@ -369,8 +242,8 @@
 			<SystemPanel
 				{system}
 				{metrics}
-				onRestartDns={requestDnsRestart}
-				onRestartService={requestServiceRestart}
+				onRestartDns={commands.requestDnsRestart}
+				onRestartService={commands.requestServiceRestart}
 				onOpenStorage={() => openTab("Storage")}
 			/>
 		{/if}
@@ -378,11 +251,11 @@
 </div>
 
 <AdminIntentDialog
-	{intent}
-	bind:reason
-	bind:confirmation
+	intent={form.intent}
+	bind:reason={form.reason}
+	bind:confirmation={form.confirmation}
 	{busy}
-	error={actionError}
-	onConfirm={() => void confirmIntent()}
-	onClose={() => (intent = null)}
+	error={status.actionError}
+	onConfirm={() => void commands.confirmIntent()}
+	onClose={() => (form.intent = null)}
 />

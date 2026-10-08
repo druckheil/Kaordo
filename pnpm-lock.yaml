@@ -109,6 +109,9 @@ importers:
       '@kaordo/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@kaordo/chat-client':
+        specifier: workspace:*
+        version: link:../../packages/chat-client
       '@kaordo/chat-ui':
         specifier: workspace:*
         version: link:../../packages/chat-ui
@@ -118,9 +121,6 @@ importers:
       '@kaordo/links':
         specifier: workspace:*
         version: link:../../packages/links
-      '@kaordo/media-client':
-        specifier: workspace:*
-        version: link:../../packages/media-client
       '@kaordo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -314,6 +314,9 @@ importers:
       '@kaordo/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@kaordo/chat-client':
+        specifier: workspace:*
+        version: link:../../packages/chat-client
       '@kaordo/chat-ui':
         specifier: workspace:*
         version: link:../../packages/chat-ui
@@ -323,9 +326,6 @@ importers:
       '@kaordo/links':
         specifier: workspace:*
         version: link:../../packages/links
-      '@kaordo/media-client':
-        specifier: workspace:*
-        version: link:../../packages/media-client
       '@kaordo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -406,8 +406,29 @@ importers:
         specifier: ^26.2.4
         version: 26.2.4
 
+  packages/chat-client:
+    dependencies:
+      '@kaordo/api-client':
+        specifier: workspace:*
+        version: link:../api-client
+      '@kaordo/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@kaordo/media-client':
+        specifier: workspace:*
+        version: link:../media-client
+      '@tanstack/svelte-query':
+        specifier: ^6.3.0
+        version: 6.3.0(svelte@5.57.1)
+      svelte:
+        specifier: ^5.0.0
+        version: 5.57.1
+
   packages/chat-ui:
     dependencies:
+      '@kaordo/chat-client':
+        specifier: workspace:*
+        version: link:../chat-client
       '@kaordo/contracts':
         specifier: workspace:*
         version: link:../contracts

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
-	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
-	"github.com/druckheil/Kaordo/services/kerno/internal/regado"
 )
 
 type layoutAdminFixture struct {
@@ -20,7 +20,7 @@ type layoutAdminFixture struct {
 	fail  bool
 }
 
-func (fixture *layoutAdminFixture) StorageLayout(_ context.Context, _ regado.LayoutRequest, apply bool) (json.RawMessage, error) {
+func (fixture *layoutAdminFixture) StorageLayout(_ context.Context, _ admin.LayoutRequest, apply bool) (json.RawMessage, error) {
 	fixture.calls++
 	if apply && fixture.store.records != 1 {
 		return nil, errors.New("operation reached the agent before audit")
@@ -55,11 +55,11 @@ func TestAdministratorLayoutPreviewAndApplyGuards(t *testing.T) {
 				store.recordError = errors.New("audit unavailable")
 			}
 			fixture := &layoutAdminFixture{storageAdminFixture: &storageAdminFixture{store: store}, fail: check.agentFailure}
-			users := &fakeUsers{user: postgres.User{ID: "01999111-2222-7333-8444-555555555551", IsAdmin: check.admin}}
+			users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555551", IsAdmin: check.admin}}
 			verify := func(context.Context, string) (identity.Claims, error) {
 				return identity.Claims{Subject: "operator"}, nil
 			}
-			handler := NewRouterWithAdmin(verify, users, FluoDependencies{}, LigoDependencies{}, RondoDependencies{}, AdminDependencies{Store: store, System: fixture}, nil)
+			handler := NewRouter(verify, users, Modules{Fluo: FluoDependencies{}, Ligo: LigoDependencies{}, Rondo: RondoDependencies{}, Admin: AdminDependencies{Store: store, System: fixture}}, nil)
 			body, _ := json.Marshal(map[string]any{"device": check.device, "identity": "serial:unique", "filesystem": "/srv/data", "systemBytes": int64(64 << 30), "storageBytes": int64(800 << 30), "fingerprint": check.fingerprint, "confirmation": check.confirmation, "reason": "Allocate the reviewed device"})
 			request := httptest.NewRequest("POST", "/v1/admin/storage/"+check.operation, strings.NewReader(string(body)))
 			request.Header.Set("Authorization", "Bearer valid")

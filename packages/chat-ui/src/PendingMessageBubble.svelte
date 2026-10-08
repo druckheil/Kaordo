@@ -3,7 +3,7 @@
 
   import { Button, CircleIcon } from '@kaordo/ui';
   import DraftAttachment from './DraftAttachment.svelte';
-  import type { PendingMessage } from './types';
+  import type { PendingMessage } from '@kaordo/chat-client';
 
   let {
     message,

@@ -22,6 +22,7 @@ func maintenanceFixture(t *testing.T, references http.HandlerFunc) *Server {
 	t.Cleanup(kerno.Close)
 	ctx, cancel := context.WithCancel(context.Background())
 	server := &Server{config: Config{Directory: t.TempDir(), KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}, ctx: ctx, cancel: cancel}
+	server.quota = &uploadQuota{directory: server.config.Directory}
 	server.handler = server.routes()
 	t.Cleanup(func() { _ = server.Close() })
 	return server

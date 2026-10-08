@@ -126,7 +126,7 @@ export function lingvoCardsOptions(api: LingvoApi, dictionaryId: string, filter:
     enabled: !!dictionaryId, staleTime: 10_000 };
 }
 
-export function lingvoStudyOptions(api: LingvoApi, dictionaryId: string, kind: 'word' | 'phrase', folder?: string) {
+export function lingvoStudyOptions(api: Pick<LingvoApi, 'study'>, dictionaryId: string, kind: 'word' | 'phrase', folder?: string) {
   return { queryKey: ['lingvo', dictionaryId, 'study', kind, folder] as const,
     queryFn: ({ signal }: { signal: AbortSignal }) => api.study(dictionaryId, kind, folder, signal),
     enabled: !!dictionaryId, staleTime: 0, refetchInterval: 15_000 };

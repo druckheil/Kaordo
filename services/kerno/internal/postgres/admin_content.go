@@ -5,43 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 )
 
-type AdminContentMedia struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind"`
-	MimeType string `json:"mimeType"`
-	Filename string `json:"filename"`
-	Size     int64  `json:"size"`
-	URL      string `json:"url"`
-}
-
-type AdminContent struct {
-	ID        string              `json:"id"`
-	Text      string              `json:"text"`
-	Context   string              `json:"context"`
-	CreatedAt time.Time           `json:"createdAt"`
-	Media     []AdminContentMedia `json:"media"`
-}
-
-type AdminContentPage struct {
-	Items      []AdminContent `json:"items"`
-	NextCursor *string        `json:"nextCursor"`
-}
-
-func (store *Admin) CaseContent(ctx context.Context, targetID, kind, before string) (AdminContentPage, error) {
+func (store *Admin) CaseContent(ctx context.Context, targetID, kind, before string) (admin.ContentPage, error) {
 	query, err := adminContentQuery(targetID, kind, before)
 	if err != nil {
-		return AdminContentPage{}, err
+		return admin.ContentPage{}, err
 	}
 	rows, err := jetQuery(ctx, store.pool, query)
 	if err != nil {
-		return AdminContentPage{}, err
+		return admin.ContentPage{}, err
 	}
 	defer rows.Close()
 	return scanAdminContentPage(rows)
@@ -92,17 +70,17 @@ func messageContentQuery(targetID, before string) jetpg.SelectStatement {
 		ORDER_BY(messages.ID.DESC()).LIMIT(51)
 }
 
-func scanAdminContentPage(rows pgx.Rows) (AdminContentPage, error) {
-	page := AdminContentPage{Items: make([]AdminContent, 0)}
+func scanAdminContentPage(rows pgx.Rows) (admin.ContentPage, error) {
+	page := admin.ContentPage{Items: make([]admin.Content, 0)}
 	for rows.Next() {
 		item, err := scanAdminContent(rows)
 		if err != nil {
-			return AdminContentPage{}, err
+			return admin.ContentPage{}, err
 		}
 		page.Items = append(page.Items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return AdminContentPage{}, err
+		return admin.ContentPage{}, err
 	}
 	if len(page.Items) > 50 {
 		page.Items = page.Items[:50]
@@ -112,14 +90,14 @@ func scanAdminContentPage(rows pgx.Rows) (AdminContentPage, error) {
 	return page, nil
 }
 
-func scanAdminContent(row pgx.Row) (AdminContent, error) {
-	var item AdminContent
+func scanAdminContent(row pgx.Row) (admin.Content, error) {
+	var item admin.Content
 	var media []byte
 	if err := row.Scan(&item.ID, &item.Text, &item.Context, &item.CreatedAt, &media); err != nil {
-		return AdminContent{}, err
+		return admin.Content{}, err
 	}
 	if err := json.Unmarshal(media, &item.Media); err != nil {
-		return AdminContent{}, err
+		return admin.Content{}, err
 	}
 	return item, nil
 }

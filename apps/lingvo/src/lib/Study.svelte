@@ -1,10 +1,8 @@
 <script lang="ts">
-  // Coordinates due-card practice, FSRS answer previews, idempotent review saves and undo
+  // Presents due-card practice with answer previews, focus, gestures and pronunciation
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { fly } from 'svelte/transition';
-  import { createQuery } from '@tanstack/svelte-query';
-  import { lingvoStudyOptions } from '@kaordo/api-client';
-  import type { LingvoCard, LingvoDictionary, LingvoOverview, LingvoReview } from '@kaordo/contracts';
+  import type { LingvoDictionary, LingvoOverview, LingvoReview } from '@kaordo/contracts';
   import { germanTerm, Pronunciation, ratings } from '@kaordo/lingvo-client';
   import { reviewIntervals } from '@kaordo/lingvo-client/scheduler';
   import {
@@ -14,25 +12,29 @@
   import { dueDate, errorMessage, getLingvoContext, type CardKind } from './lingvo-context';
   import CardDefinition from './CardDefinition.svelte';
   import PhraseExercise from './PhraseExercise.svelte';
+  import { createStudyState } from './study-state.svelte';
 
   let { dictionary, overview, kind, folder, paused = false, onExit, onLibrary }:
     { dictionary: LingvoDictionary; overview: LingvoOverview; kind: CardKind; folder: string; paused?: boolean; onExit(): void; onLibrary(): void } = $props();
   const { api, queryClient, changed, notify } = getLingvoContext();
-  const study = createQuery(() => lingvoStudyOptions(api, dictionary.id, kind, folder || undefined), () => queryClient);
   const pronunciation = new Pronunciation();
+  const progress = createStudyState({
+    api, queryClient, dictionaryId: () => dictionary.id, kind: () => kind, folder: () => folder,
+    onCardChanged: resetAnswer, onReviewSaved: () => pronunciation.stop(), changed, notify
+  });
+  const study = progress.query;
   const modes = [ { value: 'mixed', label: 'Both directions' }, { value: 'recognition', label: 'German → translation' },
     { value: 'recall', label: 'Translation → German' }, { value: 'listening', label: 'Listen and recall' } ];
   let mode = $state('mixed');
-  let active = $state<LingvoCard | null>(null);
-  let reviewed = $state<Record<string, number>>({});
+  const active = $derived(progress.active);
   let revealed = $state(false);
   let correct = $state<boolean | null>(null);
   let hinted = $state(false);
-  let busy = $state(false);
-  let completed = $state(0);
-  let error = $state('');
-  let pending = $state<{ cardId: string; review: LingvoReview } | null>(null);
-  let undoId = $state<string | null>(null);
+  const busy = $derived(progress.busy);
+  const completed = $derived(progress.completed);
+  const error = $derived(progress.error);
+  const pending = $derived(progress.pending);
+  const undoId = $derived(progress.undoId);
   let reducedMotion = $state(true);
   let practice = $state<HTMLElement>();
   let recall = $state<HTMLElement>();
@@ -40,19 +42,12 @@
   let dragX = $state(0);
   let gesture: { id: number; x: number; y: number } | null = null;
   let disposed = false;
-  const abort = new AbortController();
   const direction = $derived<LingvoReview['direction']>(kind === 'phrase' ? 'phrase' : mode === 'mixed'
     ? ((active?.schedule.reps ?? 0) % 2 ? 'recall' : 'recognition') : mode as LingvoReview['direction']);
   const intervals = $derived(active ? reviewIntervals(active.schedule) : null);
-  const ready = $derived((study.data?.items ?? []).filter(card => card.revision > (reviewed[card.id] ?? 0)));
   const counts = $derived(overview.counts.find(item => item.kind === kind));
   const nextDue = $derived(counts?.nextDue);
 
-  $effect(() => {
-    if (active || busy || !ready.length) return;
-    const next = ready[0];
-    untrack(() => { active = next; resetAnswer(); });
-  });
   $effect(() => {
     active?.id; active?.revision;
     untrack(() => { if (active) void tick().then(() => {
@@ -67,7 +62,7 @@
     media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);
   });
-  onDestroy(() => { disposed = true; abort.abort(); pronunciation.dispose(); });
+  onDestroy(() => { disposed = true; progress.dispose(); pronunciation.dispose(); });
 
   // Move focus out of the card face before it becomes inert and into the next available action
   $effect(() => {
@@ -76,65 +71,14 @@
     });
   });
 
-  function resetAnswer(): void { revealed = false; correct = null; hinted = false; dragX = 0; error = ''; pronunciation.stop(); }
+  function resetAnswer(): void { revealed = false; correct = null; hinted = false; dragX = 0; progress.clearError(); pronunciation.stop(); }
 
   function speak(text: string): void {
     if (!pronunciation.speak(text)) notify('Speech playback is unavailable in this browser.');
   }
 
   async function save(rating?: LingvoReview['rating']): Promise<void> {
-    if (busy || !active || !revealed) return;
-    if (!pending && rating) pending = { cardId: active.id, review: { id: crypto.randomUUID(), revision: active.revision, rating, direction } };
-    if (!pending) return;
-    busy = true;
-    error = '';
-    const attempt = pending;
-    try {
-      const result = await api.review(dictionary.id, attempt.cardId, attempt.review, abort.signal);
-      if (disposed) return;
-      reviewed = { ...reviewed, [attempt.cardId]: attempt.review.revision };
-      undoId = result.id;
-      completed += 1;
-      pending = null;
-      active = null;
-      pronunciation.stop();
-      void changed(dictionary.id);
-    } catch (cause) { if (!disposed) error = errorMessage(cause); }
-    finally { if (!disposed) busy = false; }
-  }
-
-  async function refresh(): Promise<void> {
-    if (busy) return;
-    busy = true;
-    try {
-      const result = await study.refetch();
-      if (disposed) return;
-      if (result.error) throw result.error;
-      // A refetch resolves an uncertain save before allowing a different answer
-      const current = result.data?.items.find(card => card.id === active?.id && card.revision === active.revision);
-      pending = null;
-      if (!current) { active = null; resetAnswer(); notify('Practice refreshed from your saved progress.'); }
-      else error = '';
-      void changed(dictionary.id);
-    } catch (cause) { if (!disposed) error = errorMessage(cause); }
-    finally { if (!disposed) busy = false; }
-  }
-
-  async function undo(): Promise<void> {
-    if (busy || !undoId || pending) return;
-    busy = true;
-    error = '';
-    try {
-      const restored = await api.undo(dictionary.id, undoId, abort.signal);
-      if (disposed) return;
-      reviewed = { ...reviewed, [restored.id]: 0 };
-      active = restored;
-      undoId = null;
-      completed = Math.max(0, completed - 1);
-      resetAnswer();
-      void changed(dictionary.id);
-    } catch (cause) { if (!disposed) error = errorMessage(cause); }
-    finally { if (!disposed) busy = false; }
+    if (revealed) await progress.save(direction, rating);
   }
 
   function keyboard(event: KeyboardEvent): void {
@@ -180,7 +124,7 @@
     <Button variant="ghost" size="sm" onclick={onExit}><ChevronLeftIcon class="size-4" />{kind === 'word' ? 'Words' : 'Phrases'}</Button>
     <div class="flex items-center gap-2">
       <span class="text-xs text-muted-foreground">{completed} reviewed</span>
-      <Button variant="ghost" size="sm" disabled={!undoId || busy || !!pending} onclick={() => void undo()} title="Undo the last answer within 10 minutes"><RotateCcwIcon class="size-4" />Undo</Button>
+      <Button variant="ghost" size="sm" disabled={!undoId || busy || !!pending} onclick={() => void progress.undo()} title="Undo the last answer within 10 minutes"><RotateCcwIcon class="size-4" />Undo</Button>
       {#if kind === 'word'}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger>{#snippet child({ props })}<Button {...props} variant="outline" size="sm">{modes.find(item => item.value === mode)?.label}<ChevronDownIcon class="size-3.5" /></Button>{/snippet}</DropdownMenu.Trigger>
@@ -244,7 +188,7 @@
     </div>
   {/if}
   {#if error}
-    <div class="mt-4 rounded-2xl border border-destructive/30 bg-card p-4"><p role="alert" class="text-sm text-destructive">{error}</p><div class="mt-3 flex gap-2">{#if pending}<Button variant="outline" size="sm" disabled={busy} onclick={() => void save()}>Retry this answer</Button>{/if}<Button variant="ghost" size="sm" disabled={busy} onclick={() => void refresh()}>Refresh saved progress</Button></div></div>
+    <div class="mt-4 rounded-2xl border border-destructive/30 bg-card p-4"><p role="alert" class="text-sm text-destructive">{error}</p><div class="mt-3 flex gap-2">{#if pending}<Button variant="outline" size="sm" disabled={busy} onclick={() => void save()}>Retry this answer</Button>{/if}<Button variant="ghost" size="sm" disabled={busy} onclick={() => void progress.refresh()}>Refresh saved progress</Button></div></div>
   {/if}
   <p class="mt-5 text-center text-xs leading-5 text-muted-foreground">Your answers help schedule the next review at the right time for you.</p>
 </section>

@@ -7,12 +7,13 @@ import { isSupportedImageType, MAX_IMAGE_SIZE, prepareImage } from './image-proc
 import { uploadStorage } from './tus-storage.js';
 
 interface UploadMetadataApi {
-  uploadMetadata(id: string): Promise<NodoUpload | null>;
+  uploadMetadata(id: string, signal?: AbortSignal): Promise<NodoUpload | null>;
 }
 
 interface UploadMediaOptions {
   allowFiles?: boolean;
   maxFiles?: number;
+  signal?: AbortSignal;
 }
 
 const videoTypes = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
@@ -28,6 +29,8 @@ export async function uploadMedia(
   onProgress: (percent: number) => void,
   options: UploadMediaOptions = {}
 ): Promise<string[]> {
+  const signal = options.signal;
+  signal?.throwIfAborted();
   if (files.length === 0) return [];
 
   const maxFiles = options.maxFiles ?? 4;
@@ -35,17 +38,22 @@ export async function uploadMedia(
   validateOriginalFileSizes(files);
 
   // Process images sequentially so decoded bitmaps do not accumulate in memory
-  const preparedFiles = await prepareFiles(files);
+  const preparedFiles = await prepareFiles(files, signal);
+  signal?.throwIfAborted();
   validatePreparedFiles(preparedFiles, options.allowFiles ?? false);
 
   const uppy = createUploader(nodoBaseUrl, maxFiles, onProgress);
+  const abortUpload = () => uppy.cancelAll();
+  signal?.addEventListener('abort', abortUpload, { once: true });
   try {
     addFilesToUploader(uppy, preparedFiles);
     const result = await uppy.upload();
+    signal?.throwIfAborted();
     const ids = getUploadIds(result, preparedFiles.length, nodoBaseUrl);
-    await waitForProcessing(ids, api);
+    await waitForProcessing(ids, api, signal);
     return ids;
   } finally {
+    signal?.removeEventListener('abort', abortUpload);
     uppy.destroy();
   }
 }
@@ -60,9 +68,12 @@ function validateOriginalFileSizes(files: File[]): void {
   }
 }
 
-async function prepareFiles(files: File[]): Promise<File[]> {
+async function prepareFiles(files: File[], signal?: AbortSignal): Promise<File[]> {
   const preparedFiles: File[] = [];
-  for (const file of files) preparedFiles.push(await prepareImage(file));
+  for (const file of files) {
+    signal?.throwIfAborted();
+    preparedFiles.push(await prepareImage(file));
+  }
   return preparedFiles;
 }
 
@@ -142,20 +153,34 @@ function getUploadId(uploadUrl: string | undefined, baseUrl: string): string {
   return id;
 }
 
-async function waitForProcessing(ids: string[], api: UploadMetadataApi): Promise<void> {
+async function waitForProcessing(ids: string[], api: UploadMetadataApi, signal?: AbortSignal): Promise<void> {
   const deadline = Date.now() + processingTimeoutMs;
-  for (const id of ids) await waitForUpload(id, api, deadline);
+  for (const id of ids) await waitForUpload(id, api, deadline, signal);
 }
 
-async function waitForUpload(id: string, api: UploadMetadataApi, deadline: number): Promise<void> {
+async function waitForUpload(id: string, api: UploadMetadataApi, deadline: number, signal?: AbortSignal): Promise<void> {
   while (true) {
-    const metadata = await api.uploadMetadata(id);
+    signal?.throwIfAborted();
+    const metadata = await api.uploadMetadata(id, signal);
+    signal?.throwIfAborted();
     if (metadata?.complete) return;
     if (Date.now() >= deadline) throw new Error('Media processing timed out.');
-    await delay(processingPollIntervalMs);
+    await delay(processingPollIntervalMs, signal);
   }
 }
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', cancel);
+      resolve();
+    }, milliseconds);
+    function cancel() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
+      reject(signal?.reason);
+    }
+    signal?.addEventListener('abort', cancel, { once: true });
+  });
 }

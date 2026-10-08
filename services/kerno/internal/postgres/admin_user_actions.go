@@ -5,33 +5,34 @@ import (
 	"context"
 	"errors"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 )
 
-func (store *Admin) SetDisabled(ctx context.Context, actorID, targetID string, disabled bool, reason string) (AdminUser, error) {
+func (store *Admin) SetDisabled(ctx context.Context, actorID, targetID string, disabled bool, reason string) (admin.User, error) {
 	if actorID == targetID {
-		return AdminUser{}, ErrAdminTarget
+		return admin.User{}, admin.ErrTarget
 	}
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	defer tx.Rollback(ctx)
 
 	if err := lockDisableTarget(ctx, tx, targetID); err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	if err := updateDisabledState(ctx, tx, targetID, disabled, reason); err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	if err := recordUserAction(ctx, tx, actorID, targetID, disabledAction(disabled), reason); err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	user, err := findAdminUser(ctx, tx, targetID)
 	if err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	return user, tx.Commit(ctx)
 }
@@ -44,7 +45,7 @@ func lockDisableTarget(ctx context.Context, tx pgx.Tx, targetID string) error {
 		WHERE(jetpg.AND(roles.UserID.EQ(users.ID), roles.Role.EQ(jetpg.String("admin")))))).
 		FROM(users).WHERE(users.ID.EQ(jetUUID(targetID))).FOR(jetpg.UPDATE())).Scan(&isAdmin)
 	if errors.Is(err, pgx.ErrNoRows) || isAdmin {
-		return ErrAdminTarget
+		return admin.ErrTarget
 	}
 	return err
 }
@@ -59,35 +60,35 @@ func updateDisabledState(ctx context.Context, tx pgx.Tx, targetID string, disabl
 	return err
 }
 
-func (store *Admin) SetAdmin(ctx context.Context, actorID, targetID string, enabled bool, reason string) (AdminUser, error) {
+func (store *Admin) SetAdmin(ctx context.Context, actorID, targetID string, enabled bool, reason string) (admin.User, error) {
 	if actorID == targetID {
-		return AdminUser{}, ErrAdminTarget
+		return admin.User{}, admin.ErrTarget
 	}
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	defer tx.Rollback(ctx)
 
 	if err := verifyAdminManager(ctx, tx, actorID); err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	disabled, err := targetIsDisabled(ctx, tx, targetID)
 	if err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	if enabled && disabled {
-		return AdminUser{}, ErrAdminTarget
+		return admin.User{}, admin.ErrTarget
 	}
 	if err := changeAdminRole(ctx, tx, targetID, enabled); err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	if err := recordUserAction(ctx, tx, actorID, targetID, adminRoleAction(enabled), reason); err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	user, err := findAdminUser(ctx, tx, targetID)
 	if err != nil {
-		return AdminUser{}, err
+		return admin.User{}, err
 	}
 	return user, tx.Commit(ctx)
 }
@@ -108,7 +109,7 @@ func verifyAdminManager(ctx context.Context, tx pgx.Tx, actorID string) error {
 		return err
 	}
 	if !allowed {
-		return ErrAdminTarget
+		return admin.ErrTarget
 	}
 	return nil
 }
@@ -119,7 +120,7 @@ func targetIsDisabled(ctx context.Context, tx pgx.Tx, targetID string) (bool, er
 	err := jetQueryRow(ctx, tx, users.SELECT(jetpg.RawBool("disabled_at IS NOT NULL")).
 		WHERE(users.ID.EQ(jetUUID(targetID))).FOR(jetpg.UPDATE())).Scan(&disabled)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, ErrAdminTarget
+		return false, admin.ErrTarget
 	}
 	return disabled, err
 }
@@ -158,7 +159,7 @@ func adminRoleAction(enabled bool) string {
 	return "user.admin_revoked"
 }
 
-func findAdminUser(ctx context.Context, executor jetExecutor, id string) (AdminUser, error) {
+func findAdminUser(ctx context.Context, executor jetExecutor, id string) (admin.User, error) {
 	query, users := adminUserQuery()
 	return scanAdminUser(jetQueryRow(ctx, executor, query.WHERE(users.ID.EQ(jetUUID(id)))))
 }

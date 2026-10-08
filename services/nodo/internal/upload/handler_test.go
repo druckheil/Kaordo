@@ -599,7 +599,7 @@ func TestOldUnreferencedUploadIsCollected(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]bool{"referenced": referenced.Load()})
 	}))
 	defer kerno.Close()
-	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: key}, pending: make(map[string]usage)}
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: key}, quota: &uploadQuota{directory: directory}}
 	referenced.Store(true)
 	server.garbageCollect(context.Background())
 	if _, err := os.Stat(filepath.Join(directory, id+".info")); err != nil {
@@ -629,7 +629,7 @@ func TestCleanupFailsClosedOnMissingReferenceState(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer kerno.Close()
-	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}}
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}, quota: &uploadQuota{directory: directory}}
 	server.garbageCollect(context.Background())
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("source was removed without an explicit reference decision: %v", err)
@@ -651,7 +651,7 @@ func TestOrphanSourceWithoutMetadataIsCollected(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]bool{"referenced": false})
 	}))
 	defer kerno.Close()
-	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}}
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}, quota: &uploadQuota{directory: directory}}
 	server.garbageCollect(context.Background())
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("orphan source still exists: %v", err)
@@ -673,7 +673,7 @@ func TestOrphanDisplayWithoutMetadataIsCollected(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]bool{"referenced": false})
 	}))
 	defer kerno.Close()
-	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}}
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}, quota: &uploadQuota{directory: directory}}
 	server.garbageCollect(context.Background())
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("orphan display still exists: %v", err)

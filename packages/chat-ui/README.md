@@ -1,6 +1,6 @@
 # Kaordo chat UI
 
-Shared message presentation and composing for Ligo and Rondo. `MessageComposer` handles the draft, eight-attachment limit, file previews, Enter/Shift+Enter and textarea growth. It calls the parent send action; uploading, persistence and cache updates belong to shared clients/app controllers.
+Shared message presentation and composing for Ligo and Rondo. `MessageComposer` handles the draft, eight-attachment limit, file previews, Enter/Shift+Enter and textarea growth. It calls the parent send action; `chat-client` owns uploading, query/live synchronization, persistence requests and cache updates. Pending-message contracts come from that client and remain re-exported by `chat-ui`.
 
 Pasted clipboard files join the same attachment queue as file picker selections, with the same limit, previews, removal, and send path. Text remains handled by the native textarea, including when clipboard files also contain a plain-text caption. Clipboard file availability depends on the source application and browser.
 

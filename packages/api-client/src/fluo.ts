@@ -97,9 +97,9 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
         : await client.DELETE('/v1/fluo/users/{id}/follow', { params: { path: { id } }, signal });
       requireResponseOk(result.response, result.error);
     },
-    async uploadMetadata(id: string): Promise<NodoUpload | null> {
+    async uploadMetadata(id: string, signal?: AbortSignal): Promise<NodoUpload | null> {
       const { data, error, response } = await nodoClient.GET('/v1/uploads/{id}/meta', {
-        params: { path: { id } }
+        params: { path: { id } }, signal
       });
       if (response.status === 202) return null;
       return requireResponseData(data, error, response.status);

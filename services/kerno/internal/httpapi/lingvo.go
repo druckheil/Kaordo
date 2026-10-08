@@ -8,19 +8,19 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/lingvo"
-	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
 	"github.com/go-chi/chi/v5"
 )
 
 type LingvoDependencies struct{ Store lingvo.Store }
 type lingvoHandler struct {
 	verify VerifyFunc
-	users  UserStore
+	users  account.Store
 	deps   LingvoDependencies
 }
 
-func mountLingvo(router chi.Router, verify VerifyFunc, users UserStore, deps LingvoDependencies) {
+func mountLingvo(router chi.Router, verify VerifyFunc, users account.Store, deps LingvoDependencies) {
 	h := lingvoHandler{verify: verify, users: users, deps: deps}
 	router.Route("/v1/lingvo", func(r chi.Router) {
 		r.Get("/catalog", h.catalog)
@@ -41,7 +41,7 @@ func mountLingvo(router chi.Router, verify VerifyFunc, users UserStore, deps Lin
 	})
 }
 
-func (h lingvoHandler) actor(w http.ResponseWriter, r *http.Request) (postgres.User, bool) {
+func (h lingvoHandler) actor(w http.ResponseWriter, r *http.Request) (account.User, bool) {
 	user, ok := authenticatedActor(w, r, h.verify, h.users, "Start a Kaordo account session before using Lingvo.")
 	if !ok {
 		return user, false

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
-	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
 	"github.com/druckheil/Kaordo/services/mediaauth"
 )
 
@@ -73,7 +73,7 @@ func (stub mediaStub) Purge(context.Context, string) error { return nil }
 
 func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 	store := &fluoStoreStub{}
-	users := &fakeUsers{user: postgres.User{ID: "01999111-2222-7333-8444-555555555554", Username: "alice", DisplayName: "Alice"}}
+	users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555554", Username: "alice", DisplayName: "Alice"}}
 	verify := func(_ context.Context, token string) (identity.Claims, error) {
 		if token != "valid" {
 			return identity.Claims{}, errors.New("invalid token")
@@ -92,7 +92,7 @@ func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 			r.Header.Set("Authorization", "Bearer "+bearer)
 		}
 		w := httptest.NewRecorder()
-		NewRouterWithFluo(verify, users, deps, nil).ServeHTTP(w, r)
+		NewRouter(verify, users, Modules{Fluo: deps}, nil).ServeHTTP(w, r)
 		return w
 	}
 	if response := invoke(requestBody, ""); response.Code != http.StatusUnauthorized || store.created != 0 {
@@ -148,14 +148,14 @@ func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 
 func TestSavedPostRoutesAndSearchQuery(t *testing.T) {
 	store := &fluoStoreStub{}
-	users := &fakeUsers{user: postgres.User{ID: "01999111-2222-7333-8444-555555555554", Username: "alice", DisplayName: "Alice"}}
+	users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555554", Username: "alice", DisplayName: "Alice"}}
 	verify := func(_ context.Context, token string) (identity.Claims, error) {
 		if token != "valid" {
 			return identity.Claims{}, errors.New("invalid token")
 		}
 		return identity.Claims{Subject: "alice-subject", Username: "alice", Name: "Alice"}, nil
 	}
-	handler := NewRouterWithFluo(verify, users, FluoDependencies{Store: store}, nil)
+	handler := NewRouter(verify, users, Modules{Fluo: FluoDependencies{Store: store}}, nil)
 	postID := "01999111-2222-7333-8444-555555555551"
 
 	request := func(method, path, bearer string) *httptest.ResponseRecorder {
@@ -186,10 +186,10 @@ func TestSavedPostRoutesAndSearchQuery(t *testing.T) {
 
 func TestInternalMediaReferenceRequiresServiceToken(t *testing.T) {
 	key := []byte(strings.Repeat("k", 32))
-	handler := NewRouterWithFluo(func(context.Context, string) (identity.Claims, error) {
+	handler := NewRouter(func(context.Context, string) (identity.Claims, error) {
 		t.Fatal("user token verifier should not run on an internal reference check")
 		return identity.Claims{}, nil
-	}, &fakeUsers{}, FluoDependencies{Store: &fluoStoreStub{}, MediaSignKey: key}, nil)
+	}, &fakeUsers{}, Modules{Fluo: FluoDependencies{Store: &fluoStoreStub{}, MediaSignKey: key}}, nil)
 	path := "/v1/internal/media/01999111-2222-7333-8444-555555555551/referenced"
 	for _, candidate := range []struct {
 		token  string

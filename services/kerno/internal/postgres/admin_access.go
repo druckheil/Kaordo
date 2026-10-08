@@ -6,49 +6,40 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 )
 
-type AdminAccessCase struct {
-	ID             string    `json:"id"`
-	TargetUserID   string    `json:"targetUserId"`
-	TargetUsername string    `json:"targetUsername"`
-	Reason         string    `json:"reason"`
-	CreatedAt      time.Time `json:"createdAt"`
-	ExpiresAt      time.Time `json:"expiresAt"`
-}
-
-func (store *Admin) CreateAccessCase(ctx context.Context, actorID, targetID, reason string) (AdminAccessCase, error) {
+func (store *Admin) CreateAccessCase(ctx context.Context, actorID, targetID, reason string) (admin.AccessCase, error) {
 	if actorID == targetID {
-		return AdminAccessCase{}, ErrAdminTarget
+		return admin.AccessCase{}, admin.ErrTarget
 	}
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
-		return AdminAccessCase{}, err
+		return admin.AccessCase{}, err
 	}
 	defer tx.Rollback(ctx)
 
 	actorName, err := lockAccessCaseActor(ctx, tx, actorID)
 	if err != nil {
-		return AdminAccessCase{}, err
+		return admin.AccessCase{}, err
 	}
 	if err := enforceAccessCaseLimit(ctx, tx, actorID); err != nil {
-		return AdminAccessCase{}, err
+		return admin.AccessCase{}, err
 	}
 	targetUserID, targetUsername, err := lockAccessCaseTarget(ctx, tx, targetID)
 	if err != nil {
-		return AdminAccessCase{}, err
+		return admin.AccessCase{}, err
 	}
 	item, err := insertAccessCase(ctx, tx, actorID, targetUserID, targetUsername, reason)
 	if err != nil {
-		return AdminAccessCase{}, err
+		return admin.AccessCase{}, err
 	}
 	if err := notifyAccessCase(ctx, tx, actorID, targetID, actorName, reason, item.ID); err != nil {
-		return AdminAccessCase{}, err
+		return admin.AccessCase{}, err
 	}
 	return item, tx.Commit(ctx)
 }
@@ -58,6 +49,9 @@ func lockAccessCaseActor(ctx context.Context, tx pgx.Tx, actorID string) (string
 	var username string
 	err := jetQueryRow(ctx, tx, users.SELECT(users.Username).
 		WHERE(users.ID.EQ(jetUUID(actorID))).FOR(jetpg.UPDATE())).Scan(&username)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", admin.ErrNotFound
+	}
 	return username, err
 }
 
@@ -71,7 +65,7 @@ func enforceAccessCaseLimit(ctx context.Context, tx pgx.Tx, actorID string) erro
 		return err
 	}
 	if recent >= 3 {
-		return ErrAccessLimit
+		return admin.ErrAccessLimit
 	}
 	return nil
 }
@@ -82,18 +76,21 @@ func lockAccessCaseTarget(ctx context.Context, tx pgx.Tx, targetID string) (stri
 	err := jetQueryRow(ctx, tx, users.SELECT(jetpg.CAST(users.ID).AS_TEXT(), users.Username).
 		WHERE(users.ID.EQ(jetUUID(targetID))).FOR(jetpg.SHARE())).Scan(&userID, &username)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", ErrAdminTarget
+		return "", "", admin.ErrTarget
 	}
 	return userID, username, err
 }
 
-func insertAccessCase(ctx context.Context, tx pgx.Tx, actorID, targetID, targetUsername, reason string) (AdminAccessCase, error) {
-	item := AdminAccessCase{TargetUserID: targetID, TargetUsername: targetUsername, Reason: reason}
+func insertAccessCase(ctx context.Context, tx pgx.Tx, actorID, targetID, targetUsername, reason string) (admin.AccessCase, error) {
+	item := admin.AccessCase{TargetUserID: targetID, TargetUsername: targetUsername, Reason: reason}
 	cases := table.AdminAccessCases
 	err := jetQueryRow(ctx, tx, cases.INSERT(cases.ActorID, cases.TargetUserID, cases.Reason).
 		VALUES(jetUUID(actorID), jetUUID(targetID), jetpg.String(reason)).
 		RETURNING(jetpg.CAST(cases.ID).AS_TEXT(), cases.CreatedAt, cases.ExpiresAt)).
 		Scan(&item.ID, &item.CreatedAt, &item.ExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return item, admin.ErrNotFound
+	}
 	return item, err
 }
 
@@ -154,8 +151,8 @@ func recordAccessCaseOpened(ctx context.Context, tx pgx.Tx, actorID, targetID, r
 	return err
 }
 
-func (store *Admin) AccessCase(ctx context.Context, actorID, caseID string) (AdminAccessCase, error) {
-	var item AdminAccessCase
+func (store *Admin) AccessCase(ctx context.Context, actorID, caseID string) (admin.AccessCase, error) {
+	var item admin.AccessCase
 	cases := table.AdminAccessCases.AS("c")
 	users := table.Users.AS("u")
 	err := jetQueryRow(ctx, store.pool, jetpg.SELECT(jetpg.CAST(cases.ID).AS_TEXT(), jetpg.CAST(cases.TargetUserID).AS_TEXT(),
@@ -165,6 +162,9 @@ func (store *Admin) AccessCase(ctx context.Context, actorID, caseID string) (Adm
 		cases.ExpiresAt.GT(jetpg.RawTimestampz("clock_timestamp()")),
 	))).Scan(&item.ID, &item.TargetUserID, &item.TargetUsername,
 		&item.Reason, &item.CreatedAt, &item.ExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return item, admin.ErrNotFound
+	}
 	return item, err
 }
 
@@ -197,6 +197,9 @@ func lockAccessCase(ctx context.Context, tx pgx.Tx, actorID, caseID string) (str
 	err := jetQueryRow(ctx, tx, cases.SELECT(jetpg.CAST(cases.TargetUserID).AS_TEXT(), cases.Reason).
 		WHERE(jetpg.AND(cases.ID.EQ(jetUUID(caseID)), cases.ActorID.EQ(jetUUID(actorID)))).
 		FOR(jetpg.UPDATE())).Scan(&targetID, &reason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", admin.ErrNotFound
+	}
 	return targetID, reason, err
 }
 

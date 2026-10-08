@@ -7,7 +7,7 @@
   import MessageBubble from './MessageBubble.svelte';
   import PendingMessageBubble from './PendingMessageBubble.svelte';
   import { startsSenderRun } from './message-grouping';
-  import type { PendingMessage } from './types';
+  import type { PendingMessage } from '@kaordo/chat-client';
 
   type ScrollSize = { viewport: number; content: number };
 

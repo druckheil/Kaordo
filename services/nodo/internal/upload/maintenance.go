@@ -244,7 +244,7 @@ func (server *Server) removeIfUnreferenced(ctx context.Context, id string) (bool
 	if err != nil || !eligible {
 		return false, err
 	}
-	if err := server.removeFiles(id); err != nil {
+	if err := server.quota.removeFiles(id); err != nil {
 		return false, err
 	}
 	return true, nil

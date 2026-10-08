@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/druckheil/Kaordo/services/kerno/internal/regado"
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 )
 
 type adminLayoutSystem interface {
-	StorageLayout(context.Context, regado.LayoutRequest, bool) (json.RawMessage, error)
+	StorageLayout(context.Context, admin.LayoutRequest, bool) (json.RawMessage, error)
 }
 
 func (h adminHandler) storageLayout(w http.ResponseWriter, r *http.Request, apply bool) {
@@ -23,7 +23,7 @@ func (h adminHandler) storageLayout(w http.ResponseWriter, r *http.Request, appl
 		return
 	}
 	var body struct {
-		regado.LayoutRequest
+		admin.LayoutRequest
 		Reason string `json:"reason"`
 	}
 	if !decodeAdminBody(w, r, &body) {

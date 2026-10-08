@@ -4,22 +4,13 @@ package postgres
 import (
 	"context"
 	"errors"
-	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	"github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-type User struct {
-	ID          string     `json:"id"`
-	Username    string     `json:"username"`
-	DisplayName string     `json:"displayName"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	IsAdmin     bool       `json:"isAdmin"`
-	DisabledAt  *time.Time `json:"-"`
-}
 
 type Users struct {
 	pool *pgxpool.Pool
@@ -29,8 +20,8 @@ func NewUsers(pool *pgxpool.Pool) *Users {
 	return &Users{pool: pool}
 }
 
-func scanUser(row pgx.Row) (User, error) {
-	var user User
+func scanUser(row pgx.Row) (account.User, error) {
+	var user account.User
 	err := row.Scan(
 		&user.ID,
 		&user.Username,
@@ -39,10 +30,13 @@ func scanUser(row pgx.Row) (User, error) {
 		&user.IsAdmin,
 		&user.DisabledAt,
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return user, account.ErrNotFound
+	}
 	return user, err
 }
 
-func (store *Users) Upsert(ctx context.Context, subject, username, displayName string) (User, error) {
+func (store *Users) Upsert(ctx context.Context, subject, username, displayName string) (account.User, error) {
 	query := table.Users.INSERT(table.Users.KeycloakSub, table.Users.Username, table.Users.DisplayName).
 		VALUES(postgres.String(subject), postgres.String(username), postgres.String(displayName)).
 		ON_CONFLICT(table.Users.KeycloakSub).
@@ -62,7 +56,7 @@ func (store *Users) Upsert(ctx context.Context, subject, username, displayName s
 	return scanUser(jetQueryRow(ctx, store.pool, query))
 }
 
-func (store *Users) BySubject(ctx context.Context, subject string) (User, error) {
+func (store *Users) BySubject(ctx context.Context, subject string) (account.User, error) {
 	users := table.Users.AS("u")
 	query := postgres.SELECT(
 		postgres.RawString("u.id::text"),
@@ -74,5 +68,3 @@ func (store *Users) BySubject(ctx context.Context, subject string) (User, error)
 	).FROM(users).WHERE(users.KeycloakSub.EQ(postgres.String(subject)))
 	return scanUser(jetQueryRow(ctx, store.pool, query))
 }
-
-func IsNotFound(err error) bool { return errors.Is(err, pgx.ErrNoRows) }

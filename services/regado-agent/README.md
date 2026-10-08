@@ -3,6 +3,11 @@
 Independent Linux system monitor and restricted maintenance service. Build with
 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./cmd/regado-agent`.
 
+`cmd/regado-agent` owns socket configuration, process signals and HTTP draining.
+`internal/agent` owns fixed routes/commands, storage planning, journals and worker
+lifecycle. Device discovery and host telemetry are separate from snapshot
+assembly. `agent.Handler.Close` joins its background jobs after HTTP drains.
+
 The agent runs as root and accepts local HTTP over the group-protected Unix
 socket `/run/regado-agent/agent.sock`. Kerno checks the current database admin
 role and writes an audit record before requesting privileged actions. The
@@ -61,7 +66,7 @@ are timestamped in memory, and privileged jobs are serialized with onboarding.
 Request cancellation does not cancel an accepted job; shutdown stops workers
 after HTTP requests drain. The sandbox permits `/var/lib/btrfs` for scrub state.
 
-2## Services and journal retention
+## Services and journal retention
 
 Service snapshots include process type, outcome, exit code and completion time.
 DNS updates also expose the native systemd timer schedule. The ddclient service
@@ -102,7 +107,7 @@ From the repository root run `go test -race ./services/regado-agent/...` and `go
 ## Native-tool verification
 
 `deploy/storage/test-layout-tools.sh` runs on NixOS as root with the agent's
-`cmd/regado-agent/testdata/storage-layout-bios.nix` fixture. It only creates a
+`internal/agent/testdata/storage-layout-bios.nix` fixture. It only creates a
 temporary loop image. It tests Disko compilation/formatting, host-systemd
 mounting, and systemd-repart growth under the agent sandbox while preserving
 System data, UUIDs and partition starts. It does not use a physical disk.

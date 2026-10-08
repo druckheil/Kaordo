@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
-	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
 )
 
 type ligoStoreStub struct {
@@ -31,7 +31,7 @@ func (store *ligoStoreStub) CreateConversation(_ context.Context, actor string, 
 
 func TestLigoSelfConversationValidation(t *testing.T) {
 	store := &ligoStoreStub{}
-	users := &fakeUsers{user: postgres.User{ID: "01999111-2222-7333-8444-555555555554"}}
+	users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555554"}}
 	verify := func(_ context.Context, _ string) (identity.Claims, error) {
 		return identity.Claims{Subject: "alice"}, nil
 	}
@@ -39,7 +39,7 @@ func TestLigoSelfConversationValidation(t *testing.T) {
 		request := httptest.NewRequest(http.MethodPost, "/v1/ligo/conversations", strings.NewReader(body))
 		request.Header.Set("Authorization", "Bearer valid")
 		response := httptest.NewRecorder()
-		NewRouterWithModules(verify, users, FluoDependencies{}, LigoDependencies{Store: store}, nil).ServeHTTP(response, request)
+		NewRouter(verify, users, Modules{Fluo: FluoDependencies{}, Ligo: LigoDependencies{Store: store}}, nil).ServeHTTP(response, request)
 		return response
 	}
 	if response := call(`{"kind":"self","participantIds":[]}`); response.Code != http.StatusCreated || len(store.created) != 1 {
@@ -73,7 +73,7 @@ func (stub ligoMediaStub) ValidateLigo(_ context.Context, _, id string) (ligo.Me
 
 func TestLigoSendValidatesAccountAndAttachmentOwnership(t *testing.T) {
 	store := &ligoStoreStub{}
-	users := &fakeUsers{user: postgres.User{
+	users := &fakeUsers{user: account.User{
 		ID: "01999111-2222-7333-8444-555555555554", Username: "alice", DisplayName: "Alice",
 	}}
 	verify := func(_ context.Context, token string) (identity.Claims, error) {
@@ -92,10 +92,10 @@ func TestLigoSendValidatesAccountAndAttachmentOwnership(t *testing.T) {
 			request.Header.Set("Authorization", "Bearer "+token)
 		}
 		response := httptest.NewRecorder()
-		NewRouterWithModules(verify, users, FluoDependencies{}, LigoDependencies{
+		NewRouter(verify, users, Modules{Fluo: FluoDependencies{}, Ligo: LigoDependencies{
 			Store: store, Media: ligoMediaStub{valid: validMedia},
 			MediaBaseURL: "http://localhost:8082", MediaSignKey: []byte(strings.Repeat("k", 32)),
-		}, nil).ServeHTTP(response, request)
+		}}, nil).ServeHTTP(response, request)
 		return response
 	}
 	if response := call("", true); response.Code != http.StatusUnauthorized || store.sends != 0 {
@@ -116,7 +116,7 @@ func TestLigoSendValidatesAccountAndAttachmentOwnership(t *testing.T) {
 
 func TestLigoSendAcceptsEightAttachmentsAndRejectsNine(t *testing.T) {
 	store := &ligoStoreStub{}
-	users := &fakeUsers{user: postgres.User{ID: "01999111-2222-7333-8444-555555555554"}}
+	users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555554"}}
 	verify := func(_ context.Context, _ string) (identity.Claims, error) {
 		return identity.Claims{Subject: "alice"}, nil
 	}
@@ -136,10 +136,10 @@ func TestLigoSendAcceptsEightAttachmentsAndRejectsNine(t *testing.T) {
 			"/v1/ligo/conversations/01999111-2222-7333-8444-555555555555/messages", strings.NewReader(string(body)))
 		request.Header.Set("Authorization", "Bearer valid")
 		response := httptest.NewRecorder()
-		NewRouterWithModules(verify, users, FluoDependencies{}, LigoDependencies{
+		NewRouter(verify, users, Modules{Fluo: FluoDependencies{}, Ligo: LigoDependencies{
 			Store: store, Media: ligoMediaStub{valid: true},
 			MediaBaseURL: "http://localhost:8082", MediaSignKey: []byte(strings.Repeat("k", 32)),
-		}, nil).ServeHTTP(response, request)
+		}}, nil).ServeHTTP(response, request)
 		return response
 	}
 	if response := call(ids); response.Code != http.StatusBadRequest || store.sends != 0 {
@@ -162,7 +162,7 @@ func (stub *eventStub) Subscribe(userID string) (<-chan string, func()) {
 
 func TestLigoEventStreamIsAuthenticatedAndUserScoped(t *testing.T) {
 	id := "01999111-2222-7333-8444-555555555554"
-	users := &fakeUsers{user: postgres.User{ID: id, Username: "alice", DisplayName: "Alice"}}
+	users := &fakeUsers{user: account.User{ID: id, Username: "alice", DisplayName: "Alice"}}
 	verify := func(_ context.Context, token string) (identity.Claims, error) {
 		if token != "valid" {
 			return identity.Claims{}, errors.New("invalid")
@@ -170,8 +170,7 @@ func TestLigoEventStreamIsAuthenticatedAndUserScoped(t *testing.T) {
 		return identity.Claims{Subject: "alice-subject", Username: "alice"}, nil
 	}
 	events := &eventStub{ch: make(chan string, 1)}
-	server := httptest.NewServer(NewRouterWithModules(verify, users, FluoDependencies{},
-		LigoDependencies{Store: &ligoStoreStub{}, Events: events}, nil))
+	server := httptest.NewServer(NewRouter(verify, users, Modules{Fluo: FluoDependencies{}, Ligo: LigoDependencies{Store: &ligoStoreStub{}, Events: events}}, nil))
 	defer server.Close()
 	anonymous, err := http.Get(server.URL + "/v1/ligo/events")
 	if err != nil {

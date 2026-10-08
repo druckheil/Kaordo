@@ -1,6 +1,34 @@
 # Refactor review — 3 October 2026
 
-Latest assessment: [7 October 2026 ISO/IEC 25010 quality audit](audits/iso-iec-25010-2023-2026-10-07.md). The dated sections below preserve their original verification boundaries.
+Latest structural assessment: [8 October 2026 architectural refactor](audits/architecture-2026-10-08.md). The [7 October ISO/IEC 25010 audit](audits/iso-iec-25010-2023-2026-10-07.md) and dated sections below retain their original verification boundaries.
+
+## Architectural refactor — 8 October 2026
+
+Account/admin models and store contracts now belong to Kerno's domain packages;
+HTTP no longer imports PostgreSQL models or driver errors. Nodo metadata/storage
+requests are an outbound adapter. One router constructor accepts all modules;
+feature handler files separate reads, writes, media and activity without moving
+transaction or authorization boundaries. Entry points own configuration/wiring
+and process lifecycle. Regado Agent's implementation and existing fixtures live
+under `internal/agent`; Nodo's quota state and filesystem removal share one owner
+and the original mutex boundaries.
+
+`chat-client` owns the shared Ligo/Rondo query, SSE, outbox and mutation workflows;
+`chat-ui` owns rendering and composing. Rondo's community and voice state are
+separate from navigation/layout. Lingvo review/undo/retry state and Regado command
+state are separate from their presentation. Fluo publishing consumes document
+and file values. Controllers depend on narrow operations and cancel requests on
+disposal. The Dialog implementation imports its overlay directly, eliminating
+its self-barrel cycle.
+
+Compilation/static evidence: six app builds; Svelte/TypeScript with zero errors
+and warnings; Go build/vet across all four modules; 19 workspace packages and
+370 source files scanned with no dependency ownership violations or module
+cycles, including type imports. Source comparison preserved nine relocated
+projection shapes/JSON tags and every existing PostgreSQL query expression.
+Functional suites were not executed for this architectural request. See the
+linked review for scope, measurements and the reasoning behind retained
+boundaries. The remaining sections are historical evidence.
 
 ## Scope and outcome
 

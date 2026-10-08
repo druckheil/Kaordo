@@ -3,7 +3,7 @@
 
   import { onMount } from 'svelte';
   import type { Editor } from '@tiptap/core';
-  import type { FluoPost } from '@kaordo/contracts';
+  import type { FluoDocument, FluoPost } from '@kaordo/contracts';
   import type { FluoApi } from '@kaordo/api-client';
   import { Button, EllipsisIcon, ImagePlusIcon, IsUsingKeyboard } from '@kaordo/ui';
   import ComposerAttachmentList from './ComposerAttachmentList.svelte';
@@ -122,7 +122,8 @@
     try {
       await publishComposerPost({
         api,
-        editor,
+        content: editor.getJSON() as FluoDocument,
+        nodoBaseUrl: import.meta.env.VITE_KAORDO_NODO_URL,
         replyTo,
         quoteTo,
         visibility,

@@ -19,6 +19,10 @@
     "./devices": {
       "types": "./src/devices.ts",
       "default": "./src/devices.ts"
+    },
+    "./model": {
+      "types": "./src/model.ts",
+      "default": "./src/model.ts"
     }
   },
   "dependencies": {

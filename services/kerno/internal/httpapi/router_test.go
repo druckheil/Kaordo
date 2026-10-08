@@ -10,29 +10,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
-	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
-	"github.com/jackc/pgx/v5"
 )
 
 type fakeUsers struct {
-	user    postgres.User
+	user    account.User
 	upserts int
 	lookups int
 	lastSub string
 }
 
-func (store *fakeUsers) Upsert(_ context.Context, subject, _, _ string) (postgres.User, error) {
+func (store *fakeUsers) Upsert(_ context.Context, subject, _, _ string) (account.User, error) {
 	store.upserts++
 	store.lastSub = subject
 	return store.user, nil
 }
 
-func (store *fakeUsers) BySubject(_ context.Context, subject string) (postgres.User, error) {
+func (store *fakeUsers) BySubject(_ context.Context, subject string) (account.User, error) {
 	store.lookups++
 	store.lastSub = subject
 	if store.user.ID == "" {
-		return postgres.User{}, pgx.ErrNoRows
+		return account.User{}, account.ErrNotFound
 	}
 	return store.user, nil
 }
@@ -45,7 +44,7 @@ func TestSessionRequiresVerifiedBearerToken(t *testing.T) {
 		}
 		return identity.Claims{Subject: "subject-1", Username: "alice", Name: "Alice"}, nil
 	}
-	handler := NewRouter(verify, store, []string{"http://localhost:5173"})
+	handler := NewRouter(verify, store, Modules{}, []string{"http://localhost:5173"})
 	for _, test := range []struct{ header, code string }{
 		{"", "missing_token"},
 		{"Basic valid", "missing_token"},
@@ -79,7 +78,7 @@ func TestSessionReportsSafeVerificationReason(t *testing.T) {
 	store := &fakeUsers{}
 	handler := NewRouter(func(context.Context, string) (identity.Claims, error) {
 		return identity.Claims{}, errors.New(`oidc: expected audience "kerno-api" got ["private-audience"]`)
-	}, store, nil)
+	}, store, Modules{}, nil)
 	request := httptest.NewRequest(http.MethodPost, "/v1/session", nil)
 	request.Header.Set("Authorization", "Bearer private-token")
 	response := httptest.NewRecorder()
@@ -93,7 +92,7 @@ func TestSessionReportsSafeVerificationReason(t *testing.T) {
 }
 
 func TestSessionCreatesIdentityAndMeReadsIt(t *testing.T) {
-	store := &fakeUsers{user: postgres.User{
+	store := &fakeUsers{user: account.User{
 		ID: "01999abc-1234-7000-8000-000000000001", Username: "alice", DisplayName: "Alice", CreatedAt: time.Now().UTC(),
 	}}
 	verify := func(_ context.Context, raw string) (identity.Claims, error) {
@@ -102,7 +101,7 @@ func TestSessionCreatesIdentityAndMeReadsIt(t *testing.T) {
 		}
 		return identity.Claims{Subject: "subject-1", Username: "alice", Name: "Alice"}, nil
 	}
-	handler := NewRouter(verify, store, []string{"http://localhost:5173"})
+	handler := NewRouter(verify, store, Modules{}, []string{"http://localhost:5173"})
 	for _, tc := range []struct{ method, path string }{{http.MethodPost, "/v1/session"}, {http.MethodGet, "/v1/me"}} {
 		request := httptest.NewRequest(tc.method, tc.path, nil)
 		request.Header.Set("Authorization", "Bearer valid")
@@ -114,7 +113,7 @@ func TestSessionCreatesIdentityAndMeReadsIt(t *testing.T) {
 		if response.Header().Get("Cache-Control") != "no-store" {
 			t.Fatal("private response may be cached")
 		}
-		var user postgres.User
+		var user account.User
 		if err := json.Unmarshal(response.Body.Bytes(), &user); err != nil {
 			t.Fatal(err)
 		}
@@ -132,7 +131,7 @@ func TestCorsRejectsUnknownOrigin(t *testing.T) {
 	handler := NewRouter(func(context.Context, string) (identity.Claims, error) {
 		t.Fatal("verifier should not be called")
 		return identity.Claims{}, nil
-	}, store, []string{"http://localhost:5173"})
+	}, store, Modules{}, []string{"http://localhost:5173"})
 	request := httptest.NewRequest(http.MethodPost, "/v1/session", nil)
 	request.Header.Set("Origin", "https://attacker.example")
 	response := httptest.NewRecorder()
@@ -148,7 +147,7 @@ func TestCorsRejectsUnknownOrigin(t *testing.T) {
 func TestMeRequiresExistingProjection(t *testing.T) {
 	handler := NewRouter(func(context.Context, string) (identity.Claims, error) {
 		return identity.Claims{Subject: "new", Username: "new", Name: "New"}, nil
-	}, &fakeUsers{}, nil)
+	}, &fakeUsers{}, Modules{}, nil)
 	request := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
 	request.Header.Set("Authorization", "Bearer valid")
 	response := httptest.NewRecorder()

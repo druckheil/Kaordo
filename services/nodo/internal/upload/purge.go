@@ -70,7 +70,7 @@ func (server *Server) purge(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
-	if err := server.removeFiles(id); err != nil {
+	if err := server.quota.removeFiles(id); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}

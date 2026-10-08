@@ -4,15 +4,12 @@ package postgres
 import (
 	"context"
 	"encoding/json"
-	"errors"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-var ErrAdminTarget = errors.New("admin target is unavailable")
-var ErrAccessLimit = errors.New("too many recent access cases")
 
 type Admin struct {
 	pool *pgxpool.Pool
@@ -22,25 +19,8 @@ func NewAdmin(pool *pgxpool.Pool) *Admin {
 	return &Admin{pool: pool}
 }
 
-type AdminSummary struct {
-	Users         int64             `json:"users"`
-	Posts         int64             `json:"posts"`
-	Messages      int64             `json:"messages"`
-	Uploads       int64             `json:"uploads"`
-	MediaBytes    int64             `json:"mediaBytes"`
-	DatabaseBytes int64             `json:"databaseBytes"`
-	OpenCases     int64             `json:"openCases"`
-	MediaByKind   []AdminMediaUsage `json:"mediaByKind"`
-}
-
-type AdminMediaUsage struct {
-	Kind    string `json:"kind"`
-	Objects int64  `json:"objects"`
-	Bytes   int64  `json:"bytes"`
-}
-
-func (store *Admin) Summary(ctx context.Context) (AdminSummary, error) {
-	var summary AdminSummary
+func (store *Admin) Summary(ctx context.Context) (admin.Summary, error) {
+	var summary admin.Summary
 	var breakdown []byte
 	users := table.Users
 	posts := table.FluoPosts

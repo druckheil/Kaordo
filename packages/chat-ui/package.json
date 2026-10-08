@@ -30,11 +30,14 @@
     }
   },
   "dependencies": {
+    "@kaordo/chat-client": "workspace:*",
     "@kaordo/contracts": "workspace:*",
     "@kaordo/links": "workspace:*",
     "@kaordo/media-client": "workspace:*",
     "@kaordo/media-ui": "workspace:*",
     "@kaordo/ui": "workspace:*"
   },
-  "peerDependencies": { "svelte": "^5.0.0" }
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  }
 }

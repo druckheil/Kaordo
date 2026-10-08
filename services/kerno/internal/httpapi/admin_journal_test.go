@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
-	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
 )
 
 type journalAdminFixture struct {
@@ -49,11 +49,11 @@ func TestAdminJournalRetentionAuthorizationAndAudit(t *testing.T) {
 				store.recordError = errors.New("audit unavailable")
 			}
 			fixture := &journalAdminFixture{storageAdminFixture: &storageAdminFixture{store: store}, fail: check.agentFailure}
-			users := &fakeUsers{user: postgres.User{ID: "01999111-2222-7333-8444-555555555551", IsAdmin: check.admin}}
+			users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555551", IsAdmin: check.admin}}
 			verify := func(context.Context, string) (identity.Claims, error) {
 				return identity.Claims{Subject: "operator"}, nil
 			}
-			handler := NewRouterWithAdmin(verify, users, FluoDependencies{}, LigoDependencies{}, RondoDependencies{}, AdminDependencies{Store: store, System: fixture}, nil)
+			handler := NewRouter(verify, users, Modules{Fluo: FluoDependencies{}, Ligo: LigoDependencies{}, Rondo: RondoDependencies{}, Admin: AdminDependencies{Store: store, System: fixture}}, nil)
 			request := httptest.NewRequest("PATCH", "/v1/admin/logs/retention", strings.NewReader(check.body))
 			request.Header.Set("Authorization", "Bearer valid")
 			response := httptest.NewRecorder()

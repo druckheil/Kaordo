@@ -39,7 +39,7 @@ func (server *Server) upload(w http.ResponseWriter, r *http.Request) {
 
 	entry := &reservation{owner: ownerID}
 	if r.Method == http.MethodPost {
-		defer server.release(entry)
+		defer server.quota.release(entry)
 	}
 	request := requestWithUploadContext(r, ownerID, entry)
 	http.StripPrefix("/v1/uploads/", server.tus).ServeHTTP(w, request)
@@ -105,7 +105,7 @@ func (server *Server) beforeCreate(event tusd.HookEvent) (tusd.HTTPResponse, tus
 	if !ok || entry.owner != ownerID {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, errors.New("upload reservation is missing")
 	}
-	if err := server.reserve(entry, info.Size); err != nil {
+	if err := server.quota.reserve(entry, info.Size); err != nil {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_STORAGE_QUOTA", "Storage quota reached.", http.StatusInsufficientStorage)
 	}
 	entry.id = id.String()
