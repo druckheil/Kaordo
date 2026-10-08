@@ -53,7 +53,7 @@
   <div class="px-5 pb-5 sm:px-6 sm:pb-6">
     <div class="relative -mt-10 mb-5 flex flex-wrap items-end gap-3">
       <div class="relative rounded-3xl border-4 border-card bg-card">
-        <UserAvatar user={avatarPreview} image={avatarPreview.avatar} class="size-24 rounded-[1.25rem] [&_[data-slot=avatar-fallback]]:text-3xl" />
+        <UserAvatar user={avatarPreview} image={avatarPreview.avatar} showPresence={false} class="size-24 rounded-[1.25rem] [&_[data-slot=avatar-fallback]]:text-3xl" />
         <Button type="button" variant="secondary" size="icon-sm" class="absolute -bottom-2 -right-2 rounded-full border border-border shadow-sm" aria-label={state.images.avatar.url ? 'Change avatar' : 'Add avatar'} disabled={busy} onclick={() => avatarInput.click()}><CameraIcon class="size-4" /></Button>
       </div>
       <div class="flex min-h-10 items-center gap-2 pb-1">

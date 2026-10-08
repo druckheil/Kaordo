@@ -15,7 +15,7 @@ Local Compose runs separate PostgreSQL 18.6 instances for Kaordo application dat
 
 The official PostgreSQL 18 image stores its data under `/var/lib/postgresql/18/docker`; the Compose volumes mount `/var/lib/postgresql` to retain it. The initialization SQL is not automatically reapplied to a nonempty volume.
 
-The local launcher applies the numbered product migrations on each start. Migration 005 retires shared Nodo media claims after their final Fluo or Ligo reference is removed, preventing a concurrent post or message from linking a file that Nodo is about to purge. A retired upload ID cannot be reused; upload the file again after deleting its last reference.
+The local launcher applies the numbered product migrations on each start. Migration 005 introduces claim retirement and backfills historical orphans only when adding its column; subsequent starts skip that backfill. At runtime, Kerno retires shared Nodo media claims after their final post, message or profile reference is removed, preventing a concurrent write from linking a file that Nodo is about to purge. A retired upload ID cannot be reused; upload the file again after deleting its last reference.
 
 Migration 006 installs PostgreSQL's `pg_trgm` extension and indexes case-insensitive substring search over post text, usernames and display names. This is an existing PostgreSQL extension; Kerno does not implement its own search index.
 
@@ -48,3 +48,9 @@ friends are mutual follows and Invisible overrides the policy. Nobody also
 suppresses the owner's raw status. Batched snapshots accept at most 128 accounts
 and coalesce heartbeat writes within one second. Follow-page
 indexes support bounded cursor queries in either direction.
+
+Migration 019 repairs profile image claims incorrectly retired by the earlier
+migration replay. It clears retirement only for images still linked to a profile
+whose account owns the claim; it does not reactivate unreferenced uploads or
+change ownership. Retained profile images reuse stored metadata when editing
+personal details, while new images still require Nodo's upload validation.

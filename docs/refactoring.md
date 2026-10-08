@@ -80,6 +80,22 @@ these are function-level measurements, not a project quality score.
 The existing Rondo bundle-size advisory remains. Functional/browser suites and
 hosted CI were not run for this refactor.
 
+The profile-save follow-up reuses the owned profile's persisted image metadata
+when its avatar/banner IDs are retained. Nodo's 23-hour acceptance window remains
+applicable to newly selected uploads; existing images no longer block edits to
+personal details after that window. Transactional claim ownership, retirement
+and image validation remain enforced. The editor suppresses its avatar presence
+dot through an explicit shared component option. Fluo type checks report zero
+errors/warnings, and Kerno build/vet pass; functional suites were not run.
+
+The remaining save failure was traced to migration 005 replay: both images in
+the affected local profile had matching owners and existing files, but their
+claims were retired together on a later startup. Its historical orphan backfill
+now runs only when introducing the retirement column. Migration 019 restores
+retired claims only for still-referenced, owner-matched profile images and is
+registered with the existing migration workflow. The local database repair
+restored both claims; no image files or profile fields were changed.
+
 ## Design-pattern follow-up — 8 October 2026
 
 Ligo's conversation dialog and Rondo's device settings now have cohesive state

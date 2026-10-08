@@ -18,4 +18,7 @@ data preserves loaded images when registrations change. Signed media URLs use
 the server's existing minute buckets, so presence polling does not change image
 URLs on every request. Disposal aborts requests and clears the scoped cache.
 
+`UserAvatar` accepts `showPresence={false}` for image-editing previews without
+changing availability indicators elsewhere.
+
 `pnpm test:account-preview` checks storage corruption, expiry, sign-out and snapshot races; the live journey checks transitions across independent apps. See [the refactor review](../../docs/refactoring.md).

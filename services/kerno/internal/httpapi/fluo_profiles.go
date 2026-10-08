@@ -64,7 +64,16 @@ func (h fluoHandler) updateProfile(w http.ResponseWriter, r *http.Request) {
 		fluoError(w, err)
 		return
 	}
-	images, ok := h.validateProfileImages(w, r, input)
+	current, err := h.deps.Profiles.Profile(r.Context(), actor.ID, actor.Username)
+	if err != nil {
+		fluoError(w, err)
+		return
+	}
+	if current.ID != actor.ID {
+		fluoError(w, fluo.ErrMediaOwner)
+		return
+	}
+	images, ok := h.validateProfileImages(w, r, input, current)
 	if !ok {
 		return
 	}
@@ -77,13 +86,19 @@ func (h fluoHandler) updateProfile(w http.ResponseWriter, r *http.Request) {
 	h.writeProfile(w, profile)
 }
 
-func (h fluoHandler) validateProfileImages(w http.ResponseWriter, r *http.Request, input fluo.ProfileUpdate) ([]fluo.ProfileImage, bool) {
+func (h fluoHandler) validateProfileImages(w http.ResponseWriter, r *http.Request, input fluo.ProfileUpdate, current fluo.Profile) ([]fluo.ProfileImage, bool) {
 	images := make([]fluo.ProfileImage, 0, 2)
 	for _, field := range []struct {
-		slot string
-		id   *string
-	}{{"avatar", input.AvatarID}, {"banner", input.BannerID}} {
+		slot    string
+		id      *string
+		current *fluo.Media
+	}{{"avatar", input.AvatarID, current.Avatar}, {"banner", input.BannerID, current.Banner}} {
 		if field.id == nil {
+			continue
+		}
+		// Stored image metadata remains authoritative after the upload acceptance window expires.
+		if field.current != nil && strings.EqualFold(*field.id, field.current.ID) {
+			images = append(images, fluo.ProfileImage{Slot: field.slot, Media: *field.current})
 			continue
 		}
 		if h.deps.Media == nil {

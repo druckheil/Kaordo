@@ -25,6 +25,10 @@ and transactional media claims. Replacing or removing images retires files only
 after their last post, message or profile reference disappears. Cancelling or
 leaving editing aborts requests and releases local object URLs.
 
+The editor's avatar preview hides presence so the image controls remain clear.
+Keeping an existing avatar/banner reuses its owned, persisted metadata; changing
+text or personal details does not revalidate it as a new, expiring upload.
+
 Owners choose Online, Busy or Invisible from the status menu. Shared account
 avatars show availability at their corner across Fluo, Ligo and Rondo. Active
 apps refresh a compact snapshot every two seconds; presence expires after
