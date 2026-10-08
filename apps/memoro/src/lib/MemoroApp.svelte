@@ -31,33 +31,31 @@
   let taskDiscardOpen = $state(false);
   let taskSnapshot = '';
   const taskDirty = $derived(taskOpen && (!!taskFiles.length || JSON.stringify(editor) !== taskSnapshot));
-  let discardOpen = $state(false);
   let reloadOpen = $state(false);
   let mounted = $state(false);
   $effect(() => { const selectedDate = date; if (mounted) untrack(() => void diary.loadDate(selectedDate)); });
   onMount(() => {
     mounted = true; void diary.loadMonth(date.slice(0, 7));
-    const preventLoss = (event: BeforeUnloadEvent) => { if (!confirmedNavigation && (diary.dirty || taskDirty)) event.preventDefault(); };
+    const preventLoss = (event: BeforeUnloadEvent) => { if (!confirmedNavigation && (diary.dirty || diary.saving || taskDirty)) event.preventDefault(); };
     window.addEventListener('beforeunload', preventLoss);
     return () => window.removeEventListener('beforeunload', preventLoss);
   });
   onDestroy(() => clearDrafts(taskFiles));
+  // The journal is saved before leaving a day; only an unsaved task draft asks for confirmation.
   beforeNavigate(({ cancel, to }) => {
-    if (confirmedNavigation || !to || !diary.dirty && !taskDirty) return;
-    if (to.url.href === page.url.href) return;
+    if (confirmedNavigation || !to || to.url.href === page.url.href || !diary.dirty && !diary.saving && !taskDirty) return;
     cancel(); pendingNavigation = { url: to.url.href, external: to.route.id === null };
-    if (taskDirty) taskDiscardOpen = true; else discardOpen = true;
+    if (taskDirty) taskDiscardOpen = true; else void continueNavigation();
   });
 
   async function navigate(next: string) {
-    if (diary.saving || next === date) return;
-    if (diary.dirty) { pendingNavigation = { url: `${appPaths.memoro}?date=${next}`, external: false }; discardOpen = true; return; }
-    await openDate(next);
+    if (next === date || !await diary.flush()) return;
+    await goto(`${appPaths.memoro}?date=${next}`, { noScroll: true, keepFocus: true });
   }
-  async function openDate(next: string) { await goto(`${appPaths.memoro}?date=${next}`, { noScroll: true, keepFocus: true }); }
   async function continueNavigation() {
     if (!pendingNavigation) return;
-    const target = pendingNavigation; pendingNavigation = null; discardOpen = false;
+    const target = pendingNavigation; pendingNavigation = null;
+    if (!await diary.flush()) return;
     confirmedNavigation = true;
     try { if (target.external) window.location.assign(target.url); else await goto(target.url, { noScroll: true }); }
     finally { if (!target.external) confirmedNavigation = false; }
@@ -95,14 +93,13 @@
     </section>
   </div>
   <section class="memoro-surface mt-5 p-4 sm:p-6" aria-label="Daily journal">
-    <header class="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 class="flex items-center gap-2 text-xl font-semibold tracking-tight"><BookOpenIcon class="size-5 text-primary" />Your journal</h2><p class="mt-1 text-xs text-muted-foreground">{dateLabel}</p></div><div class="flex items-center gap-3"><span role="status" class="text-xs text-muted-foreground">{diary.saving ? diary.progress > 0 && diary.progress < 100 ? `Uploading ${diary.progress}%` : 'Encrypting and saving…' : diary.dirty ? 'Unsaved changes' : diary.feedback}</span><Button size="sm" disabled={diary.loading || diary.saving || !diary.dirty} onclick={() => diary.save()}>{diary.saving ? 'Saving…' : 'Save entry'}</Button></div></header>
+    <header class="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 class="flex items-center gap-2 text-xl font-semibold tracking-tight"><BookOpenIcon class="size-5 text-primary" />Your journal</h2><p class="mt-1 text-xs text-muted-foreground">{dateLabel}</p></div><div class="flex items-center gap-3"><span role="status" class="text-xs text-muted-foreground">{diary.saving && diary.progress > 0 && diary.progress < 100 ? `Uploading ${diary.progress}%` : (diary.saving || diary.dirty) && !diary.error ? 'Saving…' : diary.feedback}</span></div></header>
     {#if diary.available && !diary.loading}{#key diary.document.date}<EntryEditor bind:entry={diary.document.journal} bind:files={diary.journalFiles} media={diary.media} label="Daily journal text" placeholder="What would you like to remember about today?" pending={diary.saving} onChange={() => {}} />{/key}{/if}
     {#if diary.mediaError}<p role="alert" class="mt-3 text-sm text-destructive">{diary.mediaError}</p>{/if}
   </section>
 </main>
-<Dialog.Root open={taskOpen} onOpenChange={(value) => { if (!value) closeTask(); }}><Dialog.Content class="max-w-2xl">{#if editor}<TaskEditor bind:task={editor} bind:files={taskFiles} media={diary.media} pending={diary.saving} isNew={!diary.document.tasks.some(task => task.id === editor?.id)} onSave={saveTask} onCancel={() => closeTask()} />{/if}{#if diary.error}<p role="alert" class="text-sm text-destructive">{diary.error}</p>{/if}</Dialog.Content></Dialog.Root>
+<Dialog.Root bind:open={() => taskOpen, (value) => { if (value) taskOpen = true; else closeTask(); }}><Dialog.Content class="sm:max-w-2xl">{#if editor}<TaskEditor bind:task={editor} bind:files={taskFiles} media={diary.media} pending={diary.saving} isNew={!diary.document.tasks.some(task => task.id === editor?.id)} onSave={saveTask} onCancel={() => closeTask()} />{/if}{#if diary.error}<p role="alert" class="text-sm text-destructive">{diary.error}</p>{/if}</Dialog.Content></Dialog.Root>
 <AlertDialog.Root open={deleteId !== null} onOpenChange={(value) => { if (!value) deleteId = null; }}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>Delete this task?</AlertDialog.Title><AlertDialog.Description>This removes the task and its attachments from this day.</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>Cancel</AlertDialog.Cancel><AlertDialog.Action class="bg-destructive text-destructive-foreground" onclick={() => { if (deleteId) void diary.removeTask(deleteId); deleteId = null; }}>Delete task</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
-<AlertDialog.Root bind:open={discardOpen}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>Save your journal before leaving?</AlertDialog.Title><AlertDialog.Description>Your current changes have not been saved.</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel onclick={() => pendingNavigation = null}>Keep editing</AlertDialog.Cancel><Button variant="outline" disabled={diary.saving} onclick={continueNavigation}>Discard changes</Button><Button disabled={diary.saving} onclick={async () => { if (await diary.save()) await continueNavigation(); }}>Save and continue</Button></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
-<AlertDialog.Root bind:open={taskDiscardOpen}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>Discard this task draft?</AlertDialog.Title><AlertDialog.Description>The changes in this task have not been saved.</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel onclick={() => pendingNavigation = null}>Keep editing</AlertDialog.Cancel><AlertDialog.Action onclick={() => { closeTask(true); if (pendingNavigation) { if (diary.dirty) discardOpen = true; else void continueNavigation(); } }}>Discard draft</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
+<AlertDialog.Root bind:open={taskDiscardOpen}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>Discard this task draft?</AlertDialog.Title><AlertDialog.Description>The changes in this task have not been saved.</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel onclick={() => pendingNavigation = null}>Keep editing</AlertDialog.Cancel><AlertDialog.Action onclick={() => { taskDiscardOpen = false; closeTask(true); void continueNavigation(); }}>Discard draft</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
 
 <AlertDialog.Root bind:open={reloadOpen}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>Reload this day?</AlertDialog.Title><AlertDialog.Description>This discards your unsaved journal changes and opens the latest encrypted version.</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>Keep editing</AlertDialog.Cancel><AlertDialog.Action onclick={() => diary.loadDate(date, true)}>Reload day</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>

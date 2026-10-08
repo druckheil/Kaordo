@@ -17,8 +17,12 @@ Task details and the journal reuse `editor-ui`'s Tiptap, formatting controls,
 attachment drafts and the established media components. Time belongs to the
 selected calendar date; there is no reminder/notification service in this scope.
 
-Save is explicit. Date navigation protects unsaved changes, and a failed load
-does not expose a blank editable replacement. A conflicting save asks the user
+The journal saves automatically after a short pause in editing and before
+another day or app opens; text typed during a save is kept for the next one.
+Tasks save when added, edited, completed or deleted, and only an unsaved task
+draft asks before it is discarded. A failed save keeps the user on the day and
+waits for the next edit, and a failed load does not expose a blank editable
+replacement. A conflicting save asks the user
 to reload rather than overwriting another device. A failed task save retains its
 draft and does not silently change the journal's task list.
 

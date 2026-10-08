@@ -204,20 +204,52 @@ for (const app of ['ligo', 'rondo']) {
   });
 }
 
-test('Memoro opens a day without reporting superseded requests and saves the journal', async ({ startAppFixture }, testInfo) => {
+test('Memoro autosaves the journal across days and keeps task drafts recoverable', async ({ startAppFixture }, testInfo) => {
   const { page, origin, errors } = await startAppFixture('memoro');
   const state = await installQualityFixture(page, 'memoro');
-  await page.goto(origin + '/memoro/');
+  const dayWrites = () => state.requests.filter(request => request.method === 'PUT' && request.path.startsWith('/v1/memoro/days/'));
+  await page.goto(origin + '/memoro/?date=2026-10-01');
   await expect(page.getByRole('heading', { name: 'Memoro', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Add your first task' })).toBeEnabled();
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  const addFirst = page.getByRole('button', { name: 'Add your first task' });
+  await expect(addFirst).toBeEnabled();
+  await expect(page.getByRole('alert'), 'A superseded day request is not reported').toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Save entry' })).toHaveCount(0);
   await auditScreen(page, testInfo, 'memoro-day');
-  await page.getByRole('textbox', { name: 'Daily journal text' }).fill('A quiet evening walk.');
-  await page.getByRole('button', { name: 'Save entry', exact: true }).click();
+
+  const journal = page.getByRole('textbox', { name: 'Daily journal text' });
+  await journal.fill('A quiet evening walk.');
   await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible();
-  const write = state.requests.find(request => request.method === 'PUT' && request.path.startsWith('/v1/memoro/days/'));
-  expect(JSON.stringify(write.body)).not.toContain('quiet evening');
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(dayWrites()).toHaveLength(1);
+  expect(JSON.stringify(dayWrites()[0].body)).not.toContain('quiet evening');
+
+  // Text typed right before choosing another day is saved instead of asking to leave.
+  await journal.pressSequentially(' Then tea.');
+  await page.locator('[data-bits-day][data-value="2026-10-02"]').click();
+  await page.waitForURL(/date=2026-10-02/);
+  expect(dayWrites()).toHaveLength(2);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await page.locator('[data-bits-day][data-value="2026-10-01"]').click();
+  await page.waitForURL(/date=2026-10-01/);
+  await expect(page.getByRole('textbox', { name: 'Daily journal text' })).toContainText('A quiet evening walk. Then tea.');
+
+  await page.getByRole('button', { name: 'Add your first task' }).click();
+  const taskDialog = page.getByRole('dialog', { name: 'Add task' });
+  const width = (await taskDialog.boundingBox())?.width ?? 0;
+  expect(width, 'The task dialog uses the wide editor size').toBeGreaterThan(600);
+  await taskDialog.getByRole('textbox', { name: 'Task text' }).fill('Buy bread');
+  await page.keyboard.press('Escape');
+  const discard = page.getByRole('alertdialog', { name: 'Discard this task draft?' });
+  await discard.getByRole('button', { name: 'Keep editing' }).click();
+  await expect(discard).toBeHidden();
+  await expect(taskDialog, 'Keep editing returns to the open draft').toBeVisible();
+  await expect(taskDialog.getByRole('textbox', { name: 'Task text' })).toContainText('Buy bread');
+  await taskDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await discard.getByRole('button', { name: 'Discard draft' }).click();
+  await expect(discard).toBeHidden();
+  await expect(taskDialog).toBeHidden();
+  await page.getByRole('button', { name: 'Add task', exact: true }).click();
+  await expect(taskDialog, 'The task dialog opens again after discarding').toBeVisible();
+  await expect(taskDialog.getByRole('textbox', { name: 'Task text' })).not.toContainText('Buy bread');
   expect(errors).toEqual([]);
 });
 

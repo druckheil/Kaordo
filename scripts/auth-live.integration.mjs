@@ -818,10 +818,9 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
           assert.ok((await taskSaved).ok(), 'A Memoro task must be saved');
           await taskDialog.waitFor({ state: 'detached' });
           const journal = page.getByRole('textbox', { name: 'Daily journal text' });
-          await journal.fill('A calm and private day.');
           const journalSaved = savedDay();
-          await page.getByRole('button', { name: 'Save entry', exact: true }).click();
-          assert.ok((await journalSaved).ok(), 'A Memoro journal entry must be saved');
+          await journal.fill('A calm and private day.');
+          assert.ok((await journalSaved).ok(), 'The Memoro journal must autosave');
           assert.equal(dayWrites.length, 2);
           assert.ok(dayWrites.every((body) => body && !body.includes('fresh bread') && !body.includes('private day')),
             'Memoro must send only encrypted day documents');

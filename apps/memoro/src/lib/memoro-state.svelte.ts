@@ -1,4 +1,4 @@
-// Owns cancellable day loading, local drafts and revision-checked encrypted saves
+// Owns cancellable day loading, local drafts, journal autosave and revision-checked encrypted saves
 import { onDestroy } from 'svelte';
 import { createMemoroRepository, emptyDay, summarize, type DayDocument, type DaySummary, type Task } from '@kaordo/memoro-client';
 import type { DraftAttachment } from '@kaordo/editor-ui';
@@ -28,7 +28,17 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
   let visibleMonth = initialDate.slice(0, 7);
   let disposed = false;
   const lifetime = new AbortController();
-  const dirty = $derived(!loading && (JSON.stringify(document) !== snapshot || journalFiles.length > 0));
+  const serialized = $derived(JSON.stringify(document));
+  const dirty = $derived(!loading && (serialized !== snapshot || journalFiles.length > 0));
+  let current: Promise<boolean> | undefined;
+  // A failed save waits for the next edit instead of retrying the same change in a loop.
+  let failed = $state('');
+  const autosaveDelay = 800;
+  $effect(() => {
+    if (!dirty || !available || saving || disposed || `${serialized}:${journalFiles.length}` === failed) return;
+    const timer = setTimeout(() => void save(), autosaveDelay);
+    return () => clearTimeout(timer);
+  });
 
   async function loadMonth(month: string) {
     visibleMonth = month;
@@ -64,8 +74,17 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
       if (!disposed && !signal.aborted) attachments = result;
     } catch (cause) { if (!disposed && !signal.aborted) mediaError = message(cause); }
   }
-  async function save(task?: Task, files: DraftAttachment[] = []): Promise<boolean> {
-    if (saving || loading || !available || disposed) return false;
+  function save(task?: Task, files: DraftAttachment[] = []): Promise<boolean> {
+    if (saving || loading || !available || disposed) return Promise.resolve(false);
+    current = persist(task, files);
+    return current;
+  }
+  /** Saves pending journal changes before the day changes; false keeps the user on this day */
+  async function flush(): Promise<boolean> {
+    while (saving && current) await current;
+    return dirty ? save() : true;
+  }
+  async function persist(task: Task | undefined, files: DraftAttachment[]): Promise<boolean> {
     if (document.tasks.length >= 200 && task && !document.tasks.some(value => value.id === task.id)) { error = 'A day can contain at most 200 tasks.'; return false; }
     saving = true; error = ''; feedback = ''; progress = 0;
     try {
@@ -84,13 +103,14 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
       }
       record = await repository.save(candidate, revision, lifetime.signal);
       lifetime.signal.throwIfAborted();
-      document = candidate;
-      revision = record.revision; snapshot = JSON.stringify(document); feedback = 'Saved';
-      summaries = [...summaries.filter(value => value.date !== document.date), summarize(document)];
+      // Keep text typed while this save was in flight; it is saved by the next autosave.
+      if (task) document.tasks = candidate.tasks;
+      revision = record.revision; snapshot = JSON.stringify(candidate); feedback = 'Saved'; failed = '';
+      summaries = [...summaries.filter(value => value.date !== candidate.date), summarize(candidate)];
       if (visibleMonth !== document.date.slice(0, 7)) void loadMonth(visibleMonth);
       void loadMedia(dateRequest?.signal ?? lifetime.signal);
       return true;
-    } catch (cause) { if (!disposed) error = message(cause); return false; }
+    } catch (cause) { if (!disposed) { error = message(cause); failed = `${serialized}:${journalFiles.length}`; } return false; }
     finally { if (!disposed) saving = false; }
   }
   async function removeTask(id: string) { document.tasks = document.tasks.filter(task => task.id !== id); await save(); }
@@ -103,7 +123,7 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
     get journalFiles() { return journalFiles; }, set journalFiles(value) { journalFiles = value; },
     get loading() { return loading; }, get available() { return available; }, get monthLoading() { return monthLoading; }, get saving() { return saving; }, get dirty() { return dirty; },
     get error() { return error; }, get mediaError() { return mediaError; }, get feedback() { return feedback; }, get progress() { return progress; },
-    loadMonth, loadDate, save, removeTask, toggleTask };
+    loadMonth, loadDate, save, flush, removeTask, toggleTask };
 }
 export function clearDrafts(files: DraftAttachment[]) { for (const file of files) URL.revokeObjectURL(file.preview); }
 function message(cause: unknown) { return cause instanceof Error ? cause.message : 'The encrypted diary request failed.'; }
