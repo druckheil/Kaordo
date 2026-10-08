@@ -7,13 +7,20 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./session": {
+      "types": "./src/session.ts",
+      "default": "./src/session.ts"
     }
   },
   "dependencies": {
     "@kaordo/auth": "workspace:*",
     "@kaordo/contracts": "workspace:*",
+    "@kaordo/crypto": "workspace:*",
+    "@kaordo/lingvo-client": "workspace:*",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@tanstack/query-core": "^5.104.0",
-    "openapi-fetch": "^0.17.0"
+    "openapi-fetch": "^0.17.0",
+    "zod": "4.6.5"
   }
 }

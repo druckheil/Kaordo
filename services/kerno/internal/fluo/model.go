@@ -8,6 +8,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/google/uuid"
 )
 
@@ -95,6 +96,7 @@ type Post struct {
 }
 
 type NewPost struct {
+	ID            string            `json:"id"`
 	Content       json.RawMessage   `json:"content"`
 	Visibility    string            `json:"visibility"`
 	ParentID      *string           `json:"parentId"`
@@ -115,7 +117,6 @@ type Thread struct {
 type ListOptions struct {
 	ViewerID string
 	Feed     string
-	Search   string
 	ParentID *string
 	AuthorID *string
 	Cursor   *Cursor
@@ -165,10 +166,13 @@ type Store interface {
 	Get(context.Context, string, string) (Post, error)
 	Thread(context.Context, string, string) (Thread, error)
 	List(context.Context, ListOptions) (Page, error)
-	SetVisibility(context.Context, string, string, string) error
+	SetVisibility(context.Context, string, string, string, json.RawMessage, string) error
 	Delete(context.Context, string, string) ([]string, error)
 	SetSaved(context.Context, string, string, bool) error
 	MediaReferenced(context.Context, string) (bool, error)
 	React(context.Context, string, string, *string) (Post, error)
 	Follow(context.Context, string, string, bool) error
+	KeyringState(context.Context, string) (KeyringState, error)
+	UpdateKeyring(context.Context, string, KeyringUpdate) (KeyringState, error)
+	Keys(context.Context, string, []encryption.KeyRef) ([]KeyMaterial, error)
 }

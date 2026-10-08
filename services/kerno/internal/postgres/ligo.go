@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/google/uuid"
 	"sort"
 	"strings"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
@@ -58,8 +60,8 @@ func conversationQuery(actorID string) (jetpg.SelectStatement, *table.LigoConver
 		'id', u.id::text, 'username', u.username, 'displayName', u.display_name
 	) ORDER BY lower(u.username)) FROM ligo_members lm JOIN users u ON u.id = lm.user_id
 	WHERE lm.conversation_id = c.id), '[]'::jsonb)`)
-	lastMessage := jetpg.RawString(`(SELECT jsonb_build_object('id', m.id::text, 'text', m.body, 'senderId', m.sender_id::text,
-		'deleted', m.deleted_at IS NOT NULL, 'createdAt', m.created_at)
+	lastMessage := jetpg.RawString(`(SELECT jsonb_build_object('id', m.id::text, 'clientId', m.client_id::text, 'text', m.body, 'senderId', m.sender_id::text,
+		'deleted', m.deleted_at IS NOT NULL, 'systemNotice', m.system_notice, 'createdAt', m.created_at)
 		FROM ligo_messages m WHERE m.conversation_id = c.id AND m.created_at >= viewer.joined_at
 		ORDER BY m.id DESC LIMIT 1)`)
 	unreadCount := jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(unread.ID)).FROM(unread).WHERE(jetpg.AND(
@@ -72,6 +74,7 @@ func conversationQuery(actorID string) (jetpg.SelectStatement, *table.LigoConver
 		jetpg.CAST(conversations.ID).AS_TEXT(), conversations.Kind, conversations.Title,
 		jetpg.CAST(conversations.CreatedBy).AS_TEXT(), conversations.CreatedAt, conversations.UpdatedAt,
 		membersJSON, lastMessage, unreadCount,
+		jetpg.RawString(`(SELECT jsonb_build_object('id', rc.id::text, 'serverId', rc.server_id::text) FROM rondo_channels rc WHERE rc.conversation_id = c.id)`),
 	).FROM(conversations.INNER_JOIN(viewer, jetpg.AND(
 		viewer.ConversationID.EQ(conversations.ID), viewer.UserID.EQ(jetUUID(actorID)),
 	)))
@@ -80,9 +83,9 @@ func conversationQuery(actorID string) (jetpg.SelectStatement, *table.LigoConver
 
 func scanConversation(row pgx.Row) (ligo.Conversation, error) {
 	var item ligo.Conversation
-	var members, preview []byte
+	var members, preview, channel []byte
 	err := row.Scan(&item.ID, &item.Kind, &item.Title, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt,
-		&members, &preview, &item.UnreadCount)
+		&members, &preview, &item.UnreadCount, &channel)
 	if err != nil {
 		return item, err
 	}
@@ -95,6 +98,11 @@ func scanConversation(row pgx.Row) (ligo.Conversation, error) {
 			return item, err
 		}
 		item.LastMessage = &last
+	}
+	if len(channel) != 0 {
+		if err := json.Unmarshal(channel, &item.Channel); err != nil {
+			return item, err
+		}
 	}
 	return item, nil
 }
@@ -154,6 +162,22 @@ func (store *Ligo) CreateConversation(ctx context.Context, actorID string, input
 	if err := ensureConversationParticipants(ctx, tx, ids); err != nil {
 		return ligo.Conversation{}, err
 	}
+	if envelope, parseErr := encryption.ParseText(input.Title); parseErr == nil {
+		if envelope.Context != "ligo-group:"+input.ID {
+			return ligo.Conversation{}, encryption.ErrInvalid
+		}
+		audience := encryption.Audience{Users: make([]encryption.PublicIdentity, 0, len(ids))}
+		for _, id := range ids {
+			identity, err := publicEncryptionIdentity(ctx, tx, id)
+			if err != nil {
+				return ligo.Conversation{}, err
+			}
+			audience.Users = append(audience.Users, identity)
+		}
+		if err := verifyContentForAudience(ctx, tx, actorID, envelope, audience, "ligo-group:"); err != nil {
+			return ligo.Conversation{}, err
+		}
+	}
 	id, err := insertConversation(ctx, tx, actorID, ids, input)
 	if err != nil {
 		return ligo.Conversation{}, err
@@ -201,8 +225,11 @@ func insertConversation(ctx context.Context, tx pgx.Tx, actorID string, particip
 			ON_CONFLICT(conversations.CreatedBy).WHERE(conversations.Kind.EQ(jetpg.String("self"))).
 			DO_UPDATE(jetpg.SET(conversations.CreatedBy.SET(conversations.EXCLUDED.CreatedBy)))
 	default:
-		statement = conversations.INSERT(conversations.Kind, conversations.Title, conversations.CreatedBy).
-			VALUES(jetpg.String("group"), jetpg.String(input.Title), jetUUID(actorID))
+		if input.ID == "" {
+			input.ID = uuid.NewString()
+		}
+		statement = conversations.INSERT(conversations.ID, conversations.Kind, conversations.Title, conversations.CreatedBy).
+			VALUES(jetUUID(input.ID), jetpg.String("group"), jetpg.String(input.Title), jetUUID(actorID))
 	}
 	err := jetQueryRow(ctx, tx, statement.RETURNING(jetpg.CAST(conversations.ID).AS_TEXT())).Scan(&id)
 	return id, err

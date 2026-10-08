@@ -4,7 +4,7 @@
   import { getContext } from 'svelte';
   import type { UserPresentation } from '@kaordo/contracts';
   import { Avatar } from '@kaordo/ui';
-  import { userPresentationContext, type UserPresentationState } from './user-presentation-state.svelte.ts';
+  import { userPresentationContext, type UserPresentationState } from './user-presentation-context.ts';
 
   type Image = { url: string };
   let { user, image, showPresence = true, class: className = '' }: {

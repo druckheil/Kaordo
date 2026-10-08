@@ -1,6 +1,8 @@
 // Manages LiveKit connections, participant state, tracks and local voice controls
 import {
   ConnectionState,
+  ExternalE2EEKeyProvider,
+  isE2EESupported,
   LocalAudioTrack,
   RemoteAudioTrack,
   Room,
@@ -38,6 +40,8 @@ type LocalControls = Pick<VoiceSnapshot, 'microphoneEnabled' | 'cameraEnabled' |
 
 export class VoiceConnection {
   private readonly room: Room;
+  private readonly keyProvider = new ExternalE2EEKeyProvider();
+  private readonly encryptionWorker: Worker;
   private readonly microphoneVolume = new MicrophoneVolume();
   private readonly preferences: VoicePreferences;
   private readonly audioElements = new Set<HTMLMediaElement>();
@@ -51,11 +55,15 @@ export class VoiceConnection {
   private microphoneBeforeDeafen = false;
   private disposed = false;
   private disconnectPromise?: Promise<void>;
+  private encryptionFailure?: Error;
 
   constructor(sounds = new VoiceSounds(), preferences = defaultVoicePreferences()) {
+    if (!isE2EESupported()) throw new Error('This browser does not support encrypted calls. Use an up-to-date supported browser.');
     this.sounds = sounds;
     this.preferences = { ...preferences };
+    this.encryptionWorker = new Worker(new URL('livekit-client/e2ee-worker', import.meta.url));
     this.room = new Room({
+      encryption: { keyProvider: this.keyProvider, worker: this.encryptionWorker },
       adaptiveStream: true, dynacast: true,
       audioCaptureDefaults: {
         deviceId: preferences.microphoneId === 'default' ? undefined : preferences.microphoneId,
@@ -84,6 +92,10 @@ export class VoiceConnection {
     this.room.on(RoomEvent.ParticipantDisconnected, this.onParticipantDisconnected);
     this.room.on(RoomEvent.TrackSubscribed, this.onTrackSubscribed);
     this.room.on(RoomEvent.TrackUnsubscribed, this.onTrackUnsubscribed);
+    this.room.on(RoomEvent.EncryptionError, () => {
+      this.encryptionFailure = new Error('The encrypted call could not be verified. Join again to reconnect.');
+      void this.room.disconnect();
+    });
   }
 
   private onParticipantConnected = (participant: RemoteParticipant): void => {
@@ -258,10 +270,13 @@ export class VoiceConnection {
     return () => track.detach(element);
   }
 
-  async connect(serverUrl: string, token: string): Promise<void> {
+  async connect(serverUrl: string, token: string, encryptionKey: ArrayBuffer): Promise<void> {
     if (this.disposed) return;
+    await this.setEncryptionKey(encryptionKey);
+    await this.room.setE2EEEnabled(true);
     this.sounds.unlock();
     await this.room.connect(serverUrl, token);
+    if (this.encryptionFailure) throw this.encryptionFailure;
     if (this.disposed) { await this.room.disconnect(); return; }
     if (this.preferences.speakerId !== 'default') {
       try { await this.setDevice('audiooutput', this.preferences.speakerId); } catch {
@@ -278,6 +293,11 @@ export class VoiceConnection {
     this.initializing = false;
     this.lastControls = this.controls();
     this.emit();
+  }
+
+  async setEncryptionKey(key: ArrayBuffer): Promise<void> {
+    if (key.byteLength !== 32) throw new Error('An encrypted call requires a valid room key.');
+    if (!this.disposed) await this.keyProvider.setKey(key);
   }
 
   async toggleMicrophone(): Promise<void> {
@@ -379,6 +399,7 @@ export class VoiceConnection {
       this.emit();
       this.removeAudioElements();
       this.sounds.dispose(420);
+      this.encryptionWorker.terminate();
     }
   }
 

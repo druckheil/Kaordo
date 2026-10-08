@@ -15,7 +15,6 @@ export const dashboardTabs = [
 export type DashboardTab = (typeof dashboardTabs)[number];
 export const metricsWindows = ['1h', '24h', '7d'] as const;
 export type MetricsWindow = (typeof metricsWindows)[number];
-export type ContentKind = 'posts' | 'messages';
 export const logPriorities = [
   { value: 'all', label: 'All' },
   { value: '3', label: 'Errors' },
@@ -36,7 +35,6 @@ export type AdminIntent =
   | { type: 'log-retention'; days: AdminLogRetentionDays; name: string }
   | { type: 'status'; id: string; name: string; disabled: boolean }
   | { type: 'role'; id: string; name: string; isAdmin: boolean }
-  | { type: 'case'; id: string; name: string }
   | { type: 'action'; id: AdminSystemAction; name: string; target?: string; identity?: string; filesystem?: string; resumeSetup?: boolean };
 
 export const logServices = [
@@ -132,19 +130,17 @@ export function filterLogs(logs: AdminLogs | null, priority: LogPriority, search
 }
 
 export function minimumReasonLength(intent: AdminIntent | null): number {
-  return intent?.type === 'case' ? 20 : 10;
+  return 10;
 }
 
 export function intentDescription(intent: AdminIntent | null): string {
   switch (intent?.type) {
     case 'log-retention':
       return 'This changes retention for the entire host journal. Older archived logs may be permanently removed. The disk-space budget still applies. Your reason is recorded before execution.';
-    case 'case':
-      return 'This opens a 15-minute access case, records the reason and notifies the account in Ligo Saved messages.';
     case 'status':
       return 'This changes account access immediately and records your reason.';
     case 'role':
-      return 'Administrators can inspect account content and control services. This role change is recorded with your reason.';
+      return 'Administrators can manage accounts and control services. This role change is recorded with your reason.';
     case 'action':
       if (intent.id === 'restart-ddclient') {
         return 'This runs one DNS check and starts the automatic update timer if necessary. The updater exits after each check; a scheduled idle service is healthy.';

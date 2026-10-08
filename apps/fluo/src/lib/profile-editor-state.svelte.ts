@@ -78,7 +78,7 @@ export function createFluoProfileEditor(
     });
     const ids = await uploadMedia(uploads.map(({ file }) => file), nodoBaseUrl, api,
       (percent) => { if (!lifetime.signal.aborted) progress = percent; },
-      { maxFiles: 2, signal: lifetime.signal });
+      { maxFiles: 2, encrypt: false, signal: lifetime.signal });
     lifetime.signal.throwIfAborted();
     uploads.forEach(({ slot }, index) => { images[slot].id = ids[index]; });
   }

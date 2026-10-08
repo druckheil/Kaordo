@@ -1,18 +1,8 @@
 // Defines local state for media attached to a Fluo post draft
 
-export interface ComposerAttachment {
-	file: File;
-	preview: string;
-	altText: string;
-}
+import { editorMediaTypes } from '@kaordo/editor-ui';
+export type { DraftAttachment as ComposerAttachment } from '@kaordo/editor-ui';
 
 export const maxComposerAttachments = 4;
 
-export const composerMediaTypes = [
-	"image/jpeg",
-	"image/png",
-	"image/webp",
-	"video/mp4",
-	"video/webm",
-	"video/quicktime",
-];
+export const composerMediaTypes = editorMediaTypes;

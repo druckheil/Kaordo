@@ -1,39 +1,21 @@
-// Owns administrative command confirmation, access cases and mutation feedback
+// Owns administrative command confirmation and mutation feedback
 import type { QueryClient } from '@tanstack/svelte-query';
 import type { AdminApi } from '@kaordo/api-client';
-import type { AdminAccessCase, AdminLayoutRequest } from '@kaordo/contracts';
+import type { AdminLayoutRequest } from '@kaordo/contracts';
 import { errorMessage, restartActions, type AdminIntent, type RestartableService } from './regado-model';
 
 interface ActionDependencies {
-  api: Pick<AdminApi, 'closeCase' | 'action' | 'applyStorageLayout' | 'setLogRetention' | 'setStatus' | 'setRole' | 'createCase'>;
+  api: Pick<AdminApi, 'action' | 'applyStorageLayout' | 'setLogRetention' | 'setStatus' | 'setRole'>;
   queryClient: QueryClient;
   refreshOverview: () => Promise<void>;
   loadUsers: () => Promise<void>;
-  onCaseOpened: () => void;
 }
 
-export function createAdminActionState({ api, queryClient, refreshOverview, loadUsers, onCaseOpened }: ActionDependencies) {
+export function createAdminActionState({ api, queryClient, refreshOverview, loadUsers }: ActionDependencies) {
   const form = $state({ intent: null as AdminIntent | null, reason: '', confirmation: '' });
-  const status = $state({ caseRecord: null as AdminAccessCase | null, busy: false, operationError: '', actionError: '', notice: '' });
+  const status = $state({ busy: false, operationError: '', actionError: '', notice: '' });
   let disposed = false;
   const lifetime = new AbortController();
-
-  async function closeCase(): Promise<void> {
-    if (disposed || !status.caseRecord || status.busy) return;
-    status.busy = true;
-    try {
-      await api.closeCase(status.caseRecord.id, lifetime.signal);
-      if (disposed) return;
-      status.caseRecord = null;
-      queryClient.removeQueries({ queryKey: ["regado", "case"] });
-      status.notice = "Access case closed.";
-      status.operationError = "";
-    } catch (cause) {
-      if (!disposed) status.operationError = errorMessage(cause);
-    } finally {
-      if (!disposed) status.busy = false;
-    }
-  }
 
   function openIntent(next: AdminIntent): void {
     form.intent = next;
@@ -133,14 +115,6 @@ export function createAdminActionState({ api, queryClient, refreshOverview, load
         status.notice = `Administrator role ${selected.isAdmin ? "granted to" : "revoked from"} @${selected.name}.`;
         await loadUsers();
         return;
-      case "case": {
-        const createdCase = await api.createCase(selected.id, form.reason, lifetime.signal);
-        if (disposed) return;
-        status.caseRecord = createdCase;
-        onCaseOpened();
-        status.notice = `Access case opened for @${createdCase.targetUsername}. The account was notified in Ligo Saved messages.`;
-        return;
-      }
       case "action":
         const result = await api.action(selected.id, form.reason, {
           target: selected.target,
@@ -155,7 +129,7 @@ export function createAdminActionState({ api, queryClient, refreshOverview, load
   return {
     form,
     get status(): Readonly<typeof status> { return status; },
-    closeCase, openIntent, requestCopyCheck, applyStorageLayout, requestCopyRepair,
+    openIntent, requestCopyCheck, applyStorageLayout, requestCopyRepair,
     requestDnsRestart, requestServiceRestart, confirmIntent,
     clearOperationError() { status.operationError = ''; },
     dispose() { disposed = true; lifetime.abort(); }

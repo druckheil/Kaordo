@@ -14,7 +14,7 @@
 	import { MediaGallery } from '@kaordo/media-ui';
 	import PostActions from './PostActions.svelte';
 	import QuotePreview from './QuotePreview.svelte';
-	import RichText from './RichText.svelte';
+	import { RichText } from '@kaordo/editor-ui';
 	import { postHashForId } from './fluo-model';
 	import type { FluoPostActionHandlers } from './post-actions';
 	import { UserAvatar } from '@kaordo/account-ui';
@@ -119,7 +119,7 @@
 				<ProfileLink username={post.author.username} label={`Open profile of @${post.author.username}`} class="relative z-10 shrink-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-ring"><UserAvatar user={post.author} /></ProfileLink>
 				<div class="min-w-0 flex-1">
 					<div class="flex flex-wrap items-baseline gap-x-2">
-						<ProfileLink username={post.author.username} class="relative z-10 inline-flex min-w-0 items-center gap-1.5 rounded text-sm font-bold text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"><span class="truncate">{post.author.displayName}</span>{#if post.author.verified}<VerifiedBadge />{/if}</ProfileLink>
+						<ProfileLink username={post.author.username} class="relative z-10 inline-flex min-h-6 pointer-coarse:min-h-11 min-w-0 items-center gap-1.5 rounded text-sm font-bold text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"><span class="truncate">{post.author.displayName}</span>{#if post.author.verified}<VerifiedBadge />{/if}</ProfileLink>
 						<span class="relative z-10 truncate text-xs text-muted-foreground">@{post.author.username}</span>
 					</div>
 					<p class="mt-0.5 text-xs text-muted-foreground">
@@ -246,7 +246,8 @@
 	.fluo-post.fluo-reply:hover { box-shadow: none; }
 
 	.post-card-single-media :global([data-pswp-item]),
-	.post-card-single-media :global(media-player) {
+	.post-card-single-media :global(media-player),
+	.post-card-single-media :global([data-slot="button"]) {
 		position: relative;
 		z-index: 10;
 	}

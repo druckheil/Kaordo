@@ -1,8 +1,8 @@
 // Provides authenticated Lingvo requests and cancellable dictionary query options
-import type {
-  LingvoCard, LingvoNewCard, LingvoCardUpdate, LingvoDictionary, LingvoNewDictionary,
-  LingvoSettings, LingvoReview, LingvoReviewResult, LingvoImport, LingvoImportResult, LingvoFolder, paths
-} from '@kaordo/contracts';
+import type { paths } from '@kaordo/contracts';
+import { createPrivateLingvoClient } from '@kaordo/lingvo-client/private-dictionary';
+import { encryptionSession } from '@kaordo/crypto';
+import { createPrivateRecords } from './private-records.ts';
 import createClient from 'openapi-fetch';
 import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
 
@@ -17,94 +17,11 @@ export interface LingvoCardFilter {
 
 export function createLingvoApi(apiBaseUrl: string) {
   const client = createClient<paths>({ baseUrl: apiBaseUrl, fetch: sessionFetch });
-  return {
-    async dictionaries(signal?: AbortSignal) {
-      const { data, error, response } = await client.GET('/v1/lingvo/dictionaries', { signal });
-      return requireResponseData(data, error, response.status);
-    },
-    async createDictionary(input: LingvoNewDictionary, signal?: AbortSignal): Promise<LingvoDictionary> {
-      const { data, error, response } = await client.POST('/v1/lingvo/dictionaries', { body: input, signal });
-      return requireResponseData(data, error, response.status);
-    },
-    async overview(dictionaryId: string, signal?: AbortSignal) {
-      const { data, error, response } = await client.GET('/v1/lingvo/dictionaries/{dictionaryId}', {
-        params: { path: { dictionaryId } }, signal
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async settings(dictionaryId: string, input: LingvoSettings, signal?: AbortSignal): Promise<LingvoDictionary> {
-      const { data, error, response } = await client.PUT('/v1/lingvo/dictionaries/{dictionaryId}/settings', {
-        params: { path: { dictionaryId } }, body: input, signal
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async cards(dictionaryId: string, filter: LingvoCardFilter, signal?: AbortSignal) {
-      const { data, error, response } = await client.GET('/v1/lingvo/dictionaries/{dictionaryId}/cards', {
-        params: { path: { dictionaryId }, query: filter }, signal
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async study(dictionaryId: string, kind: 'word' | 'phrase', folder?: string, signal?: AbortSignal) {
-      const { data, error, response } = await client.GET('/v1/lingvo/dictionaries/{dictionaryId}/study', {
-        params: { path: { dictionaryId }, query: { kind, folder } }, signal
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async createCard(dictionaryId: string, input: LingvoNewCard, signal?: AbortSignal): Promise<LingvoCard> {
-      const { data, error, response } = await client.POST('/v1/lingvo/dictionaries/{dictionaryId}/cards', {
-        params: { path: { dictionaryId } }, body: input, signal
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async updateCard(dictionaryId: string, cardId: string, input: LingvoCardUpdate, signal?: AbortSignal): Promise<LingvoCard> {
-      const { data, error, response } = await client.PUT('/v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}', {
-        params: { path: { dictionaryId, cardId } }, body: input, signal
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async deleteCard(dictionaryId: string, cardId: string, revision: number, signal?: AbortSignal): Promise<void> {
-      const { error, response } = await client.DELETE('/v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}', {
-        params: { path: { dictionaryId, cardId }, query: { revision } }, signal
-      });
-      requireResponseOk(response, error);
-    },
-    async review(dictionaryId: string, cardId: string, input: LingvoReview, signal?: AbortSignal): Promise<LingvoReviewResult> {
-      const { data, error, response } = await client.POST('/v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}/reviews', {
-        params: { path: { dictionaryId, cardId } }, body: input, signal
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async undo(dictionaryId: string, reviewId: string, signal?: AbortSignal): Promise<LingvoCard> {
-      const { data, error, response } = await client.POST('/v1/lingvo/dictionaries/{dictionaryId}/reviews/{reviewId}/undo', {
-        params: { path: { dictionaryId, reviewId } }, signal
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async createFolder(dictionaryId: string, name: string, signal?: AbortSignal): Promise<LingvoFolder> {
-      const { data, error, response } = await client.POST('/v1/lingvo/dictionaries/{dictionaryId}/folders', {
-        params: { path: { dictionaryId } }, body: { name }, signal
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async deleteFolder(dictionaryId: string, folderId: string, signal?: AbortSignal): Promise<void> {
-      const { error, response } = await client.DELETE('/v1/lingvo/dictionaries/{dictionaryId}/folders/{folderId}', {
-        params: { path: { dictionaryId, folderId } }, signal
-      });
-      requireResponseOk(response, error);
-    },
-    async catalog(nativeLanguage: 'en' | 'ru', signal?: AbortSignal) {
-      const { data, error, response } = await client.GET('/v1/lingvo/catalog', {
-        params: { query: { nativeLanguage } }, signal
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async importCards(dictionaryId: string, input: LingvoImport, signal?: AbortSignal): Promise<LingvoImportResult> {
-      const { data, error, response } = await client.POST('/v1/lingvo/dictionaries/{dictionaryId}/imports', {
-        params: { path: { dictionaryId } }, body: input, signal
-      });
-      return requireResponseData(data, error, response.status);
-    }
-  };
+  async function catalog(nativeLanguage: 'en' | 'ru', signal?: AbortSignal) {
+    const { data, error, response } = await client.GET('/v1/lingvo/catalog', { params: { query: { nativeLanguage } }, signal });
+    return requireResponseData(data, error, response.status);
+  }
+  return createPrivateLingvoClient(createPrivateRecords(apiBaseUrl, 'lingvo'), catalog, encryptionSession().signal);
 }
 
 export type LingvoApi = ReturnType<typeof createLingvoApi>;

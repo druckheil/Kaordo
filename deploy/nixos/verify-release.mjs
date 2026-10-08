@@ -11,7 +11,7 @@ const requiredFiles = [
   'etc/nixos/deploy/nixos/sync-keycloak-production.mjs', 'etc/nixos/scripts/sync-keycloak.mjs',
   'etc/nixos/deploy/keycloak/themes/kaordo/login/resources/js/session.js',
   'site/index.html', 'site/fluo/index.html', 'site/ligo/index.html',
-  'site/rondo/index.html', 'site/lingvo/index.html', 'site/regado/index.html', 'site/silent-check-sso.html'
+  'site/rondo/index.html', 'site/lingvo/index.html', 'site/memoro/index.html', 'site/regado/index.html', 'site/silent-check-sso.html'
 ];
 
 export async function verifyPayload(directory, expectedRelease, expectedOrigin, expectedRealm) {
@@ -52,7 +52,7 @@ export async function verifyLiveRelease(directory, manifest, {
     if (result.status !== expectedStatus) throw new Error(`Release check returned HTTP ${result.status}: ${new URL(url).pathname}`);
     return Buffer.from(await result.arrayBuffer());
   }
-  for (const app of ['', 'fluo/', 'ligo/', 'rondo/', 'lingvo/', 'regado/']) {
+  for (const app of ['', 'fluo/', 'ligo/', 'rondo/', 'lingvo/', 'memoro/', 'regado/']) {
     const path = `site/${app}index.html`;
     if (digest(await response(`${manifest.origin}/${app}`)) !== manifest.files[path]) {
       throw new Error(`Public application differs from the release: ${app || 'portal'}`);

@@ -6,7 +6,7 @@
   import type { FluoDocument, FluoPost } from '@kaordo/contracts';
   import type { FluoApi } from '@kaordo/api-client';
   import { Button, EllipsisIcon, ImagePlusIcon, IsUsingKeyboard } from '@kaordo/ui';
-  import ComposerAttachmentList from './ComposerAttachmentList.svelte';
+  import { DraftAttachments } from '@kaordo/editor-ui';
   import ComposerOptionsPanel from './ComposerOptionsPanel.svelte';
   import { composerMediaTypes, maxComposerAttachments, type ComposerAttachment } from './composer-model';
   import { createComposerEditor } from './composer-editor';
@@ -161,7 +161,7 @@
       {#if !editor && !error}<p class="text-sm text-muted-foreground" role="status">Loading editor…</p>{/if}
       <div class="editor-surface min-w-0 wrap-anywhere text-[15px] leading-7" bind:this={element}></div>
       {#if files.length > 0}
-        <ComposerAttachmentList bind:files {pending} />
+        <DraftAttachments bind:files {pending} />
       {/if}
       {#if quoteTo}
         <section class="mt-5" aria-label="Quoted post">

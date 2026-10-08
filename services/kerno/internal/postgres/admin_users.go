@@ -28,6 +28,10 @@ func adminUserQuery() (jetpg.SelectStatement, *table.UsersTable) {
 				UNION ALL
 				SELECT lm.upload_id, lm.size_bytes FROM ligo_message_media lm
 				JOIN nodo_upload_claims c ON c.upload_id = lm.upload_id WHERE c.owner_id = u.id
+                UNION ALL SELECT f.upload_id, f.size_bytes FROM fluo_profile_images f
+                JOIN nodo_upload_claims c ON c.upload_id = f.upload_id WHERE c.owner_id = u.id
+                UNION ALL SELECT d.upload_id, d.size_bytes FROM memoro_day_media d
+                JOIN nodo_upload_claims c ON c.upload_id = d.upload_id WHERE c.owner_id = u.id
 			) media ORDER BY upload_id
 		) refs), 0)`),
 		jetpg.RawTimestampz(`GREATEST((SELECT max(created_at) FROM fluo_posts p WHERE p.author_id = u.id),

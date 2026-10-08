@@ -11,6 +11,7 @@
     "./clipboard": { "types": "./src/clipboard.ts", "default": "./src/clipboard.ts" }
   },
   "dependencies": {
+    "@kaordo/crypto": "workspace:*",
     "@kaordo/auth": "workspace:*",
     "@kaordo/contracts": "workspace:*",
     "@uppy/core": "^6.1.0",

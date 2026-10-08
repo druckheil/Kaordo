@@ -2,11 +2,11 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"testing"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -33,16 +33,34 @@ func TestFluoPostFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := NewFluo(pool)
-	content := json.RawMessage(`{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"hello"}]}]}`)
+	authors := map[string]fluoAuthor{a.ID: registerFluoAuthor(t, ctx, pool, a.ID), b.ID: registerFluoAuthor(t, ctx, pool, b.ID)}
+	for id := range authors {
+		if _, err := store.UpdateKeyring(ctx, id, fluo.KeyringUpdate{Create: 1, Publish: []fluo.PublishedKey{{Version: 1, Key: randomBase64(t, 32)}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Posts carry the author's audience key; replies also keep the parent author's key.
+	input := func(actorID, visibility string, parent, quote *string) fluo.NewPost {
+		t.Helper()
+		keyring := []encryption.KeyRef{{OwnerID: actorID, Version: 0}}
+		if visibility == fluo.VisibilityPublic {
+			keyring = []encryption.KeyRef{{OwnerID: actorID, Version: 1}}
+			if parent != nil {
+				if parentPost, err := store.Get(ctx, actorID, *parent); err == nil && parentPost.Author.ID != actorID {
+					keyring = append(keyring, encryption.KeyRef{OwnerID: parentPost.Author.ID, Version: 1})
+				}
+			}
+		}
+		return authors[actorID].newPost(t, visibility, parent, quote, keyring...)
+	}
 	makePost := func(actorID, visibility string, parent, quote *string, media []fluo.Media) fluo.Post {
 		t.Helper()
-		post, err := store.Create(ctx, actorID, fluo.NewPost{
-			Content: content, Visibility: visibility, ParentID: parent, QuoteID: quote,
-		}, "hello", media)
+		post := input(actorID, visibility, parent, quote)
+		created, err := store.Create(ctx, actorID, post, postText(post), media)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return post
+		return created
 	}
 	public := makePost(a.ID, "public", nil, nil, nil)
 	private := makePost(a.ID, "private", nil, nil, nil)
@@ -52,12 +70,6 @@ func TestFluoPostFlow(t *testing.T) {
 	latest, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Limit: 20})
 	if err != nil || len(latest.Items) != 1 || latest.Items[0].ID != public.ID {
 		t.Fatalf("public feed = %+v, %v", latest, err)
-	}
-	for _, query := range []string{"hello", "HELLO", " HeLlO "} {
-		search, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Search: query, Limit: 20})
-		if err != nil || len(search.Items) != 1 || search.Items[0].ID != public.ID {
-			t.Fatalf("search %q missed the public post or exposed private data: %+v, %v", query, search, err)
-		}
 	}
 	if err := store.SetSaved(ctx, b.ID, public.ID, true); err != nil {
 		t.Fatal(err)
@@ -88,20 +100,20 @@ func TestFluoPostFlow(t *testing.T) {
 	if err != nil || public.Counts.Good != 1 || public.MyReaction == nil || *public.MyReaction != good {
 		t.Fatalf("reaction = %+v, %v", public, err)
 	}
-	commentAttachment := fluo.Media{ID: "01999111-2222-7333-8444-555555555552", Kind: "image", MimeType: "image/png", Width: 4, Height: 4, Size: 50}
+	commentAttachment := fluo.Media{ID: "01999111-2222-7333-8444-555555555552", Kind: "file", MimeType: "application/octet-stream", Size: 50}
 	comment := makePost(b.ID, "public", &public.ID, nil, []fluo.Media{commentAttachment})
 	comments, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, ParentID: &public.ID, Feed: "latest", Limit: 20})
 	if err != nil || len(comments.Items) != 1 || comments.Items[0].ID != comment.ID {
 		t.Fatalf("comments = %+v, %v", comments, err)
 	}
-	if _, err := store.Create(ctx, b.ID, fluo.NewPost{Content: content, Visibility: "public", ParentID: &private.ID}, "hello", nil); !errors.Is(err, fluo.ErrInvalidRelation) {
+	if _, err := store.Create(ctx, b.ID, input(b.ID, "public", &private.ID, nil), "", nil); !errors.Is(err, fluo.ErrInvalidRelation) {
 		t.Fatalf("private comment was accepted: %v", err)
 	}
 	quote := makePost(b.ID, "public", nil, &public.ID, nil)
 	if quote.Quote == nil || quote.Quote.ID != public.ID {
 		t.Fatalf("quote preview = %+v", quote.Quote)
 	}
-	attachment := fluo.Media{ID: "01999111-2222-7333-8444-555555555551", Kind: "image", MimeType: "image/png", Width: 8, Height: 6, Size: 80}
+	attachment := fluo.Media{ID: "01999111-2222-7333-8444-555555555551", Kind: "file", MimeType: "application/octet-stream", Size: 80}
 	withMedia := makePost(a.ID, "public", nil, nil, []fluo.Media{attachment})
 	mediaQuote := makePost(b.ID, "public", nil, &withMedia.ID, nil)
 	if mediaQuote.Quote == nil || len(mediaQuote.Quote.Media) != 1 || mediaQuote.Quote.Media[0].ID != attachment.ID {
@@ -111,7 +123,7 @@ func TestFluoPostFlow(t *testing.T) {
 	if len(reusedMedia.Media) != 1 || reusedMedia.Media[0].ID != attachment.ID {
 		t.Fatalf("reused post media = %+v", reusedMedia.Media)
 	}
-	if _, err := store.Create(ctx, b.ID, fluo.NewPost{Content: content, Visibility: "public"}, "hello", []fluo.Media{attachment}); !errors.Is(err, fluo.ErrMediaOwner) {
+	if _, err := store.Create(ctx, b.ID, input(b.ID, "public", nil, nil), "", []fluo.Media{attachment}); !errors.Is(err, fluo.ErrMediaOwner) {
 		t.Fatalf("another owner's media was accepted: %v", err)
 	}
 	referenced, err := store.MediaReferenced(ctx, attachment.ID)
@@ -138,7 +150,7 @@ func TestFluoPostFlow(t *testing.T) {
 	if err != nil || referenced {
 		t.Fatalf("deleted media reference = %t, %v", referenced, err)
 	}
-	if _, err := store.Create(ctx, a.ID, fluo.NewPost{Content: content, Visibility: "public"}, "hello", []fluo.Media{attachment}); !errors.Is(err, fluo.ErrMediaOwner) {
+	if _, err := store.Create(ctx, a.ID, input(a.ID, "public", nil, nil), "", []fluo.Media{attachment}); !errors.Is(err, fluo.ErrMediaOwner) {
 		t.Fatalf("retired media was reused after its last reference was deleted: %v", err)
 	}
 	var retired bool
@@ -173,20 +185,10 @@ func TestFluoPostFlow(t *testing.T) {
 	if err != nil || remaining.QuoteID != nil || !remaining.QuoteDeleted || remaining.Quote != nil {
 		t.Fatalf("deleted quote reference = %+v, %v", remaining, err)
 	}
-	literal, err := store.Create(ctx, a.ID, fluo.NewPost{Content: content, Visibility: "public"}, `literal %_\ marker`, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, query := range []string{"%", "_", `\`} {
-		matches, err := store.List(ctx, fluo.ListOptions{ViewerID: b.ID, Feed: "latest", Search: query, Limit: 20})
-		if err != nil || len(matches.Items) != 1 || matches.Items[0].ID != literal.ID {
-			t.Fatalf("literal search for %q = %+v, %v", query, matches, err)
-		}
-	}
 	// The final delete and a new reference can commit in either order. Both
 	// outcomes must be safe: a successful creation retains the bytes, while a
 	// retired claim rejects creation before Nodo can purge them.
-	concurrentMedia := fluo.Media{ID: "01999111-2222-7333-8444-555555555553", Kind: "image", MimeType: "image/png", Width: 8, Height: 6, Size: 80}
+	concurrentMedia := fluo.Media{ID: "01999111-2222-7333-8444-555555555553", Kind: "file", MimeType: "application/octet-stream", Size: 80}
 	first := makePost(a.ID, "public", nil, nil, []fluo.Media{concurrentMedia})
 	start := make(chan struct{})
 	deleted := make(chan error, 1)
@@ -202,7 +204,7 @@ func TestFluoPostFlow(t *testing.T) {
 	}()
 	go func() {
 		<-start
-		post, err := store.Create(ctx, a.ID, fluo.NewPost{Content: content, Visibility: "public"}, "hello", []fluo.Media{concurrentMedia})
+		post, err := store.Create(ctx, a.ID, input(a.ID, "public", nil, nil), "", []fluo.Media{concurrentMedia})
 		created <- createResult{post, err}
 	}()
 	close(start)

@@ -5,8 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/go-chi/chi/v5"
@@ -21,10 +19,6 @@ func readPageOptions(r *http.Request, viewerID string, parentID *string) (fluo.L
 	if feed != "latest" && feed != "following" && feed != "mine" && feed != "saved" {
 		return fluo.ListOptions{}, errors.New("feed must be latest, following, mine or saved")
 	}
-	search := strings.TrimSpace(query.Get("q"))
-	if utf8.RuneCountInString(search) > 100 || (search != "" && utf8.RuneCountInString(search) < 2) {
-		return fluo.ListOptions{}, errors.New("search must contain between 2 and 100 characters")
-	}
 	limit, err := parseFluoPageLimit(query.Get("limit"))
 	if err != nil {
 		return fluo.ListOptions{}, err
@@ -33,7 +27,7 @@ func readPageOptions(r *http.Request, viewerID string, parentID *string) (fluo.L
 	if err != nil {
 		return fluo.ListOptions{}, err
 	}
-	options := fluo.ListOptions{ViewerID: viewerID, ParentID: parentID, Feed: feed, Search: search, Limit: limit, Cursor: cursor}
+	options := fluo.ListOptions{ViewerID: viewerID, ParentID: parentID, Feed: feed, Limit: limit, Cursor: cursor}
 	if authorID := query.Get("authorId"); authorID != "" {
 		if !fluo.ValidID(authorID) {
 			return fluo.ListOptions{}, errors.New("invalid profile account ID")

@@ -8,6 +8,7 @@ export const appPaths = {
   fluo: '/fluo/',
   rondo: '/rondo/',
   lingvo: '/lingvo/',
+  memoro: '/memoro/',
   regado: '/regado/'
 } as const satisfies Record<string, RootRelativePath>;
 

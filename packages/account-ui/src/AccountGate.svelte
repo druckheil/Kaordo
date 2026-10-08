@@ -6,7 +6,6 @@
   import { AppHeader, Button, ShieldCheckIcon } from '@kaordo/ui';
   import { createAccountSessionController, initialAccountSnapshot } from './session.js';
   import { readAccountPreview, type AccountPreview } from './session-preview.js';
-  import UserPresentationProvider from './UserPresentationProvider.svelte';
 
   let {
     appName,
@@ -94,9 +93,15 @@
 
 {#if snapshot.user}
   {#key snapshot.user.id}
-    <UserPresentationProvider apiBaseUrl={environment.VITE_KAORDO_API_URL ?? ''} userId={snapshot.user.id}>
-      {@render children(snapshot.user)}
-    </UserPresentationProvider>
+    {#await import('./AuthenticatedAccount.svelte')}
+      <section role="status" class="mx-auto max-w-md px-6 py-12 text-center text-sm text-muted-foreground">Opening {appName}…</section>
+    {:then { default: AuthenticatedAccount }}
+      <AuthenticatedAccount user={snapshot.user} {appName} {embedded} {environment}>
+        {@render children(snapshot.user)}
+      </AuthenticatedAccount>
+    {:catch}
+      <section role="alert" class="mx-auto max-w-lg px-6 py-12 text-center"><h1 class="text-xl font-semibold">Device access could not load</h1><p class="mt-3 text-sm text-muted-foreground">Reload this page to try again.</p><Button class="mt-4" variant="outline" onclick={() => window.location.reload()}>Reload</Button></section>
+    {/await}
   {/key}
 {:else if embedded || compact}
   {@render accountState()}

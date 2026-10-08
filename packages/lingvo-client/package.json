@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
+    "./private-dictionary": { "types": "./src/private-dictionary.ts", "default": "./src/private-dictionary.ts" },
     "./scheduler": { "types": "./src/scheduler.ts", "default": "./src/scheduler.ts" },
     "./csv": { "types": "./src/csv.ts", "default": "./src/csv.ts" },
     "./ai-input": { "types": "./src/ai-input.ts", "default": "./src/ai-input.ts" }

@@ -18,16 +18,6 @@
 
 <div class="flex flex-wrap justify-end gap-2">
 	{#if account.id !== currentUserId}
-		<Button
-			size="xs"
-			variant="outline"
-			onclick={() =>
-				onIntent({
-					type: "case",
-					id: account.id,
-					name: account.username,
-				})}>Access case</Button
-		>
 		{#if !account.isAdmin}
 			<Button
 				size="xs"

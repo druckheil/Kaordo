@@ -26,15 +26,13 @@
     "@kaordo/account-ui": "workspace:*",
     "@kaordo/api-client": "workspace:*",
     "@kaordo/contracts": "workspace:*",
+    "@kaordo/editor-ui": "workspace:*",
     "@kaordo/links": "workspace:*",
     "@kaordo/media-client": "workspace:*",
     "@kaordo/media-ui": "workspace:*",
     "@kaordo/ui": "workspace:*",
     "@tanstack/svelte-query": "^6.3.0",
     "@tanstack/svelte-virtual": "^3.13.39",
-    "@tiptap/core": "^3.31.3",
-    "@tiptap/extension-file-handler": "^3.31.3",
-    "@tiptap/extension-placeholder": "^3.31.3",
-    "@tiptap/starter-kit": "^3.31.3"
+    "@tiptap/core": "^3.31.3"
   }
 }

@@ -9,6 +9,7 @@ export { Slider } from './components/ui/slider/index.js';
 // Shared application shells
 export { default as ModuleLanding } from './ModuleLanding.svelte';
 export { default as AppHeader } from './AppHeader.svelte';
+export { headerActionsContext, type HeaderActions } from './header-actions.js';
 export { default as ThemeProvider } from './ThemeProvider.svelte';
 export { default as ThemeToggle } from './ThemeToggle.svelte';
 export { default as AgordojLink } from './AgordojLink.svelte';
@@ -17,6 +18,8 @@ export { withIdentityAppearance } from './themes/identity-appearance.js';
 
 // Composite interaction components
 export { IsUsingKeyboard } from 'bits-ui';
+export { Calendar } from 'bits-ui';
+export { Label, Checkbox } from 'bits-ui';
 export * as Dialog from './components/ui/dialog/index.js';
 export * as AlertDialog from './components/ui/alert-dialog/index.js';
 export * as ContextMenu from './components/ui/context-menu/index.js';

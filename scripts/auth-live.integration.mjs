@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseEnv, promisify } from 'node:util';
 import { assertAccessible as checkAccessibility } from './ui-accessibility.mjs';
+import { openPublishedPost } from './encryption-fixture.mjs';
 import { test, expect } from '@playwright/test';
 
 const run = promisify(execFile);
@@ -101,6 +102,33 @@ function isApiResponse(response, path, method) {
 
 function isApiRequest(request, path, method) {
   return hasApiPath(request.url(), path) && request.method() === method;
+}
+
+// Cloned fetch bodies are streamed, so network events omit them; route interception still sees the bytes
+const ciphertextBodies = new WeakMap();
+async function recordCiphertextCommits(page) {
+  await page.route('**/v1/crypto/records/commit', async (route) => {
+    ciphertextBodies.set(route.request(), route.request().postDataJSON());
+    await route.continue();
+  });
+}
+
+async function inspectCiphertextCommit(response, purpose, expectedWrites) {
+  assert.equal(response.status(), 200, `${purpose} must persist an atomic ciphertext transaction`);
+  const input = ciphertextBodies.get(response.request());
+  assert.ok(input, `${purpose} must send an observable ciphertext transaction`);
+  assert.equal(input.writes.length, expectedWrites);
+  assert.deepEqual(input.deletes, []);
+  const result = await response.json();
+  assert.equal(result.items.length, expectedWrites);
+  for (const write of input.writes) {
+    assert.match(write.tag, /^[0-9a-f]{64}$/);
+    assert.equal(Buffer.from(write.nonce, 'base64').length, 12);
+    assert.ok(Buffer.from(write.ciphertext, 'base64').length >= 16);
+    assert.equal(result.items.find(item => item.tag === write.tag)?.revision, write.revision + 1,
+      `${purpose} must preserve compare-and-swap revisions`);
+  }
+  return { input, result };
 }
 
 async function openPostFromCardGap(page, card, username, postText) {
@@ -694,7 +722,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame()) mainNavigations.push(frame.url());
     });
-    for (const app of ['ligo', 'fluo', 'rondo', 'lingvo', 'regado']) {
+    for (const app of ['ligo', 'fluo', 'rondo', 'lingvo', 'memoro', 'regado']) {
       await test.step(`${app} SSO, access and product interactions`, async () => {
         if (app === 'ligo') {
           await checkCachedPreview(page, () => page.goto(`${site}/${app}/`), `Welcome back, ${username}.`);
@@ -711,6 +739,8 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
           await page.getByRole('navigation', { name: 'Servers' }).waitFor();
         } else if (app === 'lingvo') {
           await page.getByRole('button', { name: 'Open my dictionary', exact: true }).waitFor();
+        } else if (app === 'memoro') {
+          await page.getByRole('heading', { name: 'Memoro', exact: true }).waitFor();
         } else {
           await page.getByRole("heading", { name: "Administrator access required", exact: true }).waitFor();
         }
@@ -721,34 +751,35 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
         await checkAccessibility(page, `${app} at 320px`);
         await page.setViewportSize({ width: 1280, height: 720 });
         if (app === 'lingvo') {
+          await recordCiphertextCommits(page);
           await page.getByRole('radiogroup', { name: 'My native language' }).getByRole('radio', { name: /English/ }).check();
-          const dictionaryResponse = page.waitForResponse(response => isApiResponse(response, '/v1/lingvo/dictionaries', 'POST'));
+          const dictionaryResponse = page.waitForResponse(response => isApiResponse(response, '/v1/crypto/records/commit', 'POST'));
           await page.getByRole('button', { name: 'Open my dictionary', exact: true }).click();
           const createdDictionary = await dictionaryResponse;
-          assert.equal(createdDictionary.status(), 201, 'A language pair must create a private dictionary');
-          const dictionary = await createdDictionary.json();
-          assert.equal(dictionary.learningLanguage, 'de');
-          assert.equal(dictionary.nativeLanguage, 'en');
+          await inspectCiphertextCommit(createdDictionary, 'Creating a language pair', 2);
           await page.getByRole('button', { name: 'Add card', exact: true }).click();
+          assert.match(new URL(page.url()).searchParams.get('dictionary') ?? '', /^[0-9a-f-]{36}$/i,
+            'A language pair must have a stable dictionary link');
+          await expect(page.getByRole('button', { name: 'Select language pair' })).toContainText('German');
+          await expect(page.getByRole('button', { name: 'Select language pair' })).toContainText('English');
           const editor = page.getByRole('dialog', { name: 'Add a card', exact: true });
           await editor.getByLabel('German word', { exact: true }).fill('Buch');
           await editor.getByLabel('English translation', { exact: true }).fill('book');
           await editor.getByRole('button', { name: 'Part of speech', exact: true }).click();
           await page.getByRole('menuitemradio', { name: 'Noun', exact: true }).click();
           await editor.getByRole('radiogroup', { name: 'Article', exact: true }).getByRole('radio', { name: 'das', exact: true }).check();
-          const cardResponse = page.waitForResponse(response => isApiResponse(response, `/v1/lingvo/dictionaries/${dictionary.id}/cards`, 'POST'));
+          const cardResponse = page.waitForResponse(response => isApiResponse(response, '/v1/crypto/records/commit', 'POST'));
           await editor.getByRole('button', { name: 'Add card', exact: true }).click();
           const createdCard = await cardResponse;
-          assert.equal(createdCard.status(), 201, 'The editor must persist a complete German card');
-          const card = await createdCard.json();
-          assert.equal(card.article, 'das');
-          assert.equal(card.translation, 'book');
-          assert.equal(card.schedule.reps, 0);
+          const cardCommit = await inspectCiphertextCommit(createdCard, 'Creating a German card', 2);
+          const cardRecord = cardCommit.input.writes.find(write => write.revision === 0);
+          assert.ok(cardRecord, 'Creating a card must add a new encrypted record');
           await editor.waitFor({ state: 'detached' });
           const navigation = page.getByRole('navigation', { name: 'Lingvo', exact: true });
           await navigation.getByRole('link', { name: 'My dictionary', exact: true }).click();
           await page.getByRole('heading', { name: 'My dictionary', exact: true }).waitFor();
           await page.getByText('book', { exact: true }).waitFor();
+          await expect(page.getByText('das', { exact: true })).toBeVisible();
           await page.reload();
           await page.getByText('book', { exact: true }).waitFor();
           await expect(page.getByText('1 word', { exact: true })).toBeVisible();
@@ -756,23 +787,49 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
           await navigation.getByRole('link', { name: 'Learn words', exact: true }).click();
           await page.getByRole('button', { name: /^Start learning/ }).click();
           await page.getByRole('button', { name: 'Show answer', exact: true }).click();
-          const reviewResponse = page.waitForResponse(response => isApiResponse(response, `/v1/lingvo/dictionaries/${dictionary.id}/cards/${card.id}/reviews`, 'POST'));
+          const reviewResponse = page.waitForResponse(response => isApiResponse(response, '/v1/crypto/records/commit', 'POST'));
           await page.getByRole('button', { name: /^Good ·/ }).click();
           const savedReview = await reviewResponse;
-          assert.equal(savedReview.status(), 200, 'Practice must save an authoritative review');
-          const review = await savedReview.json();
-          assert.equal(review.card.schedule.reps, 1);
-          assert.ok(review.card.revision > card.revision);
+          const reviewCommit = await inspectCiphertextCommit(savedReview, 'Saving a local FSRS review', 4);
+          assert.equal(reviewCommit.result.items.find(item => item.tag === cardRecord.tag)?.revision, 2);
           await page.getByRole('heading', { name: 'Good work for today.', exact: true }).waitFor();
-          const undoResponse = page.waitForResponse(response => isApiResponse(response, `/v1/lingvo/dictionaries/${dictionary.id}/reviews/${review.id}/undo`, 'POST'));
+          const undoResponse = page.waitForResponse(response => isApiResponse(response, '/v1/crypto/records/commit', 'POST'));
           await page.getByRole('button', { name: 'Undo', exact: true }).click();
           const undoneReview = await undoResponse;
-          assert.equal(undoneReview.status(), 200, 'Undo must restore the persisted card schedule');
-          const restored = await undoneReview.json();
-          assert.equal(restored.schedule.reps, 0);
-          assert.equal(restored.term, 'Buch');
+          const undoCommit = await inspectCiphertextCommit(undoneReview, 'Undoing a persisted review', 3);
+          assert.equal(undoCommit.result.items.find(item => item.tag === cardRecord.tag)?.revision, 3);
           await page.getByRole('button', { name: 'Show answer', exact: true }).waitFor();
+          await expect(page.getByRole('group', { name: 'Question', exact: true })).toContainText('Buch');
           await checkAccessibility(page, 'Lingvo restored flashcard practice');
+        }
+        if (app === 'memoro') {
+          // Day writes are observed in transit: Kerno must receive only ciphertext for tasks and the journal.
+          const dayWrites = [];
+          await page.route('**/v1/memoro/days/*', async (route) => {
+            if (route.request().method() === 'PUT') dayWrites.push(route.request().postData() ?? '');
+            await route.continue();
+          });
+          const savedDay = () => page.waitForResponse((response) => response.url().includes('/v1/memoro/days/') && response.request().method() === 'PUT');
+          await page.getByRole('button', { name: 'Add task', exact: true }).click();
+          const taskDialog = page.getByRole('dialog', { name: 'Add task' });
+          await taskDialog.getByRole('textbox', { name: 'Task text' }).fill('Buy fresh bread');
+          const taskSaved = savedDay();
+          await taskDialog.getByRole('button', { name: 'Add task', exact: true }).click();
+          assert.ok((await taskSaved).ok(), 'A Memoro task must be saved');
+          await taskDialog.waitFor({ state: 'detached' });
+          const journal = page.getByRole('textbox', { name: 'Daily journal text' });
+          await journal.fill('A calm and private day.');
+          const journalSaved = savedDay();
+          await page.getByRole('button', { name: 'Save entry', exact: true }).click();
+          assert.ok((await journalSaved).ok(), 'A Memoro journal entry must be saved');
+          assert.equal(dayWrites.length, 2);
+          assert.ok(dayWrites.every((body) => body && !body.includes('fresh bread') && !body.includes('private day')),
+            'Memoro must send only encrypted day documents');
+          await page.unroute('**/v1/memoro/days/*');
+          await page.reload();
+          await page.getByText('Buy fresh bread', { exact: true }).waitFor();
+          await expect(page.getByRole('textbox', { name: 'Daily journal text' })).toContainText('A calm and private day.');
+          await checkAccessibility(page, 'Memoro saved day');
         }
         if (app === 'rondo') {
           await page.getByRole('button', { name: 'Create server' }).click();
@@ -914,12 +971,13 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
               ? Array.from({ length: 16 }, (_, line) => `Scroll row ${index + 1}, line ${line + 1}`).join('\n')
               : index % 3 === 1 ? `Scroll row ${index + 1}: ${'different message heights '.repeat(8)}`
                 : `Scroll row ${index + 1}`;
-            const response = await fetch(`http://localhost:8081/v1/ligo/conversations/${conversationId}/messages`, {
-              method: 'POST',
-              headers: { Authorization: bearer, Origin: site, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ clientId: randomUUID(), text: body, attachmentIds: [] })
-            });
-            assert.equal(response.status, 201, `Scrollable message ${index + 1} must be created`);
+            const response = page.waitForResponse(response => isApiResponse(response, `/v1/ligo/conversations/${conversationId}/messages`, 'POST'));
+            await page.getByRole('textbox', { name: 'Write a message' }).fill(body);
+            await page.getByRole('button', { name: 'Send message' }).click();
+            const created = await response;
+            assert.equal(created.status(), 201, `Scrollable message ${index + 1} must be created`);
+            assert.match((await created.json()).text, /^kaordo:e2ee:v1:/, 'Kerno stores only the message ciphertext');
+            await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveValue('');
           }
           await page.reload();
           await page.getByRole('log', { name: 'Messages' }).waitFor({ state: 'visible' });
@@ -1136,6 +1194,20 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
     });
     const postBearer = (await publishedResponse.request().allHeaders()).authorization;
     assert.match(postBearer ?? '', /^Bearer /, 'Publishing must carry the signed-in account');
+    const identityResponse = await fetch('http://localhost:8081/v1/crypto/identity', {
+      headers: { Authorization: postBearer, Origin: site }
+    });
+    assert.equal(identityResponse.status, 200);
+    const { signingPublicKey } = (await identityResponse.json()).identity;
+    // Public posts are readable by anyone holding the published audience keys, including the server operator.
+    const openPublicPost = async (value) => {
+      const envelope = typeof value === 'string' ? JSON.parse(value.slice('kaordo:fluo:v1:'.length)) : value;
+      const refs = envelope.keyring.map((ref) => `${ref.ownerId}:${ref.version}`).join(',');
+      const keys = await fetch(`http://localhost:8081/v1/fluo/keys?refs=${encodeURIComponent(refs)}`, { headers: { Authorization: postBearer, Origin: site } });
+      assert.equal(keys.status, 200);
+      return openPublishedPost(envelope, signingPublicKey, (await keys.json()).items);
+    };
+    const publishedPost = await publishedResponse.json();
     await composer.waitFor({ state: 'detached' });
     const publishedCard = page.locator('article[data-post-id]').filter({ hasText: postText });
     await publishedCard.waitFor();
@@ -1273,10 +1345,14 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
       const videoPost = await videoPostResponse.json();
       await videoComposer.waitFor({ state: 'detached' });
       videoPostId = videoPost.id;
-      assert.equal(videoPost.media[0].kind, 'video');
-      assert.equal(videoPost.media[0].width, 320);
-      assert.equal(videoPost.media[0].height, 180);
+      const videoContent = await openPublicPost(videoPost.content);
+      assert.equal(videoContent.media[0].kind, 'video');
+      assert.equal(videoContent.media[0].width, 320);
+      assert.equal(videoContent.media[0].height, 180);
+      assert.equal(videoPost.media[0].kind, 'file', 'The server must retain opaque file metadata');
+      assert.equal(videoPost.media[0].width, 0);
       const videoCard = page.locator(`article[data-post-id="${videoPost.id}"]`);
+      await videoCard.getByRole('button', { name: 'Load encrypted video', exact: true }).click();
       const videoPlayer = videoCard.locator('media-player[data-testid="fluo-video-player"]');
       await videoPlayer.waitFor();
       const video = videoPlayer.locator('video');
@@ -1307,7 +1383,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
     const search = page.getByRole('searchbox', { name: 'Search posts' });
     const searchResponsePromise = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return url.pathname === '/v1/fluo/posts' && url.searchParams.get('q') === postText;
+      return url.pathname === '/v1/fluo/posts' && !url.searchParams.has('q');
     });
     await search.fill(postText);
     const searchResponse = await searchResponsePromise;
@@ -1405,8 +1481,10 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
     assert.equal(quotedPost.quote?.id, postId,
       `The new post must reference the quoted post: ${JSON.stringify({ quoteId: quotedPost.quoteId, quote: quotedPost.quote, source: postId })}`);
     assert.equal(quotedPost.quote.media.length, 4, 'A quoted post must include its original media');
-    assert.equal(quotedPost.quote.media[0].altText, 'A solid black test image',
+    const quotedContent = await openPublicPost(quotedPost.quote.text);
+    assert.equal(quotedContent.media[0].altText, 'A solid black test image',
       'Quoted media must retain the original accessible description');
+    assert.equal(quotedPost.quote.media[0].altText, '', 'Attachment descriptions must stay inside ciphertext');
     assert.ok(quotedPost.quote.media.every((item) => item.url.startsWith('http')),
       'Quoted media must have signed URLs');
     const quoteCard = page.locator(`article[data-post-id="${quotedPost.id}"]`);
@@ -1460,7 +1538,8 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
     await page.waitForFunction(() => window.scrollY === 0);
     await capture(page, 'fluo');
     await checkAccessibility(page, 'Fluo feed with media, reply and quote');
-    for (const item of media) {
+    assert.ok(media.every((item) => item.url.startsWith('blob:')), 'Images render from device-decrypted copies');
+    for (const item of publishedPost.media) {
       assert.equal((await fetch(item.url)).status, 200, 'published media must be available with its signed URL');
     }
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1534,7 +1613,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
     })).status, 404, 'the deleted post must be absent from Kerno');
     await card.waitFor({ state: 'detached' });
     assert.deepEqual(pageErrors, [], 'The Fluo feed must render without browser exceptions after deletion');
-    for (const item of media) {
+    for (const item of publishedPost.media) {
       assert.equal((await fetch(item.url)).status, 404,
         'deleting a post must purge its media, even while the former signed URL is valid');
     }

@@ -1,4 +1,4 @@
-// Validates image dimensions and resizes large uploads in the browser
+// Validates and re-encodes browser images to remove metadata and bound their dimensions
 import pica from 'pica';
 
 export const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
@@ -19,7 +19,6 @@ export async function prepareImage(file: File): Promise<File> {
   const bitmap = await createImageBitmap(file);
   try {
     validateImageDimensions(bitmap, file.name);
-    if (!needsResizing(file, bitmap)) return file;
     return await resizeImage(file, bitmap);
   } finally {
     bitmap.close();
@@ -35,11 +34,6 @@ function validateImageDimensions(bitmap: ImageBitmap, fileName: string): void {
   }
 }
 
-function needsResizing(file: File, bitmap: ImageBitmap): boolean {
-  const longestDimension = Math.max(bitmap.width, bitmap.height);
-  return longestDimension > maximumOutputDimension || file.size > MAX_IMAGE_SIZE;
-}
-
 async function resizeImage(file: File, bitmap: ImageBitmap): Promise<File> {
   const scale = Math.min(1, maximumOutputDimension / Math.max(bitmap.width, bitmap.height));
   const outputWidth = Math.max(1, Math.round(bitmap.width * scale));
@@ -50,9 +44,9 @@ async function resizeImage(file: File, bitmap: ImageBitmap): Promise<File> {
   if (!sourceContext) throw new Error(`Could not process ${file.name}.`);
   sourceContext.drawImage(bitmap, 0, 0);
 
-  const target = createCanvas(outputWidth, outputHeight);
+  const target = scale === 1 ? source : createCanvas(outputWidth, outputHeight);
   const scaler = pica();
-  await scaler.resize(source, target);
+  if (target !== source) await scaler.resize(source, target);
 
   const quality = file.type === 'image/jpeg' ? jpegQuality : undefined;
   const blob = await scaler.toBlob(target, file.type, quality);

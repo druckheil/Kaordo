@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/go-chi/chi/v5"
 )
@@ -75,10 +76,17 @@ func (h ligoHandler) createConversation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var input ligo.NewConversation
-	if !decodeBody(w, r, &input) {
+	if !decodeBodyLimit(w, r, &input, 1<<20) {
 		return
 	}
 	input.Title = strings.TrimSpace(input.Title)
+	if input.Kind == "group" {
+		envelope, err := encryption.ParseText(input.Title)
+		if err != nil || !encryption.ValidID(input.ID) || envelope.Context != "ligo-group:"+input.ID {
+			writeError(w, http.StatusBadRequest, "Group names must be encrypted on your device.")
+			return
+		}
+	}
 	if !validNewConversation(input) {
 		writeError(w, http.StatusBadRequest, "Choose a private note, one person for a direct chat, or a title and up to 24 people for a group.")
 		return
@@ -107,6 +115,10 @@ func validConversationKind(input ligo.NewConversation) bool {
 	case "duo":
 		return len(input.ParticipantIDs) == 1 && input.Title == ""
 	case "group":
+		if strings.HasPrefix(input.Title, encryption.TextPrefix) {
+			_, err := encryption.ParseText(input.Title)
+			return err == nil
+		}
 		titleLength := utf8.RuneCountInString(input.Title)
 		return titleLength >= 1 && titleLength <= 100
 	default:
@@ -133,15 +145,17 @@ func (h ligoHandler) addMembers(w http.ResponseWriter, r *http.Request) {
 	}
 	var input struct {
 		ParticipantIDs []string `json:"participantIds"`
+		Title          string   `json:"title"`
+		ExpectedTitle  string   `json:"expectedTitle"`
 	}
-	if !decodeBody(w, r, &input) {
+	if !decodeBodyLimit(w, r, &input, 1<<20) {
 		return
 	}
 	if !validIDs(input.ParticipantIDs, 24) {
 		writeError(w, http.StatusBadRequest, "Choose 1 to 24 distinct accounts.")
 		return
 	}
-	item, err := h.deps.Store.AddMembers(r.Context(), actor.ID, id, input.ParticipantIDs)
+	item, err := h.deps.Store.UpdateEncryptedTitle(r.Context(), actor.ID, id, input.ExpectedTitle, input.Title, input.ParticipantIDs)
 	if err != nil {
 		ligoError(w, err)
 		return

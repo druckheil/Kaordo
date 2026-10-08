@@ -1,6 +1,7 @@
 <script lang="ts">
   // Provides the shared Kaordo header and accessible app navigation
-  import type { Snippet } from 'svelte';
+  import { getContext, type Snippet } from 'svelte';
+  import { headerActionsContext, type HeaderActions } from './header-actions.js';
   import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { Button } from './components/ui/button/index.js';
@@ -28,6 +29,8 @@
     actions,
     showAllApps = true
   }: Props = $props();
+  const contextualActions = getContext<HeaderActions>(headerActionsContext);
+  const accountActions = $derived(contextualActions?.());
 
   const headerClass = $derived(
     `shrink-0 border-b border-border/80 bg-background/95 backdrop-blur-xl ${sticky ? 'sticky top-0 z-20' : ''}`
@@ -81,6 +84,7 @@
       </Button>
     {/if}
     <div class={`flex shrink-0 items-center gap-1 sm:gap-2 ${backAction ? 'col-start-2 row-start-1 xl:col-start-3' : ''}`}>
+      {@render accountActions?.()}
       {@render actions?.()}
       {#if showAllApps}
       <Button href={homeHref} rel="external" variant="ghost" size="sm" class="shrink-0" aria-label="All apps">

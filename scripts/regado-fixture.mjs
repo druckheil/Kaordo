@@ -45,14 +45,12 @@ export const test = base.extend({
 		let layoutState = "idle";
 		let layoutReads = 0;
 		let failFirstRoleChange = true;
-		let closed = false;
 		let releaseStaleLogs;
 		const staleLogGate = new Promise((resolve) => (releaseStaleLogs = resolve));
 		let staleLogsStarted;
 		const staleLogStarted = new Promise(
 			(resolve) => (staleLogsStarted = resolve),
 		);
-		const contentReads = [];
 		const now = new Date().toISOString();
 		let copyState = "complete";
 		let runningReads = 0;
@@ -81,7 +79,6 @@ export const test = base.extend({
 					uploads: 1,
 					mediaBytes: 1024,
 					databaseBytes: 10485760,
-					openCases: 0,
 					mediaByKind: [{ kind: "image", objects: 1, bytes: 1024 }],
 				};
 			else if (url.pathname.endsWith("/system")) {
@@ -482,33 +479,6 @@ export const test = base.extend({
 					output: "Storage operation started.",
 					accepted: true,
 				};
-			} else if (url.pathname.endsWith("/cases"))
-				body = {
-					id: "01999111-2222-7333-8444-555555555553",
-					targetUserId: target.id,
-					targetUsername: target.username,
-					reason: request.postDataJSON().reason,
-					createdAt: now,
-					expiresAt: new Date(Date.now() + 900000).toISOString(),
-				};
-			else if (url.pathname.endsWith("/content")) {
-				contentReads.push(url.searchParams.get("kind"));
-				body = {
-					items: [
-						{
-							id: target.id,
-							text: "Audited fixture content",
-							context: "private",
-							createdAt: now,
-							media: [],
-						},
-					],
-					nextCursor: null,
-				};
-			} else if (url.pathname.endsWith("/close")) {
-				closed = true;
-				await route.fulfill({ status: 204 });
-				return;
 			} else throw new Error(`Unmocked Regado request: ${url.pathname}`);
 			await route.fulfill({
 				contentType: "application/json",
@@ -526,10 +496,8 @@ export const test = base.extend({
 				systemActions,
 				layoutActions,
 				journalChanges,
-				contentReads,
 				staleLogStarted,
 				releaseStaleLogs,
-				isCaseClosed: () => closed,
 			});
 			expect(errors, "No client runtime errors").toEqual([]);
 		} finally {

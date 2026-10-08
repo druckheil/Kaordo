@@ -17,11 +17,13 @@ func (store *Fluo) MediaReferenced(ctx context.Context, id string) (bool, error)
 	postMedia := table.FluoPostMedia
 	messageMedia := table.LigoMessageMedia
 	profileImages := table.FluoProfileImages
+	diaryMedia := table.MemoroDayMedia
 	claims := table.NodoUploadClaims
 	uploadID := jetUUID(id)
 	err := jetQueryRow(ctx, store.pool, jetpg.SELECT(jetpg.OR(
 		jetpg.EXISTS(jetpg.SELECT(postMedia.UploadID).FROM(postMedia).WHERE(postMedia.UploadID.EQ(uploadID))),
 		jetpg.EXISTS(jetpg.SELECT(messageMedia.UploadID).FROM(messageMedia).WHERE(messageMedia.UploadID.EQ(uploadID))),
+		jetpg.EXISTS(jetpg.SELECT(diaryMedia.UploadID).FROM(diaryMedia).WHERE(diaryMedia.UploadID.EQ(uploadID))),
 		jetpg.EXISTS(jetpg.SELECT(profileImages.UploadID).FROM(profileImages).WHERE(profileImages.UploadID.EQ(uploadID))),
 		jetpg.EXISTS(jetpg.SELECT(claims.UploadID).FROM(claims).WHERE(jetpg.AND(
 			claims.UploadID.EQ(uploadID), claims.RetiredAt.IS_NULL(),
@@ -139,6 +141,13 @@ func writeFluoFollow(ctx context.Context, tx pgx.Tx, actorID, targetID string, f
 	changed, err := jetExec(ctx, tx, change)
 	if err != nil || changed.RowsAffected() == 0 {
 		return err
+	}
+	if !following {
+		// An unfollowed account loses future server access to the author's audience keys.
+		if _, err := jetExec(ctx, tx, jetpg.RawStatement(`DELETE FROM fluo_keyring_grants WHERE owner_id = #owner::uuid AND recipient_id = #recipient::uuid`,
+			jetpg.RawArgs{"#owner": actorID, "#recipient": targetID})); err != nil {
+			return err
+		}
 	}
 	return recordFollowNotification(ctx, tx, actorID, targetID, kind)
 }

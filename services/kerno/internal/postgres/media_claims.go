@@ -36,7 +36,10 @@ func retireUnreferencedUpload(ctx context.Context, tx pgx.Tx, uploadID string) (
 	postMedia := table.FluoPostMedia.AS("post_media")
 	messageMedia := table.LigoMessageMedia.AS("message_media")
 	profileImages := table.FluoProfileImages.AS("profile_images")
+	diaryMedia := table.MemoroDayMedia.AS("diary_media")
 	unused := jetpg.AND(
+		jetpg.NOT(jetpg.EXISTS(jetpg.SELECT(diaryMedia.UploadID).FROM(diaryMedia).
+			WHERE(diaryMedia.UploadID.EQ(claim.UploadID)))),
 		jetpg.NOT(jetpg.EXISTS(jetpg.SELECT(postMedia.UploadID).FROM(postMedia).
 			WHERE(postMedia.UploadID.EQ(claim.UploadID)))),
 		jetpg.NOT(jetpg.EXISTS(jetpg.SELECT(messageMedia.UploadID).FROM(messageMedia).

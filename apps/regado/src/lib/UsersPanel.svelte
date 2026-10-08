@@ -1,40 +1,26 @@
 <script lang="ts">
-	// Displays account activity, access cases, and administrator controls
+	// Displays account activity and administrator controls
 
-	import type { AdminAccessCase, AdminContentPage, AdminUser } from "@kaordo/contracts";
+	import type { AdminUser } from "@kaordo/contracts";
 	import { Button, Input, SearchIcon } from "@kaordo/ui";
 	import AccountActions from "./AccountActions.svelte";
 	import { formatBytes as bytes, formatDateTime as time } from "./regado-model";
-	import type { AdminIntent, ContentKind } from "./regado-model";
+	import type { AdminIntent } from "./regado-model";
 
 	let {
 		users,
 		search = $bindable(""),
 		sectionLoading,
-		contentLoading,
 		currentUserId,
 		onSearch,
 		onIntent,
-		caseRecord,
-		busy,
-		onCloseCase,
-		contentKind = $bindable("posts"),
-		content,
-		onLoadContent,
 	}: {
 		users: AdminUser[];
 		search?: string;
 		sectionLoading: boolean;
-		contentLoading: boolean;
 		currentUserId: string;
 		onSearch: () => void;
 		onIntent: (intent: AdminIntent) => void;
-		caseRecord: AdminAccessCase | null;
-		busy: boolean;
-		onCloseCase: () => void;
-		contentKind?: ContentKind;
-		content: AdminContentPage | null;
-		onLoadContent: () => void;
 	} = $props();
 </script>
 
@@ -129,69 +115,3 @@
 		</table>
 	</div>
 </section>
-
-{#if caseRecord}
-	<section class="mt-6 rounded-[1.4rem] border border-primary/25 bg-card p-5 sm:p-6">
-		<div class="flex flex-wrap items-start justify-between gap-3">
-			<div>
-				<p class="text-xs font-bold uppercase tracking-widest text-link">Audited access</p>
-				<h2 class="mt-1 text-xl font-bold">@{caseRecord.targetUsername}</h2>
-				<p class="mt-1 text-xs text-muted-foreground">
-					Expires {time(caseRecord.expiresAt)} · Case {caseRecord.id}
-				</p>
-			</div>
-			<Button variant="outline" disabled={busy} onclick={onCloseCase}>Close access case</Button>
-		</div>
-		<p class="mt-3 text-sm">{caseRecord.reason}</p>
-		<div class="mt-5 flex gap-2">
-			<Button
-				variant={contentKind === "posts" ? "default" : "outline"}
-				size="sm"
-				onclick={() => {
-					contentKind = "posts";
-				}}
-			>Posts</Button>
-			<Button
-				variant={contentKind === "messages" ? "default" : "outline"}
-				size="sm"
-				onclick={() => {
-					contentKind = "messages";
-				}}
-			>Sent messages</Button>
-		</div>
-		<div class="mt-5 space-y-3">
-			{#if contentLoading}
-				<p class="text-sm text-muted-foreground" role="status">Loading account content…</p>
-			{/if}
-			{#each content?.items ?? [] as item}
-				<article class="rounded-xl border border-border bg-background p-4">
-					<div class="flex justify-between gap-3 text-xs text-muted-foreground">
-						<span>{item.context}</span><time>{time(item.createdAt)}</time>
-					</div>
-					<p class="mt-2 whitespace-pre-wrap break-words text-sm">{item.text || "Media only"}</p>
-					{#if item.media.length}
-						<div class="mt-3 flex flex-wrap gap-2">
-							{#each item.media as media}
-								<a
-									class="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-link hover:underline"
-									href={media.url}
-									target="_blank"
-									rel="noopener noreferrer"
-								>{media.kind} · {bytes(media.size)} ↗</a>
-							{/each}
-						</div>
-					{/if}
-				</article>
-			{:else}
-				{#if !contentLoading}
-					<p class="text-sm text-muted-foreground">No {contentKind} in this account.</p>
-				{/if}
-			{/each}
-		</div>
-		{#if content?.nextCursor}
-			<Button class="mt-4" variant="outline" disabled={contentLoading} onclick={() => onLoadContent()}>
-				Load more
-			</Button>
-		{/if}
-	</section>
-{/if}

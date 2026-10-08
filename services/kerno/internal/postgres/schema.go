@@ -26,9 +26,13 @@ var schemaRequirements = []requiredRelation{
 	{name: "users_username_unique_idx", missing: "Unique account usernames are not installed", migration: "deploy/postgres/018_fluo_profiles.sql"},
 	{name: "ligo_conversations", missing: "Ligo tables are missing", migration: "deploy/postgres/007_ligo.sql"},
 	{name: "rondo_servers", missing: "Rondo tables are missing", migration: "deploy/postgres/010_rondo.sql"},
-	{name: "lingvo_dictionaries", missing: "Lingvo tables are missing", migration: "deploy/postgres/016_lingvo.sql"},
-	{name: "lingvo_cards_due_idx", missing: "Lingvo review queue index is missing", migration: "deploy/postgres/016_lingvo.sql"},
 	{name: "admin_audit", missing: "Regado tables are missing", migration: "deploy/postgres/011_regado.sql"},
+	{name: "crypto_devices", missing: "Encryption device tables are missing", migration: "deploy/postgres/020_end_to_end_encryption.sql"},
+	{name: "crypto_recovery", missing: "Encrypted recovery tables are missing", migration: "deploy/postgres/020_end_to_end_encryption.sql"},
+	{name: "private_records", missing: "Encrypted record tables are missing", migration: "deploy/postgres/020_end_to_end_encryption.sql"},
+	{name: "memoro_days", missing: "Memoro tables are missing", migration: "deploy/postgres/020_end_to_end_encryption.sql"},
+	{name: "fluo_keyring_grants", missing: "Fluo audience key tables are missing", migration: "deploy/postgres/020_end_to_end_encryption.sql"},
+	{name: "rondo_voice_keys", missing: "Encrypted voice tables are missing", migration: "deploy/postgres/020_end_to_end_encryption.sql"},
 }
 
 func VerifySchema(ctx context.Context, pool *pgxpool.Pool) error {

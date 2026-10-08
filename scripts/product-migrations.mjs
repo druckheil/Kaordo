@@ -14,8 +14,7 @@ export const productMigrations = [
   '013_fluo_saved_post_counts.sql',
   '014_fluo_notifications.sql',
   '015_fluo_settings.sql',
-  '016_lingvo.sql',
-  '017_lingvo_import_identity.sql',
   '018_fluo_profiles.sql',
-  '019_profile_media_claims.sql'
+  '019_profile_media_claims.sql',
+  '020_end_to_end_encryption.sql'
 ];

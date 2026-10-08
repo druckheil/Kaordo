@@ -9,11 +9,13 @@ import (
 )
 
 type Modules struct {
-	Fluo   FluoDependencies
-	Ligo   LigoDependencies
-	Rondo  RondoDependencies
-	Admin  AdminDependencies
-	Lingvo LingvoDependencies
+	Vault      VaultDependencies
+	Fluo       FluoDependencies
+	Ligo       LigoDependencies
+	Rondo      RondoDependencies
+	Admin      AdminDependencies
+	Encryption EncryptionDependencies
+	Memoro     MemoroDependencies
 }
 
 func NewRouter(verify VerifyFunc, users account.Store, modules Modules, allowedOrigins []string) http.Handler {
@@ -33,8 +35,15 @@ func NewRouter(verify VerifyFunc, users account.Store, modules Modules, allowedO
 	if admin.Store != nil {
 		mountAdmin(router, verify, users, admin)
 	}
-	if modules.Lingvo.Store != nil {
-		mountLingvo(router, verify, users, modules.Lingvo)
+	mountLingvo(router, verify, users)
+	if modules.Encryption.Store != nil {
+		mountEncryption(router, verify, users, modules.Encryption)
+	}
+	if modules.Vault.Store != nil {
+		mountVault(router, verify, users, modules.Vault)
+	}
+	if modules.Memoro.Store != nil {
+		mountMemoro(router, verify, users, modules.Memoro)
 	}
 	return router
 }

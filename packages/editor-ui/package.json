@@ -1,0 +1,17 @@
+{
+  "name": "@kaordo/editor-ui",
+  "private": true,
+  "version": "0.0.4",
+  "type": "module",
+  "exports": { ".": { "types": "./src/index.ts", "svelte": "./src/index.ts", "default": "./src/index.ts" } },
+  "dependencies": {
+    "@kaordo/contracts": "workspace:*",
+    "@kaordo/media-client": "workspace:*",
+    "@kaordo/ui": "workspace:*",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-file-handler": "^3.31.3",
+    "@tiptap/extension-placeholder": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3"
+  },
+  "peerDependencies": { "svelte": "^5.0.0" }
+}

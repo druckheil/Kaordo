@@ -94,6 +94,8 @@
   });
 
   onMount(() => {
+    // Deliver audience keys to accounts followed elsewhere before they open this author's private posts.
+    void api.syncKeys().catch(() => {});
     historySession = window.crypto.randomUUID();
     syncLocation();
     window.addEventListener('hashchange', syncLocation);

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/go-chi/chi/v5"
 )
@@ -70,6 +71,9 @@ func mountFluo(router chi.Router, verify VerifyFunc, users account.Store, deps F
 		r.Get("/posts/{id}/comments", h.comments)
 		r.Put("/posts/{id}/reaction", h.react)
 		r.Delete("/posts/{id}/reaction", h.unreact)
+		r.Get("/keyring", h.keyring)
+		r.Post("/keyring", h.updateKeyring)
+		r.Get("/keys", h.keys)
 		r.Put("/users/{id}/follow", h.follow)
 		r.Delete("/users/{id}/follow", h.unfollow)
 	})
@@ -81,6 +85,18 @@ func (h fluoHandler) actor(w http.ResponseWriter, r *http.Request) (account.User
 
 func fluoError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, encryption.ErrInvalid):
+		writeError(w, http.StatusBadRequest, "Encrypted content could not be authenticated.")
+	case errors.Is(err, encryption.ErrNotFound):
+		writeError(w, http.StatusConflict, "A recipient needs to open Kaordo on a device before encrypted content can be shared.")
+	case errors.Is(err, encryption.ErrConflict):
+		writeError(w, http.StatusConflict, "The encryption audience changed. Reload and try again.")
+	case errors.Is(err, fluo.ErrKeyringStale):
+		writeError(w, http.StatusConflict, "Your audience key changed. Try again.")
+	case errors.Is(err, fluo.ErrInvalidKeyring):
+		writeError(w, http.StatusBadRequest, "The audience key update is invalid.")
+	case errors.Is(err, fluo.ErrBranchHasReplies):
+		writeError(w, http.StatusConflict, "A private post with replies cannot be made public.")
 	case errors.Is(err, fluo.ErrNotFound):
 		writeError(w, http.StatusNotFound, "Post or account not found.")
 	case errors.Is(err, fluo.ErrInvalidRelation):

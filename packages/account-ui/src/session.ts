@@ -1,7 +1,7 @@
 // Resolves the signed-in identity and prevents stale session refreshes from publishing
 
 import { authConfigFromEnv, initializeAuth } from '@kaordo/auth';
-import { bootstrapIdentity } from '@kaordo/api-client';
+import { bootstrapIdentity } from '@kaordo/api-client/session';
 import type { UserIdentity } from '@kaordo/contracts';
 import { clearAccountPreview, rememberAccountPreview } from './session-preview.ts';
 

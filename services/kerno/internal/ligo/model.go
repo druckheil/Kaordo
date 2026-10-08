@@ -63,23 +63,31 @@ type Message struct {
 }
 
 type MessagePreview struct {
-	ID        string    `json:"id"`
-	Text      string    `json:"text"`
-	SenderID  string    `json:"senderId"`
-	Deleted   bool      `json:"deleted"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID           string    `json:"id"`
+	ClientID     string    `json:"clientId"`
+	Text         string    `json:"text"`
+	SenderID     string    `json:"senderId"`
+	Deleted      bool      `json:"deleted"`
+	SystemNotice bool      `json:"systemNotice"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 type Conversation struct {
-	ID          string          `json:"id"`
-	Kind        string          `json:"kind"`
-	Title       string          `json:"title"`
-	CreatedBy   string          `json:"createdBy"`
-	Members     []User          `json:"members"`
-	LastMessage *MessagePreview `json:"lastMessage"`
-	UnreadCount int             `json:"unreadCount"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	UpdatedAt   time.Time       `json:"updatedAt"`
+	ID          string            `json:"id"`
+	Kind        string            `json:"kind"`
+	Title       string            `json:"title"`
+	CreatedBy   string            `json:"createdBy"`
+	Members     []User            `json:"members"`
+	LastMessage *MessagePreview   `json:"lastMessage"`
+	UnreadCount int               `json:"unreadCount"`
+	CreatedAt   time.Time         `json:"createdAt"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
+	Channel     *ChannelReference `json:"channel,omitempty"`
+}
+
+type ChannelReference struct {
+	ID       string `json:"id"`
+	ServerID string `json:"serverId"`
 }
 
 type Page struct {
@@ -132,6 +140,7 @@ func parseConversationCursor(data []byte) (*ConversationCursor, error) {
 }
 
 type NewConversation struct {
+	ID             string   `json:"id"`
 	Kind           string   `json:"kind"`
 	Title          string   `json:"title"`
 	ParticipantIDs []string `json:"participantIds"`
@@ -149,7 +158,7 @@ type Store interface {
 	CreateConversation(context.Context, string, NewConversation) (Conversation, error)
 	ListConversations(context.Context, string, *ConversationCursor, int) (ConversationPage, error)
 	GetConversation(context.Context, string, string) (Conversation, error)
-	AddMembers(context.Context, string, string, []string) (Conversation, error)
+	UpdateEncryptedTitle(context.Context, string, string, string, string, []string) (Conversation, error)
 	ListMessages(context.Context, string, string, string, int) (Page, error)
 	Send(context.Context, string, string, NewMessage, []Media) (Message, error)
 	Edit(context.Context, string, string, string, string) (Message, error)

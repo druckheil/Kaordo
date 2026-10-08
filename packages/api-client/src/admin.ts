@@ -1,7 +1,7 @@
 // Provides typed administrative requests and cancellable Regado reads
 
 import type {
-  AdminAccessCase, AdminAuditEntry, AdminContentPage, AdminLogs, AdminJournal, AdminLogRetentionDays, AdminMetrics,
+  AdminAuditEntry, AdminLogs, AdminJournal, AdminLogRetentionDays, AdminMetrics,
   AdminSummary, AdminSystem, AdminUser, AdminStoragePlan, AdminLayoutRequest, paths,
 } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
@@ -45,24 +45,6 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
     },
     async audit(signal?: AbortSignal): Promise<{ items: AdminAuditEntry[] }> {
       const { data, error, response } = await client.GET('/v1/admin/audit', { signal });
-      return requireResponseData(data, error, response.status);
-    },
-    async createCase(targetUserId: string, reason: string, signal?: AbortSignal): Promise<AdminAccessCase> {
-      const { data, error, response } = await client.POST('/v1/admin/cases', {
-        body: { targetUserId, reason }, signal,
-      });
-      return requireResponseData(data, error, response.status);
-    },
-    async closeCase(id: string, signal?: AbortSignal): Promise<void> {
-      const { error, response } = await client.POST('/v1/admin/cases/{id}/close', {
-        params: { path: { id } }, signal,
-      });
-      requireResponseOk(response, error);
-    },
-    async caseContent(id: string, kind: 'posts' | 'messages', before?: string, signal?: AbortSignal): Promise<AdminContentPage> {
-      const { data, error, response } = await client.GET('/v1/admin/cases/{id}/content', {
-        params: { path: { id }, query: { kind, before } }, signal,
-      });
       return requireResponseData(data, error, response.status);
     },
     async logs(service: string, signal?: AbortSignal): Promise<AdminLogs> {

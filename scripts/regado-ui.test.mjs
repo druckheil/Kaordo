@@ -362,8 +362,8 @@ test("Regado discards obsolete log failures after switching to accounts", async 
 	).toHaveCount(0);
 });
 
-test("Regado keeps failed role changes editable and audits a private access case once", async ({
-	regado: { page, mutations, contentReads, isCaseClosed },
+test("Regado keeps failed role changes editable", async ({
+	regado: { page, mutations },
 }) => {
 	await openSection(page, "Users");
 	await page.getByRole("button", { name: "Grant admin", exact: true }).click();
@@ -383,24 +383,6 @@ test("Regado keeps failed role changes editable and audits a private access case
 		page.getByRole("button", { name: "Revoke admin", exact: true }),
 	).toBeVisible();
 	expect(mutations[0].change.isAdmin).toBe(true);
-	await page.getByRole("button", { name: "Access case", exact: true }).click();
-	await page
-		.getByRole("textbox", { name: "Reason", exact: true })
-		.fill("Investigating a documented policy violation");
-	await page.getByRole("button", { name: "Confirm", exact: true }).click();
-	await expect(
-		page.getByText("Audited fixture content", { exact: true }),
-	).toBeVisible();
-	expect(contentReads, "Opening a case fetches one audited page").toEqual([
-		"posts",
-	]);
-	await page
-		.getByRole("button", { name: "Close access case", exact: true })
-		.click();
-	await expect(
-		page.getByText("Access case closed.", { exact: true }),
-	).toBeVisible();
-	expect(isCaseClosed()).toBe(true);
 	await page.evaluate(() => document.documentElement.classList.add("dark"));
 	await settleInterface(page);
 	await accessibility(page, "Dark users");

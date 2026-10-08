@@ -1,6 +1,6 @@
 # Kaordo
 
-Kaordo is being rebuilt as independent applications in one repository. Local account registration and sign-in use Keycloak, TOTP, and a shared Kerno identity API. Fluo has a social feed with posts, interactions, and photo/video uploads through Nodo. Ligo has direct and group chats, message reactions and file attachments. Rondo has community servers, text channels and local LiveKit rooms for voice, camera and screen sharing. Lingvo has private German dictionaries, vocabulary flashcards and phrase practice with FSRS scheduling. Regado provides administrator-only account, audit, storage, service-log and system views.
+Kaordo is being rebuilt as independent applications in one repository. Local account registration and sign-in use Keycloak, TOTP, and a shared Kerno identity API. Fluo has social posts, profiles and activity notifications. Ligo has direct and group chats. Rondo has communities, text channels and LiveKit calls. Lingvo has private German dictionaries and FSRS practice. Memoro has a calendar, daily tasks and a journal. Regado provides administrator-only account, audit, storage, service-log and system views. Content encryption, device approval and offline recovery are described in the [encryption guide](docs/encryption.md).
 
 ## Layout
 
@@ -11,9 +11,12 @@ Kaordo is being rebuilt as independent applications in one repository. Local acc
 | `apps/fluo` | Social frontend |
 | `apps/rondo` | Community frontend |
 | `apps/lingvo` | Language-learning frontend |
+| `apps/memoro` | Encrypted calendar, tasks and journal |
 | `apps/regado` | Administration frontend |
 | `packages/ui` | Shared STaSBRL components with the Rhea style |
-| `packages/lingvo-client` | German cards, phrase practice, speech, CSV and ts-fsrs interval previews |
+| `packages/lingvo-client` | Encrypted dictionaries, German practice, speech, CSV and authoritative ts-fsrs scheduling |
+| `packages/crypto` | Device-held keys, signed content, encrypted media and offline recovery |
+| `packages/editor-ui`, `memoro-client` | Shared rich editor and encrypted daily documents |
 | `packages/auth`, `api-client`, `account-ui`, `chat-ui`, `contracts`, `crypto`, `links`, `media-client`, `media-ui`, `voice-client` | Shared authentication, typed API, account and chat UI, contracts, links, media upload, and LiveKit client |
 | `services/kerno` | Go API and metadata coordinator |
 | `services/nodo` | Go file storage and tus uploads |
@@ -21,7 +24,7 @@ Kaordo is being rebuilt as independent applications in one repository. Local acc
 | `services/regado-agent` | Restricted Linux monitoring and maintenance over a Unix socket |
 | `deploy` | Local Compose and production NixOS profiles |
 
-Every frontend is a separate SvelteKit static build. `build:pages` assembles them under one Pages artifact: `/`, `/ligo/`, `/fluo/`, `/rondo/`, `/lingvo/`, and `/regado/`. The UI package owns shadcn-svelte components, Bits UI primitives, Lucide icons, and the official Rhea preset. The rightmost header control opens `/agordoj/`, where users select Deep Purple (the default), Discord, Leadgen, Lara, Damon, Party Rock or Japan Blues. The shared theme and independent light/dark mode persist across navigation, reload and tabs; the initial mode follows the operating system.
+Every frontend is a separate SvelteKit static build. `build:pages` assembles them under one Pages artifact: `/`, `/ligo/`, `/fluo/`, `/rondo/`, `/lingvo/`, `/memoro/`, and `/regado/`. The UI package owns shadcn-svelte components, Bits UI primitives, Lucide icons, and the official Rhea preset. The rightmost header control opens `/agordoj/`, where users select Deep Purple (the default), Discord, Leadgen, Lara, Damon, Party Rock or Japan Blues. The shared theme and independent light/dark mode persist across navigation, reload and tabs; the initial mode follows the operating system.
 
 ## Run locally
 
@@ -32,11 +35,12 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:8765/register/` to create an account or `http://localhost:8765/login/` to sign in. After signing in, open `/fluo/`, `/ligo/`, `/rondo/` or `/lingvo/` on the same origin. The command creates ignored local configuration if missing, starts PostgreSQL, Keycloak and LiveKit, applies the application migrations, builds Kerno and Nodo, then starts six Vite development servers behind one local origin. Frontend edits update through Vite HMR without restarting `pnpm dev`; adding an application or changing Go code requires a restart. The production build remains static. Install `ffmpeg` and `ffprobe` to process videos. Press Ctrl+C to stop Kerno, Nodo and the frontend servers, or run `pnpm dev:stop` from another terminal to stop those processes and the Docker containers together. For a static frontend-only preview, use `pnpm dev:web`; account and product actions need the full stack.
+Open `http://localhost:8765/register/` to create an account or `http://localhost:8765/login/` to sign in. After signing in, open `/fluo/`, `/ligo/`, `/rondo/`, `/lingvo/` or `/memoro/` on the same origin. The command creates ignored local configuration if missing, starts PostgreSQL, Keycloak and LiveKit, applies the application migrations, builds Kerno and Nodo, then starts seven Vite development servers behind one local origin. Frontend edits update through Vite HMR without restarting `pnpm dev`; adding an application or changing Go code requires a restart. The production build remains static. Install `ffmpeg` and `ffprobe` for legacy video processing; encrypted media preparation happens on the device. Press Ctrl+C to stop Kerno, Nodo and the frontend servers, or run `pnpm dev:stop` from another terminal to stop those processes and the Docker containers together. For a static frontend-only preview, use `pnpm dev:web`; account and product actions need the full stack.
 
 The [local setup details](deploy/local/README.md) describe the services and configuration. Database and administrator passwords stay in the ignored `deploy/local/.env`.
 
 The [Lingvo guide](apps/lingvo/README.md) describes language pairs, learning modes, the original starter library, imports and scheduler ownership.
+The [Memoro guide](apps/memoro/README.md) describes daily documents, calendar indicators and media handling.
 
 The [technical specification](docs/kaordo-technical-spec.txt) defines the identity and token contract.
 `packages/contracts/openapi.yaml` generates the shared TypeScript API types with `pnpm --filter @kaordo/contracts generate`.
@@ -74,7 +78,9 @@ The [CI guide](docs/ci.md) defines GitHub job ownership, local reproduction, cac
 
 The [NixOS production profile](deploy/nixos/README.md) uses Caddy HTTPS at `kaordo.link`, Namecheap DDNS, LiveKit, Prometheus/Node Exporter and the restricted Regado agent. Production Data1 mirrors data and metadata across two physical disks; NixOS has one separate 64 GiB root. The local Compose profile has no public TURN/TLS, Linux agent or Prometheus. Regado remains accessible only by direct route and database administrator role; it is absent from the public app directory.
 
-Messages/posts and media are not end-to-end encrypted, and user/system escrow keys do not exist. Regado's audited time-limited content access is not key recovery. RAID1 does not replace independent backups; an external restic destination, recoverable key copy and schedule remain operator requirements. Fluo activity notifications have persistent read state and per-event preferences; Fluo also supports account privacy and hidden likes. Broader notifications and other account settings are unfinished. Cloudflare and Synapse integrations are reserved rather than active in the NixOS profile.
+User content is encrypted on the device. Private content keys are delivered only to approved accounts/devices; public Fluo accounts and public communities are readable by their public audience, and profiles remain public presentation. Regado has no content-access or key-escrow workflow. Routing, identity, access and activity metadata remain server-visible. Deploying this scope discards earlier plaintext content once; older backups require a separate retention policy. This code has not been deployed. Browser-delivered encryption does not protect against a server operator replacing the client code; see the [threat model and rollout boundaries](docs/encryption.md).
+
+RAID1 does not replace independent backups; an external restic destination, recoverable key copy and schedule remain operator requirements. Fluo activity notifications have persistent read state and per-event preferences; Fluo also supports account privacy and hidden likes. Broader notifications and other account settings are unfinished. Cloudflare and Synapse integrations are reserved rather than active in the NixOS profile.
 
 The complete previous codebase and Git history are preserved outside this repository at `/Users/druckheil/Projects/Archive/Kaordo-before-0.0.1`.
 

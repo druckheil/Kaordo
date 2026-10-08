@@ -1,7 +1,9 @@
 package httpapi
 
+// Exercises encrypted post routing, attachment ownership and signed media links
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
 	"github.com/druckheil/Kaordo/services/mediaauth"
@@ -28,7 +31,7 @@ type fluoStoreStub struct {
 func (store *fluoStoreStub) Create(_ context.Context, actor string, input fluo.NewPost, text string, media []fluo.Media) (fluo.Post, error) {
 	store.created++
 	store.lastMedia = media
-	return fluo.Post{ID: "01999111-2222-7333-8444-555555555555", Author: fluo.Author{ID: actor, Username: "alice", DisplayName: "Alice"},
+	return fluo.Post{ID: input.ID, Author: fluo.Author{ID: actor, Username: "alice", DisplayName: "Alice"},
 		Content: input.Content, Text: text, Visibility: input.Visibility, Media: media, CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
 }
 func (store *fluoStoreStub) Get(context.Context, string, string) (fluo.Post, error) {
@@ -37,8 +40,17 @@ func (store *fluoStoreStub) Get(context.Context, string, string) (fluo.Post, err
 func (store *fluoStoreStub) Thread(context.Context, string, string) (fluo.Thread, error) {
 	return fluo.Thread{}, fluo.ErrNotFound
 }
-func (store *fluoStoreStub) SetVisibility(context.Context, string, string, string) error {
+func (store *fluoStoreStub) SetVisibility(context.Context, string, string, string, json.RawMessage, string) error {
 	return fluo.ErrNotFound
+}
+func (store *fluoStoreStub) KeyringState(context.Context, string) (fluo.KeyringState, error) {
+	return fluo.KeyringState{}, nil
+}
+func (store *fluoStoreStub) UpdateKeyring(context.Context, string, fluo.KeyringUpdate) (fluo.KeyringState, error) {
+	return fluo.KeyringState{}, nil
+}
+func (store *fluoStoreStub) Keys(context.Context, string, []encryption.KeyRef) ([]fluo.KeyMaterial, error) {
+	return nil, nil
 }
 func (store *fluoStoreStub) List(_ context.Context, options fluo.ListOptions) (fluo.Page, error) {
 	store.listed++
@@ -67,7 +79,7 @@ func (stub mediaStub) Validate(_ context.Context, _, id string) (fluo.Media, err
 	if !stub.valid {
 		return fluo.Media{}, errors.New("not owned")
 	}
-	return fluo.Media{ID: id, Kind: "image", MimeType: "image/png", Width: 8, Height: 6, Size: 80}, nil
+	return fluo.Media{ID: id, Kind: "file", MimeType: "application/octet-stream", Size: 80}, nil
 }
 func (stub mediaStub) Purge(context.Context, string) error { return nil }
 
@@ -83,7 +95,8 @@ func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 	key := []byte(strings.Repeat("k", 32))
 	deps := FluoDependencies{Store: store, Media: mediaStub{valid: false}, MediaBaseURL: "http://localhost:8082", MediaSignKey: key}
 	id := "01999111-2222-7333-8444-555555555551"
-	requestBody := `{"content":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"hello"}]}]},"visibility":"public","attachmentIds":["` + id + `"],"altTexts":{"` + id + `":"A dark square"}}`
+	postID := "01999111-2222-7333-8444-555555555555"
+	requestBody := `{"id":"` + postID + `","content":` + string(postEnvelopeFixture(t, users.user.ID, "fluo:"+postID)) + `,"visibility":"public","attachmentIds":["` + id + `"],"altTexts":{}}`
 	invoke := func(body, bearer string) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(http.MethodPost, "/v1/fluo/posts", strings.NewReader(body))
@@ -120,8 +133,8 @@ func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 	if len(post.Media) != 1 || post.Media[0].URL == "" {
 		t.Fatalf("media URL missing: %+v", post.Media)
 	}
-	if post.Media[0].AltText != "A dark square" {
-		t.Fatalf("media description missing: %+v", post.Media)
+	if post.Media[0].AltText != "" || post.Content[0] != '{' || !strings.HasPrefix(post.Text, encryption.KeyringTextPrefix) {
+		t.Fatalf("encrypted post exposes plaintext: %+v", post.Media)
 	}
 	mediaURL, err := url.Parse(post.Media[0].URL)
 	if err != nil || !mediaauth.Verify(id, mediaURL.Query().Get("exp"), mediaURL.Query().Get("sig"), key, time.Now()) {
@@ -135,18 +148,48 @@ func TestFluoCreateRequiresVerifiedOwnedMediaAndSafeContent(t *testing.T) {
 	if err != nil || !mediaauth.Verify(id, quotedURL.Query().Get("exp"), quotedURL.Query().Get("sig"), key, time.Now()) {
 		t.Fatal("quoted media URL is not correctly signed")
 	}
-	reused := invoke(strings.Replace(requestBody, "A dark square", "The same image in another context", 1), "valid")
+	reusedID := "01999111-2222-7333-8444-555555555559"
+	reusedBody := `{"id":"` + reusedID + `","content":` + string(postEnvelopeFixture(t, users.user.ID, "fluo:"+reusedID)) + `,"visibility":"public","attachmentIds":["` + id + `"]}`
+	reused := invoke(reusedBody, "valid")
 	if reused.Code != http.StatusCreated || store.created != 2 || len(store.lastMedia) != 1 || store.lastMedia[0].ID != id ||
-		store.lastMedia[0].AltText != "The same image in another context" {
+		store.lastMedia[0].AltText != "" {
 		t.Fatalf("reused owned media = %d, writes %d: %s", reused.Code, store.created, reused.Body.String())
 	}
-	tooLong := strings.Replace(requestBody, "A dark square", strings.Repeat("a", 501), 1)
+	tooLong := strings.Replace(requestBody, `"altTexts":{}`, `"altTexts":{"`+id+`":"`+strings.Repeat("a", 501)+`"}`, 1)
 	if response := invoke(tooLong, "valid"); response.Code != http.StatusBadRequest || store.created != 2 {
 		t.Fatalf("overlong alt text = %d, writes %d", response.Code, store.created)
 	}
 }
 
-func TestSavedPostRoutesAndSearchQuery(t *testing.T) {
+// Supplies keyring envelope framing; repository tests own signature and key checks
+func postEnvelopeFixture(t *testing.T, sender, context string) json.RawMessage {
+	t.Helper()
+	encoded := func(size int) string { return base64.StdEncoding.EncodeToString(make([]byte, size)) }
+	body, err := json.Marshal(encryption.KeyringEnvelope{
+		Version: 1, Context: context, SenderID: sender, Nonce: encoded(24), Ciphertext: encoded(16),
+		Keyring: []encryption.KeyRef{{OwnerID: sender, Version: 1}}, Signature: encoded(64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+// Supplies opaque envelope framing; repository tests own signature and audience enforcement
+func opaqueContentFixture(t *testing.T, sender, context string) json.RawMessage {
+	t.Helper()
+	encoded := func(size int) string { return base64.StdEncoding.EncodeToString(make([]byte, size)) }
+	body, err := json.Marshal(encryption.ContentEnvelope{
+		Version: 1, Context: context, SenderID: sender, Nonce: encoded(24), Ciphertext: encoded(16),
+		Keys: []encryption.RecipientKey{{UserID: sender, Key: encoded(80)}}, PublicKey: encoded(32), Signature: encoded(64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func TestSavedPostRoutes(t *testing.T) {
 	store := &fluoStoreStub{}
 	users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555554", Username: "alice", DisplayName: "Alice"}}
 	verify := func(_ context.Context, token string) (identity.Claims, error) {
@@ -175,9 +218,6 @@ func TestSavedPostRoutesAndSearchQuery(t *testing.T) {
 	}
 	if response := request(http.MethodGet, "/v1/fluo/posts?feed=saved", "valid"); response.Code != http.StatusOK || store.lastList.Feed != "saved" {
 		t.Fatalf("saved list = %d, feed %q", response.Code, store.lastList.Feed)
-	}
-	if response := request(http.MethodGet, "/v1/fluo/posts?q=blue%20bird", "valid"); response.Code != http.StatusOK || store.lastList.Search != "blue bird" {
-		t.Fatalf("search posts = %d, term %q", response.Code, store.lastList.Search)
 	}
 	if response := request(http.MethodDelete, "/v1/fluo/posts/"+postID+"/saved", "valid"); response.Code != http.StatusNoContent || store.saved[users.user.ID+":"+postID] {
 		t.Fatalf("unsave post = %d, saved %t", response.Code, store.saved[users.user.ID+":"+postID])

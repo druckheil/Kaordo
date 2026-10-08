@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
@@ -188,7 +187,7 @@ func postListCondition(options fluo.ListOptions, posts *table.FluoPostsTable) je
 	if options.Cursor != nil {
 		condition = jetpg.AND(condition, fluoBeforeCursor(posts.CreatedAt, posts.ID, *options.Cursor, false))
 	}
-	return postSearchCondition(condition, posts, options.Search)
+	return condition
 }
 
 func fluoBeforeCursor(createdAt jetpg.TimestampzExpression, id jetpg.StringExpression, cursor fluo.Cursor, inclusive bool) jetpg.BoolExpression {
@@ -219,22 +218,6 @@ func postFeedCondition(condition jetpg.BoolExpression, feed string, posts *table
 	default:
 		return jetpg.AND(condition, jetpg.Bool(false))
 	}
-}
-
-func postSearchCondition(condition jetpg.BoolExpression, posts *table.FluoPostsTable, search string) jetpg.BoolExpression {
-	search = strings.TrimSpace(search)
-	if search == "" {
-		return condition
-	}
-	pattern := jetpg.LOWER(jetpg.String("%" + escapeLikeLiteral(search) + "%"))
-	author := table.Users.AS("a")
-	return jetpg.AND(condition, jetpg.OR(
-		jetpg.LOWER(posts.PlainText).LIKE(pattern),
-		jetpg.EXISTS(jetpg.SELECT(author.ID).FROM(author).WHERE(jetpg.AND(
-			author.ID.EQ(posts.AuthorID),
-			jetpg.OR(jetpg.LOWER(author.Username).LIKE(pattern), jetpg.LOWER(fluoDisplayName(author)).LIKE(pattern)),
-		))),
-	))
 }
 
 func scanPostPage(rows pgx.Rows, limit int) (fluo.Page, error) {

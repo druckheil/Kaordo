@@ -54,5 +54,9 @@ func (h ligoHandler) validateMessageAttachment(w http.ResponseWriter, r *http.Re
 		return ligo.Media{}, false
 	}
 	item.AltText = altText
+	if item.MimeType != "application/octet-stream" || item.Kind != "file" {
+		writeError(w, http.StatusBadRequest, "Attachments must be encrypted on your device.")
+		return ligo.Media{}, false
+	}
 	return item, true
 }

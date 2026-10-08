@@ -111,6 +111,10 @@ func (h fluoHandler) validatePostAttachment(w http.ResponseWriter, r *http.Reque
 		return fluo.Media{}, false
 	}
 	item.AltText = altText
+	if item.MimeType != "application/octet-stream" {
+		writeError(w, http.StatusBadRequest, "Attachments must be encrypted on your device.")
+		return fluo.Media{}, false
+	}
 	return item, true
 }
 

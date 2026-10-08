@@ -2,7 +2,7 @@
 
 export { appendSentMessage, replaceCachedMessage } from './message-cache.ts';
 export { adminSummaryOptions, adminSystemOptions, adminMetricsOptions, adminUsersOptions,
-  adminAuditOptions, adminLogsOptions, adminCaseContentOptions } from './admin-queries.ts';
+  adminAuditOptions, adminLogsOptions } from './admin-queries.ts';
 
 export {
   createFluoApi, feedOptions, commentsOptions, fluoSettingsKey, fluoSettingsOptions, type Feed, type FluoApi, type FluoFeedFilter
@@ -23,4 +23,6 @@ export {
 export { createAdminApi, type AdminApi } from './admin.ts';
 
 export { bootstrapIdentity } from './session.ts';
+export { createEncryptionApi, type EncryptionApi } from './encryption.ts';
+export { createMemoroApi, memoroKeys, memoroMonthOptions, memoroDayOptions, type MemoroApi } from './memoro.ts';
 export { createUserPresentationApi, userPresentationOptions } from './user-presentation.ts';

@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/go-chi/chi/v5"
 )
@@ -57,10 +58,14 @@ func (h ligoHandler) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input ligo.NewMessage
-	if !decodeBody(w, r, &input) {
+	if !decodeBodyLimit(w, r, &input, 1<<20) {
 		return
 	}
 	input.Text = strings.TrimSpace(input.Text)
+	if _, err := encryption.ParseText(input.Text); err != nil || len(input.AltTexts) != 0 {
+		writeError(w, http.StatusBadRequest, "Messages and attachment descriptions must be encrypted on your device.")
+		return
+	}
 	if !validNewMessage(input) {
 		writeError(w, http.StatusBadRequest, "Write up to 4,000 characters or attach up to eight files.")
 		return
@@ -85,7 +90,7 @@ func (h ligoHandler) send(w http.ResponseWriter, r *http.Request) {
 
 func validNewMessage(input ligo.NewMessage) bool {
 	return ligoID(input.ClientID) &&
-		utf8.RuneCountInString(input.Text) <= 4000 &&
+		validMessageText(input.Text) &&
 		!strings.ContainsRune(input.Text, 0) &&
 		len(input.AttachmentIDs) <= maxLigoAttachments &&
 		(input.Text != "" || len(input.AttachmentIDs) != 0)
@@ -104,11 +109,15 @@ func (h ligoHandler) editMessage(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Text string `json:"text"`
 	}
-	if !decodeBody(w, r, &input) {
+	if !decodeBodyLimit(w, r, &input, 1<<20) {
 		return
 	}
 	input.Text = strings.TrimSpace(input.Text)
-	if utf8.RuneCountInString(input.Text) > 4000 || strings.ContainsRune(input.Text, 0) {
+	if _, err := encryption.ParseText(input.Text); err != nil {
+		writeError(w, http.StatusBadRequest, "Messages must be encrypted on your device.")
+		return
+	}
+	if !validMessageText(input.Text) || strings.ContainsRune(input.Text, 0) {
 		writeError(w, http.StatusBadRequest, "A message can contain up to 4,000 characters.")
 		return
 	}
@@ -167,7 +176,7 @@ func (h ligoHandler) setReaction(w http.ResponseWriter, r *http.Request) {
 		Emoji  string `json:"emoji"`
 		Active *bool  `json:"active"`
 	}
-	if !decodeBody(w, r, &input) {
+	if !decodeBodyLimit(w, r, &input, 1<<20) {
 		return
 	}
 	if input.Active == nil || (input.Emoji != "❤️" && input.Emoji != "👍" && input.Emoji != "👎") {
@@ -184,4 +193,12 @@ func (h ligoHandler) setReaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, message)
+}
+
+func validMessageText(value string) bool {
+	if strings.HasPrefix(value, encryption.TextPrefix) {
+		_, err := encryption.ParseText(value)
+		return err == nil
+	}
+	return utf8.RuneCountInString(value) <= 4000
 }

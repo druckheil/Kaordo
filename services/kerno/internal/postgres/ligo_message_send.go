@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
@@ -21,6 +22,18 @@ func (store *Ligo) Send(ctx context.Context, actorID, conversationID string, inp
 
 	if err := lockSendMembership(ctx, tx, actorID, conversationID); err != nil {
 		return ligo.Message{}, err
+	}
+	if envelope, parseErr := encryption.ParseText(input.Text); parseErr == nil {
+		audience, err := encryptionAudience(ctx, tx, actorID, "ligo", conversationID, false, "")
+		if err != nil {
+			return ligo.Message{}, err
+		}
+		if envelope.Context != "ligo:"+conversationID+":"+input.ClientID {
+			return ligo.Message{}, encryption.ErrInvalid
+		}
+		if err := verifyContentForAudience(ctx, tx, actorID, envelope, audience, "ligo:"); err != nil {
+			return ligo.Message{}, err
+		}
 	}
 	if id, found, err := existingMessageID(ctx, tx, actorID, conversationID, input.ClientID); err != nil {
 		return ligo.Message{}, err

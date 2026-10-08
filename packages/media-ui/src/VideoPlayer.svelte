@@ -4,6 +4,7 @@
   import type { MediaPlayerElement } from 'vidstack/elements';
   import type { VideoMimeType, VideoSrc } from 'vidstack';
   import type { MediaAttachment } from './media-layout';
+  import { Button, PlayIcon, LoaderCircleIcon } from '@kaordo/ui';
 
   interface Props {
     media: MediaAttachment;
@@ -22,9 +23,13 @@
   let { media, compact = false }: Props = $props();
   let player = $state<MediaPlayerElement>();
   let registered = $state(false);
+  let loadedURL = $state('');
+  let loading = $state(false);
+  let error = $state('');
+  const lifetime = new AbortController();
 
   const source = $derived<VideoSrc>({
-    src: media.url,
+    src: media.url || loadedURL,
     type: normalizeMimeType(media.mimeType)
   });
 
@@ -37,9 +42,17 @@
 
     return () => {
       active = false;
+      lifetime.abort();
       releaseVideo(player);
     };
   });
+  async function load() {
+    if (!media.loadURL || loading) return;
+    loading = true; error = '';
+    try { loadedURL = await media.loadURL(lifetime.signal); }
+    catch (cause) { if (!lifetime.signal.aborted) error = cause instanceof Error ? cause.message : 'The video could not load.'; }
+    finally { loading = false; }
+  }
 
   function normalizeMimeType(value: string): VideoMimeType {
     const mimeType = value.split(';', 1)[0]?.trim().toLowerCase() ?? '';
@@ -72,7 +85,11 @@
   class:rounded-xl={!compact}
   style:aspect-ratio={`${media.width}/${media.height}`}
 >
-  {#if registered}
+  {#if media.loadURL && !loadedURL}
+    <div class="grid h-full w-full place-items-center p-4 text-center text-white">
+      <div><Button variant="ghost" class="size-14 rounded-full bg-white/15 text-white hover:bg-white/25" aria-label={loading ? 'Opening encrypted video' : 'Load encrypted video'} disabled={loading} onclick={load}>{#if loading}<LoaderCircleIcon class="size-7 motion-safe:animate-spin" />{:else}<PlayIcon class="size-7 fill-current" />{/if}</Button>{#if error}<p role="alert" class="mt-3 max-w-xs text-xs">{error}</p>{/if}</div>
+    </div>
+  {:else if registered}
     <media-player
       bind:this={player}
       class="fluo-video-player"

@@ -107,8 +107,9 @@ func (client Client) Validate(ctx context.Context, bearer, id string) (fluo.Medi
 	if err != nil {
 		return fluo.Media{}, err
 	}
-	if item.Kind != "image" && item.Kind != "video" {
-		return fluo.Media{}, errors.New("Fluo requires photo or video")
+	// Post attachments are opaque encrypted files; profile images remain public photos.
+	if item.Kind != "image" && item.Kind != "video" && item.Kind != "file" {
+		return fluo.Media{}, errors.New("Fluo requires a photo, video or encrypted file")
 	}
 	return fluo.Media{ID: item.ID, Kind: item.Kind, MimeType: item.MimeType,
 		Width: item.Width, Height: item.Height, Size: item.Size}, nil

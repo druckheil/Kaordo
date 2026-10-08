@@ -55,11 +55,14 @@ func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify t
 		verify,
 		postgres.NewUsers(pool),
 		httpapi.Modules{
-			Fluo:   fluoDependencies(cfg, pool, mediaClient),
-			Ligo:   ligoDependencies(cfg, mediaClient, ligoStore, ligoEvents),
-			Rondo:  rondoDependencies(cfg, pool, voice),
-			Admin:  adminDependencies(cfg, pool),
-			Lingvo: httpapi.LingvoDependencies{Store: postgres.NewLingvo(pool)},
+			Fluo:       fluoDependencies(cfg, pool, mediaClient),
+			Ligo:       ligoDependencies(cfg, mediaClient, ligoStore, ligoEvents),
+			Rondo:      rondoDependencies(cfg, pool, voice),
+			Admin:      adminDependencies(cfg, pool),
+			Encryption: httpapi.EncryptionDependencies{Store: postgres.NewEncryption(pool)},
+			Vault:      httpapi.VaultDependencies{Store: postgres.NewVault(pool)},
+			Memoro: httpapi.MemoroDependencies{Store: postgres.NewMemoro(pool), Media: mediaClient,
+				MediaBaseURL: cfg.NodoPublicURL, MediaSignKey: cfg.MediaSigningKey},
 		},
 		cfg.AllowedOrigins,
 	)
@@ -99,12 +102,10 @@ func rondoDependencies(cfg config, pool *pgxpool.Pool, voice httpapi.RondoVoice)
 
 func adminDependencies(cfg config, pool *pgxpool.Pool) httpapi.AdminDependencies {
 	return httpapi.AdminDependencies{
-		Store:        postgres.NewAdmin(pool),
-		System:       regado.NewSystemClient(regadoAgentSocket),
-		Metrics:      regado.NewMetricsClient(metricsEndpoint),
-		Maintenance:  nodoclient.Client{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey},
-		MediaBaseURL: cfg.NodoPublicURL,
-		MediaSignKey: cfg.MediaSigningKey,
+		Store:       postgres.NewAdmin(pool),
+		System:      regado.NewSystemClient(regadoAgentSocket),
+		Metrics:     regado.NewMetricsClient(metricsEndpoint),
+		Maintenance: nodoclient.Client{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey},
 	}
 }
 

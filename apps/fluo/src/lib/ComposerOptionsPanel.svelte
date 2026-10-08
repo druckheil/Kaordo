@@ -2,9 +2,10 @@
 	// Controls native formatting toggles and the post audience menu
 
 	import type { Editor } from "@tiptap/core";
+	import { FormattingToolbar } from "@kaordo/editor-ui";
 	import {
-		BoldIcon, Button, ChevronDownIcon, DropdownMenu, GlobeIcon,
-		ItalicIcon, LockIcon, StrikethroughIcon, ToggleGroup, XIcon,
+		Button, ChevronDownIcon, DropdownMenu, GlobeIcon,
+		LockIcon, XIcon,
 	} from "@kaordo/ui";
 
 	let {
@@ -21,58 +22,19 @@
 		onClose: () => void;
 	} = $props();
 
-	const formats = [
-		{ value: "bold", label: "Bold", icon: BoldIcon },
-		{ value: "italic", label: "Italic", icon: ItalicIcon },
-		{ value: "strike", label: "Strike through", icon: StrikethroughIcon },
-	] as const;
 	const audiences = {
 		public: { label: "Public", description: "Share with your audience", icon: GlobeIcon },
 		private: { label: "Only me", description: "Visible only to you", icon: LockIcon },
 	} as const;
 	const audienceChoices = Object.entries(audiences);
 	const audience = $derived(audiences[visibility]);
-	let activeFormats = $state.raw<string[]>([]);
-
-	$effect(() => {
-		if (!editor) {
-			activeFormats = [];
-			return;
-		}
-		const current = editor;
-		const syncFormatting = () => {
-			activeFormats = formats.filter(({ value }) => current.isActive(value)).map(({ value }) => value);
-		};
-		syncFormatting();
-		current.on("transaction", syncFormatting);
-		return () => { current.off("transaction", syncFormatting); };
-	});
-
-	function changeFormatting(values: string[]): void {
-		const current = editor;
-		if (!current || pending) return;
-		const changed = formats.find(({ value }) => values.includes(value) !== current.isActive(value));
-		if (changed) current.chain().focus().toggleMark(changed.value).run();
-	}
-
 	function changeVisibility(value: string): void {
 		if (!pending && !replying && (value === "public" || value === "private")) visibility = value;
 	}
 </script>
 
 <div id="fluo-post-options" class="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-2xl border border-border bg-muted/35 p-2 min-[420px]:grid-cols-[auto_minmax(0,1fr)_auto]">
-	<ToggleGroup.Root
-		type="multiple" variant="outline" size="lg" aria-label="Text formatting"
-		bind:value={() => activeFormats, changeFormatting} disabled={!editor || pending}
-	>
-		{#each formats as format (format.value)}
-			{@const Icon = format.icon}
-			<ToggleGroup.Item value={format.value} aria-label={format.label} title={format.label}
-				class="size-10 data-[state=on]:bg-primary-soft data-[state=on]:text-primary-soft-foreground transition-[background-color,color,box-shadow] duration-200 motion-reduce:transition-none">
-				<Icon class="size-4" />
-			</ToggleGroup.Item>
-		{/each}
-	</ToggleGroup.Root>
+	<FormattingToolbar {editor} disabled={pending} />
 	<DropdownMenu.Root>
 		<DropdownMenu.Trigger>
 			{#snippet child({ props })}

@@ -6,7 +6,8 @@ export const localFrontendServers = [
   { id: 'ligo', name: 'Ligo', port: 18767, base: '/ligo', readyPath: '/ligo/' },
   { id: 'rondo', name: 'Rondo', port: 18768, base: '/rondo', readyPath: '/rondo/' },
   { id: 'regado', name: 'Regado', port: 18769, base: '/regado', readyPath: '/regado/' },
-  { id: 'lingvo', name: 'Lingvo', port: 18770, base: '/lingvo', readyPath: '/lingvo/' }
+  { id: 'lingvo', name: 'Lingvo', port: 18770, base: '/lingvo', readyPath: '/lingvo/' },
+  { id: 'memoro', name: 'Memoro', port: 18771, base: '/memoro', readyPath: '/memoro/' }
 ];
 
 export const localDevelopmentPorts = [
@@ -59,3 +60,7 @@ export function localViteServer(appId) {
 // Prepare lazy upload libraries without bundling the workspace's in-memory auth module
 export const mediaDependencies = ['@uppy/core', '@uppy/tus', 'pica', 'tus-js-client']
   .map(dependency => `@kaordo/media-client > ${dependency}`);
+
+// Prepare the shared editor so the first composer opening does not trigger a dependency reload
+export const editorDependencies = ['@tiptap/core', '@tiptap/extension-file-handler', '@tiptap/extension-placeholder', '@tiptap/starter-kit']
+  .map(dependency => `@kaordo/editor-ui > ${dependency}`);

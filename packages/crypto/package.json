@@ -8,5 +8,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     }
+  },
+  "dependencies": {
+    "idb": "^8.0.3",
+    "libsodium-wrappers": "0.8.4",
+    "zod": "^4.6.5"
   }
 }

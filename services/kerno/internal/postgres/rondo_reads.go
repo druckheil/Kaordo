@@ -90,6 +90,34 @@ func (store *Rondo) Discover(ctx context.Context, actorID, search string) ([]ron
 	return scanRondoServers(rows)
 }
 
+func (store *Rondo) DiscoverPage(ctx context.Context, actorID, cursor string) (rondo.ServerPage, error) {
+	query, servers := rondoServerQuery(actorID)
+	members := table.RondoMembers.AS("membership")
+	condition := jetpg.AND(servers.Access.EQ(jetpg.String("public")), jetpg.NOT(jetpg.EXISTS(
+		jetpg.SELECT(members.UserID).FROM(members).WHERE(jetpg.AND(members.ServerID.EQ(servers.ID), members.UserID.EQ(jetUUID(actorID)))))))
+	if cursor != "" {
+		pivot := table.RondoServers.AS("pivot")
+		created := jetpg.TimestampzExp(jetpg.SELECT(pivot.CreatedAt).FROM(pivot).WHERE(pivot.ID.EQ(jetUUID(cursor))))
+		condition = condition.AND(servers.CreatedAt.LT(created).OR(servers.CreatedAt.EQ(created).AND(servers.ID.LT(jetUUID(cursor)))))
+	}
+	rows, err := jetQuery(ctx, store.pool, query.WHERE(condition).ORDER_BY(servers.CreatedAt.DESC(), servers.ID.DESC()).LIMIT(51))
+	if err != nil {
+		return rondo.ServerPage{}, err
+	}
+	defer rows.Close()
+	items, err := scanRondoServers(rows)
+	if err != nil {
+		return rondo.ServerPage{}, err
+	}
+	page := rondo.ServerPage{Items: items}
+	if len(items) > 50 {
+		page.Items = items[:50]
+		id := page.Items[49].ID
+		page.NextCursor = &id
+	}
+	return page, nil
+}
+
 func (store *Rondo) Get(ctx context.Context, actorID, serverID string) (rondo.Detail, error) {
 	query, servers := rondoServerQuery(actorID)
 	members := table.RondoMembers.AS("membership")

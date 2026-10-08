@@ -10,7 +10,7 @@ import { createPageServer } from './serve-pages.mjs';
 
 const site = resolve(import.meta.dirname, '../dist/pages');
 const fluoClient = resolve(import.meta.dirname, '../apps/fluo/.svelte-kit/output/client');
-const routes = ['/', '/login/', '/register/', '/agordoj/', '/changelog/', '/ligo/', '/fluo/', '/rondo/', '/lingvo/', '/regado/'];
+const routes = ['/', '/login/', '/register/', '/agordoj/', '/changelog/', '/ligo/', '/fluo/', '/rondo/', '/lingvo/', '/memoro/', '/regado/'];
 
 function pageAt(route) {
   const file = join(site, route, 'index.html');
@@ -21,13 +21,13 @@ function pageAt(route) {
 test('public applications have prerendered pages; Regado stays out of the app directory', () => {
   const portal = pageAt('/');
   assert.match(portal, /href="\/fluo\/"/);
-  for (const app of ['ligo', 'fluo', 'rondo', 'lingvo', 'regado']) {
+  for (const app of ['ligo', 'fluo', 'rondo', 'lingvo', 'memoro', 'regado']) {
     const html = pageAt(`/${app}/`);
     assert.match(html, /Checking your account/);
     assert.match(html, /<a\b(?=[^>]*href="\/")(?=[^>]*aria-label="Kaordo home")[^>]*>/,
       `${app} must render a working home link regardless of component ownership`);
   }
-  for (const name of ['Ligo', 'Rondo', 'Lingvo']) {
+  for (const name of ['Ligo', 'Rondo', 'Lingvo', 'Memoro']) {
     assert.match(portal, new RegExp(name));
   }
   assert.doesNotMatch(portal, /Regado|In development/);

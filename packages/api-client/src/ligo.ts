@@ -5,15 +5,21 @@ import type {
   LigoConversation, LigoConversationPage, LigoMessage, LigoMessagePage,
   LigoNewConversation, LigoNewMessage, LigoUserPage, NodoUpload, paths
 } from '@kaordo/contracts';
+import { createContentCodec } from './content-codec.ts';
+import { createLigoContent } from './ligo-content.ts';
 import createClient from 'openapi-fetch';
 import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
 
 class FatalStreamError extends Error {}
 
 export function createLigoApi(apiBaseUrl: string, nodoBaseUrl: string) {
+  const content = createLigoContent(createContentCodec(apiBaseUrl));
   const client = createClient<paths>({ baseUrl: apiBaseUrl, fetch: sessionFetch });
   const nodo = createClient<paths>({ baseUrl: nodoBaseUrl.replace(/\/$/, ''), fetch: sessionFetch });
-
+  async function uploadMetadata(id: string, signal?: AbortSignal): Promise<NodoUpload | null> {
+    const { data, error, response } = await nodo.GET('/v1/uploads/{id}/meta', { params: { path: { id } }, signal });
+    return response.status === 202 ? null : requireResponseData(data, error, response.status);
+  }
   return {
     async searchUsers(search: string, signal?: AbortSignal): Promise<LigoUserPage> {
       const { data, error, response } = await client.GET('/v1/ligo/users', {
@@ -25,41 +31,49 @@ export function createLigoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { data, error, response } = await client.GET('/v1/ligo/conversations', {
         params: { query: { cursor, limit: 30 } }, signal
       });
-      return requireResponseData(data, error, response.status);
+      const result = requireResponseData(data, error, response.status);
+      const items = []; for (const item of result.items) items.push(await content.conversation(item));
+      return { ...result, items };
     },
     async getConversation(id: string, signal?: AbortSignal): Promise<LigoConversation> {
       const { data, error, response } = await client.GET('/v1/ligo/conversations/{id}', {
         params: { path: { id } }, signal
       });
-      return requireResponseData(data, error, response.status);
+      return content.conversation(requireResponseData(data, error, response.status));
     },
     async createConversation(input: LigoNewConversation, signal?: AbortSignal): Promise<LigoConversation> {
-      const { data, error, response } = await client.POST('/v1/ligo/conversations', { body: input, signal });
-      return requireResponseData(data, error, response.status);
+      const id = crypto.randomUUID();
+      const { data, error, response } = await client.POST('/v1/ligo/conversations', { body: { ...input, id, title: input.kind === 'group' ? await content.title(input.title ?? '', input.participantIds ?? [], id) : '' }, signal });
+      return content.conversation(requireResponseData(data, error, response.status));
     },
     async addMembers(id: string, participantIds: string[], signal?: AbortSignal): Promise<LigoConversation> {
+      const current = await client.GET('/v1/ligo/conversations/{id}', { params: { path: { id } }, signal });
+      const original = requireResponseData(current.data, current.error, current.response.status); const opened = await content.conversation(original);
+      const title = await content.title(opened.title, [...opened.members.map(item => item.id), ...participantIds], id);
       const { data, error, response } = await client.POST('/v1/ligo/conversations/{id}/members', {
-        params: { path: { id } }, body: { participantIds }, signal
+        params: { path: { id } }, body: { participantIds, title, expectedTitle: original.title }, signal
       });
-      return requireResponseData(data, error, response.status);
+      return content.conversation(requireResponseData(data, error, response.status));
     },
     async listMessages(id: string, before?: string, signal?: AbortSignal): Promise<LigoMessagePage> {
       const { data, error, response } = await client.GET('/v1/ligo/conversations/{id}/messages', {
         params: { path: { id }, query: { before, limit: 30 } }, signal
       });
-      return requireResponseData(data, error, response.status);
+      const result = requireResponseData(data, error, response.status);
+      const items = []; for (const item of result.items) items.push(await content.message(item, signal));
+      return { ...result, items };
     },
     async send(id: string, input: LigoNewMessage, signal?: AbortSignal): Promise<LigoMessage> {
       const { data, error, response } = await client.POST('/v1/ligo/conversations/{id}/messages', {
-        params: { path: { id } }, body: input, signal
+        params: { path: { id } }, body: await content.encode(id, input), signal
       });
-      return requireResponseData(data, error, response.status);
+      return content.message(requireResponseData(data, error, response.status), signal);
     },
     async editMessage(id: string, messageId: string, text: string, signal?: AbortSignal): Promise<LigoMessage> {
       const { data, error, response } = await client.PATCH('/v1/ligo/conversations/{id}/messages/{messageId}', {
-        params: { path: { id, messageId } }, body: { text }, signal
+        params: { path: { id, messageId } }, body: { text: await content.edit(id, messageId, text) }, signal
       });
-      return requireResponseData(data, error, response.status);
+      return content.message(requireResponseData(data, error, response.status), signal);
     },
     async deleteMessage(id: string, messageId: string, signal?: AbortSignal): Promise<void> {
       const { error, response } = await client.DELETE('/v1/ligo/conversations/{id}/messages/{messageId}', {
@@ -71,7 +85,7 @@ export function createLigoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { data, error, response } = await client.PUT('/v1/ligo/conversations/{id}/messages/{messageId}/reaction', {
         params: { path: { id, messageId } }, body: { emoji, active }, signal
       });
-      return requireResponseData(data, error, response.status);
+      return content.message(requireResponseData(data, error, response.status), signal);
     },
     async markDelivered(id: string, messageId: string, signal?: AbortSignal): Promise<void> {
       const { error, response } = await client.PUT('/v1/ligo/conversations/{id}/delivered', {
@@ -85,13 +99,7 @@ export function createLigoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       });
       requireResponseOk(response, error);
     },
-    async uploadMetadata(id: string, signal?: AbortSignal): Promise<NodoUpload | null> {
-      const { data, error, response } = await nodo.GET('/v1/uploads/{id}/meta', {
-        params: { path: { id } }, signal
-      });
-      if (response.status === 202) return null;
-      return requireResponseData(data, error, response.status);
-    },
+    uploadMetadata,
     async subscribe(
       signal: AbortSignal,
       onHint: (conversationId: string | null) => void,

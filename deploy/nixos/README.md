@@ -88,7 +88,7 @@ back through the Admin API. The frontend is activated under the same lock.
 
 Success requires the built NixOS closure to be active, all declared long-running
 services and the DDNS timer to be active, and each running Go executable to match
-its installed binary. Final checks compare installed files and all six public
+its installed binary. Final checks compare installed files and all seven
 applications with the manifest, validate OIDC discovery/iframes and the protected
 Fluo and Lingvo routes, and fetch the native login form and its actual custom theme resources.
 An old theme or a missing **Stay signed in** control fails deployment even when
@@ -134,8 +134,8 @@ Regado roles are not inferred from usernames. Grant the `admin` role to the
 existing DruckHeil account by verifying its exact Kaordo user ID and
 Keycloak subject in PostgreSQL, then inserting that ID into `user_roles`.
 Do not create an administrator merely because an account chooses the name
-`DruckHeil`. Admin operations and content access cases are written to
-`admin_audit`. Supported system actions include fixed restarts of Nodo and LiveKit,
+`DruckHeil`. Administrative operations are written to `admin_audit`. User-content access
+cases and administrator decryption overrides are removed. Supported system actions include fixed restarts of Nodo and LiveKit,
 immediate scheduled DNS checks, journal retention changes, reviewed Disko/systemd-repart layouts, and background check/repair of a
 selected mounted Btrfs data pool. Check refreshes checksum and file inventory
 evidence; repair restores mirror placement and repairs from valid copies.

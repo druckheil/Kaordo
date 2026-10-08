@@ -45,6 +45,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "1.63.0",
+    "libsodium-wrappers": "0.8.4",
     "postcss": "^8.5.28",
     "sirv": "3.0.2",
     "svelte": "^5.57.1",

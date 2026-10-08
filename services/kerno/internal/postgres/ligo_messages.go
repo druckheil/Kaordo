@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
@@ -113,21 +114,36 @@ func (store *Ligo) Edit(ctx context.Context, actorID, conversationID, messageID,
 		return ligo.Message{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockSendMembership(ctx, tx, actorID, conversationID); err != nil {
+		return ligo.Message{}, err
+	}
 	messages := table.LigoMessages.AS("m")
 	members := table.LigoMembers.AS("member")
-	var locked string
-	err = jetQueryRow(ctx, tx, messages.SELECT(jetpg.CAST(messages.ID).AS_TEXT()).
+	var locked, clientID string
+	err = jetQueryRow(ctx, tx, messages.SELECT(jetpg.CAST(messages.ID).AS_TEXT(), jetpg.CAST(messages.ClientID).AS_TEXT()).
 		FROM(messages.INNER_JOIN(members, jetpg.AND(
 			members.ConversationID.EQ(messages.ConversationID), members.UserID.EQ(jetUUID(actorID)),
 		))).WHERE(jetpg.AND(messages.ID.EQ(jetUUID(messageID)),
 		messages.ConversationID.EQ(jetUUID(conversationID)), messages.SenderID.EQ(jetUUID(actorID)),
 		messages.DeletedAt.IS_NULL(), messages.SystemNotice.IS_FALSE(),
-	)).FOR(jetpg.UPDATE().OF(messages))).Scan(&locked)
+	)).FOR(jetpg.UPDATE().OF(messages))).Scan(&locked, &clientID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ligo.Message{}, ligo.ErrNotFound
 	}
 	if err != nil {
 		return ligo.Message{}, err
+	}
+	if envelope, parseErr := encryption.ParseText(text); parseErr == nil {
+		if envelope.Context != "ligo:"+conversationID+":"+clientID {
+			return ligo.Message{}, encryption.ErrInvalid
+		}
+		audience, err := encryptionAudience(ctx, tx, actorID, "ligo-history", messageID, false, "")
+		if err != nil {
+			return ligo.Message{}, err
+		}
+		if err := verifyContentForAudience(ctx, tx, actorID, envelope, audience, "ligo:"+conversationID+":"); err != nil {
+			return ligo.Message{}, err
+		}
 	}
 	if text == "" {
 		var hasMedia bool

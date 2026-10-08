@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import { localViteServer, mediaDependencies } from '../../scripts/local-vite.mjs';
+import { editorDependencies, localViteServer, mediaDependencies } from '../../scripts/local-vite.mjs';
 
 function runesModeForFile(filename: string): boolean | undefined {
 	return filename.split(/[/\\]/).includes('node_modules') ? undefined : true;
@@ -14,8 +14,8 @@ export default defineConfig({
 	envDir: '../..',
 	server: localViteServer('fluo'),
 	optimizeDeps: {
-		include: ['@tiptap/core', '@tiptap/extension-file-handler', '@tiptap/extension-placeholder', '@tiptap/starter-kit',
-			...mediaDependencies]
+		// Profile image cropping loads lazily; preparing it avoids a reload when the profile view first opens.
+		include: [...editorDependencies, ...mediaDependencies, '@kaordo/media-ui > cropperjs']
 	},
 	plugins: [
 		tailwindcss(),

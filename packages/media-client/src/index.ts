@@ -1,12 +1,15 @@
 // Prepares browser media and coordinates resumable Nodo uploads
+import { encryptMedia, rememberMedia } from '@kaordo/crypto';
 import { accessToken } from '@kaordo/auth';
 import type { NodoUpload } from '@kaordo/contracts';
 import Uppy from '@uppy/core';
 import Tus from '@uppy/tus';
 import { isSupportedImageType, MAX_IMAGE_SIZE, prepareImage } from './image-processing.js';
 import { uploadStorage } from './tus-storage.js';
+import { mediaDimensions } from './media-metadata';
 
 export { isSupportedImageType, MAX_IMAGE_SIZE, prepareImage } from './image-processing.js';
+export { mediaDimensions } from './media-metadata';
 
 interface UploadMetadataApi {
   uploadMetadata(id: string, signal?: AbortSignal): Promise<NodoUpload | null>;
@@ -14,6 +17,8 @@ interface UploadMetadataApi {
 
 interface UploadMediaOptions {
   allowFiles?: boolean;
+  /** Encrypt on this device; public profile images and callers with their own encryption pass false */
+  encrypt?: boolean;
   maxFiles?: number;
   signal?: AbortSignal;
 }
@@ -37,22 +42,33 @@ export async function uploadMedia(
 
   const maxFiles = options.maxFiles ?? 4;
   validateFileCount(files, maxFiles);
-  validateOriginalFileSizes(files);
+  const encrypt = options.encrypt ?? true;
+  validateOriginalFileSizes(files, encrypt);
 
   // Process images sequentially so decoded bitmaps do not accumulate in memory
   const preparedFiles = await prepareFiles(files, signal);
   signal?.throwIfAborted();
   validatePreparedFiles(preparedFiles, options.allowFiles ?? false);
 
+  const encrypted: Awaited<ReturnType<typeof encryptMedia>>[] = [];
+  if (encrypt) for (const file of preparedFiles) {
+    signal?.throwIfAborted();
+    const dimensions = isSupportedImageType(file.type) || videoTypes.has(file.type) ? await mediaDimensions(file, signal) : { width: 0, height: 0 };
+    encrypted.push(await encryptMedia(file, dimensions));
+  }
+  signal?.throwIfAborted();
+  const transferFiles = encrypt ? encrypted.map(item => item.file) : preparedFiles;
+  validatePreparedFileSizes(transferFiles);
   const uppy = createUploader(nodoBaseUrl, maxFiles, onProgress);
   const abortUpload = () => uppy.cancelAll();
   signal?.addEventListener('abort', abortUpload, { once: true });
   try {
-    addFilesToUploader(uppy, preparedFiles);
+    addFilesToUploader(uppy, transferFiles);
     const result = await uppy.upload();
     signal?.throwIfAborted();
     const ids = getUploadIds(result, preparedFiles.length, nodoBaseUrl);
     await waitForProcessing(ids, api, signal);
+    encrypted.forEach((item, index) => rememberMedia({ id: ids[index], ...item.descriptor }));
     return ids;
   } finally {
     signal?.removeEventListener('abort', abortUpload);
@@ -64,8 +80,9 @@ function validateFileCount(files: File[], maxFiles: number): void {
   if (files.length > maxFiles) throw new Error(`Add at most ${maxFiles} files.`);
 }
 
-function validateOriginalFileSizes(files: File[]): void {
-  if (files.some((file) => file.size > maxVideoSize)) {
+function validateOriginalFileSizes(files: File[], encrypt: boolean): void {
+  // Device encryption adds a header, nonce and authentication tag.
+  if (files.some((file) => file.size > maxVideoSize - (encrypt ? 36 : 0))) {
     throw new Error('A file exceeds the 100 MiB upload limit.');
   }
 }
@@ -96,6 +113,10 @@ function validatePreparedFileSize(file: File): void {
   if (file.size < 1 || file.size > sizeLimit) {
     throw new Error(`${file.name} exceeds its upload limit.`);
   }
+}
+
+function validatePreparedFileSizes(files: File[]): void {
+  for (const file of files) validatePreparedFileSize(file);
 }
 
 function createUploader(

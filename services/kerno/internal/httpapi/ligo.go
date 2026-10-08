@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/go-chi/chi/v5"
@@ -63,6 +64,12 @@ func (h ligoHandler) actor(w http.ResponseWriter, r *http.Request) (account.User
 
 func ligoError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, encryption.ErrInvalid):
+		writeError(w, http.StatusBadRequest, "Encrypted content could not be authenticated.")
+	case errors.Is(err, encryption.ErrNotFound):
+		writeError(w, http.StatusConflict, "A recipient needs to open Kaordo on a device before encrypted content can be shared.")
+	case errors.Is(err, encryption.ErrConflict):
+		writeError(w, http.StatusConflict, "The encryption audience changed. Reload and try again.")
 	case errors.Is(err, ligo.ErrNotFound):
 		writeError(w, http.StatusNotFound, "Conversation or account not found.")
 	case errors.Is(err, ligo.ErrForbidden):

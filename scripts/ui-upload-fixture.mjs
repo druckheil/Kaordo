@@ -53,9 +53,12 @@ export async function createUploadServer(allowedOrigin) {
       response.writeHead(200, { 'Upload-Offset': String(upload.data.length), 'Upload-Length': String(upload.size) });
     } else if (request.method === 'GET' && path.endsWith('/meta')) {
       response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ id, kind: 'image', mimeType: 'image/png', filename: 'fixture.png',
-        width: 8, height: 6, size: upload.size, complete: upload.data.length === upload.size }));
+      response.end(JSON.stringify({ id, kind: 'file', mimeType: 'application/octet-stream', filename: id + '.bin',
+        width: 0, height: 0, size: upload.size, complete: upload.data.length === upload.size }));
       return;
+    } else if (request.method === 'GET' && path === '/v1/media/' + id) {
+      response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': upload.data.length });
+      response.end(upload.data); return;
     } else response.writeHead(405);
     response.end();
   }

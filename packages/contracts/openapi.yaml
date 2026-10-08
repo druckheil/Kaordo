@@ -17,6 +17,211 @@ components:
       name: X-Kaordo-Internal-Token
       description: Derived token shared only by the local Kerno and Nodo processes.
   schemas:
+    PrivateRecord:
+      type: object
+      required: [tag, revision, nonce, ciphertext]
+      properties:
+        tag: { type: string, pattern: '^[0-9a-f]{64}$' }
+        revision: { type: integer, minimum: 0 }
+        nonce: { type: string }
+        ciphertext: { type: string, maxLength: 2097152 }
+    PrivateRecordTransaction:
+      type: object
+      required: [writes, deletes]
+      properties:
+        writes: { type: array, maxItems: 502, items: { $ref: '#/components/schemas/PrivateRecord' } }
+        deletes:
+          type: array
+          maxItems: 502
+          items:
+            type: object
+            required: [tag, revision]
+            properties:
+              tag: { type: string, pattern: '^[0-9a-f]{64}$' }
+              revision: { type: integer, minimum: 1 }
+    PublicEncryptionIdentity:
+      type: object
+      required: [id, encryptionPublicKey, signingPublicKey]
+      properties:
+        id: { type: string, format: uuid }
+        encryptionPublicKey: { type: string, minLength: 44, maxLength: 44 }
+        signingPublicKey: { type: string, minLength: 44, maxLength: 44 }
+    EncryptionAudience:
+      type: object
+      required: [public, users]
+      properties:
+        public: { type: boolean }
+        users: { type: array, maxItems: 512, items: { $ref: '#/components/schemas/PublicEncryptionIdentity' } }
+    ContentEnvelope:
+      type: object
+      additionalProperties: false
+      required: [version, context, senderId, nonce, ciphertext, keys, publicKey, signature]
+      properties:
+        version: { type: integer, const: 1 }
+        context: { type: string, maxLength: 180 }
+        senderId: { type: string, format: uuid }
+        nonce: { type: string, minLength: 32, maxLength: 32 }
+        ciphertext: { type: string, maxLength: 524288 }
+        publicKey: { type: string, maxLength: 44 }
+        signature: { type: string, minLength: 88, maxLength: 88 }
+        keys:
+          type: array
+          maxItems: 512
+          items:
+            type: object
+            required: [userId, key]
+            properties:
+              userId: { type: string, format: uuid }
+              key: { type: string, minLength: 108, maxLength: 108 }
+    FluoContent:
+      oneOf:
+        - { $ref: '#/components/schemas/FluoDocument' }
+        - { $ref: '#/components/schemas/FluoEnvelope' }
+    FluoKeyRef:
+      type: object
+      additionalProperties: false
+      required: [ownerId, version]
+      properties:
+        ownerId: { type: string, format: uuid }
+        version: { type: integer, minimum: 0, description: Version 0 is the author's never-shared self key }
+    FluoEnvelope:
+      type: object
+      additionalProperties: false
+      required: [version, context, senderId, nonce, ciphertext, keyring, signature]
+      properties:
+        version: { type: integer, const: 1 }
+        context: { type: string, maxLength: 180 }
+        senderId: { type: string, format: uuid }
+        nonce: { type: string, minLength: 32, maxLength: 32 }
+        ciphertext: { type: string, maxLength: 524288 }
+        keyring: { type: array, minItems: 1, maxItems: 64, items: { $ref: '#/components/schemas/FluoKeyRef' } }
+        signature: { type: string, minLength: 88, maxLength: 88 }
+    FluoKeyringState:
+      type: object
+      required: [accountVisibility, versions, missing]
+      properties:
+        accountVisibility: { type: string, enum: [public, private] }
+        versions:
+          type: array
+          items:
+            type: object
+            required: [version, published]
+            properties:
+              version: { type: integer, minimum: 1 }
+              published: { type: boolean }
+        missing:
+          type: array
+          items:
+            type: object
+            required: [recipient, versions]
+            properties:
+              recipient: { $ref: '#/components/schemas/PublicEncryptionIdentity' }
+              versions: { type: array, items: { type: integer, minimum: 1 } }
+    FluoKeyringUpdate:
+      type: object
+      required: [create, publish, grants]
+      properties:
+        create: { type: integer, minimum: 0, description: The next version to create, or 0 }
+        publish:
+          type: array
+          maxItems: 512
+          items:
+            type: object
+            required: [version, key]
+            properties:
+              version: { type: integer, minimum: 1 }
+              key: { type: string, minLength: 44, maxLength: 44 }
+        grants:
+          type: array
+          maxItems: 512
+          items:
+            type: object
+            required: [recipientId, version, sealedKey]
+            properties:
+              recipientId: { type: string, format: uuid }
+              version: { type: integer, minimum: 1 }
+              sealedKey: { type: string, minLength: 108, maxLength: 108 }
+    FluoKeyMaterial:
+      type: object
+      required: [ownerId, version]
+      properties:
+        ownerId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        publicKey: { type: string, minLength: 44, maxLength: 44 }
+        sealedKey: { type: string, minLength: 108, maxLength: 108 }
+    EncryptionDevice:
+      type: object
+      required: [id, publicKey, wrappedKeys, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        publicKey: { type: string, minLength: 44, maxLength: 44 }
+        wrappedKeys: { type: string, maxLength: 4096 }
+        createdAt: { type: string, format: date-time }
+    EncryptionIdentity:
+      type: object
+      required: [encryptionPublicKey, signingPublicKey, devices]
+      properties:
+        encryptionPublicKey: { type: string, minLength: 44, maxLength: 44 }
+        signingPublicKey: { type: string, minLength: 44, maxLength: 44 }
+        devices: { type: array, items: { $ref: '#/components/schemas/EncryptionDevice' } }
+    EncryptionRegistration:
+      type: object
+      required: [id, publicKey]
+      properties:
+        id: { type: string, format: uuid }
+        publicKey: { type: string, minLength: 44, maxLength: 44 }
+        encryptionPublicKey: { type: string, minLength: 44, maxLength: 44 }
+        signingPublicKey: { type: string, minLength: 44, maxLength: 44 }
+        wrappedKeys: { type: string, maxLength: 4096 }
+    EncryptionApproval:
+      type: object
+      required: [wrappedKeys, signature]
+      properties:
+        wrappedKeys: { type: string, maxLength: 4096 }
+        signature: { type: string, minLength: 88, maxLength: 88 }
+    EncryptedEnvelope:
+      type: object
+      required: [nonce, ciphertext]
+      properties:
+        nonce: { type: string, minLength: 16, maxLength: 16 }
+        ciphertext: { type: string, minLength: 24, maxLength: 2097152 }
+    MemoroSummary:
+      type: object
+      required: [dayTag, monthTag, revision, nonce, ciphertext]
+      properties:
+        dayTag: { type: string, pattern: '^[0-9a-f]{64}$' }
+        monthTag: { type: string, pattern: '^[0-9a-f]{64}$' }
+        revision: { type: integer, minimum: 1 }
+        nonce: { type: string }
+        ciphertext: { type: string }
+    MemoroDay:
+      type: object
+      required: [dayTag, monthTag, revision, nonce, ciphertext, media]
+      properties:
+        dayTag: { type: string, pattern: '^[0-9a-f]{64}$' }
+        monthTag: { type: string, pattern: '^[0-9a-f]{64}$' }
+        revision: { type: integer, minimum: 1 }
+        nonce: { type: string }
+        ciphertext: { type: string }
+        media:
+          type: array
+          items:
+            type: object
+            required: [id, size, url]
+            properties:
+              id: { type: string, format: uuid }
+              size: { type: integer }
+              url: { type: string, format: uri }
+    MemoroDayUpdate:
+      type: object
+      required: [monthTag, revision, nonce, ciphertext, summary, attachmentIds]
+      properties:
+        monthTag: { type: string, pattern: '^[0-9a-f]{64}$' }
+        revision: { type: integer, minimum: 0 }
+        nonce: { type: string }
+        ciphertext: { type: string, maxLength: 2097152 }
+        summary: { $ref: '#/components/schemas/EncryptedEnvelope' }
+        attachmentIds: { type: array, maxItems: 32, items: { type: string, format: uuid } }
     LingvoDictionary:
       type: "object"
       required: ["id","learningLanguage","nativeLanguage","dailyGoal","timeZone","createdAt"]
@@ -368,7 +573,7 @@ components:
           description: A stable, non-sensitive reason when an authentication request is rejected.
     RegadoSummary:
       type: object
-      required: [users, posts, messages, uploads, mediaBytes, databaseBytes, openCases, mediaByKind]
+      required: [users, posts, messages, uploads, mediaBytes, databaseBytes, mediaByKind]
       properties:
         users: { type: integer }
         posts: { type: integer }
@@ -376,7 +581,6 @@ components:
         uploads: { type: integer }
         mediaBytes: { type: integer }
         databaseBytes: { type: integer }
-        openCases: { type: integer }
         mediaByKind:
           type: array
           items:
@@ -411,41 +615,6 @@ components:
         reason: { type: string }
         detail: { type: object, additionalProperties: true }
         createdAt: { type: string, format: date-time }
-    RegadoCase:
-      type: object
-      required: [id, targetUserId, targetUsername, reason, createdAt, expiresAt]
-      properties:
-        id: { type: string, format: uuid }
-        targetUserId: { type: string, format: uuid }
-        targetUsername: { type: string }
-        reason: { type: string }
-        createdAt: { type: string, format: date-time }
-        expiresAt: { type: string, format: date-time }
-    RegadoContentMedia:
-      type: object
-      required: [id, kind, mimeType, filename, size, url]
-      properties:
-        id: { type: string, format: uuid }
-        kind: { type: string }
-        mimeType: { type: string }
-        filename: { type: string }
-        size: { type: integer }
-        url: { type: string, format: uri }
-    RegadoContent:
-      type: object
-      required: [id, text, context, createdAt, media]
-      properties:
-        id: { type: string, format: uuid }
-        text: { type: string }
-        context: { type: string }
-        createdAt: { type: string, format: date-time }
-        media: { type: array, items: { $ref: '#/components/schemas/RegadoContentMedia' } }
-    RegadoContentPage:
-      type: object
-      required: [items, nextCursor]
-      properties:
-        items: { type: array, items: { $ref: '#/components/schemas/RegadoContent' } }
-        nextCursor: { type: [string, 'null'], format: uuid }
     RegadoDisk:
       type: object
       required: [name, path, label, partitionLabel, fsType, size, type, model, serial, wwn, mountpoints, systemDisk]
@@ -770,17 +939,25 @@ components:
         createdAt: { type: string, format: date-time }
     LigoMessagePreview:
       type: object
-      required: [id, text, senderId, deleted, createdAt]
+      required: [id, clientId, text, senderId, deleted, systemNotice, createdAt]
       properties:
         id: { type: string, format: uuid }
+        clientId: { type: string, format: uuid }
         text: { type: string }
         senderId: { type: string, format: uuid }
         deleted: { type: boolean }
+        systemNotice: { type: boolean, description: Administrator notices are plaintext metadata, not user content }
         createdAt: { type: string, format: date-time }
     LigoConversation:
       type: object
       required: [id, kind, title, createdBy, members, lastMessage, unreadCount, createdAt, updatedAt]
       properties:
+        channel:
+          type: object
+          required: [id, serverId]
+          properties:
+            id: { type: string, format: uuid }
+            serverId: { type: string, format: uuid }
         id: { type: string, format: uuid }
         kind: { type: string, enum: [duo, group, self, channel] }
         title: { type: string }
@@ -820,8 +997,9 @@ components:
       type: object
       required: [kind, participantIds]
       properties:
+        id: { type: string, format: uuid }
         kind: { type: string, enum: [duo, group, self] }
-        title: { type: string, maxLength: 100 }
+        title: { type: string, maxLength: 524320 }
         participantIds:
           type: array
           items: { type: string, format: uuid }
@@ -830,7 +1008,7 @@ components:
       required: [clientId, text]
       properties:
         clientId: { type: string, format: uuid }
-        text: { type: string, maxLength: 4000 }
+        text: { type: string, maxLength: 524320 }
         attachmentIds:
           type: array
           maxItems: 8
@@ -858,6 +1036,8 @@ components:
       type: object
       required: [participantIds]
       properties:
+        title: { type: string, maxLength: 524320 }
+        expectedTitle: { type: string, maxLength: 524320 }
         participantIds:
           type: array
           items: { type: string, format: uuid }
@@ -899,6 +1079,7 @@ components:
       type: object
       required: [items]
       properties:
+        nextCursor: { type: [string, 'null'], format: uuid }
         items:
           type: array
           items: { $ref: '#/components/schemas/RondoServer' }
@@ -906,19 +1087,42 @@ components:
       type: object
       required: [name, description, access]
       properties:
-        name: { type: string, maxLength: 100 }
+        id: { type: string, format: uuid }
+        generalId: { type: string, format: uuid }
+        general: { type: string, maxLength: 524320 }
+        name: { type: string, maxLength: 524320 }
         description: { type: string, maxLength: 500 }
         access: { type: string, enum: [public, private] }
     RondoInvite:
+      allOf:
+        - { $ref: '#/components/schemas/RondoEncryptedMetadata' }
+        - type: object
+          required: [userId]
+          properties:
+            userId: { type: string, format: uuid }
+    RondoEncryptedMetadata:
       type: object
-      required: [userId]
+      required: [expectedName, name, channels]
       properties:
-        userId: { type: string, format: uuid }
+        expectedName: { type: string }
+        name: { type: string, maxLength: 524320 }
+        channels: { type: object, additionalProperties: { type: string, maxLength: 524320 } }
+    RondoVoiceKey:
+      type: object
+      required: [revision, membershipTag, envelope]
+      properties:
+        revision: { type: integer, minimum: 0 }
+        membershipTag: { type: string, pattern: '^[0-9a-f]{64}$' }
+        envelope:
+          anyOf:
+            - { $ref: '#/components/schemas/ContentEnvelope' }
+            - { type: 'null' }
     RondoNewChannel:
       type: object
       required: [name]
       properties:
-        name: { type: string, maxLength: 80 }
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 524320 }
     RondoVoiceTicket:
       type: object
       required: [serverUrl, participantToken]
@@ -1020,7 +1224,7 @@ components:
       required: [id, kind, mimeType, width, height, size, altText, url]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [image, video] }
+        kind: { type: string, enum: [image, video, file], description: Stored post attachments are opaque files until the device opens their descriptor }
         mimeType: { type: string }
         width: { type: integer }
         height: { type: integer }
@@ -1052,7 +1256,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         author: { $ref: '#/components/schemas/FluoAuthor' }
-        content: { $ref: '#/components/schemas/FluoDocument' }
+        content: { $ref: '#/components/schemas/FluoContent' }
         text: { type: string }
         visibility: { type: string, enum: [public, private] }
         parentId: { type: [string, 'null'], format: uuid, description: Direct parent post for replies; null for a root post. }
@@ -1087,7 +1291,8 @@ components:
       type: object
       required: [content, visibility]
       properties:
-        content: { $ref: '#/components/schemas/FluoDocument' }
+        id: { type: string, format: uuid, description: Device-generated ID bound to the encrypted content signature }
+        content: { $ref: '#/components/schemas/FluoContent' }
         visibility: { type: string, enum: [public, private] }
         parentId: { type: string, format: uuid }
         quoteId: { type: string, format: uuid }
@@ -1104,6 +1309,7 @@ components:
       required: [visibility]
       properties:
         visibility: { type: string, enum: [public, private] }
+        content: { $ref: '#/components/schemas/FluoEnvelope', description: Required when a private post becomes public }
     FluoReaction:
       type: object
       required: [value]
@@ -1230,333 +1436,243 @@ components:
       properties:
         referenced: { type: boolean }
 paths:
-  /v1/lingvo/dictionaries:
+  /v1/fluo/keyring:
     get:
-      operationId: "listLingvoDictionaries"
-      security:
-        - {"bearerAuth":[]}
+      operationId: getFluoKeyring
+      security: [{ bearerAuth: [] }]
       responses:
-        200:
-          description: "Successful response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LingvoDictionaryPage"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
+        '200': { description: Own audience key versions and followed accounts still waiting for sealed copies, content: { application/json: { schema: { $ref: '#/components/schemas/FluoKeyringState' } } } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
     post:
-      operationId: "createLingvoDictionary"
-      security:
-        - {"bearerAuth":[]}
+      operationId: updateFluoKeyring
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/LingvoNewDictionary"
+        content: { application/json: { schema: { $ref: '#/components/schemas/FluoKeyringUpdate' } } }
       responses:
-        201:
-          description: "Successful response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LingvoDictionary"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-  /v1/lingvo/dictionaries/{dictionaryId}:
+        '200': { description: Updated audience key state, content: { application/json: { schema: { $ref: '#/components/schemas/FluoKeyringState' } } } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/fluo/keys:
     get:
-      operationId: "getLingvoOverview"
-      security:
-        - {"bearerAuth":[]}
+      operationId: getFluoKeys
+      security: [{ bearerAuth: [] }]
       parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+        - { name: refs, in: query, required: true, description: Comma-separated ownerId:version pairs, schema: { type: string, maxLength: 6000 } }
       responses:
-        200:
-          description: "Successful response"
+        '200':
+          description: Published keys and sealed copies addressed to the viewer
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LingvoOverview"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-  /v1/lingvo/dictionaries/{dictionaryId}/settings:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/FluoKeyMaterial' } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/rondo/channels/{id}/voice-key:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: readRondoVoiceKey
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Membership-bound voice key, content: { application/json: { schema: { $ref: '#/components/schemas/RondoVoiceKey' } } } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
     put:
-      operationId: "updateLingvoSettings"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      operationId: writeRondoVoiceKey
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/LingvoSettings"
+        content: { application/json: { schema: { $ref: '#/components/schemas/RondoVoiceKey' } } }
       responses:
-        200:
-          description: "Successful response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LingvoDictionary"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-  /v1/lingvo/dictionaries/{dictionaryId}/cards:
+        '200': { description: Committed voice key, content: { application/json: { schema: { $ref: '#/components/schemas/RondoVoiceKey' } } } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/crypto/recovery:
     get:
-      operationId: "listLingvoCards"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-        - {"name":"kind","in":"query","required":false,"schema":{"type":"string","enum":["word","phrase"]}}
-        - {"name":"status","in":"query","required":false,"schema":{"type":"string","enum":["active","known","suspended"]}}
-        - {"name":"folder","in":"query","required":false,"schema":{"type":"string"}}
-        - {"name":"q","in":"query","required":false,"schema":{"type":"string","maxLength":100}}
-        - {"name":"offset","in":"query","required":false,"schema":{"type":"integer","minimum":0,"maximum":10000}}
-        - {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200}}
+      operationId: readRecoveryBundle
+      security: [{ bearerAuth: [] }]
       responses:
-        200:
-          description: "Successful response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LingvoCardPage"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-    post:
-      operationId: "createLingvoCard"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/LingvoNewCard"
-      responses:
-        201:
-          description: "Successful response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LingvoCard"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-  /v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}:
+        '200':
+          description: Sealed recovery bundle or an empty string before setup
+          content: { application/json: { schema: { type: object, required: [wrappedKeys], properties: { wrappedKeys: { type: string } } } } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
     put:
-      operationId: "updateLingvoCard"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-        - {"name":"cardId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      operationId: saveRecoveryBundle
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/LingvoCardUpdate"
-      responses:
-        200:
-          description: "Successful response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LingvoCard"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-    delete:
-      operationId: "deleteLingvoCard"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-        - {"name":"cardId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-        - {"name":"revision","in":"query","required":true,"schema":{"type":"integer","minimum":1}}
-      responses:
-        204:
-          description: "Completed"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-  /v1/lingvo/dictionaries/{dictionaryId}/study:
-    get:
-      operationId: "getLingvoStudyQueue"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-        - {"name":"kind","in":"query","required":true,"schema":{"type":"string","enum":["word","phrase"]}}
-        - {"name":"folder","in":"query","required":false,"schema":{"type":"string"}}
-      responses:
-        200:
-          description: "Successful response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LingvoStudyPage"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-  /v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}/reviews:
-    post:
-      operationId: "reviewLingvoCard"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-        - {"name":"cardId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/LingvoReview"
-      responses:
-        200:
-          description: "Successful response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LingvoReviewResult"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-  /v1/lingvo/dictionaries/{dictionaryId}/reviews/{reviewId}/undo:
-    post:
-      operationId: "undoLingvoReview"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-        - {"name":"reviewId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-      responses:
-        200:
-          description: "Successful response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LingvoCard"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-  /v1/lingvo/dictionaries/{dictionaryId}/folders:
-    post:
-      operationId: "createLingvoFolder"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: "object"
-              required: ["name"]
+              type: object
+              required: [expectedWrappedKeys, wrappedKeys, signature]
               properties:
-                name:
-                  type: "string"
-                  minLength: 1
-                  maxLength: 60
+                expectedWrappedKeys: { type: string, maxLength: 4096 }
+                wrappedKeys: { type: string, maxLength: 4096 }
+                signature: { type: string, minLength: 88, maxLength: 88 }
       responses:
-        201:
-          description: "Successful response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LingvoFolder"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-  /v1/lingvo/dictionaries/{dictionaryId}/folders/{folderId}:
-    delete:
-      operationId: "deleteLingvoFolder"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-        - {"name":"folderId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
-      responses:
-        204:
-          description: "Completed"
-        default:
-          description: "Request rejected"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-  /v1/lingvo/dictionaries/{dictionaryId}/imports:
+        '200': { description: Recovery bundle saved, content: { application/json: { schema: { type: object, required: [saved], properties: { saved: { type: boolean } } } } } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/crypto/records/read:
     post:
-      operationId: "importLingvoCards"
-      security:
-        - {"bearerAuth":[]}
-      parameters:
-        - {"name":"dictionaryId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}
+      operationId: readPrivateRecords
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/LingvoImport"
+              type: object
+              required: [tags]
+              properties:
+                tags: { type: array, maxItems: 502, items: { type: string } }
       responses:
-        200:
-          description: "Successful response"
+        '200':
+          description: Owned ciphertext records
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LingvoImportResult"
-        default:
-          description: "Request rejected"
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/PrivateRecord' } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/crypto/records/commit:
+    post:
+      operationId: commitPrivateRecords
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PrivateRecordTransaction' } } }
+      responses:
+        '200':
+          description: Committed ciphertext records
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/PrivateRecord' } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/crypto/users/{id}:
+    get:
+      operationId: publicEncryptionIdentity
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Public encryption identity, content: { application/json: { schema: { $ref: '#/components/schemas/PublicEncryptionIdentity' } } } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/crypto/audience/{module}/{id}:
+    get:
+      operationId: encryptionAudience
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: module, in: path, required: true, schema: { type: string, enum: [ligo, ligo-history, rondo] } }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: private, in: query, schema: { type: boolean } }
+        - { name: parentId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Authorized encryption recipients, content: { application/json: { schema: { $ref: '#/components/schemas/EncryptionAudience' } } } }
+        default: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/crypto/identity:
+    get:
+      operationId: readEncryptionIdentity
+      security: [{ bearerAuth: [] }]
+      description: Reads this account's public identity and sealed device keys; private keys never reach Kerno.
+      responses:
+        '200':
+          description: Account identity, or null before its first device
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [identity]
+                properties:
+                  identity:
+                    anyOf:
+                      - { $ref: '#/components/schemas/EncryptionIdentity' }
+                      - { type: 'null' }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/crypto/devices:
+    post:
+      operationId: registerEncryptionDevice
+      security: [{ bearerAuth: [] }]
+      description: Initializes the first device or registers another device awaiting a signed transfer.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EncryptionRegistration' } } }
+      responses:
+        '200': { description: Current identity, content: { application/json: { schema: { $ref: '#/components/schemas/EncryptionIdentity' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/crypto/devices/{id}/approve:
+    post:
+      operationId: approveEncryptionDevice
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      description: Approves a device using account-signed sealed keys; login alone cannot mint an approval.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EncryptionApproval' } } }
+      responses:
+        '200': { description: Current identity, content: { application/json: { schema: { $ref: '#/components/schemas/EncryptionIdentity' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/crypto/devices/{id}:
+    delete:
+      operationId: forgetEncryptionDevice
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      description: Removes a device binding using an account signature bound to its current public key and sealed bundle. Does not erase keys already obtained by a device.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [signature]
+              properties:
+                signature: { type: string, minLength: 88, maxLength: 88 }
+      responses:
+        '200': { description: Current identity, content: { application/json: { schema: { $ref: '#/components/schemas/EncryptionIdentity' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/memoro/month:
+    get:
+      operationId: readMemoroMonth
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: tag, in: query, required: true, schema: { type: string, pattern: '^[0-9a-f]{64}$' } }]
+      responses:
+        '200':
+          description: Encrypted calendar summaries
+          content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/MemoroSummary' } } } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/memoro/days/{dayTag}:
+    parameters: [{ name: dayTag, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{64}$' } }]
+    get:
+      operationId: readMemoroDay
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Encrypted day, or null for an empty date
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [day]
+                properties:
+                  day:
+                    anyOf:
+                      - { $ref: '#/components/schemas/MemoroDay' }
+                      - { type: 'null' }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+    put:
+      operationId: saveMemoroDay
+      security: [{ bearerAuth: [] }]
+      description: Saves encrypted content with a revision check and validates encrypted upload ownership.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MemoroDayUpdate' } } }
+      responses:
+        '200': { description: Saved encrypted day, content: { application/json: { schema: { $ref: '#/components/schemas/MemoroDay' } } } }
+        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
   /v1/lingvo/catalog:
     get:
       operationId: "getLingvoCatalog"
@@ -1874,7 +1990,6 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: feed, in: query, schema: { type: string, enum: [latest, following, mine, saved] } }
-        - { name: q, in: query, description: Search post text and author names, schema: { type: string, minLength: 2, maxLength: 100 } }
         - { name: authorId, in: query, description: Restrict an accessible feed to this profile owner, schema: { type: string, format: uuid } }
         - { name: cursor, in: query, schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
@@ -2355,6 +2470,7 @@ paths:
       operationId: discoverRondoServers
       security: [{ bearerAuth: [] }]
       parameters:
+        - { name: cursor, in: query, schema: { type: string, format: uuid } }
         - { name: q, in: query, schema: { type: string, maxLength: 80 } }
       responses:
         '200':
@@ -2525,38 +2641,6 @@ paths:
         content: { application/json: { schema: { type: object, required: [isAdmin, reason], properties: { isAdmin: { type: boolean }, reason: { type: string, minLength: 10, maxLength: 500 } } } } }
       responses:
         '200': { description: Updated account, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoUser' } } } }
-        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
-  /v1/admin/cases:
-    post:
-      operationId: openRegadoAccessCase
-      security: [{ bearerAuth: [] }]
-      description: Opens a 15-minute account-content access case, audits it and notifies the target in Ligo Saved messages.
-      requestBody:
-        required: true
-        content: { application/json: { schema: { type: object, required: [targetUserId, reason], properties: { targetUserId: { type: string, format: uuid }, reason: { type: string, minLength: 20, maxLength: 500 } } } } }
-      responses:
-        '201': { description: Opened case, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoCase' } } } }
-        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
-  /v1/admin/cases/{id}/content:
-    get:
-      operationId: readRegadoCaseContent
-      security: [{ bearerAuth: [] }]
-      description: Audited content read for the case creator before expiry. Media URLs expire after one minute.
-      parameters:
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: kind, in: query, required: true, schema: { type: string, enum: [posts, messages] } }
-        - { name: before, in: query, schema: { type: string, format: uuid } }
-      responses:
-        '200': { description: Up to 50 content items, content: { application/json: { schema: { $ref: '#/components/schemas/RegadoContentPage' } } } }
-        default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
-  /v1/admin/cases/{id}/close:
-    post:
-      operationId: closeRegadoAccessCase
-      security: [{ bearerAuth: [] }]
-      description: Ends the case immediately and audits it. Previously issued media links expire within one minute.
-      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
-      responses:
-        '204': { description: Case closed }
         default: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
   /v1/admin/system:
     get:

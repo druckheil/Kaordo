@@ -1,5 +1,6 @@
 package httpapi
 
+// Exercises encrypted messages, membership routing and authenticated event streams
 import (
 	"bufio"
 	"context"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 )
@@ -84,7 +86,15 @@ func TestLigoSendValidatesAccountAndAttachmentOwnership(t *testing.T) {
 	}
 	id := "01999111-2222-7333-8444-555555555555"
 	uploadID := "01999111-2222-7333-8444-555555555556"
-	body := `{"clientId":"01999111-2222-7333-8444-555555555557","text":"hello","attachmentIds":["` + uploadID + `"],"altTexts":{"` + uploadID + `":"Lecture notes"}}`
+	clientID := "01999111-2222-7333-8444-555555555557"
+	bodyBytes, err := json.Marshal(ligo.NewMessage{ClientID: clientID,
+		Text:          encryption.TextPrefix + string(opaqueContentFixture(t, users.user.ID, "ligo:"+id+":"+clientID)),
+		AttachmentIDs: []string{uploadID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
 	call := func(token string, validMedia bool) *httptest.ResponseRecorder {
 		t.Helper()
 		request := httptest.NewRequest(http.MethodPost, "/v1/ligo/conversations/"+id+"/messages", strings.NewReader(body))
@@ -107,7 +117,8 @@ func TestLigoSendValidatesAccountAndAttachmentOwnership(t *testing.T) {
 	response := call("valid", true)
 	if response.Code != http.StatusCreated || store.sends != 1 ||
 		!strings.Contains(response.Body.String(), "notes.pdf") ||
-		!strings.Contains(response.Body.String(), "Lecture notes") ||
+		strings.Contains(response.Body.String(), "Lecture notes") ||
+		!strings.Contains(response.Body.String(), encryption.TextPrefix) ||
 		!strings.Contains(response.Body.String(), "/v1/media/"+uploadID) ||
 		response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("valid send = %d, %s", response.Code, response.Body.String())
@@ -128,6 +139,7 @@ func TestLigoSendAcceptsEightAttachmentsAndRejectsNine(t *testing.T) {
 		t.Helper()
 		body, err := json.Marshal(ligo.NewMessage{
 			ClientID: "01999111-2222-7333-8444-555555555557", AttachmentIDs: selected,
+			Text: encryption.TextPrefix + string(opaqueContentFixture(t, users.user.ID, "ligo:01999111-2222-7333-8444-555555555555:01999111-2222-7333-8444-555555555557")),
 		})
 		if err != nil {
 			t.Fatal(err)

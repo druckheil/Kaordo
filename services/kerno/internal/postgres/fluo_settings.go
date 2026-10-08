@@ -32,6 +32,15 @@ func (store *Fluo) UpdateSettings(ctx context.Context, viewerID string, patch fl
 	if err := patch.Validate(); err != nil {
 		return fluo.Settings{}, err
 	}
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fluo.Settings{}, err
+	}
+	defer tx.Rollback(ctx)
+	// Privacy changes wait for posts citing the current audience key, which may need rotation afterwards.
+	if err := lockFluoKeyring(ctx, tx, viewerID, true); err != nil {
+		return fluo.Settings{}, err
+	}
 	settings := table.FluoSettings
 	notifications := fluo.NotificationPreferencesPatch{}
 	privacy := fluo.PrivacySettingsPatch{}
@@ -69,12 +78,16 @@ func (store *Fluo) UpdateSettings(ctx context.Context, viewerID string, patch fl
 		updates = append(updates, settings.ShowLikes.SET(value))
 	}
 	// PostgreSQL defaults fill absent columns on insert; conflict updates touch only the supplied fields.
-	return scanFluoSettings(jetQueryRow(ctx, store.pool, settings.INSERT(columns).VALUES(values[0], values[1:]...).
+	saved, err := scanFluoSettings(jetQueryRow(ctx, tx, settings.INSERT(columns).VALUES(values[0], values[1:]...).
 		ON_CONFLICT(settings.UserID).DO_UPDATE(jetpg.SET(updates...)).RETURNING(
 		settings.NotifyLikes, settings.NotifyDislikes, settings.NotifyReplies,
 		settings.NotifyFollows, settings.NotifyUnfollows, settings.NotifyQuotes,
 		settings.AccountVisibility, settings.ShowLikes, settings.PresenceVisibility,
 	)))
+	if err != nil {
+		return fluo.Settings{}, err
+	}
+	return saved, tx.Commit(ctx)
 }
 
 func scanFluoSettings(row scanner) (fluo.Settings, error) {

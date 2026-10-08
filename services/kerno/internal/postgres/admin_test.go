@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestAdminAccessFlow(t *testing.T) {
+func TestAdminAccountActions(t *testing.T) {
 	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
@@ -70,63 +69,6 @@ func TestAdminAccessFlow(t *testing.T) {
 	if err != nil || revoked.IsAdmin {
 		t.Fatalf("role revocation = %+v, %v", revoked, err)
 	}
-	reason := "Investigating a documented policy violation"
-	accessCase, err := store.CreateAccessCase(ctx, admin.ID, target.ID, reason)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if accessCase.TargetUserID != target.ID {
-		t.Fatalf("case target = %+v", accessCase)
-	}
-	if _, err := store.AccessCase(ctx, target.ID, accessCase.ID); err == nil {
-		t.Fatal("target opened admin case")
-	}
-	if _, err := store.AccessCase(ctx, admin.ID, accessCase.ID); err != nil {
-		t.Fatal(err)
-	}
-	var noticeID string
-	messages := table.LigoMessages.AS("m")
-	conversations := table.LigoConversations.AS("c")
-	if err := jetQueryRow(ctx, pool, messages.SELECT(jetpg.CAST(messages.ID).AS_TEXT()).
-		FROM(messages.INNER_JOIN(conversations, conversations.ID.EQ(messages.ConversationID))).
-		WHERE(jetpg.AND(conversations.Kind.EQ(jetpg.String("self")), conversations.CreatedBy.EQ(jetUUID(target.ID)), messages.SystemNotice.IS_TRUE())).
-		ORDER_BY(messages.CreatedAt.DESC()).LIMIT(1)).Scan(&noticeID); err != nil {
-		t.Fatal(err)
-	}
-	var conversationID string
-	if err := jetQueryRow(ctx, pool, messages.SELECT(jetpg.CAST(messages.ConversationID).AS_TEXT()).
-		WHERE(messages.ID.EQ(jetUUID(noticeID)))).Scan(&conversationID); err != nil {
-		t.Fatal(err)
-	}
-	message, err := NewLigo(pool).message(ctx, target.ID, noticeID)
-	if err != nil || !message.SystemNotice || !strings.Contains(message.Text, accessCase.ID) {
-		t.Fatalf("notice = %+v, %v", message, err)
-	}
-	saved, err := NewLigo(pool).GetConversation(ctx, target.ID, conversationID)
-	if err != nil || saved.UnreadCount != 1 || saved.LastMessage == nil || saved.LastMessage.ID != noticeID {
-		t.Fatalf("Saved messages notification = %+v, %v", saved, err)
-	}
-	if _, err := NewLigo(pool).Edit(ctx, target.ID, conversationID, noticeID, "hide notice"); err == nil {
-		t.Fatal("notice was editable")
-	}
-	if _, err := NewLigo(pool).DeleteMessage(ctx, target.ID, conversationID, noticeID); err == nil {
-		t.Fatal("notice was deletable")
-	}
-	if _, err := NewLigo(pool).SetReaction(ctx, target.ID, conversationID, noticeID, "heart", true); err == nil {
-		t.Fatal("system notice accepted a reaction")
-	}
-	page, err := store.CaseContent(ctx, target.ID, "messages", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range page.Items {
-		if item.ID == noticeID {
-			t.Fatal("system notice leaked into inspected content")
-		}
-	}
-	if _, err := store.CaseContent(ctx, target.ID, "posts", ""); err != nil {
-		t.Fatal(err)
-	}
 	changed, err := store.SetDisabled(ctx, admin.ID, target.ID, true, "Repeated policy violation")
 	if err != nil || changed.DisabledAt == nil {
 		t.Fatalf("disable = %+v, %v", changed, err)
@@ -138,32 +80,12 @@ func TestAdminAccessFlow(t *testing.T) {
 	if _, err := store.SetDisabled(ctx, admin.ID, target.ID, false, "Appeal was accepted"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CloseCase(ctx, target.ID, accessCase.ID); err == nil {
-		t.Fatal("target closed another actor's case")
-	}
-	if err := store.CloseCase(ctx, admin.ID, accessCase.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.AccessCase(ctx, admin.ID, accessCase.ID); err == nil {
-		t.Fatal("closed case still allowed access")
-	}
-	if err := store.CloseCase(ctx, admin.ID, accessCase.ID); err != nil {
-		t.Fatal("case closure is not idempotent:", err)
-	}
-	if err := store.Record(ctx, admin.ID, target.ID, "case.read", reason, map[string]string{"caseId": accessCase.ID}); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.Record(ctx, admin.ID, "", "log.read", "", map[string]string{"service": "kerno"}); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := store.Audit(ctx)
 	if err != nil || len(entries) < 3 {
 		t.Fatalf("audit = %+v, %v", entries, err)
-	}
-	for _, entry := range entries {
-		if entry.Action == "case.read" && (entry.Target == nil || *entry.Target != target.Username) {
-			t.Fatalf("content read lost its target: %+v", entry)
-		}
 	}
 }
 

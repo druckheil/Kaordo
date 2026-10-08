@@ -3,6 +3,7 @@ package rondo
 // Defines Rondo API models, store operations, and domain errors
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -46,11 +47,40 @@ type Detail struct {
 	Members  []ligo.User `json:"members"`
 }
 
+type ServerPage struct {
+	Items      []Server `json:"items"`
+	NextCursor *string  `json:"nextCursor"`
+}
+
+type DiscoveryStore interface {
+	DiscoverPage(context.Context, string, string) (ServerPage, error)
+}
+
 // NewServer contains the fields accepted when creating a server
 type NewServer struct {
+	ID          string `json:"id"`
+	GeneralID   string `json:"generalId"`
+	General     string `json:"general"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Access      string `json:"access"`
+}
+
+type EncryptedMetadata struct {
+	ExpectedName string            `json:"expectedName"`
+	Name         string            `json:"name"`
+	Channels     map[string]string `json:"channels"`
+}
+type VoiceKey struct {
+	Revision      int64           `json:"revision"`
+	MembershipTag string          `json:"membershipTag"`
+	Envelope      json.RawMessage `json:"envelope"`
+}
+type EncryptedStore interface {
+	InviteEncrypted(context.Context, string, string, string, EncryptedMetadata) (Detail, error)
+	CreateEncryptedChannel(context.Context, string, string, string, string) (Channel, error)
+	VoiceKey(context.Context, string, string) (VoiceKey, error)
+	SetVoiceKey(context.Context, string, string, VoiceKey) (VoiceKey, error)
 }
 
 // Store defines the persistence operations used by the Rondo API

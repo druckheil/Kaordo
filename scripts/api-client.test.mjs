@@ -105,23 +105,24 @@ test('Regado uses contract parameters, cancellation and empty mutation responses
   const calls = [];
   const api = createAdminApi('https://example.test', async (request) => {
     calls.push(request);
-    if (request.url.endsWith('/close')) return new Response(null, { status: 204 });
+    if (request.method === 'PATCH') return Response.json({ ...user, isAdmin: false });
     return Response.json({ items: [], nextCursor: null });
   });
   await api.users('a&b', controller.signal);
   assert.equal(new URL(calls[0].url).searchParams.get('q'), 'a&b');
-  await api.caseContent(user.id, 'messages', 'cursor?&=', controller.signal);
-  assert.equal(new URL(calls[1].url).searchParams.get('before'), 'cursor?&=');
+  await api.logs('service?&=', controller.signal);
+  assert.equal(new URL(calls[1].url).searchParams.get('service'), 'service?&=');
   controller.abort();
   assert.equal(calls[0].signal.aborted, true);
   assert.equal(calls[1].signal.aborted, true);
-  await api.closeCase(user.id);
-  assert.equal(calls[2].method, 'POST');
+  await api.setRole(user.id, false, 'Synthetic role change');
+  assert.equal(calls[2].method, 'PATCH');
+  assert.deepEqual(await calls[2].json(), { isAdmin: false, reason: 'Synthetic role change' });
 });
 
 test('Regado preserves server errors and HTTP status', async () => {
-  const api = createAdminApi('https://example.test', async () => Response.json({ error: 'Access case expired.' }, { status: 403 }));
-  await assert.rejects(api.caseContent(user.id, 'posts'), /Access case expired/);
+  const api = createAdminApi('https://example.test', async () => Response.json({ error: 'Administrator access required.' }, { status: 403 }));
+  await assert.rejects(api.users(), /Administrator access required/);
 });
 
 test('shared message caches preserve pagination and idempotency', () => {

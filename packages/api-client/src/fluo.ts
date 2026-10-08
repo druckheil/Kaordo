@@ -5,6 +5,10 @@ import type {
   FluoNotificationSummary, FluoNotificationReadState, FluoSettings, FluoSettingsPatch,
   FluoProfile, FluoProfileUpdate, FluoStatus, FluoConnectionPage, NodoUpload, paths
 } from '@kaordo/contracts';
+import { createContentCodec } from './content-codec.ts';
+import { createFluoContent } from './fluo-content.ts';
+import { createFluoKeys } from './fluo-keys.ts';
+import { isFluoEnvelope } from '@kaordo/crypto';
 import createClient from 'openapi-fetch';
 import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
 
@@ -17,10 +21,21 @@ export interface FluoFeedFilter {
 
 export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
   const client = createClient<paths>({ baseUrl: apiBaseUrl, fetch: sessionFetch });
-  const nodo = nodoBaseUrl.replace(/\/$/, '');
-  const nodoClient = createClient<paths>({ baseUrl: nodo, fetch: sessionFetch });
+  const nodoClient = createClient<paths>({ baseUrl: nodoBaseUrl.replace(/\/$/, ''), fetch: sessionFetch });
+  const keys = createFluoKeys(apiBaseUrl);
+  async function wirePost(id: string, signal?: AbortSignal) {
+    const { data, error, response } = await client.GET('/v1/fluo/posts/{id}', { params: { path: { id } }, signal });
+    return requireResponseData(data, error, response.status);
+  }
+  const content = createFluoContent(createContentCodec(apiBaseUrl), keys, async id => {
+    const parent = await wirePost(id);
+    if (!isFluoEnvelope(parent.content)) throw new Error('The replied post is not encrypted.');
+    return parent.content.keyring;
+  });
 
   return {
+    /** Grants and rotates audience keys after follows or privacy changes made on any device */
+    syncKeys: () => keys.refresh(),
     async profile(username: string, signal?: AbortSignal): Promise<FluoProfile> {
       const { data, error, response } = await client.GET('/v1/fluo/profiles/{username}', {
         params: { path: { username } }, signal
@@ -47,13 +62,17 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
     },
     async updateSettings(patch: FluoSettingsPatch, signal?: AbortSignal): Promise<FluoSettings> {
       const { data, error, response } = await client.PATCH('/v1/fluo/settings', { body: patch, signal });
-      return requireResponseData(data, error, response.status);
+      const settings = requireResponseData(data, error, response.status);
+      // Rotation is retried by the next post if this device cannot finish it now.
+      if (patch.privacy?.accountVisibility) await keys.refresh().catch(() => {});
+      return settings;
     },
     async notifications(cursor?: string, signal?: AbortSignal): Promise<FluoNotificationPage> {
       const { data, error, response } = await client.GET('/v1/fluo/notifications', {
         params: { query: { cursor, limit: 20 } }, signal
       });
-      return requireResponseData(data, error, response.status);
+      const result = requireResponseData(data, error, response.status);
+      return { ...result, items: await Promise.all(result.items.map(item => content.notification(item, signal))) };
     },
     async notificationSummary(signal?: AbortSignal): Promise<FluoNotificationSummary> {
       const { data, error, response } = await client.GET('/v1/fluo/notifications/unread-count', { signal });
@@ -70,35 +89,63 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       return requireResponseData(data, error, response.status);
     },
     async list(filter: FluoFeedFilter, cursor?: string, signal?: AbortSignal): Promise<FluoPage> {
-      const { data, error, response } = await client.GET('/v1/fluo/posts', {
-        params: { query: { feed: filter.feed, cursor, limit: 20, q: filter.search, authorId: filter.authorId } }, signal
-      });
-      return requireResponseData(data, error, response.status);
+      const query = filter.search?.toLocaleLowerCase().trim();
+      const items: FluoPost[] = [];
+      let nextCursor = cursor;
+      do {
+        signal?.throwIfAborted();
+        const { data, error, response } = await client.GET('/v1/fluo/posts', {
+          params: { query: { feed: filter.feed, cursor: nextCursor, limit: 20, authorId: filter.authorId } }, signal
+        });
+        const page = requireResponseData(data, error, response.status);
+        for (const wire of page.items) {
+          const preview = await content.post(wire, signal, !!query);
+          if (!query || [preview.text, preview.author.username, preview.author.displayName].some(value => value.toLocaleLowerCase().includes(query)))
+            items.push(query ? await content.post(wire, signal) : preview);
+        }
+        nextCursor = page.nextCursor ?? undefined;
+      } while (query && nextCursor && items.length < 20);
+      return { items, nextCursor: nextCursor ?? null };
     },
     async comments(id: string, cursor?: string, signal?: AbortSignal): Promise<FluoPage> {
       const { data, error, response } = await client.GET('/v1/fluo/posts/{id}/comments', {
         params: { path: { id }, query: { cursor } }, signal
       });
-      return requireResponseData(data, error, response.status);
+      const result = requireResponseData(data, error, response.status);
+      return { ...result, items: await Promise.all(result.items.map(item => content.post(item, signal))) };
     },
     async get(id: string, signal?: AbortSignal): Promise<FluoPost> {
       const { data, error, response } = await client.GET('/v1/fluo/posts/{id}', { params: { path: { id } }, signal });
-      return requireResponseData(data, error, response.status);
+      return content.post(requireResponseData(data, error, response.status), signal);
     },
     async thread(id: string, signal?: AbortSignal): Promise<FluoPostThread> {
       const { data, error, response } = await client.GET('/v1/fluo/posts/{id}/thread', {
         params: { path: { id } }, signal
       });
-      return requireResponseData(data, error, response.status);
+      const result = requireResponseData(data, error, response.status);
+      return { ...result, posts: await Promise.all(result.posts.map(item => content.post(item, signal))) };
     },
     async create(input: FluoNewPost): Promise<FluoPost> {
-      const { data, error, response } = await client.POST('/v1/fluo/posts', { body: input });
-      return requireResponseData(data, error, response.status);
+      const id = crypto.randomUUID();
+      let result = await client.POST('/v1/fluo/posts', { body: await content.encode(input, id) });
+      // Another device may have changed privacy; refresh the audience key and encrypt again once.
+      if (result.response.status === 409) {
+        await keys.refresh();
+        result = await client.POST('/v1/fluo/posts', { body: await content.encode(input, id) });
+      }
+      return content.post(requireResponseData(result.data, result.error, result.response.status));
     },
     async setVisibility(id: string, visibility: FluoPost['visibility'], signal?: AbortSignal): Promise<void> {
-      const { error, response } = await client.PATCH('/v1/fluo/posts/{id}', {
-        params: { path: { id } }, body: { visibility }, signal
-      });
+      let body: { visibility: FluoPost['visibility']; content?: Awaited<ReturnType<typeof content.encode>>['content'] } = { visibility };
+      // Hiding changes access only; publishing a self-only post encrypts it for the current audience.
+      if (visibility === 'public') {
+        const previous = await content.post(await wirePost(id, signal), signal);
+        const encoded = await content.encode({ content: previous.content, visibility, ...(previous.parentId ? { parentId: previous.parentId } : {}),
+          ...(previous.quoteId ? { quoteId: previous.quoteId } : {}), attachmentIds: previous.media.map(item => item.id),
+          altTexts: Object.fromEntries(previous.media.map(item => [item.id, item.altText])) }, id);
+        body = { visibility, content: encoded.content };
+      }
+      const { error, response } = await client.PATCH('/v1/fluo/posts/{id}', { params: { path: { id } }, body, signal });
       requireResponseOk(response, error);
     },
     async remove(id: string): Promise<void> {
@@ -115,13 +162,15 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const result = value
         ? await client.PUT('/v1/fluo/posts/{id}/reaction', { params: { path: { id } }, body: { value }, signal })
         : await client.DELETE('/v1/fluo/posts/{id}/reaction', { params: { path: { id } }, signal });
-      return requireResponseData(result.data, result.error, result.response.status);
+      return content.post(requireResponseData(result.data, result.error, result.response.status), signal);
     },
     async follow(id: string, following: boolean, signal?: AbortSignal): Promise<void> {
       const result = following
         ? await client.PUT('/v1/fluo/users/{id}/follow', { params: { path: { id } }, signal })
         : await client.DELETE('/v1/fluo/users/{id}/follow', { params: { path: { id } }, signal });
       requireResponseOk(result.response, result.error);
+      // A private author shares audience keys with newly followed accounts immediately.
+      if (following) await keys.refresh().catch(() => {});
     },
     async uploadMetadata(id: string, signal?: AbortSignal): Promise<NodoUpload | null> {
       const { data, error, response } = await nodoClient.GET('/v1/uploads/{id}/meta', {

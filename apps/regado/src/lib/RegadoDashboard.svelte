@@ -4,10 +4,10 @@
 	import { onDestroy } from "svelte";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
-	import { createQuery, createInfiniteQuery, QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
+	import { createQuery, QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
 	import {
 		createAdminApi, adminSummaryOptions, adminSystemOptions, adminMetricsOptions,
-		adminUsersOptions, adminAuditOptions, adminLogsOptions, adminCaseContentOptions,
+		adminUsersOptions, adminAuditOptions, adminLogsOptions,
 	} from "@kaordo/api-client";
 	import type { UserIdentity } from "@kaordo/contracts";
 	import { appPaths } from "@kaordo/links";
@@ -25,7 +25,6 @@
 		errorMessage,
 		isRefreshableTab,
 		logServices,
-		type ContentKind,
 		type DashboardTab as Tab,
 		type LogPriority,
 		type MetricsWindow,
@@ -44,15 +43,13 @@
 	let logService = $state<string>(logServices[0]);
 	let logLevel = $state<LogPriority>("all");
 	let logSearch = $state("");
-	let contentKind = $state<ContentKind>("posts");
 
 	const queryClient = new QueryClient();
 
 	const commands = createAdminActionState({
-		api, queryClient, refreshOverview, loadUsers, onCaseOpened: () => { contentKind = "posts"; }
+		api, queryClient, refreshOverview, loadUsers
 	});
 	const { form, status } = commands;
-	const caseRecord = $derived(status.caseRecord);
 	const busy = $derived(status.busy);
 	const notice = $derived(status.notice);
 	const refreshable = $derived(isRefreshableTab(tab));
@@ -71,10 +68,6 @@
 	const usersQuery = createQuery(() => ({ ...adminUsersOptions(api, submittedSearch), enabled: tab === "Users" }), () => queryClient);
 	const auditQuery = createQuery(() => ({ ...adminAuditOptions(api), enabled: tab === "Audit" }), () => queryClient);
 	const logsQuery = createQuery(() => ({ ...adminLogsOptions(api, logService), enabled: tab === "Logs", refetchInterval: tab === "Logs" ? 30_000 : false }), () => queryClient);
-	const contentQuery = createInfiniteQuery(() => ({
-		...adminCaseContentOptions(api, caseRecord?.id ?? null, contentKind),
-		enabled: !!caseRecord && tab === "Users",
-	}), () => queryClient);
 
 	const summary = $derived(summaryQuery.data ?? null);
 	const system = $derived(systemQuery.data ?? null);
@@ -82,15 +75,11 @@
 	const users = $derived(usersQuery.data?.items ?? []);
 	const audit = $derived(auditQuery.data?.items ?? []);
 	const logs = $derived(logsQuery.data ?? null);
-	const content = $derived(contentQuery.data ? {
-		items: contentQuery.data.pages.flatMap((page) => page.items),
-		nextCursor: contentQuery.data.pages.at(-1)?.nextCursor ?? null,
-	} : null);
 	const loading = $derived(summaryQuery.isPending || systemQuery.isPending || metricsQuery.isPending);
 	const sectionLoading = $derived(tab === "Users" ? usersQuery.isFetching : tab === "Logs" ? logsQuery.isFetching : tab === "Audit" && auditQuery.isFetching);
 	const sectionError = $derived.by(() => {
 		if (refreshable) return summaryQuery.error ?? systemQuery.error ?? metricsQuery.error;
-		if (tab === "Users") return usersQuery.error ?? (caseRecord ? contentQuery.error : null);
+		if (tab === "Users") return usersQuery.error;
 		if (tab === "Logs") return logsQuery.error;
 		if (tab === "Audit") return auditQuery.error;
 		return null;
@@ -124,9 +113,6 @@
 		await logsQuery.refetch();
 	}
 
-	async function loadContent(): Promise<void> {
-		if (caseRecord && contentQuery.hasNextPage && !contentQuery.isFetching) await contentQuery.fetchNextPage();
-	}
 
 </script>
 
@@ -226,16 +212,9 @@
 				{users}
 				bind:search
 				{sectionLoading}
-				contentLoading={contentQuery.isFetching}
 				currentUserId={user.id}
 				onSearch={loadUsers}
 				onIntent={commands.openIntent}
-				{caseRecord}
-				{busy}
-				onCloseCase={commands.closeCase}
-				bind:contentKind
-				{content}
-				onLoadContent={loadContent}
 			/>
 		{:else if tab === "Audit"}
 			<AuditPanel entries={audit} loading={sectionLoading} onRefresh={loadAudit} />

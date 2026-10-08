@@ -11,4 +11,13 @@ An optional AbortSignal follows preparation, Uppy's native cancellation and Nodo
 processing requests/delays. The upload owner disposes the workflow when its app
 closes; listeners and processing timers are removed on completion or cancellation.
 
-Do not publish a post/message before Nodo confirms processing. Returned width/height, MIME and processed size become the authoritative attachment metadata; file descriptions belong to the owning product contract. Upload authentication uses the shared in-memory session, never tokens in local storage or URLs. `pnpm test:media` checks resumable storage scoping; live tests check real image/video processing. See [refactor evidence](../../docs/refactoring.md).
+Uploads prepare/rescale images and read bounded image/video dimensions on the
+device, then encrypt bytes with `crypto` before Uppy/Tus sends them. Nodo confirms
+storage of an opaque generic file. Original filename, MIME, dimensions, size and
+content key are embedded in the owning encrypted product document. Memoro supplies
+its own encrypted bytes and public profile images pass `encrypt: false`, keeping
+Nodo's image processing.
+
+Do not publish before Nodo confirms processing/storage. Upload authentication
+uses the shared in-memory session, never tokens in local storage or URLs.
+See [encryption](../../docs/encryption.md) and [refactor evidence](../../docs/refactoring.md).

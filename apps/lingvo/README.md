@@ -3,7 +3,8 @@
 Lingvo is Kaordo's private language-learning application at `/lingvo/`.
 German is the initial learning language. Users choose Russian or English as their
 native language. Each `(user, learning language, native language)` combination
-has a separate server dictionary, card collection, preferences and review history.
+has a separate dictionary, card collection, preferences and review history,
+stored on the server as opaque encrypted records and opened on approved devices.
 
 ## Learning
 
@@ -18,7 +19,7 @@ has a separate server dictionary, card collection, preferences and review histor
 - Undo restores the last saved answer within ten minutes, provided that card has
   not changed since the answer. Card creation and review saves have stable
   request IDs for retries.
-- Daily goals, streaks and a two-week activity view use the dictionary's server
+- Daily goals, streaks and a 28-day activity view use the dictionary's chosen
   time zone. Goals count reviews of both words and phrases and do not cap practice.
 
 ## Dictionary and library
@@ -82,14 +83,14 @@ movement and feedback respect reduced-motion preferences.
 
 `study-state` owns the due queue, stable review request IDs, revision recovery,
 undo and request cancellation. `Study` owns card presentation, pronunciation,
-keyboard/drag interaction and focus. Server scheduling and browser interval
-previews retain the same FSRS configuration.
+keyboard/drag interaction and focus. Interval previews and saved schedules use
+the same pinned ts-fsrs configuration on the device.
 
-Kerno owns access, content validation and authoritative FSRS-6 scheduling through
-the official Go FSRS implementation. Jet/pgx transactions serialize writes on the
-owned dictionary and protect card revisions. PostgreSQL migration 016 creates
-the feature tables and indexes. No card or scheduling data is stored as an
-authoritative browser-only dictionary.
+`private-dictionary` owns encrypted card/review transactions, history, timezone
+regrouping and authoritative FSRS-6 scheduling through ts-fsrs. Kerno owns access
+and revision-checked opaque storage; it cannot schedule unreadable cards.
+Kerno serves only the static German starter catalog. Server ciphertext keeps the dictionary
+available on other approved/recovered devices; the browser is not its only copy.
 
 URL parameters select dictionary, view, study kind and optional folder. SvelteKit
 navigation keeps those choices compatible with reload and Back/Forward.
@@ -114,7 +115,8 @@ contract additions. All application UI remains English.
 
 Run `pnpm dev` from the repository root, sign into Kaordo and open
 `http://localhost:8765/lingvo/`. The shared launcher applies migration 016 and
-starts Lingvo's Vite server on loopback port 18770. Restart an older running
+starts Lingvo's Vite server on loopback port 18770. Encryption storage also needs
+migrations 020–025 and an approved device; see [encryption and recovery](../../docs/encryption.md). Restart an older running
 launcher after adding this module. `pnpm build:pages` includes Lingvo in the
 combined static artifact; production release checks require its page and API.
 

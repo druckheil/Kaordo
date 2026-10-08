@@ -12,6 +12,7 @@
   },
   "peerDependencies": { "svelte": "^5.0.0" },
   "dependencies": {
+    "@kaordo/crypto": "workspace:*",
     "@kaordo/auth": "workspace:*",
     "@kaordo/api-client": "workspace:*",
     "@kaordo/contracts": "workspace:*",

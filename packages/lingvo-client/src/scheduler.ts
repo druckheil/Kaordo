@@ -37,3 +37,15 @@ function intervalLabel(due: Date, now: Date): string {
   if (days < 365) return Math.round(days / 30) + 'mo';
   return Math.round(days / 365) + 'y';
 }
+
+export function initialSchedule(now = new Date()): LingvoSchedule {
+  return savedSchedule(createEmptyCard(now));
+}
+export function nextSchedule(schedule: LingvoSchedule, rating: Grade, now = new Date()): LingvoSchedule {
+  return savedSchedule(reviewPreviews(schedule, now)[rating].card);
+}
+function savedSchedule(card: Card): LingvoSchedule {
+  return { due: card.due.toISOString(), stability: card.stability, difficulty: card.difficulty,
+    scheduledDays: card.scheduled_days, reps: card.reps, lapses: card.lapses, state: card.state,
+    learningSteps: card.learning_steps, lastReview: card.last_review?.toISOString() ?? null };
+}

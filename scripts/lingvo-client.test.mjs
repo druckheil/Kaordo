@@ -145,7 +145,7 @@ test('pronunciation degrades gracefully when the browser has no speech API', t =
   pronunciation.dispose();
 });
 
-const fixture = JSON.parse(readFileSync(new URL('../services/kerno/internal/lingvo/testdata/fsrs-schedules.json', import.meta.url), 'utf8'));
+const fixture = JSON.parse(readFileSync(new URL('./fixtures/fsrs-schedules.json', import.meta.url), 'utf8'));
 test('browser FSRS adapter matches the shared eight-state reference without changing input', async t => {
   assert.equal(fixture.cases.length, 8);
   for (const scenario of fixture.cases) {

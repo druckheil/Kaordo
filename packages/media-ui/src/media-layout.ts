@@ -8,6 +8,7 @@ export interface MediaAttachment {
   size: number;
   altText: string;
   url: string;
+  loadURL?: (signal: AbortSignal) => Promise<string>;
 }
 
 export const minMediaRatio = 0.5;

@@ -3,14 +3,16 @@
 import assert from 'node:assert/strict';
 import { test, expect } from './ui-fixture.mjs';
 import { fluoAccountFixtureResponse } from './fluo-account-fixture.mjs';
+import { encryptedCommunity, encryptedMessage, encryptedPost, openPost, postText } from './encryption-fixture.mjs';
 
 const id = (n) => `01999111-2222-7333-8444-${String(n).padStart(12, '0')}`;
 const now = '2026-10-03T10:00:00Z';
 const actor = { id: id(1), username: 'writer', displayName: 'Writer', createdAt: now };
 const partner = { id: id(2), username: 'reader', displayName: 'Reader' };
-const image = { id: id(3), kind: 'image', mimeType: 'image/png', width: 640, height: 480, size: 200, altText: 'Fixture photo', url: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#b7d9c5"/></svg>') };
+const image = { id: id(3), altText: 'Fixture photo', width: 640, height: 480 };
 const document = (text) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
-const post = (n, text, media = []) => ({ id: id(n), author: { ...partner, following: false }, content: document(text), text, visibility: 'public', parentId: null, quoteId: null, quoteDeleted: false, quote: null, media, counts: { good: 0, bad: 0, comments: 0, quotes: 0, saves: 0 }, myReaction: null, saved: false, createdAt: now, updatedAt: now });
+const readablePost = (n, text) => ({ id: id(n), author: { ...partner, following: false }, content: document(text), text, visibility: 'public', parentId: null, quoteId: null, quoteDeleted: false, quote: null, media: [], counts: { good: 0, bad: 0, comments: 0, quotes: 0, saves: 0 }, myReaction: null, saved: false, createdAt: now, updatedAt: now });
+const post = (n, text) => encryptedPost(readablePost(n, text));
 
 test('Fluo preserves post history after reload and composes replies and quotes', async ({ startAppFixture }) => {
   const { page, origin, errors } = await startAppFixture('fluo');
@@ -18,9 +20,9 @@ test('Fluo preserves post history after reload and composes replies and quotes',
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navigations.push(frame.url());
   });
-  const parent = { ...post(9, 'Nested original'), author: { ...actor, following: false } };
-  const original = { ...post(10, 'Original with media', [image]), quoteId: parent.id, quote: parent };
-  const quoted = { ...post(11, 'Quotation'), quoteId: original.id, quote: original };
+  const parent = encryptedPost({ ...readablePost(9, 'Nested original'), author: { ...actor, following: false } });
+  const original = encryptedPost({ ...readablePost(10, 'Original with media'), quoteId: parent.id, quote: parent }, { images: [image] });
+  const quoted = encryptedPost({ ...readablePost(11, 'Quotation'), quoteId: original.id, quote: original });
   const posts = [quoted, ...Array.from({ length: 12 }, (_, i) => post(20 + i, `Feed item ${i}`))];
   const postsById = new Map([parent, original, ...posts].map((item) => [item.id, item]));
   const writes = [];
@@ -44,8 +46,8 @@ test('Fluo preserves post history after reload and composes replies and quotes',
     }
     else if (path === '/v1/fluo/posts' && request.method() === 'POST') {
       const input = request.postDataJSON();
-      writes.push(input);
-      body = { ...post(50 + writes.length, 'Created'), ...input, author: { ...actor, following: false } };
+      writes.push({ ...input, opened: openPost(input.content) });
+      body = { ...readablePost(50 + writes.length, 'Created'), ...input, text: postText(input.content), author: { ...actor, following: false } };
     } else if (path === '/v1/fluo/posts') {
       const search = new URL(request.url()).searchParams.get('q');
       body = { items: search ? posts.filter((item) => item.text.includes(search)) : posts, nextCursor: null };
@@ -78,7 +80,8 @@ test('Fluo preserves post history after reload and composes replies and quotes',
   await composerDialog.getByRole('button', { name: 'Reply', exact: true }).click();
   await composerDialog.waitFor({ state: 'hidden' });
   assert.equal(writes[0].parentId, quoted.id);
-  assert.equal(writes[0].content.content[0].content[0].text, 'Reply after refactor');
+  assert.equal(writes[0].content.version, 1, 'Post writes contain a signed ciphertext envelope');
+  assert.equal(writes[0].opened.content.content[0].content[0].text, 'Reply after refactor');
 
   await page.getByRole('button', { name: 'Quote, 0', exact: true }).first().click();
   await composerDialog.getByRole('heading', { name: 'Quote post', exact: true }).waitFor();
@@ -197,7 +200,7 @@ test('Fluo pastes media into the shared attachment queue and preserves text past
 test('Ligo starts at the bottom, keeps rapid scrolling native and shares the composer', async ({ startAppFixture }) => {
   const { page, origin, errors } = await startAppFixture('ligo');
   const conversation = { id: id(60), kind: 'duo', title: '', createdBy: actor.id, members: [actor, partner], lastMessage: null, unreadCount: 0, createdAt: now, updatedAt: now };
-  const messages = Array.from({ length: 45 }, (_, i) => ({ id: id(100 + i), clientId: id(200 + i), conversationId: conversation.id, sender: i % 2 ? actor : partner, text: `Message ${i}`, media: i === 44 ? [image] : [], reactions: [], status: 'read', editedAt: null, deleted: false, systemNotice: false, createdAt: now }));
+  const messages = Array.from({ length: 45 }, (_, i) => encryptedMessage({ id: id(100 + i), clientId: id(200 + i), conversationId: conversation.id, sender: i % 2 ? actor : partner, text: `Message ${i}`, media: [], reactions: [], status: 'read', editedAt: null, deleted: false, systemNotice: false, createdAt: now }, [actor.id, partner.id], i === 44 ? [image] : []));
   await page.route('**/v1/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -255,8 +258,8 @@ for (const app of ['ligo', 'rondo']) {
   test(`${app} pastes clipboard media and captions within the shared attachment limit`, async ({ startAppFixture }) => {
     const { page, origin, errors } = await startAppFixture(app);
     const conversation = { id: id(60), kind: 'duo', title: '', createdBy: actor.id, members: [actor, partner], lastMessage: null, unreadCount: 0, createdAt: now, updatedAt: now };
-    const server = { id: id(70), name: 'Clipboard community', description: '', access: 'private', ownerId: actor.id, memberCount: 1, joined: true, createdAt: now };
-    const channel = { id: id(71), serverId: server.id, conversationId: conversation.id, name: 'general', position: 0, createdAt: now };
+    const { server, channels: [channel] } = encryptedCommunity({ id: id(70), name: 'Clipboard community', description: '', access: 'private', ownerId: actor.id, memberCount: 1, joined: true, createdAt: now },
+      [{ id: id(71), serverId: id(70), conversationId: conversation.id, name: 'general', position: 0, createdAt: now }], [actor.id, partner.id]);
     await page.route('**/v1/**', async (route) => {
       const request = route.request();
       const path = new URL(request.url()).pathname;

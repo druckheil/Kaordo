@@ -4,8 +4,6 @@ import { onDestroy } from 'svelte';
 import { createQuery, type QueryClient } from '@tanstack/svelte-query';
 import { createUserPresentationApi, userPresentationOptions } from '@kaordo/api-client';
 
-export const userPresentationContext = Symbol('user-presentation');
-
 export function createUserPresentationState(apiBaseUrl: string, userId: string, queryClient: QueryClient) {
   const api = createUserPresentationApi(apiBaseUrl);
   const lifetime = new AbortController();

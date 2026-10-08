@@ -2,6 +2,79 @@
 
 Latest structural assessment: [8 October 2026 design-pattern review](audits/architecture-patterns-2026-10-08.md), following the [architectural refactor](audits/architecture-2026-10-08.md). The [7 October ISO/IEC 25010 audit](audits/iso-iec-25010-2023-2026-10-07.md) and dated sections below retain their original verification boundaries.
 
+## Encryption simplification and verification — 9 October 2026
+
+The 8 October encryption work was simplified before its first deployment:
+
+- **No historical migration.** Migration 020 replaces migrations 020–025 and
+  discards earlier plaintext posts, notifications, conversations, communities and
+  Lingvo tables once (guarded by `content_encryption_epoch`). Device-driven
+  re-encryption, legacy export routes, the Go Lingvo server/scheduler, media
+  re-upload and cache-refresh plumbing were removed; Kerno serves only the Lingvo
+  starter catalog.
+- **Fluo audience keys.** Per-author versioned keys derived from the account root
+  replace per-post recipient lists and the audience-refresh queue. Public accounts
+  publish keys; private accounts seal them to followed accounts; rotation happens
+  on public → private. Replies derive their key from every lineage author. Kerno
+  checks signatures, current versions and inherited keys under a keyring lock.
+- **Profiles are public presentation** and are stored in clear again; avatar and
+  banner uploads keep Nodo image processing.
+- **Fail closed.** Clients render unsigned, unencrypted or ungranted posts and
+  messages as unavailable instead of trusting them; per-item failures no longer
+  break a feed or chat. Server-side post text search was removed because the text
+  is ciphertext; search runs on the device.
+- Codex-era defects found by running the suites: the Regado media summary read a
+  missing `kind` column; encrypted Fluo attachments were stored as fake 1×1
+  images; Ligo previews lacked `systemNotice`; Fluo's Vite prebundling referenced
+  Tiptap after it moved to `editor-ui` and missed Cropper.js, reloading pages
+  mid-test; the post card overlay intercepted the encrypted-video button; the
+  author link was below target size; Memoro's dev server failed in SSR because
+  `memoro-client` imported `media-client` eagerly; Memoro passed a caller's abort
+  signal into a deduplicated TanStack query, so opening a day reported the
+  superseded request as "signal is aborted without reason" (now covered by a
+  browser test that fails on the old code).
+
+Test fixtures now own deterministic synthetic account keys
+(`scripts/encryption-fixture.mjs`) and act as an already approved device, so
+seeded posts, messages, community names and Lingvo records are real ciphertext
+verified independently of the client implementation.
+
+Measured on the working tree (local macOS host, warm caches): `pnpm check:front`
+8 projects with 0 errors/warnings; Go build, vet and `-race` tests across the four
+modules; `pnpm test:unit` 179/179; `pnpm test:pages` 10/10; `pnpm test:ui-layout`
+5/5; `pnpm test:ui` 58/58 (Chromium, WebKit, Firefox); `pnpm test:product:db`
+passing with a new `TestFluoKeyrings`; `pnpm test:integration` 5/5, now including
+an encrypted Memoro task and journal round trip. One integration run failed once
+at Keycloak's recovery-code page before any changed code ran and passed on rerun;
+it was not investigated. Hosted CI has not been run. LiveKit E2EE remains enabled
+by decision; the library disables Opus RED and older Safari simulcast with E2EE.
+
+## Memoro and device encryption — 8 October 2026
+
+Memoro composes the existing calendar, dialogs, menus, radio groups, Tiptap
+editor and media stack. Shared `editor-ui` owns post/diary formatting and
+attachment editing; `memoro-client` owns validated days, encrypted indices and
+media; Kerno persists owner-scoped ciphertext and attachment claims atomically.
+The account gate loads authenticated providers after identity resolution, and
+avatars share a presentation context without importing their data controller.
+
+`crypto` owns device-held keys, sealed account transfers, authenticated records,
+media and offline recovery. `api-client` owns signed feature codecs, peer-key
+pinning, access-aware recipient lookup and cancellable historical migration.
+Lingvo runs the official FSRS library on the device and stores opaque CAS
+records. Rondo uses LiveKit's existing E2EE worker/key provider. Regado's content
+access cases, routes, storage and interface were removed; device transfers and
+recovery have no administrator override.
+
+OpenAPI and Jet outputs were regenerated. Svelte/TypeScript checks report zero
+errors and warnings, and all seven static apps build. Existing browser/live/HTTP
+fixtures were adapted to encrypted requests and opaque storage; functional,
+recovery, browser and hosted CI suites have not been run for this feature.
+Compilation is not cryptographic or migration verification. See
+[encryption and recovery](encryption.md) for clear metadata, older data/backups,
+device migration, public content and the browser distribution threat model.
+The older sections below describe their original, dated implementation.
+
 ## Fluo profiles — 8 October 2026
 
 Profiles use account usernames as unique links while keeping editable Fluo

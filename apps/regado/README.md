@@ -73,20 +73,16 @@ Nodo and LiveKit retain their fixed restart operations. Other service restarts
 remain reviewed host maintenance. The root agent never executes caller-provided
 commands.
 
-Account content access requires a written reason and opens a 15-minute case.
-Opening a case adds an immutable notification to the target's Ligo Saved
-messages. Each content page read is audited before it is served. Media links
-expire after one minute. The current product stores post and message content
-without end-to-end encryption. No user recovery key or system decryption key
-exists, so this workflow must not be described as key recovery. Introducing
-user-held encryption and system escrow requires a separate migration of
-existing content and a new key lifecycle.
+Regado has no user-content access, device approval or key-recovery override.
+The former content-case routes, database table and UI are removed. Account lists
+and operational views contain identity, access and storage metadata, not readable
+private post/message/journal/card content. Device approval and recovery belong
+to the user. See the [encryption boundary](../../docs/encryption.md).
 
 Users can be disabled or enabled and granted or denied the administrator role,
 with a recorded reason. Self role changes and disabling other administrators
 are rejected. Role changes are serialized to prevent concurrent revocations
-from removing every administrator. Closing an access case expires it on the
-server; previously signed media links remain valid for at most one minute.
+from removing every administrator.
 Service logs support service/priority/text filters and a JSON snapshot download.
 Journal storage shows host-wide allocated disk/RAM bytes and the configured
 disk-space budget. Services share journal files; these are not per-service
@@ -98,12 +94,12 @@ seconds while their view is active.
 
 The production static build is assembled by `pnpm build:pages:production`.
 `pnpm test:regado:ui` checks the dashboard in headless Chromium with fixture
-identity and API responses: all sections, charts, role and access dialogs,
+identity and API responses: all sections, charts and role dialogs,
 320px reflow, service/timer outcomes, retention controls, and automated light/dark accessibility. Backend authorization
 and database effects are covered separately by Go and PostgreSQL tests.
 
 ## Code organization
 
-`RegadoDashboard` composes independent TanStack Query resources, filters and navigation; feature panels render overview, storage, users, system and audit. `admin-action-state` owns command confirmation, access-case lifecycle, mutation feedback and cancellation. Its editable form state and read-only operation status have separate interfaces. Account actions and intent/access dialogs render that state. Typed API/query options live in `api-client`; log/user/case parameters belong to cache keys and requests accept cancellation signals. Private case caches are removed on closure and all app caches clear on teardown. Polling applies to relevant operational views, not every tab indiscriminately.
+`RegadoDashboard` composes independent TanStack Query resources, filters and navigation; feature panels render overview, storage, users, system and audit. `admin-action-state` owns command confirmation, mutation feedback and cancellation. Its editable form state and read-only operation status have separate interfaces. Account actions and intent dialogs render that state. Typed API/query options live in `api-client`; log/user parameters belong to cache keys and requests accept cancellation signals. All app caches clear on teardown. Polling applies to relevant operational views, not every tab indiscriminately.
 
-`pnpm test:regado:ui` also checks stale-request isolation and one content-read request per selected access case. `pnpm test:product:db` verifies authorization, audit, notifications and transactional role changes. See [refactor evidence](../../docs/refactoring.md).
+`pnpm test:regado:ui` also checks stale-request isolation. `pnpm test:product:db` verifies authorization, audit and transactional role changes. These suites were not run for the encryption feature; see [refactor evidence](../../docs/refactoring.md).

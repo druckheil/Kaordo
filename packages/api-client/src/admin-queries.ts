@@ -1,6 +1,5 @@
-// Defines independent, cancellable Regado cache entries and access-case pagination
+// Defines independent, cancellable Regado cache entries
 
-import type { AdminContentPage } from '@kaordo/contracts';
 import type { AdminApi } from './admin.ts';
 
 const readPolicy = { staleTime: 15_000, retry: false } as const;
@@ -28,19 +27,4 @@ export function adminAuditOptions(api: AdminApi) {
 
 export function adminLogsOptions(api: AdminApi, service: string) {
   return { ...readPolicy, queryKey: ['regado', 'logs', service] as const, queryFn: ({ signal }: ReadContext) => api.logs(service, signal) };
-}
-
-export function adminCaseContentOptions(api: AdminApi, id: string | null, kind: 'posts' | 'messages') {
-  return {
-    queryKey: ['regado', 'case', id, kind] as const,
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }: ReadContext & { pageParam: string | undefined }) => {
-      if (!id) throw new Error('An access case must be selected.');
-      return api.caseContent(id, kind, pageParam, signal);
-    },
-    getNextPageParam: (page: AdminContentPage) => page.nextCursor ?? undefined,
-    staleTime: 0,
-    gcTime: 0,
-    retry: false,
-  };
 }

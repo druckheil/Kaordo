@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
 	"github.com/go-chi/chi/v5"
 )
@@ -43,6 +44,8 @@ func mountRondo(router chi.Router, verify VerifyFunc, users account.Store, deps 
 		r.Delete("/servers/{id}/membership", h.leave)
 		r.Post("/servers/{id}/channels", h.createChannel)
 		r.Post("/channels/{id}/voice-token", h.voiceToken)
+		r.Get("/channels/{id}/voice-key", h.voiceKey)
+		r.Put("/channels/{id}/voice-key", h.setVoiceKey)
 	})
 }
 
@@ -52,6 +55,12 @@ func (h rondoHandler) actor(w http.ResponseWriter, r *http.Request) (account.Use
 
 func rondoError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, encryption.ErrInvalid):
+		writeError(w, http.StatusBadRequest, "Invalid encrypted server content.")
+	case errors.Is(err, encryption.ErrNotFound):
+		writeError(w, http.StatusConflict, "Each participant must open Kaordo once to set up device encryption.")
+	case errors.Is(err, encryption.ErrConflict):
+		writeError(w, http.StatusConflict, "Membership or encrypted content changed. Reload and try again.")
 	case errors.Is(err, rondo.ErrNotFound):
 		writeError(w, http.StatusNotFound, "Server, channel or account not found.")
 	case errors.Is(err, rondo.ErrForbidden):
@@ -111,6 +120,20 @@ func (h rondoHandler) discover(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if store, ok := h.deps.Store.(rondo.DiscoveryStore); ok {
+		cursor := r.URL.Query().Get("cursor")
+		if cursor != "" && !encryption.ValidID(cursor) {
+			writeError(w, http.StatusBadRequest, "Invalid discovery cursor.")
+			return
+		}
+		page, err := store.DiscoverPage(r.Context(), actor.ID, cursor)
+		if err != nil {
+			rondoError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, page)
+		return
+	}
 	search, ok := rondoSearch(w, r)
 	if !ok {
 		return
@@ -129,7 +152,7 @@ func (h rondoHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input rondo.NewServer
-	if !decodeBody(w, r, &input) {
+	if !decodeBodyLimit(w, r, &input, 1<<20) {
 		return
 	}
 	input.Name, input.Description = strings.TrimSpace(input.Name), strings.TrimSpace(input.Description)
@@ -147,9 +170,9 @@ func (h rondoHandler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func validNewServer(input rondo.NewServer) bool {
-	return rondoName(input.Name, 100) &&
-		utf8.RuneCountInString(input.Description) <= 500 &&
-		!strings.ContainsRune(input.Name+input.Description, 0) &&
+	_, nameErr := encryption.ParseText(input.Name)
+	_, channelErr := encryption.ParseText(input.General)
+	return encryption.ValidID(input.ID) && encryption.ValidID(input.GeneralID) && nameErr == nil && channelErr == nil && input.Description == "" &&
 		(input.Access == "public" || input.Access == "private")
 }
 
@@ -197,15 +220,20 @@ func (h rondoHandler) invite(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var input struct {
 		UserID string `json:"userId"`
+		rondo.EncryptedMetadata
 	}
-	if !decodeBody(w, r, &input) {
+	if !decodeBodyLimit(w, r, &input, 4<<20) {
 		return
 	}
 	if !ligoID(id) || !ligoID(input.UserID) {
 		writeError(w, http.StatusBadRequest, "Invalid server or account ID.")
 		return
 	}
-	item, err := h.deps.Store.Invite(r.Context(), actor.ID, id, input.UserID)
+	store, ok := h.encryptedStore(w)
+	if !ok {
+		return
+	}
+	item, err := store.InviteEncrypted(r.Context(), actor.ID, id, input.UserID, input.EncryptedMetadata)
 	if err != nil {
 		rondoError(w, err)
 		return
@@ -239,17 +267,23 @@ func (h rondoHandler) createChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	var input struct {
+		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
-	if !decodeBody(w, r, &input) {
+	if !decodeBodyLimit(w, r, &input, 1<<20) {
 		return
 	}
 	input.Name = strings.TrimSpace(input.Name)
-	if !ligoID(id) || !rondoName(input.Name, 80) {
-		writeError(w, http.StatusBadRequest, "Choose a channel name up to 80 characters.")
+	_, err := encryption.ParseText(input.Name)
+	if !ligoID(id) || !encryption.ValidID(input.ID) || err != nil {
+		writeError(w, http.StatusBadRequest, "Channel names must be encrypted on your device.")
 		return
 	}
-	item, err := h.deps.Store.CreateChannel(r.Context(), actor.ID, id, input.Name)
+	store, ok := h.encryptedStore(w)
+	if !ok {
+		return
+	}
+	item, err := store.CreateEncryptedChannel(r.Context(), actor.ID, id, input.ID, input.Name)
 	if err != nil {
 		rondoError(w, err)
 		return

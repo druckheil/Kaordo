@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { test, expect } from './ui-fixture.mjs';
 import { accessibilityViolations, interfaceGeometry, semanticContrast, settleInterface } from './ui-accessibility.mjs';
 import { installQualityFixture } from './ui-quality-fixture.mjs';
+import { openFixtureMedia } from './encryption-fixture.mjs';
 
 async function auditScreen(page, testInfo, stage) {
   await settleInterface(page);
@@ -137,21 +138,30 @@ for (const app of ['fluo', 'ligo', 'rondo']) {
     try { expect((await submitted).status()).toBe(201); }
     catch (cause) { throw new Error(JSON.stringify({ navigations, reloads, errors,
       alerts: await composer.getByRole('alert').allTextContents() }), { cause }); }
-    const payload = state.requests.find(request => request.path === path && request.method === 'POST').body;
+    const submittedRequest = state.requests.find(request => request.path === path && request.method === 'POST');
+    const payload = submittedRequest.body;
+    const opened = submittedRequest.opened;
     expect(payload.attachmentIds).toHaveLength(4);
     expect(upload.uploads.size).toBe(4);
-    for (const { size, data } of upload.uploads.values()) {
+    for (const [id, { size, data }] of upload.uploads) {
       expect(data.length, 'The HTTP fixture receives every declared upload byte').toBe(size);
-      expect(data.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
-      expect([data.readUInt32BE(16), data.readUInt32BE(20)]).toEqual([8, 6]);
+      expect(data.subarray(0, 8).toString()).toBe('Kaordo01');
+      const descriptor = opened.media.find(item => item.id === id);
+      const plain = openFixtureMedia(data, descriptor);
+      try {
+        expect(plain.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+        expect([plain.readUInt32BE(16), plain.readUInt32BE(20)]).toEqual([8, 6]);
+      } finally { plain.fill(0); }
     }
     if (app === 'fluo') {
       await expect(composer).toBeHidden();
-      expect(payload.content.content[0].content[0].text).toBe(draft);
+      expect(payload.content.version).toBe(1);
+      expect(opened.content.content[0].content[0].text).toBe(draft);
     } else {
       await expect(editor).toHaveValue('');
       await expect(page.getByRole('log').getByRole('paragraph').filter({ hasText: draft })).toBeVisible();
-      expect(payload.text).toBe(draft);
+      expect(payload.text.startsWith('kaordo:e2ee:v1:')).toBe(true);
+      expect(opened.text).toBe(draft);
     }
     expect(navigations, 'Lazy upload dependencies cannot reload a draft').toEqual([]);
     expect(reloads, 'Cold dependency preparation cannot request a full reload').toEqual([]);
@@ -194,6 +204,23 @@ for (const app of ['ligo', 'rondo']) {
   });
 }
 
+test('Memoro opens a day without reporting superseded requests and saves the journal', async ({ startAppFixture }, testInfo) => {
+  const { page, origin, errors } = await startAppFixture('memoro');
+  const state = await installQualityFixture(page, 'memoro');
+  await page.goto(origin + '/memoro/');
+  await expect(page.getByRole('heading', { name: 'Memoro', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add your first task' })).toBeEnabled();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await auditScreen(page, testInfo, 'memoro-day');
+  await page.getByRole('textbox', { name: 'Daily journal text' }).fill('A quiet evening walk.');
+  await page.getByRole('button', { name: 'Save entry', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible();
+  const write = state.requests.find(request => request.method === 'PUT' && request.path.startsWith('/v1/memoro/days/'));
+  expect(JSON.stringify(write.body)).not.toContain('quiet evening');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 const lingvoTest = test.extend({
   lingvo: async ({ startAppFixture }, use) => {
     const { page, origin, errors } = await startAppFixture('lingvo');
@@ -210,17 +237,19 @@ lingvoTest('Lingvo learning dashboard reflows across viewports', async ({ lingvo
 });
 
 lingvoTest('Lingvo card form supports articles and applies AI input without saving', async ({ lingvo: { page, state } }, testInfo) => {
+  const writes = () => state.requests.filter(request => request.method === 'POST' && request.path === '/v1/crypto/records/commit').length;
   await page.getByRole('button', { name: 'Add card', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('heading', { name: 'Add a card' })).toBeVisible();
   await responsiveAudit(page, testInfo, 'lingvo-add-card');
+  const beforeApply = writes();
   await dialog.getByRole('radio', { name: 'der', exact: true }).click();
   await expect(dialog.getByRole('radio', { name: 'der', exact: true })).toBeChecked();
   await dialog.getByRole('textbox', { name: 'AI input', exact: true }).fill('word||Baum||tree||||noun||der||die Bäume||||Der Baum ist groß.||The tree is tall.||||active');
   await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
   await expect(dialog.getByRole('textbox', { name: 'German word', exact: true })).toHaveValue('Baum');
   await responsiveAudit(page, testInfo, 'lingvo-ai-details');
-  expect(state.requests.filter(request => request.method === 'POST' && request.path.endsWith('/cards'))).toHaveLength(0);
+  expect(writes()).toBe(beforeApply);
 });
 
 lingvoTest('Lingvo dictionary presents saved words with a clear responsive hierarchy', async ({ lingvo: { page } }, testInfo) => {
@@ -261,7 +290,9 @@ lingvoTest('Lingvo preferences support keyboard goal adjustment and explicit sav
   await expect(goal).toHaveAttribute('aria-valuenow', '25');
   await dialog.getByRole('button', { name: 'Save preferences' }).click();
   await expect(dialog).toBeHidden();
-  expect(state.dictionary.dailyGoal).toBe(25);
+  await page.getByRole('button', { name: 'Dictionary settings' }).click();
+  await page.getByRole('menuitem', { name: 'Learning preferences', exact: true }).click();
+  await expect(dialog.getByRole('slider', { name: 'Daily review goal' })).toHaveAttribute('aria-valuenow', '25');
 });
 
 lingvoTest('Lingvo import and export forms remain accessible across viewports', async ({ lingvo: { page } }, testInfo) => {
@@ -308,7 +339,7 @@ test('Lingvo preserves drafts on errors and scopes review shortcuts to the focus
   await dialog.getByRole('heading', { name: 'Add a card' }).waitFor();
   await dialog.getByRole('textbox', { name: 'German word', exact: true }).fill('Baum');
   await dialog.getByRole('textbox', { name: 'English translation', exact: true }).fill('tree');
-  const path = `/v1/lingvo/dictionaries/${state.dictionary.id}/cards`;
+  const path = '/v1/crypto/records/commit';
   state.failures.set(path, 'Your card could not be saved. Please try again.');
   await dialog.getByRole('button', { name: 'Add card', exact: true }).click();
   await expect(dialog.getByRole('alert')).toHaveText('Your card could not be saved. Please try again.');
@@ -326,11 +357,12 @@ test('Lingvo preserves drafts on errors and scopes review shortcuts to the focus
   await expect(page.getByRole('button', { name: /^Again ·/ })).toBeFocused();
   await page.getByRole('link', { name: 'Kaordo home', exact: true }).focus();
   await page.keyboard.press('3');
-  expect(state.requests.filter(request => request.path.endsWith('/reviews'))).toHaveLength(0);
+  const reviewWrites = () => state.requests.filter(request => request.path === '/v1/crypto/records/commit' && request.body?.writes?.length === 4);
+  expect(reviewWrites()).toHaveLength(0);
   await page.getByRole('button', { name: /^Good ·/ }).focus();
   await page.keyboard.press('3');
   await expect(page.getByRole('group', { name: 'Question', exact: true })).toBeFocused();
-  expect(state.requests.filter(request => request.path.endsWith('/reviews'))).toHaveLength(1);
+  expect(reviewWrites()).toHaveLength(1);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Question', exact: true })).toBeFocused();
   await auditScreen(page, testInfo, 'lingvo-restored-card');

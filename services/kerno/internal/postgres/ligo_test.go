@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -211,11 +212,12 @@ func TestLigoConversationFlow(t *testing.T) {
 	if err != nil || !referenced {
 		t.Fatalf("Nodo reference = %t, %v", referenced, err)
 	}
-	fluoPost, err := NewFluo(pool).Create(ctx, alice.ID, fluo.NewPost{
-		Content:    []byte(`{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"shared"}]}]}`),
-		Visibility: "public",
-	}, "shared", []fluo.Media{{ID: attachment.ID, Kind: attachment.Kind, MimeType: attachment.MimeType,
-		Width: attachment.Width, Height: attachment.Height, Size: attachment.Size}})
+	if _, err := NewFluo(pool).UpdateKeyring(ctx, alice.ID, fluo.KeyringUpdate{Create: 1, Publish: []fluo.PublishedKey{{Version: 1, Key: randomBase64(t, 32)}}}); err != nil {
+		t.Fatal(err)
+	}
+	sharedPost := registerFluoAuthor(t, ctx, pool, alice.ID).newPost(t, "public", nil, nil, encryption.KeyRef{OwnerID: alice.ID, Version: 1})
+	fluoPost, err := NewFluo(pool).Create(ctx, alice.ID, sharedPost, postText(sharedPost),
+		[]fluo.Media{{ID: attachment.ID, Kind: "file", MimeType: "application/octet-stream", Size: attachment.Size}})
 	if err != nil {
 		t.Fatal(err)
 	}

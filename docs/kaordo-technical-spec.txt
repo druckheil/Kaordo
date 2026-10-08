@@ -81,7 +81,8 @@ Client IDs make sending idempotent. Kerno sends authenticated,
 membership-scoped change hints over SSE backed by PostgreSQL notifications.
 The browser uses TanStack Query, cursor pagination and native scrolling with
 history anchoring. Attachments use Nodo and short-lived signed media URLs.
-End-to-end encryption and Matrix integration are not implemented.
+Messages and media use signed device-encrypted envelopes. Matrix integration
+remains absent. Device/recovery and rollout boundaries: docs/encryption.md.
 
 Rondo data: rondo_servers stores UUIDv7 server IDs, owner, public/private
 access, name and description. rondo_members stores server membership.
@@ -106,8 +107,8 @@ interface sounds signal connection and media-control changes and can be muted.
 The local Docker LiveKit SFU listens
 on 7880 for signaling, 7881/TCP and 7882/UDP for media. Its credentials live
 only in the ignored local environment. The local profile has no public TURN/TLS ingress. NixOS separately configures
-Caddy signaling, TURN and router media ports. There is no
-E2EE, moderation or self-hosted token revocation; removal from a server stops
+Caddy signaling, TURN and router media ports. LiveKit tracks use the SDK E2EE
+provider and member-encrypted room keys. There is no moderation or self-hosted token revocation; removal from a server stops
 new token issuance and asks LiveKit to disconnect the current participant.
 
 Nodo media: POST/HEAD/PATCH /v1/uploads/ use tus protocol 1.0 implemented by tusd v2. Nodo asks
@@ -124,7 +125,8 @@ directory. Final-reference deletion asks Nodo to purge media immediately; Nodo
 first checks Kerno for any remaining Fluo or Ligo reference. A six-hour scan removes
 unreferenced uploads older than 24 hours. On failed reference checks it keeps
 the files for a later attempt. Production media and PostgreSQL use the two-disk
-Btrfs RAID1 Data1 filesystem on NixOS. Product content encryption is not implemented.
+Btrfs RAID1 Data1 filesystem on NixOS. New media is encrypted before upload and stored as opaque files; plaintext
+processing remains for legacy input. See docs/encryption.md for migration limits.
 
 Local binding: Keycloak and application PostgreSQL bind to 127.0.0.1 in the
 development Compose file; Kerno defaults to 127.0.0.1:8081 and Nodo to
@@ -189,16 +191,16 @@ never surplus. Measured phase progress uses scrub bytes, balance chunks,
 inventory counts and layout steps; unknown totals show activity and counts
 instead of a simulated percentage. Checksums do not cover NOCOW contents;
 reports are timestamped in memory and require another check after restart.
-A reason is required for privileged operations. A 15-minute content access case
-notifies the target in Ligo Saved messages. Reads are audited; closure ends access
-on the server. Signed media URLs remain usable for at most one minute.
-There are no user decryption keys or system escrow keys because content is not
-currently encrypted. The access-case workflow is not cryptographic key recovery.
+A reason is required for privileged operations. Administrator content-access
+cases, content-read routes and key overrides are removed. Account private keys
+stay on devices; Kerno holds sealed device/recovery bundles. Recovery uses a
+personal offline random secret, never an administrator-held decryption key.
 
 All apps use the shared @kaordo/account-ui gate backed by @kaordo/auth and
 @kaordo/api-client. The production profile is deployed on NixOS at kaordo.link.
 Self-service password recovery, email verification, a scheduled independent
-backup destination and content encryption are not implemented.
+backup destination remain outside automatic setup. Current source implements
+content encryption; production activation and historical migration are separate.
 
 REFACTORED SOURCE OWNERSHIP
 
@@ -209,15 +211,32 @@ media processing/display and LiveKit lifecycle belong in packages. Fluo post
 windows use SvelteKit shallow history; closing after a fresh document without
 return context falls back to Feed. Ligo/Rondo use one native message list and
 composer, without wheel interception or row virtualization. Regado resources
-have independent keyed/cancellable queries and disposable access-case caches.
+have independent keyed/cancellable queries and no user-content access.
 
 Go entry points load configuration and wire services. Kerno/Nodo drain HTTP
 before closing dependencies; Nodo cancels and joins processing/GC workers.
 PostgreSQL reads, writes, interactions, membership, receipts and administrator
 operations are separated by responsibility. Jet builds queries; pgx owns pools
 and transactions. Schema types stay generated from OpenAPI/migrated PostgreSQL.
-No wire schema or content-encryption migration accompanies this refactor.
+The earlier architecture refactor preserved wire behavior. The later Memoro/
+encryption feature changes wire schemas and applies migrations 020 through 025.
+It adds device approval, encrypted private records and offline recovery; security
+and deployment limits are documented in docs/encryption.md.
 
 Verification commands and observed results: docs/refactoring.md. Earlier audit
 scores apply only to their dated snapshots; this specification makes no
 certification, universal bug-free, full WCAG or 100/100 quality claim.
+
+MEMORO AND PRIVATE LEARNING STORAGE
+
+Memoro calendar/tasks/journal live at /memoro/. The client derives opaque
+month/day tags and encrypts documents, calendar summaries and media. Kerno
+claims attachments and checks day revisions in one transaction. Shared Tiptap
+editing and media controls live in packages/editor-ui and packages/media-ui.
+Lingvo now stores dictionary/card/schedule/review content in encrypted private
+records. ts-fsrs owns saved scheduling on the device; Go schedules and legacy
+tables remain migration input. Account metadata/access policy is still clear.
+Public content has a public content key and remains readable by public readers.
+A malicious operator replacing the web client can steal keys; the implementation
+does not provide an independently trusted native client or verified membership
+directory. Do not describe it as absolute protection from an active server owner.

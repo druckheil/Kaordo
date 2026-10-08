@@ -9,9 +9,8 @@ import (
 )
 
 var (
-	ErrTarget      = errors.New("admin target is unavailable")
-	ErrNotFound    = errors.New("admin resource not found")
-	ErrAccessLimit = errors.New("too many recent access cases")
+	ErrTarget   = errors.New("admin target is unavailable")
+	ErrNotFound = errors.New("admin resource not found")
 )
 
 type Summary struct {
@@ -21,7 +20,6 @@ type Summary struct {
 	Uploads       int64        `json:"uploads"`
 	MediaBytes    int64        `json:"mediaBytes"`
 	DatabaseBytes int64        `json:"databaseBytes"`
-	OpenCases     int64        `json:"openCases"`
 	MediaByKind   []MediaUsage `json:"mediaByKind"`
 }
 
@@ -54,37 +52,6 @@ type AuditEntry struct {
 	CreatedAt time.Time       `json:"createdAt"`
 }
 
-type AccessCase struct {
-	ID             string    `json:"id"`
-	TargetUserID   string    `json:"targetUserId"`
-	TargetUsername string    `json:"targetUsername"`
-	Reason         string    `json:"reason"`
-	CreatedAt      time.Time `json:"createdAt"`
-	ExpiresAt      time.Time `json:"expiresAt"`
-}
-
-type ContentMedia struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind"`
-	MimeType string `json:"mimeType"`
-	Filename string `json:"filename"`
-	Size     int64  `json:"size"`
-	URL      string `json:"url"`
-}
-
-type Content struct {
-	ID        string         `json:"id"`
-	Text      string         `json:"text"`
-	Context   string         `json:"context"`
-	CreatedAt time.Time      `json:"createdAt"`
-	Media     []ContentMedia `json:"media"`
-}
-
-type ContentPage struct {
-	Items      []Content `json:"items"`
-	NextCursor *string   `json:"nextCursor"`
-}
-
 type Store interface {
 	Summary(context.Context) (Summary, error)
 	Users(context.Context, string) ([]User, error)
@@ -92,8 +59,4 @@ type Store interface {
 	SetAdmin(context.Context, string, string, bool, string) (User, error)
 	Audit(context.Context) ([]AuditEntry, error)
 	Record(context.Context, string, string, string, string, any) error
-	CreateAccessCase(context.Context, string, string, string) (AccessCase, error)
-	AccessCase(context.Context, string, string) (AccessCase, error)
-	CloseCase(context.Context, string, string) error
-	CaseContent(context.Context, string, string, string) (ContentPage, error)
 }

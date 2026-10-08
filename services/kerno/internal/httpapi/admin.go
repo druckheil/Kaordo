@@ -1,6 +1,6 @@
 package httpapi
 
-// Handles administrator account, audit, system, and access-case requests
+// Handles administrator account, audit, system requests
 import (
 	"context"
 	"encoding/json"
@@ -23,12 +23,10 @@ type AdminMetrics interface {
 type AdminStorageMaintenance = admin.StorageMaintenance
 
 type AdminDependencies struct {
-	Store        admin.Store
-	System       AdminSystem
-	Metrics      AdminMetrics
-	Maintenance  AdminStorageMaintenance
-	MediaBaseURL string
-	MediaSignKey []byte
+	Store       admin.Store
+	System      AdminSystem
+	Metrics     AdminMetrics
+	Maintenance AdminStorageMaintenance
 }
 
 type adminActorKey struct{}
@@ -47,9 +45,6 @@ func mountAdmin(router chi.Router, verify VerifyFunc, users account.Store, deps 
 		r.Patch("/users/{id}/status", h.setStatus)
 		r.Patch("/users/{id}/role", h.setRole)
 		r.Get("/audit", h.audit)
-		r.Post("/cases", h.createCase)
-		r.Get("/cases/{id}/content", h.caseContent)
-		r.Post("/cases/{id}/close", h.closeCase)
 		r.Get("/system", h.system)
 		r.Post("/storage/plan", func(w http.ResponseWriter, r *http.Request) { h.storageLayout(w, r, false) })
 		r.Post("/storage/apply", func(w http.ResponseWriter, r *http.Request) { h.storageLayout(w, r, true) })
@@ -85,9 +80,7 @@ func adminActor(r *http.Request) account.User {
 func adminFailure(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, admin.ErrTarget), errors.Is(err, admin.ErrNotFound):
-		writeError(w, http.StatusNotFound, "The requested account or access case is unavailable.")
-	case errors.Is(err, admin.ErrAccessLimit):
-		writeError(w, http.StatusTooManyRequests, "The access case limit is three per hour.")
+		writeError(w, http.StatusNotFound, "The requested account is unavailable.")
 	default:
 		log.Printf("Regado request failed: %v", err)
 		writeError(w, http.StatusInternalServerError, "Regado could not complete this request.")

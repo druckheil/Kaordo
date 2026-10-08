@@ -68,17 +68,16 @@ func TestFluoReadCapacity(t *testing.T) {
 	}
 	store := NewFluo(pool)
 	for _, scenario := range []struct {
-		name, search string
-		want         int
+		name string
+		want int
 	}{
 		{name: "latest", want: 20},
-		{name: "selective-search", search: "unique capacity needle", want: 1},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			durations := make([]time.Duration, 40)
 			for i := range durations {
 				start := time.Now()
-				page, err := store.List(ctx, fluo.ListOptions{ViewerID: viewerID, Feed: "latest", Search: scenario.search, Limit: 20})
+				page, err := store.List(ctx, fluo.ListOptions{ViewerID: viewerID, Feed: "latest", Limit: 20})
 				durations[i] = time.Since(start)
 				if err != nil || len(page.Items) != scenario.want {
 					t.Fatalf("page count = %d, error = %v", len(page.Items), err)

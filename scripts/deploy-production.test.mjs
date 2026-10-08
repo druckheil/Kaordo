@@ -48,7 +48,7 @@ async function payloadFixture() {
     'etc/nixos/deploy/keycloak/themes/kaordo/login/theme.properties': 'scripts=js/session.js\n',
     'site/index.html': 'new-portal', 'site/fluo/index.html': 'new-fluo',
     'site/ligo/index.html': 'new-ligo', 'site/rondo/index.html': 'new-rondo',
-    'site/lingvo/index.html': 'new-lingvo', 'site/regado/index.html': 'new-regado', 'site/silent-check-sso.html': 'new-sso'
+    'site/lingvo/index.html': 'new-lingvo', 'site/memoro/index.html': 'new-memoro', 'site/regado/index.html': 'new-regado', 'site/silent-check-sso.html': 'new-sso'
   };
   for (const [path, bytes] of Object.entries(files)) await put(join(directory, path), bytes);
   const manifest = { format: 1, release, sourceCommit: revision, origin, realm: 'kaordo', files: Object.fromEntries(Object.entries(files).map(([path, bytes]) => [path, hash(bytes)])) };
@@ -92,7 +92,7 @@ test('live verification checks all applications and rejects an old Keycloak them
   };
   try {
     await verifyLiveRelease(fixture.directory, fixture.manifest, { ...fixture, fetcher });
-    for (const path of ['/', '/fluo/', '/ligo/', '/rondo/', '/lingvo/', '/regado/']) assert.ok(requests.includes(path));
+    for (const path of ['/', '/fluo/', '/ligo/', '/rondo/', '/lingvo/', '/memoro/', '/regado/']) assert.ok(requests.includes(path));
     staleTheme = true;
     await assert.rejects(verifyLiveRelease(fixture.directory, fixture.manifest, { ...fixture, fetcher }), /Keycloak theme differs/);
     await put(join(fixture.dataRoot, 'bin/nodo'), 'old-nodo');

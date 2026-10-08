@@ -3,9 +3,11 @@ package httpapi
 // Coordinates Fluo post creation, visibility and deletion
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/go-chi/chi/v5"
 )
@@ -16,7 +18,7 @@ func (h fluoHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input fluo.NewPost
-	if !decodeBody(w, r, &input) {
+	if !decodeBodyLimit(w, r, &input, 1<<20) {
 		return
 	}
 	text, ok := validatePostInput(w, &input)
@@ -43,25 +45,25 @@ func (h fluoHandler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func validatePostInput(w http.ResponseWriter, input *fluo.NewPost) (string, bool) {
+	if !encryption.ValidID(input.ID) {
+		writeError(w, http.StatusBadRequest, "A device-generated post ID is required.")
+		return "", false
+	}
+	if len(input.AltTexts) != 0 {
+		writeError(w, http.StatusBadRequest, "Attachment descriptions must be encrypted on your device.")
+		return "", false
+	}
 	if !validatePostReferences(w, input) {
 		return "", false
 	}
-	maximum := 5000
-	if input.ParentID != nil {
-		maximum = 2000
-	}
-	content, text, err := fluo.ValidateContent(input.Content, maximum)
+	content, text, err := fluo.ValidateContent(input.Content, input.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "Posts must be encrypted on your device.")
 		return "", false
 	}
 	input.Content = content
 	if len(input.AttachmentIDs) > maxPostAttachments {
 		writeError(w, http.StatusBadRequest, "A post can have at most four attachments.")
-		return "", false
-	}
-	if text == "" && len(input.AttachmentIDs) == 0 && input.QuoteID == nil {
-		writeError(w, http.StatusBadRequest, "Write something or attach media before publishing.")
 		return "", false
 	}
 	return text, true
@@ -118,17 +120,28 @@ func (h fluoHandler) setVisibility(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid post ID.")
 		return
 	}
-	var input struct {
-		Visibility string `json:"visibility"`
-	}
-	if !decodeBody(w, r, &input) {
+	var input fluo.VisibilityChange
+	if !decodeBodyLimit(w, r, &input, 1<<20) {
 		return
 	}
 	if !fluo.ValidVisibility(input.Visibility) {
 		writeError(w, http.StatusBadRequest, invalidVisibilityMessage)
 		return
 	}
-	if err := h.deps.Store.SetVisibility(r.Context(), actor.ID, id, input.Visibility); err != nil {
+	// Public posts were readable by their audience, so hiding one only changes access; publishing re-encrypts it.
+	var content json.RawMessage
+	text := ""
+	if input.Visibility == fluo.VisibilityPublic {
+		var err error
+		if content, text, err = fluo.ValidateContent(input.Content, id); err != nil {
+			writeError(w, http.StatusBadRequest, "Re-encrypt this post for its audience before publishing it.")
+			return
+		}
+	} else if len(input.Content) != 0 {
+		writeError(w, http.StatusBadRequest, "Hiding a post does not replace its content.")
+		return
+	}
+	if err := h.deps.Store.SetVisibility(r.Context(), actor.ID, id, input.Visibility, content, text); err != nil {
 		fluoError(w, err)
 		return
 	}

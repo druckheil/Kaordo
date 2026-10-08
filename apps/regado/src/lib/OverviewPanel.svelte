@@ -38,7 +38,6 @@
 		{ label: "Messages", value: summary?.messages },
 		{ label: "Media objects", value: summary?.uploads },
 		{ label: "Referenced media", value: bytes(summary?.mediaBytes) },
-		{ label: "Open access cases", value: summary?.openCases },
 	]);
 	const disks = $derived(storageDevices(system?.disks ?? []));
 	const poolMembers = $derived(
