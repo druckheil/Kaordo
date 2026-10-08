@@ -2,12 +2,9 @@ package httpapi
 
 // Reads system state and metrics and coordinates audited host actions
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
@@ -97,7 +94,7 @@ func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action := chi.URLParam(r, "action")
-	if !validSystemAction(action) {
+	if !admin.ValidSystemAction(action) {
 		writeError(w, http.StatusBadRequest, "Unsupported system action.")
 		return
 	}
@@ -105,37 +102,25 @@ func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
 	if !decodeAdminBody(w, r, &body) {
 		return
 	}
-	body.Reason = strings.TrimSpace(body.Reason)
-	if err := body.validate(action); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+	command := admin.SystemAction{
+		Name: action, Reason: body.Reason,
+		Request: admin.ActionRequest{Target: body.Target, Identity: body.Identity, Filesystem: body.Filesystem},
 	}
-	var mediaMaintenance bool
-	if action == "check-storage" || action == "repair-storage" {
-		var ready bool
-		mediaMaintenance, ready = h.prepareStorageMaintenance(w, r, body.Target)
-		if !ready {
-			return
-		}
-	}
-	actorID := adminActor(r).ID
-	if err := h.recordSystemAction(r.Context(), actorID, action, "", body.Reason, body.Target, body.Identity, body.Filesystem, "requested"); err != nil {
-		adminFailure(w, err)
-		return
-	}
-	result, err := h.deps.System.Action(r.Context(), action, admin.ActionRequest{
-		Target: body.Target, Identity: body.Identity, Filesystem: body.Filesystem,
-	})
-	if err == nil && mediaMaintenance {
-		err = h.deps.Maintenance.StartStorageMaintenance(r.Context(), action == "repair-storage")
-	}
+	result, err := h.operations.Execute(r.Context(), adminActor(r).ID, command)
 	if err != nil {
-		_ = h.recordSystemAction(r.Context(), actorID, action, "failed", body.Reason, body.Target, body.Identity, body.Filesystem, "failed")
-		adminFailure(w, err)
+		switch {
+		case errors.Is(err, admin.ErrInvalidOperation):
+			writeError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), admin.ErrInvalidOperation.Error()+": "))
+		case errors.Is(err, admin.ErrSystemUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "System agent is unavailable.")
+		case errors.Is(err, admin.ErrFileReferencesUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "File-reference checks are unavailable.")
+		case errors.Is(err, admin.ErrStorageBusy):
+			writeError(w, http.StatusConflict, "A file-copy operation is already running.")
+		default:
+			adminFailure(w, err)
+		}
 		return
-	}
-	if err := h.recordSystemAction(r.Context(), actorID, action, "completed", body.Reason, body.Target, body.Identity, body.Filesystem, "accepted"); err != nil {
-		log.Printf("Regado outcome audit failed: %v", err)
 	}
 	writeJSON(w, http.StatusAccepted, result)
 }
@@ -145,81 +130,4 @@ type systemActionInput struct {
 	Target     string `json:"target"`
 	Identity   string `json:"identity"`
 	Filesystem string `json:"filesystem"`
-}
-
-func (body systemActionInput) validate(action string) error {
-	if !validAdminReason(body.Reason, 10, 500) {
-		return errors.New("A reason of 10 to 500 characters is required.")
-	}
-	switch action {
-	case "scrub-filesystem", "check-storage", "repair-storage":
-		if body.Target == "" || (action != "scrub-filesystem" && body.Target == "/") || len(body.Target) > 1024 || !filepath.IsAbs(body.Target) || filepath.Clean(body.Target) != body.Target || body.Identity != "" || body.Filesystem != "" {
-			return errors.New("A mounted filesystem path is required.")
-		}
-	case "configure-storage":
-		if !strings.HasPrefix(body.Target, "/dev/") || len(body.Target) > 256 || filepath.Clean(body.Target) != body.Target || !validStorageIdentity(body.Identity) || body.Filesystem == "/" || len(body.Filesystem) > 1024 || !filepath.IsAbs(body.Filesystem) || filepath.Clean(body.Filesystem) != body.Filesystem {
-			return errors.New("A physical device, stable identity, and mounted data-pool path are required.")
-		}
-	default:
-		if body.Target != "" || body.Identity != "" || body.Filesystem != "" {
-			return errors.New("This operation does not accept a storage target.")
-		}
-	}
-	return nil
-}
-
-func (h adminHandler) prepareStorageMaintenance(w http.ResponseWriter, r *http.Request, target string) (required, ready bool) {
-	if h.deps.Maintenance == nil {
-		writeError(w, http.StatusServiceUnavailable, "File-reference checks are unavailable.")
-		return false, false
-	}
-	status, err := h.deps.Maintenance.StorageStatus(r.Context())
-	var media struct {
-		Directory string `json:"directory"`
-		State     string `json:"state"`
-	}
-	if err != nil || json.Unmarshal(status, &media) != nil || media.Directory == "" {
-		writeError(w, http.StatusServiceUnavailable, "File-reference checks are unavailable.")
-		return false, false
-	}
-	required = media.Directory == target || strings.HasPrefix(media.Directory, target+"/")
-	if required && (media.State == "checking" || media.State == "repairing") {
-		writeError(w, http.StatusConflict, "A file-copy operation is already running.")
-		return false, false
-	}
-	return required, true
-}
-
-func validSystemAction(action string) bool {
-	switch action {
-	case "restart-nodo", "restart-livekit", "restart-ddclient", "scrub-filesystem", "check-storage", "repair-storage":
-		return true
-	case "configure-storage":
-		return true
-	default:
-		return false
-	}
-}
-
-func (h adminHandler) recordSystemAction(ctx context.Context, actorID, action, stage, reason, target, identity, filesystem, status string) error {
-	event := "system." + action
-	if stage != "" {
-		event += "." + stage
-	}
-	details := map[string]string{"status": status}
-	if target != "" {
-		details["target"] = target
-	}
-	if identity != "" {
-		details["identity"] = identity
-	}
-	if filesystem != "" {
-		details["filesystem"] = filesystem
-	}
-	return h.deps.Store.Record(ctx, actorID, "", event, reason, details)
-}
-
-func validStorageIdentity(identity string) bool {
-	return len(identity) > len("serial:") && len(identity) <= 256 &&
-		(strings.HasPrefix(identity, "serial:") || strings.HasPrefix(identity, "wwn:"))
 }

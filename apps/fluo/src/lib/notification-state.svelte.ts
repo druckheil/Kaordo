@@ -12,10 +12,11 @@ import { errorMessage } from './fluo-model';
 type ReadAction = { id: string } | { through: string };
 
 export function createFluoNotificationState(
-  api: FluoApi, queryClient: QueryClient, active: () => boolean, onError: (message: string) => void
+  api: Pick<FluoApi, 'notifications' | 'notificationSummary' | 'readNotification' | 'readNotifications'>,
+  queryClient: QueryClient, active: () => boolean, onError: (message: string) => void
 ) {
-  let disposed = false;
-  onDestroy(() => { disposed = true; });
+  const lifetime = new AbortController();
+  onDestroy(() => lifetime.abort());
   const enabled = $derived(typeof window !== 'undefined' && active());
   const recent = createQuery(() => ({
     ...fluoNotificationRecentOptions(api), enabled
@@ -53,14 +54,14 @@ export function createFluoNotificationState(
   const read = createMutation(() => ({
     scope: { id: 'fluo-notification-read' },
     mutationFn: async (action: ReadAction): Promise<FluoNotificationReadState | FluoNotificationSummary> =>
-      'id' in action ? api.readNotification(action.id) : api.readNotifications(action.through),
+      'id' in action ? api.readNotification(action.id, lifetime.signal) : api.readNotifications(action.through, lifetime.signal),
     onMutate: () => {
       onError('');
       return queryClient.cancelQueries({ queryKey: fluoNotificationKeys.all });
     },
     onSuccess: async (state) => {
       await queryClient.cancelQueries({ queryKey: fluoNotificationKeys.all });
-      if (disposed) return;
+      if (lifetime.signal.aborted) return;
       if ('id' in state) {
         queryClient.setQueryData<FluoNotificationPage>(fluoNotificationKeys.recent,
           (page) => page && readFluoNotificationPage(page, state));
@@ -72,7 +73,7 @@ export function createFluoNotificationState(
       await queryClient.invalidateQueries({ queryKey });
     },
     onError: (cause, action) => {
-      if (disposed) return;
+      if (lifetime.signal.aborted) return;
       const message = 'id' in action ? 'Could not mark the notification as read.' : 'Could not mark notifications as read.';
       onError(errorMessage(cause, message));
     }

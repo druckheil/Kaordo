@@ -8,27 +8,19 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"unicode/utf8"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/go-chi/chi/v5"
 )
 
-type AdminSystem interface {
-	Snapshot(context.Context) (json.RawMessage, error)
-	Logs(context.Context, string) (json.RawMessage, error)
-	Action(context.Context, string, admin.ActionRequest) (json.RawMessage, error)
-}
+type AdminSystem = admin.SystemAgent
 
 type AdminMetrics interface {
 	History(context.Context, string) (json.RawMessage, error)
 }
 
-type AdminStorageMaintenance interface {
-	StorageStatus(context.Context) (json.RawMessage, error)
-	StartStorageMaintenance(context.Context, bool) error
-}
+type AdminStorageMaintenance = admin.StorageMaintenance
 
 type AdminDependencies struct {
 	Store        admin.Store
@@ -41,10 +33,13 @@ type AdminDependencies struct {
 
 type adminActorKey struct{}
 
-type adminHandler struct{ deps AdminDependencies }
+type adminHandler struct {
+	deps       AdminDependencies
+	operations *admin.SystemOperations
+}
 
 func mountAdmin(router chi.Router, verify VerifyFunc, users account.Store, deps AdminDependencies) {
-	h := adminHandler{deps: deps}
+	h := adminHandler{deps: deps, operations: admin.NewSystemOperations(deps.Store, deps.System, deps.Maintenance)}
 	router.Route("/v1/admin", func(r chi.Router) {
 		r.Use(adminMiddleware(verify, users))
 		r.Get("/summary", h.summary)
@@ -112,9 +107,4 @@ func decodeAdminBody(w http.ResponseWriter, r *http.Request, target any) bool {
 		return false
 	}
 	return true
-}
-
-func validAdminReason(reason string, minimum, maximum int) bool {
-	length := utf8.RuneCountInString(reason)
-	return length >= minimum && length <= maximum
 }

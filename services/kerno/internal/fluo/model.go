@@ -6,8 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"regexp"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const maxEncodedCursorLength = 256
@@ -27,14 +28,14 @@ const (
 	VisibilityPrivate = "private"
 )
 
-var fluoIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
 var (
 	errCursorTooLong = errors.New("cursor is too long")
 	errInvalidCursor = errors.New("invalid cursor")
 )
 
-func ValidID(id string) bool { return fluoIDPattern.MatchString(id) }
+func ValidID(id string) bool {
+	return len(id) == 36 && uuid.Validate(id) == nil
+}
 
 func ValidVisibility(value string) bool {
 	return value == VisibilityPublic || value == VisibilityPrivate

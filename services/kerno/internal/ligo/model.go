@@ -6,8 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"regexp"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const maxEncodedConversationCursorLength = 256
@@ -96,8 +97,6 @@ type ConversationCursor struct {
 	ID        string    `json:"id"`
 }
 
-var conversationCursorIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
 func EncodeConversationCursor(item Conversation) string {
 	data, err := json.Marshal(ConversationCursor{UpdatedAt: item.UpdatedAt, ID: item.ID})
 	if err != nil {
@@ -126,7 +125,7 @@ func parseConversationCursor(data []byte) (*ConversationCursor, error) {
 	if err := json.Unmarshal(data, &cursor); err != nil {
 		return nil, errInvalidConversationCursor
 	}
-	if cursor.UpdatedAt.IsZero() || !conversationCursorIDPattern.MatchString(cursor.ID) {
+	if cursor.UpdatedAt.IsZero() || len(cursor.ID) != 36 || uuid.Validate(cursor.ID) != nil {
 		return nil, errInvalidConversationCursor
 	}
 	return &cursor, nil

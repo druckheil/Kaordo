@@ -37,9 +37,9 @@ export function createLigoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { data, error, response } = await client.POST('/v1/ligo/conversations', { body: input, signal });
       return requireResponseData(data, error, response.status);
     },
-    async addMembers(id: string, participantIds: string[]): Promise<LigoConversation> {
+    async addMembers(id: string, participantIds: string[], signal?: AbortSignal): Promise<LigoConversation> {
       const { data, error, response } = await client.POST('/v1/ligo/conversations/{id}/members', {
-        params: { path: { id } }, body: { participantIds }
+        params: { path: { id } }, body: { participantIds }, signal
       });
       return requireResponseData(data, error, response.status);
     },

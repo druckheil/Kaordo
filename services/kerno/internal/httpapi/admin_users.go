@@ -4,6 +4,8 @@ package httpapi
 import (
 	"net/http"
 	"strings"
+
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"unicode/utf8"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
@@ -47,7 +49,7 @@ func (h adminHandler) setStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if body.Disabled == nil || !validAdminReason(body.Reason, 10, 500) {
+	if body.Disabled == nil || !admin.ValidReason(body.Reason, 10, 500) {
 		writeError(w, http.StatusBadRequest, "A reason of 10 to 500 characters is required.")
 		return
 	}
@@ -78,7 +80,7 @@ func (h adminHandler) setRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if !fluo.ValidID(id) || body.IsAdmin == nil || !validAdminReason(body.Reason, 10, 500) {
+	if !fluo.ValidID(id) || body.IsAdmin == nil || !admin.ValidReason(body.Reason, 10, 500) {
 		writeError(w, http.StatusBadRequest, "Select an account, a role and a reason of 10 to 500 characters.")
 		return
 	}

@@ -33,14 +33,14 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { data, error, response } = await client.GET('/v1/fluo/notifications/unread-count', { signal });
       return requireResponseData(data, error, response.status);
     },
-    async readNotification(id: string): Promise<FluoNotificationReadState> {
+    async readNotification(id: string, signal?: AbortSignal): Promise<FluoNotificationReadState> {
       const { data, error, response } = await client.PUT('/v1/fluo/notifications/{id}/read', {
-        params: { path: { id } }
+        params: { path: { id } }, signal
       });
       return requireResponseData(data, error, response.status);
     },
-    async readNotifications(through: string): Promise<FluoNotificationSummary> {
-      const { data, error, response } = await client.PUT('/v1/fluo/notifications/read', { body: { through } });
+    async readNotifications(through: string, signal?: AbortSignal): Promise<FluoNotificationSummary> {
+      const { data, error, response } = await client.PUT('/v1/fluo/notifications/read', { body: { through }, signal });
       return requireResponseData(data, error, response.status);
     },
     async list(feed: Feed, cursor?: string, signal?: AbortSignal, search?: string): Promise<FluoPage> {
@@ -111,7 +111,7 @@ export type FluoApi = ReturnType<typeof createFluoApi>;
 
 export const fluoSettingsKey = ['fluo', 'settings'] as const;
 
-export function fluoSettingsOptions(api: FluoApi) {
+export function fluoSettingsOptions(api: Pick<FluoApi, 'settings'>) {
   return {
     queryKey: fluoSettingsKey,
     queryFn: ({ signal }: { signal: AbortSignal }) => api.settings(signal),

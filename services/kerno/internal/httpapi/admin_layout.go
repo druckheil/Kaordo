@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
@@ -29,13 +28,13 @@ func (h adminHandler) storageLayout(w http.ResponseWriter, r *http.Request, appl
 	if !decodeAdminBody(w, r, &body) {
 		return
 	}
-	if !strings.HasPrefix(body.Device, "/dev/") || filepath.Clean(body.Device) != body.Device || len(body.Device) > 256 || !validStorageIdentity(body.Identity) || body.SystemBytes < 0 || body.StorageBytes < 0 {
+	if !admin.ValidStorageDevice(body.Device, body.Identity) || body.SystemBytes < 0 || body.StorageBytes < 0 {
 		writeError(w, http.StatusBadRequest, "A physical device, stable identity and nonnegative role sizes are required.")
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
 	_, fingerprintError := hex.DecodeString(body.Fingerprint)
-	if apply && (!validAdminReason(body.Reason, 10, 500) || body.Confirmation != body.Device || len(body.Fingerprint) != 64 || fingerprintError != nil) {
+	if apply && (!admin.ValidReason(body.Reason, 10, 500) || body.Confirmation != body.Device || len(body.Fingerprint) != 64 || fingerprintError != nil) {
 		writeError(w, http.StatusBadRequest, "Confirm the reviewed device and provide a reason of 10 to 500 characters.")
 		return
 	}

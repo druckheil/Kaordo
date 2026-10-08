@@ -1,6 +1,28 @@
 # Refactor review — 3 October 2026
 
-Latest structural assessment: [8 October 2026 architectural refactor](audits/architecture-2026-10-08.md). The [7 October ISO/IEC 25010 audit](audits/iso-iec-25010-2023-2026-10-07.md) and dated sections below retain their original verification boundaries.
+Latest structural assessment: [8 October 2026 design-pattern review](audits/architecture-patterns-2026-10-08.md), following the [architectural refactor](audits/architecture-2026-10-08.md). The [7 October ISO/IEC 25010 audit](audits/iso-iec-25010-2023-2026-10-07.md) and dated sections below retain their original verification boundaries.
+
+## Design-pattern follow-up — 8 October 2026
+
+Ligo's conversation dialog and Rondo's device settings now have cohesive state
+controllers behind their presentation. Ligo shares create/member command
+execution; microphone checks use an idle/starting/testing state union. Fluo
+controllers and notification query helpers consume narrow API operation sets,
+and notification read mutations abort on teardown.
+
+Kerno's admin SystemOperations service owns fixed-command validation, storage
+preflight, host/Nodo coordination and audit ordering through consumer-owned
+ports. HTTP keeps decoding, authorization and response mapping. Fluo/Ligo share
+attachment input normalization while retaining their ownership/type lookups;
+UUID validation uses the existing google/uuid dependency.
+
+The review covers all six apps, thirteen shared packages and four Go modules,
+including decisions to keep existing repositories, transactions, adapters,
+SDK facades and small explicit switches. Static analysis of 372 source files
+found no import ownership violations or cycles. Svelte/TypeScript checks,
+all app builds, Go build/vet and Linux builds passed. Functional suites were
+not executed for this request. The linked report gives measurements and
+verification limits; earlier evidence below remains dated.
 
 ## Architectural refactor — 8 October 2026
 

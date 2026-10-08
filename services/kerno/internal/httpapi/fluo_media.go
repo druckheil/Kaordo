@@ -3,9 +3,7 @@ package httpapi
 // Validates Fluo attachments and decorates authorized media responses
 import (
 	"net/http"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/mediaauth"
@@ -50,36 +48,25 @@ func (h fluoHandler) decoratePosts(posts []fluo.Post) error {
 
 func (h fluoHandler) validatePostMedia(w http.ResponseWriter, r *http.Request, input fluo.NewPost) ([]fluo.Media, bool) {
 	media := make([]fluo.Media, 0, len(input.AttachmentIDs))
-	seen := make(map[string]struct{}, len(input.AttachmentIDs))
+	inputs := attachmentInputs{altTexts: input.AltTexts, seen: make(map[string]struct{}, len(input.AttachmentIDs))}
 	for _, id := range input.AttachmentIDs {
-		item, ok := h.validatePostAttachment(w, r, id, input.AltTexts[id], seen)
+		item, ok := h.validatePostAttachment(w, r, id, inputs)
 		if !ok {
 			return nil, false
 		}
 		media = append(media, item)
 	}
-	for id := range input.AltTexts {
-		if _, attached := seen[id]; !attached {
-			writeError(w, http.StatusBadRequest, "Alt text must belong to an attached file.")
-			return nil, false
-		}
+	if err := inputs.validateReferences(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return nil, false
 	}
 	return media, true
 }
 
-func (h fluoHandler) validatePostAttachment(w http.ResponseWriter, r *http.Request, id, altText string, seen map[string]struct{}) (fluo.Media, bool) {
-	if !fluo.ValidID(id) {
-		writeError(w, http.StatusBadRequest, "Attachment IDs must be unique UUIDs.")
-		return fluo.Media{}, false
-	}
-	if _, duplicate := seen[id]; duplicate {
-		writeError(w, http.StatusBadRequest, "Attachment IDs must be unique UUIDs.")
-		return fluo.Media{}, false
-	}
-	seen[id] = struct{}{}
-	altText = strings.TrimSpace(altText)
-	if utf8.RuneCountInString(altText) > 500 || strings.ContainsRune(altText, 0) {
-		writeError(w, http.StatusBadRequest, "Alt text must be 500 characters or fewer.")
+func (h fluoHandler) validatePostAttachment(w http.ResponseWriter, r *http.Request, id string, inputs attachmentInputs) (fluo.Media, bool) {
+	altText, err := inputs.normalize(id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return fluo.Media{}, false
 	}
 	if h.deps.Media == nil {

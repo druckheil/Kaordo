@@ -20,7 +20,7 @@ function settingsPatch(change: FluoSettingChange): FluoSettingsPatch {
   }
 }
 
-export function createFluoSettingsState(api: FluoApi, queryClient: QueryClient, active: () => boolean) {
+export function createFluoSettingsState(api: Pick<FluoApi, 'settings' | 'updateSettings'>, queryClient: QueryClient, active: () => boolean) {
   const lifetime = new AbortController();
   onDestroy(() => lifetime.abort());
   const enabled = $derived(typeof window !== 'undefined' && active());

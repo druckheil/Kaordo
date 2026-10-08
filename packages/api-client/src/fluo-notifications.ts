@@ -16,7 +16,7 @@ const notificationPolling = {
   refetchOnWindowFocus: true
 };
 
-export function fluoNotificationSummaryOptions(api: FluoApi) {
+export function fluoNotificationSummaryOptions(api: Pick<FluoApi, 'notificationSummary'>) {
   return {
     ...notificationPolling,
     queryKey: fluoNotificationKeys.summary,
@@ -24,7 +24,7 @@ export function fluoNotificationSummaryOptions(api: FluoApi) {
   };
 }
 
-export function fluoNotificationRecentOptions(api: FluoApi) {
+export function fluoNotificationRecentOptions(api: Pick<FluoApi, 'notifications'>) {
   return {
     ...notificationPolling,
     queryKey: fluoNotificationKeys.recent,
@@ -32,7 +32,7 @@ export function fluoNotificationRecentOptions(api: FluoApi) {
   };
 }
 
-export function fluoNotificationsOptions(api: FluoApi, recent?: FluoNotificationPage) {
+export function fluoNotificationsOptions(api: Pick<FluoApi, 'notifications'>, recent?: FluoNotificationPage) {
   return {
     queryKey: fluoNotificationKeys.list,
     initialPageParam: undefined as string | undefined,

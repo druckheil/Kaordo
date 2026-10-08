@@ -34,7 +34,7 @@ func (h adminHandler) createCase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if !fluo.ValidID(body.TargetUserID) || !validAdminReason(body.Reason, 20, 500) {
+	if !fluo.ValidID(body.TargetUserID) || !admin.ValidReason(body.Reason, 20, 500) {
 		writeError(w, http.StatusBadRequest, "Select an account and provide a reason of 20 to 500 characters.")
 		return
 	}

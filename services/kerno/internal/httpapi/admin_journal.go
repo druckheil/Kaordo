@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 )
 
 type adminJournalSystem interface {
@@ -28,7 +30,7 @@ func (h adminHandler) logRetention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if body.Days == nil || !slices.Contains([]int{0, 1, 7, 14, 30, 90}, *body.Days) || !validAdminReason(body.Reason, 10, 500) {
+	if body.Days == nil || !slices.Contains([]int{0, 1, 7, 14, 30, 90}, *body.Days) || !admin.ValidReason(body.Reason, 10, 500) {
 		writeError(w, http.StatusBadRequest, "Select a supported retention period and a reason of 10 to 500 characters.")
 		return
 	}

@@ -6,7 +6,7 @@ import { invalidateFluoPostQueries, type FluoApi } from '@kaordo/api-client';
 import { errorMessage } from './fluo-model';
 
 export function createFluoPostActions(
-  api: FluoApi,
+  api: Pick<FluoApi, 'react' | 'follow' | 'setSaved' | 'setVisibility'>,
   queryClient: QueryClient,
   onError: (message: string) => void,
 ) {
