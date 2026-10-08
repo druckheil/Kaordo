@@ -4,8 +4,9 @@
 	import { onDestroy, untrack } from "svelte";
 	import type { QueryClient } from "@tanstack/svelte-query";
 	import type { LigoConversation } from "@kaordo/contracts";
+	import { UserAvatar } from "@kaordo/account-ui";
 	import { BookmarkIcon, Button, CheckIcon, Dialog, Input, SearchIcon } from "@kaordo/ui";
-	import { userInitials, type ConversationDialogMode } from "./ligo-model";
+	import type { ConversationDialogMode } from "./ligo-model";
 	import { createConversationDialogState, type ConversationDialogApi } from "./conversation-dialog-state.svelte.ts";
 
 	let {
@@ -138,9 +139,7 @@
 							onclick={() => (form.groupMode ? state.toggleUser(candidate) : void state.startDirectChat(candidate))}
 							class="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
 						>
-							<span class="grid size-9 place-items-center rounded-xl bg-primary-soft text-xs font-bold text-primary-soft-foreground">
-								{userInitials(candidate.displayName)}
-							</span>
+							<UserAvatar user={candidate} class="size-9 rounded-xl [&_[data-slot=avatar-fallback]]:text-xs" />
 							<span class="min-w-0 flex-1">
 								<span class="block truncate text-sm font-semibold">{candidate.displayName}</span>
 								<span class="block truncate text-xs text-muted-foreground">@{candidate.username}</span>

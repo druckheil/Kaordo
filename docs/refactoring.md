@@ -2,6 +2,84 @@
 
 Latest structural assessment: [8 October 2026 design-pattern review](audits/architecture-patterns-2026-10-08.md), following the [architectural refactor](audits/architecture-2026-10-08.md). The [7 October ISO/IEC 25010 audit](audits/iso-iec-25010-2023-2026-10-07.md) and dated sections below retain their original verification boundaries.
 
+## Fluo profiles — 8 October 2026
+
+Profiles use account usernames as unique links while keeping editable Fluo
+nicknames independent of Keycloak identity. Presentation, profile query/status state
+and profile drafts/upload/save workflows have separate owners. A shared lazy
+Cropper.js dialog composes Rhea/Bits UI and uses native crop constraints rather
+than a custom gesture implementation. Existing image preparation, Uppy/Tus,
+Nodo processing, signed URLs and upload claims handle avatar/banner media.
+
+Kerno's Fluo domain owns profile validation and its store contract. HTTP owns
+authentication, media ownership checks and response signing; PostgreSQL keeps
+profile writes and media replacement in one transaction with sorted claim
+locks. Presence privacy and mutual follows are enforced in SQL, the raw status
+is owner-only unless Nobody suppresses it, and last-active timestamps are never returned. Verification is
+migration-owned and absent from editable fields. Cursor lists and author feeds
+reuse the existing follow relation, pagination and access checks.
+
+OpenAPI types and Jet tables were generated from the contract and a disposable
+migrated database. Svelte/TypeScript checks, all six static app builds and Go
+build/vet passed. Functional/browser suites were not run for this feature
+request; these compilation results do not claim live workflow verification.
+Migration 018 is registered with the existing local/release migration workflow.
+
+A subsequent live profile read identified missing scalar-subquery parentheses
+inside SQL functions. The shared author projections now use Jet's `WRAP` for
+nickname, verification and profile-image fallbacks; a read against the local
+PostgreSQL database completed successfully after the correction.
+
+### Shared account images and presence
+
+`account-ui` now scopes avatar/presence subscriptions and a TanStack Query cache
+to the authenticated gate. Fluo, Ligo, Rondo and their shared chat bubbles use
+one Rhea/Bits Avatar component with a corner dot. Snapshot requests batch up to
+128 unique IDs, preserve images while subscriptions change and avoid reloading
+feed/message queries. They run every two seconds in foreground apps; Kerno
+expires activity after seven seconds and coalesces writes within one second.
+Privacy is enforced in SQL, including suppressing the owner status under Nobody.
+Profile avatar/banner anchors reuse the existing PhotoSwipe lifecycle. Quote
+headers align names and verification with a flex row rather than an SVG baseline.
+
+Svelte/TypeScript checks and all six static builds passed; Go build/vet also
+passed. A read of the batched presentation projection against the running local
+database returned account avatars and privacy-filtered status without errors.
+Functional/browser suites were not run for this follow-up.
+
+### Maintainability review of the accumulated scope
+
+The review covered profile state and rendering, account navigation/history,
+shared avatars, presence privacy, image preparation/cropping/upload/retirement,
+notification previews, generated contracts/tables and dependency ownership.
+
+| Simplification | Responsibility after the refactor |
+| --- | --- |
+| Profile/status controllers and manually reset view state | The keyed profile owns its query and follow/status commands; changing username tears down the editor, cropper and commands through Svelte's native lifecycle |
+| Repeated cache cancellation and response publication | `api-client/fluo-profiles.ts` publishes saved profiles only while their action owner is active, cancelling stale reads first |
+| Five positional feed parameters | Named feed/search/author filters preserve query keys and cursor behaviour |
+| Presence transport and polling inside the avatar controller | `api-client/user-presentation.ts` owns query policy and captures each requested ID snapshot; `account-ui` owns reference-counted subscriptions and teardown |
+| Missing or manually mounted QueryClient lifecycles | Native `QueryClientProvider` components connect focus/online subscriptions for all five query-owning apps and the shared presentation cache |
+| Crop calculations and encoding mixed into dialog orchestration | `media-ui/cropper-images.ts` owns bounds and exact-size export; Cropper still owns gestures and the dialog owns loading, controls and disposal |
+| Profile column SQL mixed into the transaction coordinator | A cohesive persistence phase writes editable fields inside the existing transaction; user/claim lock order and retirement remain intact |
+| Duplicate notification anchors and overlapping avatar indicators | One link template handles post/profile destinations; the activity badge leaves the presence corner clear |
+
+The existing strict browser fixtures now share contract-shaped profile and
+presence responses. Their scenarios and assertions remain intact; the quality
+fixture also filters profile feeds by author ID and includes presence privacy.
+No new test scenarios were added.
+
+Verification for this refactor: all seven Svelte projects report zero errors and
+warnings; all six static apps build; all four Go modules build and pass `go vet`.
+OpenAPI generation and syntax checks of the updated fixture scripts complete
+successfully. A static scan of 342 source files across 19 app/package workspaces
+reports zero undeclared/unused runtime dependencies and zero workspace cycles.
+`gocognit` v1.2.1 measures profile transaction coordination at 10 → 9, with its
+extracted editable-field write phase at 1. The authored Go maximum remains 26;
+these are function-level measurements, not a project quality score.
+The existing Rondo bundle-size advisory remains. Functional/browser suites and
+hosted CI were not run for this refactor.
+
 ## Design-pattern follow-up — 8 October 2026
 
 Ligo's conversation dialog and Rondo's device settings now have cohesive state
@@ -63,7 +141,7 @@ This is an engineering review with automated evidence, not a new ISO score or a 
 | Layer | Responsibility |
 | --- | --- |
 | Portal | Welcome/app entry/auth presentation; shared account controller handles the session |
-| Fluo | Controller for selection/navigation/post actions; notification/settings query controllers and separate feed/header, settings, composer/editor/publishing, replies/detail |
+| Fluo | Controller for selection/navigation/post actions; notification/settings/profile query controllers, presence and profile draft/save state; separate feed/header, settings, composer/editor/publishing, replies/detail |
 | Ligo | Conversation selection and SSE/query coordination; separate sidebar and conversation dialog |
 | Rondo | Server/channel coordination, member panel, layout helpers and voice views; shared chat pipeline |
 | Lingvo | Dictionary/view selection and lazy screens; vocabulary, phrase practice, library, folders and CSV transfer |
@@ -71,7 +149,7 @@ This is an engineering review with automated evidence, not a new ISO score or a 
 | auth / account-ui | In-memory OIDC tokens; verified account bootstrap and nonauthorizing per-tab preview |
 | api-client / contracts | Typed requests, response/refresh policy, query keys, pagination, cancellation and immutable message/Fluo cache helpers; generated wire schemas |
 | ui / chat-ui | STaSBRL primitives and shared message/composer/native-scroll interaction |
-| media-client / media-ui / voice-client | Upload/resize workflow; metadata-based layout, PhotoSwipe/Vidstack; LiveKit room/track lifecycle and sounds |
+| media-client / media-ui / voice-client | Upload/resize workflow; metadata-based layout, PhotoSwipe/Vidstack/Cropper.js; LiveKit room/track lifecycle and sounds |
 | lingvo-client | German presentation, pronunciation, answer comparison, CSV and official ts-fsrs interval previews |
 | Kerno | Configuration/wiring, HTTP authorization/orchestration, domain validation, Jet/pgx persistence split by operation |
 | Nodo | HTTP upload/media handlers, owner/quota validation, processing queue, image/video/file processing, purge/GC and worker lifecycle |

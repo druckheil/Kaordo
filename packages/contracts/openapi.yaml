@@ -942,6 +942,79 @@ components:
         username: { type: string }
         displayName: { type: string }
         following: { type: boolean }
+        avatar:
+          anyOf:
+            - { $ref: '#/components/schemas/FluoMedia' }
+            - { type: 'null' }
+        verified: { type: boolean, description: Account-owned verification; not editable through profile requests. }
+    FluoPresence:
+      type: string
+      enum: [online, busy, offline]
+    FluoStatus:
+      type: string
+      enum: [online, busy, invisible]
+    UserPresentation:
+      type: object
+      required: [id, avatar, presence]
+      properties:
+        id: { type: string, format: uuid }
+        avatar:
+          anyOf:
+            - { $ref: '#/components/schemas/FluoMedia' }
+            - { type: 'null' }
+        presence:
+          anyOf:
+            - { $ref: '#/components/schemas/FluoPresence' }
+            - { type: 'null' }
+          description: Availability filtered by current privacy and mutual follows; null hides the indicator.
+    FluoProfile:
+      allOf:
+        - { $ref: '#/components/schemas/FluoAuthor' }
+        - type: object
+          required: [bio, birthDate, location, website, pronouns, banner, createdAt, followersCount, followingCount, followedBy, accountVisibility, canViewPosts, presence]
+          properties:
+            bio: { type: string, maxLength: 500 }
+            birthDate: { type: [string, 'null'], format: date }
+            location: { type: string, maxLength: 100 }
+            website: { type: string, maxLength: 300 }
+            pronouns: { type: string, maxLength: 40 }
+            banner:
+              anyOf:
+                - { $ref: '#/components/schemas/FluoMedia' }
+                - { type: 'null' }
+            createdAt: { type: string, format: date-time }
+            followersCount: { type: integer, format: int64, minimum: 0 }
+            followingCount: { type: integer, format: int64, minimum: 0 }
+            followedBy: { type: boolean }
+            accountVisibility: { type: string, enum: [public, private] }
+            canViewPosts: { type: boolean, description: Current account and follow policy permits this viewer to see public posts. }
+            presence:
+              anyOf:
+                - { $ref: '#/components/schemas/FluoPresence' }
+                - { type: 'null' }
+              description: Null hides availability under the owner's privacy policy or invisible status. Online and busy expire after 7 seconds without an active Kaordo heartbeat.
+            status:
+              $ref: '#/components/schemas/FluoStatus'
+              description: The chosen status, returned only to the profile owner when status visibility is not Nobody.
+    FluoProfileUpdate:
+      type: object
+      additionalProperties: false
+      required: [nickname, bio, birthDate, location, website, pronouns, avatarId, bannerId]
+      properties:
+        nickname: { type: string, minLength: 1, maxLength: 80 }
+        bio: { type: string, maxLength: 500 }
+        birthDate: { type: [string, 'null'], format: date }
+        location: { type: string, maxLength: 100 }
+        website: { type: string, maxLength: 300, description: An absolute HTTP(S) URL without credentials, or an empty string. }
+        pronouns: { type: string, maxLength: 40 }
+        avatarId: { type: [string, 'null'], format: uuid, description: Owned, completed square image upload; null removes the avatar. }
+        bannerId: { type: [string, 'null'], format: uuid, description: Owned, completed 3:1 image upload; null removes the banner. }
+    FluoConnectionPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/FluoAuthor' } }
+        nextCursor: { type: [string, 'null'] }
     FluoMedia:
       type: object
       required: [id, kind, mimeType, width, height, size, altText, url]
@@ -1054,7 +1127,7 @@ components:
     FluoPrivacySettings:
       type: object
       additionalProperties: false
-      required: [accountVisibility, showLikes]
+      required: [accountVisibility, showLikes, presenceVisibility]
       properties:
         accountVisibility:
           type: string
@@ -1065,6 +1138,11 @@ components:
           type: boolean
           default: true
           description: Hidden likes still contribute to counts, but do not create identifying notifications. Existing like notifications are hidden while this setting is false.
+        presenceVisibility:
+          type: string
+          enum: [all, friends, off]
+          default: all
+          description: Availability is visible to everyone, mutual follows only, or nobody. Invisible status always hides it from other accounts.
     FluoSettings:
       type: object
       required: [notifications, privacy]
@@ -1094,6 +1172,7 @@ components:
           properties:
             accountVisibility: { type: string, enum: [public, private] }
             showLikes: { type: boolean }
+            presenceVisibility: { type: string, enum: [all, friends, off] }
     FluoNotification:
       type: object
       description: Activity from another account, visible only to its recipient while its posts remain accessible.
@@ -1498,6 +1577,106 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /v1/fluo/profiles/{username}:
+    get:
+      operationId: getFluoProfile
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: username, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+      responses:
+        '200':
+          description: Case-insensitive account username lookup with privacy-filtered availability.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FluoProfile' } } }
+        default:
+          description: Access, lookup or server error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+  /v1/fluo/profile:
+    put:
+      operationId: updateFluoProfile
+      security: [{ bearerAuth: [] }]
+      description: Updates the current account's Fluo nickname and optional profile fields. Account username, registration date and verification cannot be changed here.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/FluoProfileUpdate' } } }
+      responses:
+        '200':
+          description: Saved profile; image claims and reference retirement commit atomically.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FluoProfile' } } }
+        default:
+          description: Validation, access or server error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+  /v1/fluo/profile/status:
+    put:
+      operationId: setFluoStatus
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status: { $ref: '#/components/schemas/FluoStatus' }
+      responses:
+        '200':
+          description: Current profile with the saved status.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FluoProfile' } } }
+        default:
+          description: Validation, access or server error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+  /v1/fluo/presence:
+    post:
+      operationId: touchFluoPresence
+      security: [{ bearerAuth: [] }]
+      description: Renews availability and returns compact account avatars and privacy-filtered presence for the requested IDs. Foreground clients refresh every 2 seconds; hidden or closed clients expire after 7 seconds. Repeated beats within 1 second do not write again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [userIds]
+              properties:
+                userIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 128
+                  uniqueItems: true
+                  items: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Availability renewed and current account presentation returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/UserPresentation' }
+        default:
+          description: Access or server error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+  /v1/fluo/users/{id}/connections:
+    get:
+      operationId: listFluoConnections
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: kind, in: query, required: true, schema: { type: string, enum: [followers, following] } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
+      responses:
+        '200':
+          description: Active accounts in the selected follow list, with stable cursor pagination.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FluoConnectionPage' } } }
+        default:
+          description: Validation, access or server error.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
   /v1/fluo/settings:
     get:
       operationId: getFluoSettings
@@ -1696,6 +1875,7 @@ paths:
       parameters:
         - { name: feed, in: query, schema: { type: string, enum: [latest, following, mine, saved] } }
         - { name: q, in: query, description: Search post text and author names, schema: { type: string, minLength: 2, maxLength: 100 } }
+        - { name: authorId, in: query, description: Restrict an accessible feed to this profile owner, schema: { type: string, format: uuid } }
         - { name: cursor, in: query, schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
       responses:

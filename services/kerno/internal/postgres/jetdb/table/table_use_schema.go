@@ -16,6 +16,8 @@ func UseSchema(schema string) {
 	FluoNotifications = FluoNotifications.FromSchema(schema)
 	FluoPostMedia = FluoPostMedia.FromSchema(schema)
 	FluoPosts = FluoPosts.FromSchema(schema)
+	FluoProfileImages = FluoProfileImages.FromSchema(schema)
+	FluoProfiles = FluoProfiles.FromSchema(schema)
 	FluoReactions = FluoReactions.FromSchema(schema)
 	FluoSavedPosts = FluoSavedPosts.FromSchema(schema)
 	FluoSettings = FluoSettings.FromSchema(schema)

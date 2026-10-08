@@ -7,7 +7,7 @@
   import {
     BellIcon, Button, ChevronLeftIcon, ChevronRightIcon, RadioGroup, ShieldCheckIcon,
     HeartIcon, XIcon, MessageCircleIcon, UserPlusIcon, UserMinusIcon, Repeat2Icon,
-    CheckIcon, LoaderCircleIcon
+    CheckIcon, LoaderCircleIcon, CircleIcon
   } from '@kaordo/ui';
   import type { FluoSettingsSection, FluoView } from './fluo-model';
   import type { FluoSettingChange, FluoSettingsState } from './settings-state.svelte.ts';
@@ -39,6 +39,10 @@
     {
       key: 'showLikes', label: 'Show others what I like', icon: HeartIcon,
       description: 'When hidden, your likes still increase the count. Your name is hidden from post authors and other people.'
+    },
+    {
+      key: 'presenceVisibility', label: 'Who can see my status', icon: CircleIcon,
+      description: 'Friends are people you follow who also follow you. Invisible always hides your availability.'
     }
   ] as const;
   const rows = $derived(section === 'notifications' ? notificationRows : privacyRows);
@@ -50,9 +54,16 @@
   ] as const;
   const accountOptions = [{ value: 'public', label: 'Public' }, { value: 'private', label: 'Private' }] as const;
   const likeOptions = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] as const;
+  const presenceOptions = [
+    { value: 'all', label: 'Everyone' }, { value: 'friends', label: 'Friends only' }, { value: 'off', label: 'Nobody' }
+  ] as const;
   const notificationTones = { all: 'primary', off: 'muted', following: 'accent' } as const;
 
   function choiceFor(settings: FluoSettings, field: FluoSettingChange['field']) {
+    if (field === 'presenceVisibility') {
+      const value = settings.privacy.presenceVisibility ?? 'all';
+      return { value, options: presenceOptions, tone: value === 'off' ? 'muted' : 'primary' };
+    }
     if (field === 'accountVisibility') {
       const value = settings.privacy.accountVisibility;
       return { value, options: accountOptions, tone: value === 'private' ? 'primary' : 'muted' };
@@ -73,6 +84,9 @@
         return;
       case 'showLikes':
         if (value === 'yes' || value === 'no') state.save.mutate({ field, value: value === 'yes' });
+        return;
+      case 'presenceVisibility':
+        if (value === 'all' || value === 'friends' || value === 'off') state.save.mutate({ field, value });
         return;
       default:
         if (value === 'all' || value === 'off' || value === 'following') state.save.mutate({ field, value });

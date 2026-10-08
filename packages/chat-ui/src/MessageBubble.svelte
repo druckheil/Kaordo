@@ -3,9 +3,10 @@
 
   import { tick } from 'svelte';
   import type { LigoMedia, LigoMessage, LigoReaction } from '@kaordo/contracts';
+  import { UserAvatar } from '@kaordo/account-ui';
   import { MessageMediaGrid, type MediaAttachment } from '@kaordo/media-ui';
   import {
-    AlertDialog, Attachment, Avatar, Bubble, Button, CheckCheckIcon, CheckIcon,
+    AlertDialog, Attachment, Bubble, Button, CheckCheckIcon, CheckIcon,
     ContextMenu, DropdownMenu, EllipsisIcon, FileIcon, HeartIcon, Message,
     PencilIcon, Textarea, ThumbsDownIcon, ThumbsUpIcon, Trash2Icon
   } from '@kaordo/ui';
@@ -111,11 +112,7 @@
 <Message.Root align={own ? 'end' : 'start'} class="items-start gap-1.5">
   {#if showAvatarSlot}
     {#if showSender}
-      <Avatar.Root class="size-8 shrink-0 rounded-xl bg-primary-soft text-primary-soft-foreground">
-        <Avatar.Fallback class="rounded-xl bg-primary-soft text-xs font-semibold text-primary-soft-foreground">
-          {message.sender.displayName.slice(0, 1).toUpperCase()}
-        </Avatar.Fallback>
-      </Avatar.Root>
+      <UserAvatar user={message.sender} class="size-8 rounded-xl [&_[data-slot=avatar-fallback]]:text-xs" />
     {:else}
       <span class="size-8 shrink-0" aria-hidden="true"></span>
     {/if}

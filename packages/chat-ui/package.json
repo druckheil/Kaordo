@@ -30,6 +30,7 @@
     }
   },
   "dependencies": {
+    "@kaordo/account-ui": "workspace:*",
     "@kaordo/chat-client": "workspace:*",
     "@kaordo/contracts": "workspace:*",
     "@kaordo/links": "workspace:*",

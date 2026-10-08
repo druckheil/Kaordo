@@ -1,9 +1,9 @@
 // Parses post links and validates focused-post return locations
 
 import type { FluoView } from "./fluo-model";
-import { fluoViewFromHash, isFluoView, postIdFromHash } from "./fluo-model";
+import { fluoViewFromHash, isFluoView, postIdFromHash, profileUsernameFromHash } from "./fluo-model";
 
-const postHistoryKeys = ["kaordoFluoPost", "kaordoFluoReturnView", "kaordoFluoReturnHash"] as const;
+const postHistoryKeys = ["kaordoFluoPost", "kaordoFluoReturnView", "kaordoFluoReturnHash", "kaordoFluoProfileHash"] as const;
 
 export interface PostBackDestination {
 	view: FluoView;
@@ -22,7 +22,10 @@ export function postBackDestination(
 		? historyState.kaordoFluoReturnView
 		: fallbackView;
 	const storedHash = historyState.kaordoFluoReturnHash;
-	const hash = isValidReturnHash(storedHash) ? storedHash : `#${view}`;
+	const profileHash = historyState.kaordoFluoProfileHash;
+	const fallbackHash = view === "profile" && typeof profileHash === "string" && profileUsernameFromHash(profileHash)
+		? profileHash : `#${view}`;
+	const hash = isValidReturnHash(storedHash) ? storedHash : fallbackHash;
 	const returnThroughHistory = Boolean(historySession) && historyState.kaordoFluoPost === historySession;
 	const cleanState = { ...historyState };
 

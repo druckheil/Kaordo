@@ -4,9 +4,10 @@
   import { onDestroy, onMount } from 'svelte';
   import { pushState } from '$app/navigation';
   import { page } from '$app/state';
-  import { createInfiniteQuery, createQuery, QueryClient } from '@tanstack/svelte-query';
+  import { createInfiniteQuery, createQuery, QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { createLigoApi, ligoConversationDetailOptions, ligoConversationOptions } from '@kaordo/api-client';
   import type { UserIdentity } from '@kaordo/contracts';
+  import { UserAvatar } from '@kaordo/account-ui';
   import { createConversationState } from '@kaordo/chat-client';
   import { appPaths } from '@kaordo/links';
   import {
@@ -22,7 +23,6 @@
     conversationTitle,
     maxAttachmentsPerMessage,
     maxMessageCharacters,
-    userInitials,
     type ConversationDialogMode,
   } from './ligo-model';
 
@@ -72,6 +72,7 @@
   const liveUnavailable = $derived(chat.liveUnavailable);
   const connected = $derived(chat.connected);
   const selectedTitle = $derived(selected ? conversationTitle(selected, user.id) : 'Conversation');
+  const selectedPeer = $derived(selected?.kind === 'duo' ? selected.members.find((member) => member.id !== user.id) : undefined);
   const selectedSubtitle = $derived.by(() => {
     if (selected?.kind === 'self') return 'Only you';
     if (selected?.kind === 'group') return `${selected.members.length} members`;
@@ -193,6 +194,7 @@
 
 </script>
 
+<QueryClientProvider client={queryClient}>
 <div class="flex h-[100dvh] flex-col bg-background">
   <AppHeader name="Ligo" homeHref={appPaths.portal} wide />
 
@@ -235,15 +237,19 @@
           >
             <ChevronLeftIcon class="size-5" />
           </Button>
+          {#if selectedPeer}
+            <UserAvatar user={selectedPeer} class="size-10" />
+          {:else}
           <div class="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary-soft text-sm font-bold text-primary-soft-foreground">
             {#if selected?.kind === 'self'}
               <BookmarkIcon class="size-5" />
             {:else if selected?.kind === 'group'}
               ◌
             {:else}
-              {userInitials(selected ? selectedTitle : 'Ligo')}
+              <MessageCircleIcon class="size-5" />
             {/if}
           </div>
+          {/if}
           <div class="min-w-0 flex-1">
             <h2 class="truncate text-sm font-bold">{selectedTitle}</h2>
             <p class="truncate text-xs text-muted-foreground">
@@ -349,3 +355,4 @@
   onOpenSaved={() => void openSavedMessages()}
   onSelectConversation={selectConversation}
 />
+</QueryClientProvider>

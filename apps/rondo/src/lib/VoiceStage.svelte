@@ -3,6 +3,7 @@
 
   import { onMount } from 'svelte';
   import type { ScreenQuality, VoiceConnection, VoiceSnapshot } from '@kaordo/voice-client';
+  import { UserAvatar } from '@kaordo/account-ui';
   import {
     Button, Dialog, HeadphoneOffIcon, HeadphonesIcon, Maximize2Icon, MicIcon, MicOffIcon,
     Minimize2Icon, MonitorOffIcon, MonitorUpIcon, VideoIcon, VideoOffIcon, Volume2Icon, VolumeXIcon
@@ -156,6 +157,7 @@
     <div class="kaordo-scrollbar mt-2 flex min-w-0 gap-1.5 overflow-x-auto pb-0.5" aria-label="Voice participants">
       {#each voice.participants as participant (participant.id)}
         <span class={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${participant.speaking ? 'border-primary/40 bg-primary-soft text-primary-soft-foreground' : 'border-border bg-background text-muted-foreground'}`}>
+          <UserAvatar user={{ id: participant.id, displayName: participant.name }} class="size-6 [&_[data-slot=avatar-fallback]]:text-[10px]" />
           {#if participant.microphoneEnabled}<MicIcon class="size-3" />{:else}<MicOffIcon class="size-3" />{/if}
           <span>{participant.local ? 'You' : participant.name}</span>
           {#if participant.cameraEnabled}<VideoIcon class="size-3" aria-label="Camera on" />{/if}

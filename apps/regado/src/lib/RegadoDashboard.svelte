@@ -4,7 +4,7 @@
 	import { onDestroy } from "svelte";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
-	import { createQuery, createInfiniteQuery, QueryClient } from "@tanstack/svelte-query";
+	import { createQuery, createInfiniteQuery, QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
 	import {
 		createAdminApi, adminSummaryOptions, adminSystemOptions, adminMetricsOptions,
 		adminUsersOptions, adminAuditOptions, adminLogsOptions, adminCaseContentOptions,
@@ -132,6 +132,7 @@
 
 <svelte:head><title>{tab} | Regado | Kaordo</title></svelte:head>
 
+<QueryClientProvider client={queryClient}>
 <div
 	class="min-h-dvh bg-[radial-gradient(circle_at_90%_0%,color-mix(in_oklch,var(--primary)_9%,transparent),transparent_38%)]"
 >
@@ -259,3 +260,4 @@
 	onConfirm={() => void commands.confirmIntent()}
 	onClose={() => (form.intent = null)}
 />
+</QueryClientProvider>

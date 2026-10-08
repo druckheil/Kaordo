@@ -6,6 +6,7 @@
   import { AppHeader, Button, ShieldCheckIcon } from '@kaordo/ui';
   import { createAccountSessionController, initialAccountSnapshot } from './session.js';
   import { readAccountPreview, type AccountPreview } from './session-preview.js';
+  import UserPresentationProvider from './UserPresentationProvider.svelte';
 
   let {
     appName,
@@ -92,7 +93,11 @@
 {/snippet}
 
 {#if snapshot.user}
-  {@render children(snapshot.user)}
+  {#key snapshot.user.id}
+    <UserPresentationProvider apiBaseUrl={environment.VITE_KAORDO_API_URL ?? ''} userId={snapshot.user.id}>
+      {@render children(snapshot.user)}
+    </UserPresentationProvider>
+  {/key}
 {:else if embedded || compact}
   {@render accountState()}
 {:else}

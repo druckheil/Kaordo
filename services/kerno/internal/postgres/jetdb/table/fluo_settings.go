@@ -17,15 +17,16 @@ type fluoSettingsTable struct {
 	postgres.Table
 
 	// Columns
-	UserID            postgres.ColumnString
-	NotifyLikes       postgres.ColumnString
-	NotifyDislikes    postgres.ColumnString
-	NotifyReplies     postgres.ColumnString
-	NotifyFollows     postgres.ColumnString
-	NotifyUnfollows   postgres.ColumnString
-	NotifyQuotes      postgres.ColumnString
-	AccountVisibility postgres.ColumnString
-	ShowLikes         postgres.ColumnBool
+	UserID             postgres.ColumnString
+	NotifyLikes        postgres.ColumnString
+	NotifyDislikes     postgres.ColumnString
+	NotifyReplies      postgres.ColumnString
+	NotifyFollows      postgres.ColumnString
+	NotifyUnfollows    postgres.ColumnString
+	NotifyQuotes       postgres.ColumnString
+	AccountVisibility  postgres.ColumnString
+	ShowLikes          postgres.ColumnBool
+	PresenceVisibility postgres.ColumnString
 
 	AllColumns     postgres.ColumnList
 	MutableColumns postgres.ColumnList
@@ -67,33 +68,35 @@ func newFluoSettingsTable(schemaName, tableName, alias string) *FluoSettingsTabl
 
 func newFluoSettingsTableImpl(schemaName, tableName, alias string) fluoSettingsTable {
 	var (
-		UserIDColumn            = postgres.StringColumn("user_id")
-		NotifyLikesColumn       = postgres.StringColumn("notify_likes")
-		NotifyDislikesColumn    = postgres.StringColumn("notify_dislikes")
-		NotifyRepliesColumn     = postgres.StringColumn("notify_replies")
-		NotifyFollowsColumn     = postgres.StringColumn("notify_follows")
-		NotifyUnfollowsColumn   = postgres.StringColumn("notify_unfollows")
-		NotifyQuotesColumn      = postgres.StringColumn("notify_quotes")
-		AccountVisibilityColumn = postgres.StringColumn("account_visibility")
-		ShowLikesColumn         = postgres.BoolColumn("show_likes")
-		allColumns              = postgres.ColumnList{UserIDColumn, NotifyLikesColumn, NotifyDislikesColumn, NotifyRepliesColumn, NotifyFollowsColumn, NotifyUnfollowsColumn, NotifyQuotesColumn, AccountVisibilityColumn, ShowLikesColumn}
-		mutableColumns          = postgres.ColumnList{NotifyLikesColumn, NotifyDislikesColumn, NotifyRepliesColumn, NotifyFollowsColumn, NotifyUnfollowsColumn, NotifyQuotesColumn, AccountVisibilityColumn, ShowLikesColumn}
-		defaultColumns          = postgres.ColumnList{NotifyLikesColumn, NotifyDislikesColumn, NotifyRepliesColumn, NotifyFollowsColumn, NotifyUnfollowsColumn, NotifyQuotesColumn, AccountVisibilityColumn, ShowLikesColumn}
+		UserIDColumn             = postgres.StringColumn("user_id")
+		NotifyLikesColumn        = postgres.StringColumn("notify_likes")
+		NotifyDislikesColumn     = postgres.StringColumn("notify_dislikes")
+		NotifyRepliesColumn      = postgres.StringColumn("notify_replies")
+		NotifyFollowsColumn      = postgres.StringColumn("notify_follows")
+		NotifyUnfollowsColumn    = postgres.StringColumn("notify_unfollows")
+		NotifyQuotesColumn       = postgres.StringColumn("notify_quotes")
+		AccountVisibilityColumn  = postgres.StringColumn("account_visibility")
+		ShowLikesColumn          = postgres.BoolColumn("show_likes")
+		PresenceVisibilityColumn = postgres.StringColumn("presence_visibility")
+		allColumns               = postgres.ColumnList{UserIDColumn, NotifyLikesColumn, NotifyDislikesColumn, NotifyRepliesColumn, NotifyFollowsColumn, NotifyUnfollowsColumn, NotifyQuotesColumn, AccountVisibilityColumn, ShowLikesColumn, PresenceVisibilityColumn}
+		mutableColumns           = postgres.ColumnList{NotifyLikesColumn, NotifyDislikesColumn, NotifyRepliesColumn, NotifyFollowsColumn, NotifyUnfollowsColumn, NotifyQuotesColumn, AccountVisibilityColumn, ShowLikesColumn, PresenceVisibilityColumn}
+		defaultColumns           = postgres.ColumnList{NotifyLikesColumn, NotifyDislikesColumn, NotifyRepliesColumn, NotifyFollowsColumn, NotifyUnfollowsColumn, NotifyQuotesColumn, AccountVisibilityColumn, ShowLikesColumn, PresenceVisibilityColumn}
 	)
 
 	return fluoSettingsTable{
 		Table: postgres.NewTable(schemaName, tableName, alias, allColumns...),
 
 		//Columns
-		UserID:            UserIDColumn,
-		NotifyLikes:       NotifyLikesColumn,
-		NotifyDislikes:    NotifyDislikesColumn,
-		NotifyReplies:     NotifyRepliesColumn,
-		NotifyFollows:     NotifyFollowsColumn,
-		NotifyUnfollows:   NotifyUnfollowsColumn,
-		NotifyQuotes:      NotifyQuotesColumn,
-		AccountVisibility: AccountVisibilityColumn,
-		ShowLikes:         ShowLikesColumn,
+		UserID:             UserIDColumn,
+		NotifyLikes:        NotifyLikesColumn,
+		NotifyDislikes:     NotifyDislikesColumn,
+		NotifyReplies:      NotifyRepliesColumn,
+		NotifyFollows:      NotifyFollowsColumn,
+		NotifyUnfollows:    NotifyUnfollowsColumn,
+		NotifyQuotes:       NotifyQuotesColumn,
+		AccountVisibility:  AccountVisibilityColumn,
+		ShowLikes:          ShowLikesColumn,
+		PresenceVisibility: PresenceVisibilityColumn,
 
 		AllColumns:     allColumns,
 		MutableColumns: mutableColumns,

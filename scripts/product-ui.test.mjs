@@ -2,6 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { test, expect } from './ui-fixture.mjs';
+import { fluoAccountFixtureResponse } from './fluo-account-fixture.mjs';
 
 const id = (n) => `01999111-2222-7333-8444-${String(n).padStart(12, '0')}`;
 const now = '2026-10-03T10:00:00Z';
@@ -26,7 +27,8 @@ test('Fluo preserves post history after reload and composes replies and quotes',
   await page.route('**/v1/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    let body;
+    let body = fluoAccountFixtureResponse(request, [actor, partner], { viewerId: actor.id });
+    if (body) { await route.fulfill({ json: body }); return; }
     if (path === '/v1/session' || path === '/v1/me') body = actor;
     else if (path === '/v1/fluo/notifications/unread-count') body = { unreadCount: 0 };
     else if (path === '/v1/fluo/notifications') body = { items: [], nextCursor: null, through: null, unreadCount: 0 };
@@ -130,10 +132,12 @@ test('Fluo preserves post history after reload and composes replies and quotes',
 test('Fluo pastes media into the shared attachment queue and preserves text paste', async ({ startAppFixture }) => {
   const { page, origin, errors } = await startAppFixture('fluo');
   await page.route('**/v1/**', async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    const body = path === '/v1/session' || path === '/v1/me' ? actor
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const body = fluoAccountFixtureResponse(request, [actor, partner], { viewerId: actor.id })
+      ?? (path === '/v1/session' || path === '/v1/me' ? actor
       : path === '/v1/fluo/notifications/unread-count' ? { unreadCount: 0 }
-      : { items: [], nextCursor: null, through: null, unreadCount: 0 };
+      : { items: [], nextCursor: null, through: null, unreadCount: 0 });
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
   });
   await page.goto(`${origin}/fluo/`);
@@ -197,7 +201,8 @@ test('Ligo starts at the bottom, keeps rapid scrolling native and shares the com
   await page.route('**/v1/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    let body;
+    let body = fluoAccountFixtureResponse(request, [actor, partner], { viewerId: actor.id });
+    if (body) { await route.fulfill({ json: body }); return; }
     if (path === '/v1/session' || path === '/v1/me') body = actor;
     else if (path.endsWith('/events')) { await route.fulfill({ status: 403, contentType: 'application/json', body: '{}' }); return; }
     else if (path.endsWith('/read') || path.endsWith('/delivered')) { await route.fulfill({ status: 204 }); return; }
@@ -255,7 +260,8 @@ for (const app of ['ligo', 'rondo']) {
     await page.route('**/v1/**', async (route) => {
       const request = route.request();
       const path = new URL(request.url()).pathname;
-      let body;
+      let body = fluoAccountFixtureResponse(request, [actor, partner], { viewerId: actor.id });
+      if (body) { await route.fulfill({ json: body }); return; }
       if (path === '/v1/session' || path === '/v1/me') body = actor;
       else if (path.endsWith('/events')) { await route.fulfill({ status: 403, contentType: 'application/json', body: '{}' }); return; }
       else if (path.endsWith('/read') || path.endsWith('/delivered')) { await route.fulfill({ status: 204 }); return; }

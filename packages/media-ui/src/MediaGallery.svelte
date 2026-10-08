@@ -17,7 +17,6 @@
   } from './media-layout';
   import { mountPhotoSwipe } from './photo-swipe';
   import VideoPlayer from './VideoPlayer.svelte';
-  import 'photoswipe/style.css';
 
   interface Props {
     media: MediaAttachment[];

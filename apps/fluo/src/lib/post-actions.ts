@@ -2,7 +2,7 @@
 
 import type { QueryClient } from '@tanstack/svelte-query';
 import type { FluoPost } from '@kaordo/contracts';
-import { invalidateFluoPostQueries, type FluoApi } from '@kaordo/api-client';
+import { invalidateFluoFollowQueries, invalidateFluoPostQueries, type FluoApi } from '@kaordo/api-client';
 import { errorMessage } from './fluo-model';
 
 export function createFluoPostActions(
@@ -43,6 +43,7 @@ export function createFluoPostActions(
       return run(
         (signal) => api.follow(post.author.id, !post.author.following, signal),
         'Could not change your follow list.',
+        () => invalidateFluoFollowQueries(queryClient),
       );
     },
     save(post: FluoPost): Promise<void> {

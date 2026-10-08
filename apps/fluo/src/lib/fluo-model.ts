@@ -7,6 +7,8 @@ import { mediaFrameHeightPx } from "@kaordo/media-ui";
 export type FluoSettingsSection = "notifications" | "privacy";
 export type FluoView = "feed" | "search" | "notifications" | "saved" | "profile" | "settings" | `settings/${FluoSettingsSection}`;
 
+export const profileNavigationKey = Symbol('fluo-profile-navigation');
+
 export const fluoViews: Record<FluoView, {
 	title: string;
 	description: string;
@@ -35,8 +37,22 @@ export function isFluoSettingsView(view: FluoView): boolean {
 }
 
 export function fluoViewFromHash(hash: string): FluoView | null {
+	if (profileUsernameFromHash(hash)) return 'profile';
 	const view = hash.replace(/^#/, "");
 	return isFluoView(view) ? view : null;
+}
+
+export function profileHashForUsername(username: string): string {
+	return `#profile/${encodeURIComponent(username)}`;
+}
+
+export function profileUsernameFromHash(hash: string): string | null {
+	const match = /^#profile\/(.+)$/.exec(hash);
+	if (!match) return null;
+	try {
+		const username = decodeURIComponent(match[1]);
+		return username.length <= 255 && !username.includes('\0') ? username : null;
+	} catch { return null; }
 }
 
 export function postHashForId(id: string): string {
@@ -46,10 +62,6 @@ export function postHashForId(id: string): string {
 export function postIdFromHash(hash: string): string | null {
 	const match = /^#post\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(hash);
 	return match?.[1] ?? null;
-}
-
-export function displayInitial(displayName: string): string {
-	return displayName.trim()[0]?.toLocaleUpperCase() ?? "K";
 }
 
 export function errorMessage(cause: unknown, fallback: string): string {

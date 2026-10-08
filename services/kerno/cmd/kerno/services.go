@@ -72,6 +72,7 @@ func fluoDependencies(cfg config, pool *pgxpool.Pool, media nodoclient.Client) h
 		Store:         store,
 		Notifications: store,
 		Settings:      store,
+		Profiles:      store,
 		Media:         media,
 		MediaBaseURL:  cfg.NodoPublicURL,
 		MediaSignKey:  cfg.MediaSigningKey,

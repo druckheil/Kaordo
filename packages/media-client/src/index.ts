@@ -6,6 +6,8 @@ import Tus from '@uppy/tus';
 import { isSupportedImageType, MAX_IMAGE_SIZE, prepareImage } from './image-processing.js';
 import { uploadStorage } from './tus-storage.js';
 
+export { isSupportedImageType, MAX_IMAGE_SIZE, prepareImage } from './image-processing.js';
+
 interface UploadMetadataApi {
   uploadMetadata(id: string, signal?: AbortSignal): Promise<NodoUpload | null>;
 }

@@ -1,5 +1,6 @@
 // Owns isolated Regado API state, pending requests and browser scenario teardown
 import { test as base, expect } from "./ui-fixture.mjs";
+import { fluoAccountFixtureResponse } from "./fluo-account-fixture.mjs";
 
 const actor = {
 	id: "01999111-2222-7333-8444-555555555551",
@@ -68,7 +69,8 @@ export const test = base.extend({
 		await page.route("**/v1/**", async (route) => {
 			const request = route.request();
 			const url = new URL(request.url());
-			let body;
+			let body = fluoAccountFixtureResponse(request, [actor, target], { viewerId: actor.id });
+			if (body) { await route.fulfill({ json: body }); return; }
 			if (url.pathname === "/v1/session" || url.pathname === "/v1/me")
 				body = actor;
 			else if (url.pathname.endsWith("/summary"))

@@ -1,16 +1,17 @@
 <script lang="ts">
   // Coordinates Fluo navigation, focused posts, and post actions
 
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { onDestroy, onMount, setContext, tick } from 'svelte';
   import { pushState, replaceState } from '$app/navigation';
   import { page } from '$app/state';
-  import { createQuery, QueryClient } from '@tanstack/svelte-query';
-  import { createFluoApi, invalidateFluoPostQueries, removePostFromCachedFeeds, type Feed } from '@kaordo/api-client';
+  import { createQuery, QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+  import { createFluoApi, fluoProfileOptions, invalidateFluoPostQueries, removePostFromCachedFeeds, type Feed } from '@kaordo/api-client';
   import type { FluoPost, UserIdentity } from '@kaordo/contracts';
   import { Button, XIcon } from '@kaordo/ui';
   import FluoFeed from './FluoFeed.svelte';
   import FluoNotifications from './FluoNotifications.svelte';
   import FluoSettings from './FluoSettings.svelte';
+  import FluoProfile from './FluoProfile.svelte';
   import PostFocusView from './PostFocusView.svelte';
   import FluoNavigation from './FluoNavigation.svelte';
   import { createFluoNotificationState } from './notification-state.svelte.ts';
@@ -23,6 +24,9 @@
     isFluoSettingsView,
     postHashForId,
     postIdFromHash,
+    profileHashForUsername,
+    profileUsernameFromHash,
+    profileNavigationKey,
     type FluoView
   } from './fluo-model';
   import { postBackDestination, viewFromPostHistory } from './post-navigation';
@@ -47,6 +51,7 @@
   let quoteTo = $state<FluoPost | null>(null);
   let composerOpen = $state(false);
   let postId = $state<string | null>(null);
+  let profileUsername = $state<string | null>(null);
   let DialogsComponent = $state.raw<FluoDialogsComponent | null>(null);
   let dialogsLoading = $state(false);
   let dialogsPromise: Promise<void> | null = null;
@@ -74,6 +79,12 @@
     (message) => { if (!disposed) actionError = message; });
   const settingsState = createFluoSettingsState(api, queryClient, () => isFluoSettingsView(view) && !postId);
   const settingsSection = $derived(fluoViews[view].settingsSection ?? null);
+  const ownProfileQuery = createQuery(() => ({
+    ...fluoProfileOptions(api, user.username),
+    refetchInterval: false
+  }), () => queryClient);
+  const ownProfile = $derived(ownProfileQuery.data);
+  setContext(profileNavigationKey, openProfile);
 
   onDestroy(() => {
     disposed = true;
@@ -96,16 +107,20 @@
     const hash = window.location.hash;
     const hashPostId = postIdFromHash(hash);
     if (hashPostId) {
+      const returnView = viewFromPostHistory(page.state);
+      if (returnView === 'profile') {
+        profileUsername = profileUsernameFromHash(page.state.kaordoFluoProfileHash ?? '')
+          ?? profileUsernameFromHash(page.state.kaordoFluoReturnHash ?? '');
+      }
       if (removedIds.includes(hashPostId)) {
-        const returnView = viewFromPostHistory(page.state) ?? view;
-        const { cleanState } = postBackDestination(page.state, returnView, historySession);
-        replaceState(`#${returnView}`, cleanState);
+        const destinationView = returnView ?? view;
+        const { cleanState } = postBackDestination(page.state, destinationView, historySession);
+        replaceState(viewHash(destinationView), cleanState);
         postId = null;
-        view = returnView;
+        view = destinationView;
         restoreFeedScroll();
         return;
       }
-      const returnView = viewFromPostHistory(page.state);
       if (returnView) view = returnView;
       postId = hashPostId;
       return;
@@ -115,14 +130,31 @@
     postId = null;
     const nextView = fluoViewFromHash(hash);
     if (nextView) view = nextView;
+    profileUsername = profileUsernameFromHash(hash);
     if (wasViewingPost) restoreFeedScroll();
   }
 
   function navigate(next: FluoView): void {
     if (postId) postId = null;
     view = next;
+    profileUsername = null;
     const { cleanState } = postBackDestination(page.state, next, historySession);
-    pushState(`#${next}`, cleanState);
+    pushState(viewHash(next), cleanState);
+    actionError = '';
+    window.scrollTo({ top: 0 });
+  }
+
+  function viewHash(target: FluoView): string {
+    return target === 'profile' ? profileHashForUsername(profileUsername ?? user.username) : `#${target}`;
+  }
+
+  function openProfile(username: string): void {
+    postId = null;
+    profileUsername = username;
+    view = 'profile';
+    retainedFeedScroll = null;
+    const { cleanState } = postBackDestination(page.state, view, historySession);
+    pushState(profileHashForUsername(username), cleanState);
     actionError = '';
     window.scrollTo({ top: 0 });
   }
@@ -131,20 +163,22 @@
     if (postId === id) return;
     if (!postId) retainedFeedScroll = window.scrollY;
     const hash = postHashForId(id);
-    const returnHash = postId ? postHashForId(postId) : `#${view}`;
+    const returnHash = postId ? postHashForId(postId) : viewHash(view);
     if (window.location.hash !== hash) {
       pushState(hash, {
         ...page.state,
         kaordoFluoPost: historySession,
         kaordoFluoReturnView: view,
-        kaordoFluoReturnHash: returnHash
+        kaordoFluoReturnHash: returnHash,
+        kaordoFluoProfileHash: view === 'profile' ? viewHash(view) : undefined
       });
     } else if (!postId) {
       const { kaordoFluoPost: _postEntry, ...rest } = page.state;
       replaceState(hash, {
         ...rest,
         kaordoFluoReturnView: view,
-        kaordoFluoReturnHash: returnHash
+        kaordoFluoReturnHash: returnHash,
+        kaordoFluoProfileHash: view === 'profile' ? viewHash(view) : undefined
       });
     }
     postId = id;
@@ -194,7 +228,7 @@
 
   function returnToViewAfterDeletedAncestor(): void {
     const destination = postBackDestination(page.state, view, historySession);
-    replaceState(`#${destination.view}`, destination.cleanState);
+    replaceState(viewHash(destination.view), destination.cleanState);
     view = destination.view;
     postId = null;
     restoreFeedScroll();
@@ -203,6 +237,7 @@
   $effect(() => {
     if (postId) onBackActionChange(backFromPost);
     else if (settingsSection) onBackActionChange(() => navigate('settings'));
+    else if (view === 'profile' && profileUsername && profileUsername.toLowerCase() !== user.username.toLowerCase()) onBackActionChange(() => navigate('feed'));
     else onBackActionChange(null);
   });
 
@@ -284,8 +319,9 @@
   }
 </script>
 
+<QueryClientProvider client={queryClient}>
 <div class="grid gap-7 pb-24 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:pb-10">
-  <FluoNavigation {view} {user} {dialogsLoading} unreadCount={notificationState.unreadCount} onNavigate={navigate} onOpenComposer={openComposer} />
+  <FluoNavigation {view} {user} profile={ownProfile} {dialogsLoading} unreadCount={notificationState.unreadCount} onNavigate={navigate} onOpenComposer={openComposer} />
 
   <section class="mx-auto min-w-0 w-full max-w-[46rem]" aria-label={postId ? 'Post' : pageTitle}>
     {#if postId}
@@ -307,15 +343,27 @@
         onDelete={remove}
       />
     {:else}
-      <FluoPageHeader {view} {feed} {user} bind:searchTerm onFeedChange={(nextFeed) => (feed = nextFeed)} />
+      {#if view !== 'profile'}<FluoPageHeader {view} {feed} bind:searchTerm onFeedChange={(nextFeed) => (feed = nextFeed)} />{/if}
 
       {#if view === 'notifications'}
         <FluoNotifications
           state={notificationState}
           onOpenPost={openPost}
+          onOpenProfile={openProfile}
         />
       {:else if isFluoSettingsView(view)}
         <FluoSettings section={settingsSection} state={settingsState} {user} onNavigate={navigate} />
+      {:else if view === 'profile'}
+        {#key (profileUsername ?? user.username).toLowerCase()}
+        <FluoProfile username={profileUsername ?? user.username} viewerId={user.id} {api} {queryClient}>
+          {#snippet posts(profile)}
+            <FluoFeed {view} {feed} {searchTerm} {user} {api} {queryClient} {removedIds} profileId={profile.id}
+              onReply={reply} onQuote={quote} onOpenPost={openPost}
+              onReact={postActions.react} onFollow={postActions.follow} onSave={postActions.save}
+              onVisibilityChange={postActions.setVisibility} onDelete={remove} />
+          {/snippet}
+        </FluoProfile>
+        {/key}
       {:else}
         <FluoFeed
           {view}
@@ -360,3 +408,4 @@
     <Button variant="ghost" size="icon-xs" aria-label="Dismiss message" onclick={() => actionError = ''}><XIcon class="size-4" /></Button>
   </div>
 {/if}
+</QueryClientProvider>

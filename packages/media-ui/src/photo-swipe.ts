@@ -1,4 +1,7 @@
 // Mounts and disposes the optional PhotoSwipe image viewer
+
+import 'photoswipe/style.css';
+
 type PhotoSwipeInstance = {
   init: () => void;
   destroy: () => void;

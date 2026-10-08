@@ -31,7 +31,12 @@ func (h fluoHandler) notifications(w http.ResponseWriter, r *http.Request) {
 		fluoError(w, err)
 		return
 	}
-	for _, notification := range page.Items {
+	for index := range page.Items {
+		notification := &page.Items[index]
+		if err := h.signImage(notification.Actor.Avatar); err != nil {
+			fluoError(w, err)
+			return
+		}
 		if notification.Post != nil {
 			if err := h.signMedia(notification.Post.Media); err != nil {
 				fluoError(w, err)

@@ -17,6 +17,9 @@
 	import RichText from './RichText.svelte';
 	import { postHashForId } from './fluo-model';
 	import type { FluoPostActionHandlers } from './post-actions';
+	import { UserAvatar } from '@kaordo/account-ui';
+	import ProfileLink from './ProfileLink.svelte';
+	import VerifiedBadge from './VerifiedBadge.svelte';
 
 	let {
 		post,
@@ -55,15 +58,9 @@
 	let following = $state(false);
 	let visibilityChanging = $state(false);
 	const date = $derived(formatPostTime(post.createdAt));
-	const initials = $derived(authorInitials(post.author.displayName, post.author.username));
 
 	function formatPostTime(value: string): string {
 		return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
-	}
-
-	function authorInitials(displayName: string, username: string): string {
-		const initials = displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toLocaleUpperCase();
-		return initials || username[0]?.toLocaleUpperCase() || 'K';
 	}
 
 	async function toggleFollow(): Promise<void> {
@@ -119,10 +116,10 @@
 				id={focusTarget ? `fluo-focused-post-${post.id}` : undefined}
 				class="flex scroll-mt-20 items-start gap-3"
 			>
-				<div class="relative z-10 grid size-11 shrink-0 place-items-center rounded-2xl bg-accent text-sm font-bold text-accent-foreground" aria-hidden="true">{initials}</div>
+				<ProfileLink username={post.author.username} label={`Open profile of @${post.author.username}`} class="relative z-10 shrink-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-ring"><UserAvatar user={post.author} /></ProfileLink>
 				<div class="min-w-0 flex-1">
 					<div class="flex flex-wrap items-baseline gap-x-2">
-						<span class="relative z-10 truncate text-sm font-bold text-foreground">{post.author.displayName}</span>
+						<ProfileLink username={post.author.username} class="relative z-10 inline-flex min-w-0 items-center gap-1.5 rounded text-sm font-bold text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"><span class="truncate">{post.author.displayName}</span>{#if post.author.verified}<VerifiedBadge />{/if}</ProfileLink>
 						<span class="relative z-10 truncate text-xs text-muted-foreground">@{post.author.username}</span>
 					</div>
 					<p class="mt-0.5 text-xs text-muted-foreground">

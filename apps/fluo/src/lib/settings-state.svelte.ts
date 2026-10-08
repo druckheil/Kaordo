@@ -2,7 +2,7 @@
 
 import { onDestroy } from 'svelte';
 import { createMutation, createQuery, useMutationState, type Mutation, type QueryClient } from '@tanstack/svelte-query';
-import { fluoSettingsKey, fluoSettingsOptions, invalidateFluoPostQueries, type FluoApi } from '@kaordo/api-client';
+import { fluoSettingsKey, fluoSettingsOptions, fluoProfileKeys, invalidateFluoPostQueries, type FluoApi } from '@kaordo/api-client';
 import type {
   FluoNotificationPolicy, FluoNotificationPreferences, FluoPrivacySettings, FluoSettings, FluoSettingsPatch
 } from '@kaordo/contracts';
@@ -10,12 +10,14 @@ import type {
 export type FluoSettingChange =
   | { field: keyof FluoNotificationPreferences; value: FluoNotificationPolicy }
   | { field: 'accountVisibility'; value: FluoPrivacySettings['accountVisibility'] }
+  | { field: 'presenceVisibility'; value: FluoPrivacySettings['presenceVisibility'] }
   | { field: 'showLikes'; value: FluoPrivacySettings['showLikes'] };
 
 function settingsPatch(change: FluoSettingChange): FluoSettingsPatch {
   switch (change.field) {
     case 'accountVisibility': return { privacy: { accountVisibility: change.value } };
     case 'showLikes': return { privacy: { showLikes: change.value } };
+    case 'presenceVisibility': return { privacy: { presenceVisibility: change.value } };
     default: return { notifications: { [change.field]: change.value } };
   }
 }
@@ -70,6 +72,9 @@ export function createFluoSettingsState(api: Pick<FluoApi, 'settings' | 'updateS
       await queryClient.cancelQueries({ queryKey: fluoSettingsKey });
       if (lifetime.signal.aborted) return;
       queryClient.setQueryData(fluoSettingsKey, settings);
+      if (change.field === 'accountVisibility' || change.field === 'presenceVisibility') {
+        await queryClient.invalidateQueries({ queryKey: fluoProfileKeys.all });
+      }
       if (change.field === 'accountVisibility' || change.field === 'showLikes') {
         // Previously loaded content and notification previews must obey the saved privacy policy.
         await invalidateFluoPostQueries(queryClient, { notifications: true });

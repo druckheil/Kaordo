@@ -196,6 +196,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/fluo/profiles/{username}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getFluoProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Updates the current account's Fluo nickname and optional profile fields. Account username, registration date and verification cannot be changed here. */
+        put: operations["updateFluoProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/profile/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["setFluoStatus"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Renews availability and returns compact account avatars and privacy-filtered presence for the requested IDs. Foreground clients refresh every 2 seconds; hidden or closed clients expire after 7 seconds. Repeated beats within 1 second do not write again. */
+        post: operations["touchFluoPresence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/users/{id}/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listFluoConnections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/fluo/settings": {
         parameters: {
             query?: never;
@@ -1733,6 +1815,68 @@ export interface components {
             username: string;
             displayName: string;
             following: boolean;
+            avatar?: components["schemas"]["FluoMedia"] | null;
+            /** @description Account-owned verification; not editable through profile requests. */
+            verified?: boolean;
+        };
+        /** @enum {string} */
+        FluoPresence: "online" | "busy" | "offline";
+        /** @enum {string} */
+        FluoStatus: "online" | "busy" | "invisible";
+        UserPresentation: {
+            /** Format: uuid */
+            id: string;
+            avatar: components["schemas"]["FluoMedia"] | null;
+            /** @description Availability filtered by current privacy and mutual follows; null hides the indicator. */
+            presence: components["schemas"]["FluoPresence"] | null;
+        };
+        FluoProfile: components["schemas"]["FluoAuthor"] & {
+            bio: string;
+            /** Format: date */
+            birthDate: string | null;
+            location: string;
+            website: string;
+            pronouns: string;
+            banner: components["schemas"]["FluoMedia"] | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int64 */
+            followersCount: number;
+            /** Format: int64 */
+            followingCount: number;
+            followedBy: boolean;
+            /** @enum {string} */
+            accountVisibility: "public" | "private";
+            /** @description Current account and follow policy permits this viewer to see public posts. */
+            canViewPosts: boolean;
+            /** @description Null hides availability under the owner's privacy policy or invisible status. Online and busy expire after 7 seconds without an active Kaordo heartbeat. */
+            presence: components["schemas"]["FluoPresence"] | null;
+            /** @description The chosen status, returned only to the profile owner when status visibility is not Nobody. */
+            status?: components["schemas"]["FluoStatus"];
+        };
+        FluoProfileUpdate: {
+            nickname: string;
+            bio: string;
+            /** Format: date */
+            birthDate: string | null;
+            location: string;
+            /** @description An absolute HTTP(S) URL without credentials */
+            website: string;
+            pronouns: string;
+            /**
+             * Format: uuid
+             * @description Owned
+             */
+            avatarId: string | null;
+            /**
+             * Format: uuid
+             * @description Owned
+             */
+            bannerId: string | null;
+        };
+        FluoConnectionPage: {
+            items: components["schemas"]["FluoAuthor"][];
+            nextCursor: string | null;
         };
         FluoMedia: {
             /** Format: uuid */
@@ -1873,6 +2017,12 @@ export interface components {
              * @default true
              */
             showLikes: boolean;
+            /**
+             * @description Availability is visible to everyone, mutual follows only, or nobody. Invisible status always hides it from other accounts.
+             * @default all
+             * @enum {string}
+             */
+            presenceVisibility: "all" | "friends" | "off";
         };
         FluoSettings: {
             notifications: components["schemas"]["FluoNotificationPreferences"];
@@ -1891,6 +2041,8 @@ export interface components {
                 /** @enum {string} */
                 accountVisibility?: "public" | "private";
                 showLikes?: boolean;
+                /** @enum {string} */
+                presenceVisibility?: "all" | "friends" | "off";
             };
         };
         /** @description Activity from another account, visible only to its recipient while its posts remain accessible. */
@@ -2471,6 +2623,177 @@ export interface operations {
             };
         };
     };
+    getFluoProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                username: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Case-insensitive account username lookup with privacy-filtered availability. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoProfile"];
+                };
+            };
+            /** @description Access, lookup or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateFluoProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FluoProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Saved profile; image claims and reference retirement commit atomically. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoProfile"];
+                };
+            };
+            /** @description Validation, access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setFluoStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    status: components["schemas"]["FluoStatus"];
+                };
+            };
+        };
+        responses: {
+            /** @description Current profile with the saved status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoProfile"];
+                };
+            };
+            /** @description Validation, access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    touchFluoPresence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    userIds: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Availability renewed and current account presentation returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["UserPresentation"][];
+                    };
+                };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listFluoConnections: {
+        parameters: {
+            query: {
+                kind: "followers" | "following";
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active accounts in the selected follow list, with stable cursor pagination. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoConnectionPage"];
+                };
+            };
+            /** @description Validation, access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     getFluoSettings: {
         parameters: {
             query?: never;
@@ -2839,6 +3162,8 @@ export interface operations {
                 feed?: "latest" | "following" | "mine" | "saved";
                 /** @description Search post text and author names */
                 q?: string;
+                /** @description Restrict an accessible feed to this profile owner */
+                authorId?: string;
                 cursor?: string;
                 limit?: number;
             };

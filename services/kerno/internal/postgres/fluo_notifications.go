@@ -58,17 +58,13 @@ func (store *Fluo) Notifications(ctx context.Context, options fluo.NotificationO
 	notifications := table.FluoNotifications.AS("n")
 	actor := table.Users.AS("actor")
 	post := table.FluoPosts.AS("preview")
-	follows := table.FluoFollows
 	condition := notificationAccessible(options.ViewerID, notifications)
 	if options.Cursor != nil {
 		condition = jetpg.AND(condition, fluoBeforeCursor(notifications.CreatedAt, notifications.ID, *options.Cursor, false))
 	}
 	rows, err := jetQuery(ctx, tx, jetpg.SELECT(
 		jetpg.CAST(notifications.ID).AS_TEXT(), notifications.Kind,
-		jetpg.CAST(actor.ID).AS_TEXT(), actor.Username, actor.DisplayName,
-		jetpg.EXISTS(jetpg.SELECT(follows.FollowerID).FROM(follows).WHERE(jetpg.AND(
-			follows.FollowerID.EQ(jetUUID(options.ViewerID)), follows.FollowedID.EQ(actor.ID),
-		))),
+		fluoAuthorColumns(options.ViewerID, actor),
 		jetpg.CAST(post.ID).AS_TEXT(), jetpg.LEFT(post.PlainText, jetpg.Int(280)), postMediaJSON(post),
 		notifications.CreatedAt, notifications.ReadAt,
 	).FROM(notifications.INNER_JOIN(actor, actor.ID.EQ(notifications.ActorID)).
@@ -118,12 +114,16 @@ func scanNotificationPage(rows pgx.Rows, limit int) (fluo.NotificationPage, erro
 func scanNotification(row scanner) (fluo.Notification, error) {
 	var notification fluo.Notification
 	var postID, postText *string
-	var mediaJSON []byte
+	var mediaJSON, avatarJSON []byte
 	if err := row.Scan(
 		&notification.ID, &notification.Kind,
 		&notification.Actor.ID, &notification.Actor.Username, &notification.Actor.DisplayName, &notification.Actor.Following,
+		&avatarJSON, &notification.Actor.Verified,
 		&postID, &postText, &mediaJSON, &notification.CreatedAt, &notification.ReadAt,
 	); err != nil {
+		return fluo.Notification{}, err
+	}
+	if err := json.Unmarshal(avatarJSON, &notification.Actor.Avatar); err != nil {
 		return fluo.Notification{}, err
 	}
 	if postID == nil || postText == nil {

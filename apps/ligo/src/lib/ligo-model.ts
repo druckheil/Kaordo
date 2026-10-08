@@ -13,16 +13,6 @@ export function conversationTitle(conversation: LigoConversation, currentUserId:
 	return conversation.members.find((member) => member.id !== currentUserId)?.displayName ?? "Direct chat";
 }
 
-export function userInitials(value: string): string {
-	return value
-		.trim()
-		.split(/\s+/)
-		.slice(0, 2)
-		.map((word) => word[0])
-		.join("")
-		.toUpperCase() || "K";
-}
-
 export function formatConversationTime(value: string, now = new Date()): string {
 	const date = new Date(value);
 	const options: Intl.DateTimeFormatOptions =

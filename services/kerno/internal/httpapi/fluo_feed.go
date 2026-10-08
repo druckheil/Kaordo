@@ -33,7 +33,14 @@ func readPageOptions(r *http.Request, viewerID string, parentID *string) (fluo.L
 	if err != nil {
 		return fluo.ListOptions{}, err
 	}
-	return fluo.ListOptions{ViewerID: viewerID, ParentID: parentID, Feed: feed, Search: search, Limit: limit, Cursor: cursor}, nil
+	options := fluo.ListOptions{ViewerID: viewerID, ParentID: parentID, Feed: feed, Search: search, Limit: limit, Cursor: cursor}
+	if authorID := query.Get("authorId"); authorID != "" {
+		if !fluo.ValidID(authorID) {
+			return fluo.ListOptions{}, errors.New("invalid profile account ID")
+		}
+		options.AuthorID = &authorID
+	}
+	return options, nil
 }
 
 func parseFluoPageLimit(raw string) (int, error) {

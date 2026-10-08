@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Renders desktop and mobile Fluo navigation
 
-	import type { UserIdentity } from "@kaordo/contracts";
+	import type { FluoProfile, UserIdentity } from "@kaordo/contracts";
 	import {
 		BellIcon,
 		BookmarkIcon,
@@ -15,11 +15,15 @@
 		UserRoundIcon,
 	} from "@kaordo/ui";
 	import type { FluoView } from "./fluo-model";
-	import { displayInitial, isFluoSettingsView } from "./fluo-model";
+	import { isFluoSettingsView } from "./fluo-model";
+	import { UserAvatar } from '@kaordo/account-ui';
+	import VerifiedBadge from './VerifiedBadge.svelte';
+	import ProfileLink from './ProfileLink.svelte';
 
 	let {
 		view,
 		user,
+		profile,
 		dialogsLoading,
 		unreadCount,
 		onNavigate,
@@ -27,6 +31,7 @@
 	}: {
 		view: FluoView;
 		user: UserIdentity;
+		profile?: FluoProfile;
 		dialogsLoading: boolean;
 		unreadCount: number;
 		onNavigate: (view: FluoView) => void;
@@ -78,15 +83,13 @@
 		<PlusIcon class="size-5" /> {dialogsLoading ? "Opening…" : "Post"}
 	</Button>
 
-	<div class="mt-4 flex items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm">
-		<div class="grid size-10 shrink-0 place-items-center rounded-xl bg-accent font-bold text-accent-foreground" aria-hidden="true">
-			{displayInitial(user.displayName)}
-		</div>
+	<ProfileLink username={user.username} class="mt-4 flex items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm transition-colors hover:border-primary/30 focus-visible:outline-2 focus-visible:outline-ring">
+		<UserAvatar user={profile ?? user} class="size-10 rounded-xl" />
 		<div class="min-w-0">
-			<p class="truncate text-sm font-semibold">{user.displayName}</p>
+			<div class="flex items-center gap-1.5"><p class="truncate text-sm font-semibold">{profile?.displayName ?? user.displayName}</p>{#if profile?.verified}<VerifiedBadge />{/if}</div>
 			<p class="truncate text-xs text-muted-foreground">@{user.username}</p>
 		</div>
-	</div>
+	</ProfileLink>
 </aside>
 
 <nav

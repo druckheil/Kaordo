@@ -46,6 +46,8 @@ type Author struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"displayName"`
 	Following   bool   `json:"following"`
+	Avatar      *Media `json:"avatar"`
+	Verified    bool   `json:"verified"`
 }
 
 type Quote struct {
@@ -115,6 +117,7 @@ type ListOptions struct {
 	Feed     string
 	Search   string
 	ParentID *string
+	AuthorID *string
 	Cursor   *Cursor
 	Limit    int
 }

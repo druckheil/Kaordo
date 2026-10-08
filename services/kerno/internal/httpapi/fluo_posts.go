@@ -3,7 +3,6 @@ package httpapi
 // Coordinates Fluo post creation, visibility and deletion
 import (
 	"context"
-	"log"
 	"net/http"
 	"time"
 
@@ -104,16 +103,7 @@ func (h fluoHandler) delete(w http.ResponseWriter, r *http.Request) {
 		fluoError(w, err)
 		return
 	}
-	if h.deps.Media != nil && len(mediaIDs) > 0 {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-		for _, mediaID := range mediaIDs {
-			if err := h.deps.Media.Purge(ctx, mediaID); err != nil {
-				log.Printf("Kerno deferred media cleanup for %s: %v", mediaID, err)
-				break
-			}
-		}
-	}
+	h.purgeRetiredMedia(r.Context(), mediaIDs)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
 }

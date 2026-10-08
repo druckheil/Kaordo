@@ -15,6 +15,7 @@
     "@kaordo/auth": "workspace:*",
     "@kaordo/api-client": "workspace:*",
     "@kaordo/contracts": "workspace:*",
-    "@kaordo/ui": "workspace:*"
+    "@kaordo/ui": "workspace:*",
+    "@tanstack/svelte-query": "^6.3.0"
   }
 }

@@ -4,7 +4,7 @@
   import { onDestroy, onMount, tick } from 'svelte';
   import { pushState, replaceState } from '$app/navigation';
   import { page } from '$app/state';
-  import { QueryClient } from '@tanstack/svelte-query';
+  import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { createLigoApi, createRondoApi } from '@kaordo/api-client';
   import type { UserIdentity } from '@kaordo/contracts';
   import { createRondoCommunityState, type RondoDialogMode } from './community-state.svelte.ts';
@@ -262,6 +262,7 @@
 
 </script>
 
+<QueryClientProvider client={queryClient}>
 <div class="flex h-[100dvh] flex-col bg-background">
   <AppHeader name="Rondo" homeHref={appPaths.portal} wide backAction={settingsOpen ? closeSettings : null} />
   {#if settingsOpen}
@@ -427,6 +428,7 @@
 </Dialog.Root>
 
 <RondoCommunityDialogs state={community} />
+</QueryClientProvider>
 
 <style>
   .rondo-server-scroll { scrollbar-width: none; }

@@ -2,6 +2,11 @@
 
 Shared Uppy/Tus upload workflow and Pica image resize. `image-processing.ts` owns image decoding/resizing; `tus-storage.ts` scopes resumable-upload fingerprints and validates stored upload URLs; the entry point orchestrates file selection, progress, processing metadata and cleanup.
 
+`prepareImage`, `isSupportedImageType` and `MAX_IMAGE_SIZE` expose the same
+bounded image preparation to profile cropping before the existing upload flow.
+Presentation and crop interaction belong to `media-ui`; the app owns the draft
+and decides when to upload.
+
 An optional AbortSignal follows preparation, Uppy's native cancellation and Nodo
 processing requests/delays. The upload owner disposes the workflow when its app
 closes; listeners and processing timers are removed on completion or cancellation.

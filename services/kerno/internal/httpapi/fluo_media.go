@@ -2,6 +2,8 @@ package httpapi
 
 // Validates Fluo attachments and decorates authorized media responses
 import (
+	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -11,24 +13,54 @@ import (
 )
 
 func (h fluoHandler) decorate(post *fluo.Post) error {
+	if err := h.signImage(post.Author.Avatar); err != nil {
+		return err
+	}
 	if err := h.signMedia(post.Media); err != nil {
 		return err
 	}
 	if post.Quote != nil {
+		if err := h.signImage(post.Quote.Author.Avatar); err != nil {
+			return err
+		}
 		return h.signMedia(post.Quote.Media)
 	}
 	return nil
 }
 
-func (h fluoHandler) signMedia(items []fluo.Media) error {
+func (h fluoHandler) signImage(item *fluo.Media) error {
+	if item == nil {
+		return nil
+	}
 	// Keep URLs stable between frequent refreshes while retaining short-lived access.
 	expires := time.Now().Truncate(time.Minute).Add(9 * time.Minute)
+	url, err := mediaauth.SignedURL(h.deps.MediaBaseURL, item.ID, expires, h.deps.MediaSignKey)
+	if err != nil {
+		return err
+	}
+	item.URL = url
+	return nil
+}
+
+func (h fluoHandler) purgeRetiredMedia(parent context.Context, ids []string) {
+	if h.deps.Media == nil || len(ids) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	defer cancel()
+	for _, id := range ids {
+		if err := h.deps.Media.Purge(ctx, id); err != nil {
+			log.Printf("Kerno deferred media cleanup for %s: %v", id, err)
+			return
+		}
+	}
+}
+
+func (h fluoHandler) signMedia(items []fluo.Media) error {
 	for index := range items {
-		url, err := mediaauth.SignedURL(h.deps.MediaBaseURL, items[index].ID, expires, h.deps.MediaSignKey)
-		if err != nil {
+		if err := h.signImage(&items[index]); err != nil {
 			return err
 		}
-		items[index].URL = url
 	}
 	return nil
 }

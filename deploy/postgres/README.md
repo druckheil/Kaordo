@@ -34,3 +34,17 @@ Migration 014 adds recipient-owned Fluo notifications, persistent read timestamp
 Every kind uses the same database-time one-hour cooldown for a recipient/actor/kind/destination post. The originating relation/post write serializes actual repeats, then an indexed `NOT EXISTS` check in the same transaction gates insertion. Later eligible activity appends a fresh row; earlier read timestamps remain intact. New reply/quote IDs notify separately, and unchanged action requests never notify again.
 
 Feature persistence files are split into reads, writes, interactions, membership, receipts and admin operations. Shared media-claim locking/retirement remains transactional across Fluo/Ligo/Rondo. Case-insensitive search lowers both the indexed column and search pattern; LIKE wildcard characters in user text are escaped literally. The disposable integration suite covers Fluo, Ligo, Rondo and Regado and replays every migration. See [refactor evidence](../../docs/refactoring.md).
+
+Migration 018 adds Fluo profile fields, cropped avatar/banner references,
+availability and presence visibility. A case-insensitive unique username index
+makes profile URLs unambiguous and replaces the old nonunique username index.
+Profile edits preserve the account username, registration date, verification and
+chosen status. The initial verified flag is assigned to the existing DruckHeil
+account ID by the migration and cannot be written through the profile API.
+Image replacement locks old and new upload claims in the existing sorted order;
+retirement now also checks profile references. Presence is computed from a
+seven-second activity lifetime and server-enforced Everyone/Friends/Nobody policy;
+friends are mutual follows and Invisible overrides the policy. Nobody also
+suppresses the owner's raw status. Batched snapshots accept at most 128 accounts
+and coalesce heartbeat writes within one second. Follow-page
+indexes support bounded cursor queries in either direction.

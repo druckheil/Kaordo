@@ -24,8 +24,9 @@ type NotificationPreferences struct {
 }
 
 type PrivacySettings struct {
-	AccountVisibility string `json:"accountVisibility"`
-	ShowLikes         bool   `json:"showLikes"`
+	AccountVisibility  string `json:"accountVisibility"`
+	ShowLikes          bool   `json:"showLikes"`
+	PresenceVisibility string `json:"presenceVisibility"`
 }
 
 type Settings struct {
@@ -43,8 +44,9 @@ type NotificationPreferencesPatch struct {
 }
 
 type PrivacySettingsPatch struct {
-	AccountVisibility *string `json:"accountVisibility"`
-	ShowLikes         *bool   `json:"showLikes"`
+	AccountVisibility  *string `json:"accountVisibility"`
+	ShowLikes          *bool   `json:"showLikes"`
+	PresenceVisibility *string `json:"presenceVisibility"`
 }
 
 type SettingsPatch struct {
@@ -58,7 +60,7 @@ func DefaultSettings() Settings {
 			Likes: NotifyAll, Dislikes: NotifyAll, Replies: NotifyAll,
 			Follows: NotifyAll, Unfollows: NotifyOff, Quotes: NotifyAll,
 		},
-		Privacy: PrivacySettings{AccountVisibility: VisibilityPublic, ShowLikes: true},
+		Privacy: PrivacySettings{AccountVisibility: VisibilityPublic, ShowLikes: true, PresenceVisibility: PresenceAll},
 	}
 }
 
@@ -79,10 +81,13 @@ func (patch SettingsPatch) Validate() error {
 		}
 	}
 	if p := patch.Privacy; p != nil {
-		if p.AccountVisibility == nil && p.ShowLikes == nil {
+		if p.AccountVisibility == nil && p.ShowLikes == nil && p.PresenceVisibility == nil {
 			return ErrInvalidSettings
 		}
 		if p.AccountVisibility != nil && !ValidVisibility(*p.AccountVisibility) {
+			return ErrInvalidSettings
+		}
+		if p.PresenceVisibility != nil && !ValidPresenceVisibility(*p.PresenceVisibility) {
 			return ErrInvalidSettings
 		}
 		changed = true

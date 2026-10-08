@@ -3,7 +3,7 @@
   import { onDestroy, onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { createQuery, QueryClient } from '@tanstack/svelte-query';
+  import { createQuery, QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { createLingvoApi, lingvoDictionariesOptions, lingvoOverviewOptions } from '@kaordo/api-client';
   import type { LingvoCard, LingvoCardContent, UserIdentity } from '@kaordo/contracts';
   import { emptyCard, nativeLanguages } from '@kaordo/lingvo-client';
@@ -143,6 +143,7 @@
   <div class="lingvo-surface p-6"><p role="alert" class="text-sm text-destructive">Could not open this view. {errorMessage(cause)}</p><Button class="mt-4" variant="outline" onclick={retry}>Try again</Button></div>
 {/snippet}
 
+<QueryClientProvider client={queryClient}>
 <div class="min-h-dvh bg-background">
   <AppHeader name="Lingvo" homeHref={appPaths.portal} />
   <main id="main-content" tabindex="-1" class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
@@ -259,6 +260,8 @@
     {@render languageForm()}
   </Dialog.Content>
 </Dialog.Root>
+
+</QueryClientProvider>
 
 <style>
   .german-flag { display: inline-block; width: 2.75rem; height: 2.75rem; flex-shrink: 0; border-radius: .9rem; background: linear-gradient(#252525 0 33.333%, #d34747 33.333% 66.666%, #ecc65b 66.666%); box-shadow: inset 0 0 0 1px #00000015; }

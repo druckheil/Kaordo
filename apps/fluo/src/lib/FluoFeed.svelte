@@ -19,6 +19,7 @@
 		api,
 		queryClient,
 		removedIds,
+		profileId,
 		onReply,
 		onQuote,
 		onOpenPost,
@@ -35,6 +36,7 @@
 		api: FluoApi;
 		queryClient: QueryClient;
 		removedIds: string[];
+		profileId?: string;
 		onReply: (post: FluoPost) => void;
 		onQuote: (post: FluoPost) => void;
 		onOpenPost: (id: string) => void;
@@ -46,10 +48,11 @@
 	} = $props();
 
 	const canQueryPosts = $derived(view === "feed" || view === "search" || view === "saved" || view === "profile");
-	const currentFeed = $derived(feedForView(view, feed));
+	const otherProfile = $derived(view === 'profile' && !!profileId && profileId !== user.id);
+	const currentFeed = $derived(otherProfile ? 'latest' : feedForView(view, feed));
 	const activeSearch = $derived(view === "search" ? searchTerm : undefined);
 	const query = createInfiniteQuery(() => ({
-		...feedOptions(api, currentFeed, activeSearch),
+		...feedOptions(api, { feed: currentFeed, search: activeSearch, authorId: view === 'profile' ? profileId : undefined }),
 		enabled: typeof window !== "undefined" && canQueryPosts && (view !== "search" || searchTerm.length >= 2),
 	}), () => queryClient);
 	const posts = $derived(
@@ -163,8 +166,8 @@
 		<div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent">
 			<BookmarkIcon class="size-6 text-accent-foreground" />
 		</div>
-		<p class="mt-5 text-xl font-bold tracking-tight">{feedEmptyTitle(view, feed)}</p>
-		<p class="mt-2 text-sm text-muted-foreground">{feedEmptyDescription(view, feed)}</p>
+		<p class="mt-5 text-xl font-bold tracking-tight">{otherProfile ? 'No posts yet.' : feedEmptyTitle(view, feed)}</p>
+		<p class="mt-2 text-sm text-muted-foreground">{otherProfile ? 'Posts shared by this account will appear here.' : feedEmptyDescription(view, feed)}</p>
 	</div>
 {:else}
 	<div

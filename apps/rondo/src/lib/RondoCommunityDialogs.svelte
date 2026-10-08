@@ -1,5 +1,6 @@
 <script lang="ts">
   // Presents community creation, discovery, invitation and leave dialogs
+  import { UserAvatar } from '@kaordo/account-ui';
   import { AlertDialog, Button, Dialog, Input, SearchIcon, Textarea, UserPlusIcon } from '@kaordo/ui';
   import { getInitials as initials } from './rondo-state';
   import type { RondoCommunityState, RondoDialogMode } from './community-state.svelte.ts';
@@ -60,7 +61,7 @@
         {:else if state.inviteQuery.error}<p class="text-sm text-destructive" role="alert">Search is unavailable.</p>
         {:else if !state.inviteCandidates.length}<p class="text-sm text-muted-foreground">{state.inviteQuery.data?.items.length ? 'Everyone matching is already in this server.' : 'No accounts found.'}</p>
         {:else}<div class="space-y-1">{#each state.inviteCandidates as candidate (candidate.id)}
-          <button type="button" disabled={state.dialogBusy} onclick={() => void state.invite(candidate.id)} class="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"><span class="grid size-9 place-items-center rounded-xl bg-primary-soft text-xs font-bold text-primary-soft-foreground">{initials(candidate.displayName)}</span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">{candidate.displayName}</span><span class="block truncate text-xs text-muted-foreground">@{candidate.username}</span></span><UserPlusIcon class="size-4 text-link" /></button>
+          <button type="button" disabled={state.dialogBusy} onclick={() => void state.invite(candidate.id)} class="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"><UserAvatar user={candidate} class="size-9 rounded-xl [&_[data-slot=avatar-fallback]]:text-xs" /><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">{candidate.displayName}</span><span class="block truncate text-xs text-muted-foreground">@{candidate.username}</span></span><UserPlusIcon class="size-4 text-link" /></button>
         {/each}</div>{/if}
       {/if}
       {#if state.dialogError}<p class="rounded-xl bg-destructive/10 p-3 text-sm text-destructive" role="alert">{state.dialogError}</p>{/if}

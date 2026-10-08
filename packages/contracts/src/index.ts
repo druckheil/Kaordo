@@ -5,6 +5,7 @@ type Schemas = components['schemas'];
 
 // Identity and shared response types
 export type UserIdentity = Schemas['UserIdentity'];
+export type UserPresentation = Schemas['UserPresentation'];
 export type ApiError = Schemas['ApiError'];
 
 // Fluo posts and media
@@ -24,6 +25,12 @@ export type FluoNotificationPreferences = Schemas['FluoNotificationPreferences']
 export type FluoPrivacySettings = Schemas['FluoPrivacySettings'];
 export type FluoSettings = Schemas['FluoSettings'];
 export type FluoSettingsPatch = Schemas['FluoSettingsPatch'];
+export type FluoAuthor = Schemas['FluoAuthor'];
+export type FluoProfile = Schemas['FluoProfile'];
+export type FluoProfileUpdate = Schemas['FluoProfileUpdate'];
+export type FluoStatus = Schemas['FluoStatus'];
+export type FluoPresence = Schemas['FluoPresence'];
+export type FluoConnectionPage = Schemas['FluoConnectionPage'];
 
 // Nodo upload metadata
 export type NodoUpload = Schemas['NodoUpload'];

@@ -24,6 +24,7 @@ func (store *Fluo) Settings(ctx context.Context, viewerID string) (fluo.Settings
 		jetpg.COALESCE(settings.NotifyQuotes, jetpg.String(defaults.Notifications.Quotes)),
 		jetpg.COALESCE(settings.AccountVisibility, jetpg.String(defaults.Privacy.AccountVisibility)),
 		jetpg.COALESCE(settings.ShowLikes, jetpg.Bool(defaults.Privacy.ShowLikes)),
+		jetpg.COALESCE(settings.PresenceVisibility, jetpg.String(defaults.Privacy.PresenceVisibility)),
 	).FROM(users.LEFT_JOIN(settings, settings.UserID.EQ(users.ID))).WHERE(users.ID.EQ(jetUUID(viewerID)))))
 }
 
@@ -51,6 +52,7 @@ func (store *Fluo) UpdateSettings(ctx context.Context, viewerID string, patch fl
 		{settings.NotifyReplies, notifications.Replies}, {settings.NotifyFollows, notifications.Follows},
 		{settings.NotifyUnfollows, notifications.Unfollows}, {settings.NotifyQuotes, notifications.Quotes},
 		{settings.AccountVisibility, privacy.AccountVisibility},
+		{settings.PresenceVisibility, privacy.PresenceVisibility},
 	} {
 		if field.value == nil {
 			continue
@@ -71,7 +73,7 @@ func (store *Fluo) UpdateSettings(ctx context.Context, viewerID string, patch fl
 		ON_CONFLICT(settings.UserID).DO_UPDATE(jetpg.SET(updates...)).RETURNING(
 		settings.NotifyLikes, settings.NotifyDislikes, settings.NotifyReplies,
 		settings.NotifyFollows, settings.NotifyUnfollows, settings.NotifyQuotes,
-		settings.AccountVisibility, settings.ShowLikes,
+		settings.AccountVisibility, settings.ShowLikes, settings.PresenceVisibility,
 	)))
 }
 
@@ -81,6 +83,7 @@ func scanFluoSettings(row scanner) (fluo.Settings, error) {
 		&settings.Notifications.Likes, &settings.Notifications.Dislikes, &settings.Notifications.Replies,
 		&settings.Notifications.Follows, &settings.Notifications.Unfollows, &settings.Notifications.Quotes,
 		&settings.Privacy.AccountVisibility, &settings.Privacy.ShowLikes,
+		&settings.Privacy.PresenceVisibility,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fluo.Settings{}, fluo.ErrNotFound

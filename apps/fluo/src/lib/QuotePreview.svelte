@@ -2,7 +2,9 @@
 	// Shows a compact, linked preview of a quoted or parent post
 
   import type { FluoPost, FluoQuote } from '@kaordo/contracts';
+  import { UserAvatar } from '@kaordo/account-ui';
   import { PlayIcon } from '@kaordo/ui';
+  import VerifiedBadge from './VerifiedBadge.svelte';
 
   let { quote, onOpen, context = 'quote' }: {
     quote: FluoQuote | Pick<FluoPost, 'id' | 'author' | 'text' | 'media'>;
@@ -13,9 +15,11 @@
 
 {#snippet preview()}
   <span class="block min-w-0 px-4 py-2.5 text-left">
-    <span class="block truncate text-sm font-semibold text-foreground">
-      {quote.author.displayName}
-      <span class="font-normal text-muted-foreground">@{quote.author.username}</span>
+    <span class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground">
+      <UserAvatar user={quote.author} class="size-6 rounded-lg [&_[data-slot=avatar-fallback]]:text-[10px]" />
+      <span class="truncate">{quote.author.displayName}</span>
+      {#if quote.author.verified}<VerifiedBadge />{/if}
+      <span class="truncate font-normal text-muted-foreground">@{quote.author.username}</span>
     </span>
     {#if quote.text.trim()}
       <span class="mt-1 block line-clamp-3 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/85">{quote.text}</span>

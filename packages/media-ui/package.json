@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@kaordo/ui": "workspace:*",
+    "cropperjs": "^2.3.0",
     "embla-carousel": "^8.6.0",
     "embla-carousel-svelte": "^8.6.0",
     "photoswipe": "^5.4.4",

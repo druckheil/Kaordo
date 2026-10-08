@@ -5,9 +5,10 @@ export { adminSummaryOptions, adminSystemOptions, adminMetricsOptions, adminUser
   adminAuditOptions, adminLogsOptions, adminCaseContentOptions } from './admin-queries.ts';
 
 export {
-  createFluoApi, feedOptions, commentsOptions, fluoSettingsKey, fluoSettingsOptions, type Feed, type FluoApi
+  createFluoApi, feedOptions, commentsOptions, fluoSettingsKey, fluoSettingsOptions, type Feed, type FluoApi, type FluoFeedFilter
 } from './fluo.ts';
 export { invalidateFluoPostQueries, removePostFromCachedFeeds } from './fluo-cache.ts';
+export { fluoProfileKeys, fluoProfileOptions, fluoConnectionsOptions, invalidateFluoFollowQueries, updateFluoProfileCache } from './fluo-profiles.ts';
 export {
   fluoNotificationKeys,
   fluoNotificationSummaryOptions, fluoNotificationRecentOptions, fluoNotificationsOptions,
@@ -22,3 +23,4 @@ export {
 export { createAdminApi, type AdminApi } from './admin.ts';
 
 export { bootstrapIdentity } from './session.ts';
+export { createUserPresentationApi, userPresentationOptions } from './user-presentation.ts';

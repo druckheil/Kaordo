@@ -11,6 +11,7 @@ declare global {
       kaordoFluoPost?: string;
       kaordoFluoReturnView?: string;
       kaordoFluoReturnHash?: string;
+      kaordoFluoProfileHash?: string;
     }
 		// interface Platform {}
 	}

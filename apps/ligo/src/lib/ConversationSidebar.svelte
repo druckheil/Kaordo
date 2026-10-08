@@ -2,6 +2,7 @@
 	// Shows saved messages and lets the user find or select conversations
 
 	import type { LigoConversation } from "@kaordo/contracts";
+	import { UserAvatar } from "@kaordo/account-ui";
 	import {
 		BookmarkIcon,
 		Button,
@@ -14,7 +15,6 @@
 		conversationTitle,
 		filterConversations,
 		formatConversationTime,
-		userInitials,
 	} from "./ligo-model";
 
 	let {
@@ -149,6 +149,7 @@
 		{:else}
 			{#each visibleConversations as conversation (conversation.id)}
 				{@const title = conversationTitle(conversation, currentUserId)}
+				{@const peer = conversation.kind === 'duo' ? conversation.members.find((member) => member.id !== currentUserId) : undefined}
 				<button
 					type="button"
 					onclick={() => onSelect(conversation.id)}
@@ -157,9 +158,8 @@
 					class:shadow-sm={selectedId === conversation.id}
 					class:bg-muted={selectedId === conversation.id}
 				>
-					<span class="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary-soft text-sm font-bold text-primary-soft-foreground">
-						{conversation.kind === "group" ? "◌" : userInitials(title)}
-					</span>
+					{#if peer}<UserAvatar user={peer} />
+					{:else}<span class="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary-soft text-sm font-bold text-primary-soft-foreground">◌</span>{/if}
 					<span class="min-w-0 flex-1">
 						<span class="flex items-center justify-between gap-2">
 							<span class="truncate text-sm font-semibold">{title}</span>

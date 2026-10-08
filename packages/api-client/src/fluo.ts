@@ -2,12 +2,18 @@
 
 import type {
   FluoNewPost, FluoPage, FluoPost, FluoPostThread, FluoNotificationPage,
-  FluoNotificationSummary, FluoNotificationReadState, FluoSettings, FluoSettingsPatch, NodoUpload, paths
+  FluoNotificationSummary, FluoNotificationReadState, FluoSettings, FluoSettingsPatch,
+  FluoProfile, FluoProfileUpdate, FluoStatus, FluoConnectionPage, NodoUpload, paths
 } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
 import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
 
 export type Feed = 'latest' | 'following' | 'mine' | 'saved';
+export interface FluoFeedFilter {
+  feed: Feed;
+  search?: string;
+  authorId?: string;
+}
 
 export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
   const client = createClient<paths>({ baseUrl: apiBaseUrl, fetch: sessionFetch });
@@ -15,6 +21,26 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
   const nodoClient = createClient<paths>({ baseUrl: nodo, fetch: sessionFetch });
 
   return {
+    async profile(username: string, signal?: AbortSignal): Promise<FluoProfile> {
+      const { data, error, response } = await client.GET('/v1/fluo/profiles/{username}', {
+        params: { path: { username } }, signal
+      });
+      return requireResponseData(data, error, response.status);
+    },
+    async updateProfile(input: FluoProfileUpdate, signal?: AbortSignal): Promise<FluoProfile> {
+      const { data, error, response } = await client.PUT('/v1/fluo/profile', { body: input, signal });
+      return requireResponseData(data, error, response.status);
+    },
+    async setStatus(status: FluoStatus, signal?: AbortSignal): Promise<FluoProfile> {
+      const { data, error, response } = await client.PUT('/v1/fluo/profile/status', { body: { status }, signal });
+      return requireResponseData(data, error, response.status);
+    },
+    async connections(id: string, kind: 'followers' | 'following', cursor?: string, signal?: AbortSignal): Promise<FluoConnectionPage> {
+      const { data, error, response } = await client.GET('/v1/fluo/users/{id}/connections', {
+        params: { path: { id }, query: { kind, cursor, limit: 20 } }, signal
+      });
+      return requireResponseData(data, error, response.status);
+    },
     async settings(signal?: AbortSignal): Promise<FluoSettings> {
       const { data, error, response } = await client.GET('/v1/fluo/settings', { signal });
       return requireResponseData(data, error, response.status);
@@ -43,9 +69,9 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
       const { data, error, response } = await client.PUT('/v1/fluo/notifications/read', { body: { through }, signal });
       return requireResponseData(data, error, response.status);
     },
-    async list(feed: Feed, cursor?: string, signal?: AbortSignal, search?: string): Promise<FluoPage> {
+    async list(filter: FluoFeedFilter, cursor?: string, signal?: AbortSignal): Promise<FluoPage> {
       const { data, error, response } = await client.GET('/v1/fluo/posts', {
-        params: { query: { feed, cursor, limit: 20, q: search } }, signal
+        params: { query: { feed: filter.feed, cursor, limit: 20, q: filter.search, authorId: filter.authorId } }, signal
       });
       return requireResponseData(data, error, response.status);
     },
@@ -119,12 +145,13 @@ export function fluoSettingsOptions(api: Pick<FluoApi, 'settings'>) {
   };
 }
 
-export function feedOptions(api: FluoApi, feed: Feed, search?: string) {
+export function feedOptions(api: Pick<FluoApi, 'list'>, filter: FluoFeedFilter) {
+  const baseKey = ['fluo', 'feed', filter.feed, filter.search ?? ''] as const;
   return {
-    queryKey: ['fluo', 'feed', feed, search ?? ''] as const,
+    queryKey: filter.authorId ? [...baseKey, filter.authorId] as const : baseKey,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }: { pageParam: string | undefined; signal: AbortSignal }) =>
-      api.list(feed, pageParam, signal, search),
+      api.list(filter, pageParam, signal),
     getNextPageParam: (lastPage: FluoPage) => lastPage.nextCursor ?? undefined,
     staleTime: 15_000,
     refetchInterval: 5 * 60_000,
@@ -132,7 +159,7 @@ export function feedOptions(api: FluoApi, feed: Feed, search?: string) {
   };
 }
 
-export function commentsOptions(api: FluoApi, postId: string) {
+export function commentsOptions(api: Pick<FluoApi, 'comments'>, postId: string) {
   return {
     queryKey: ['fluo', 'comments', postId] as const,
     initialPageParam: undefined as string | undefined,

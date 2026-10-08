@@ -10,14 +10,17 @@
 		BellIcon, Button, CheckIcon, HeartIcon, MessageCircleIcon,
 		Repeat2Icon, XIcon, UserMinusIcon, UserPlusIcon,
 	} from '@kaordo/ui';
-	import { displayInitial, postHashForId } from './fluo-model';
+	import { postHashForId, profileHashForUsername } from './fluo-model';
+	import { UserAvatar } from '@kaordo/account-ui';
+	import VerifiedBadge from './VerifiedBadge.svelte';
 	import type { FluoNotificationState } from './notification-state.svelte.ts';
 
 	let {
-		state, onOpenPost,
+		state, onOpenPost, onOpenProfile,
 	}: {
 		state: FluoNotificationState;
 		onOpenPost: (id: string) => void;
+		onOpenProfile: (username: string) => void;
 	} = $props();
 
 	const query = $derived(state.history);
@@ -42,9 +45,10 @@
 
 	function openNotification(event: MouseEvent, notification: FluoNotification): void {
 		if (!notification.readAt) state.read.mutate({ id: notification.id });
-		if (!notification.post || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 		event.preventDefault();
-		onOpenPost(notification.post.id);
+		if (notification.post) onOpenPost(notification.post.id);
+		else onOpenProfile(notification.actor.username);
 	}
 
 	function readBookmark(event: MouseEvent, notification: FluoNotification): void {
@@ -96,26 +100,15 @@
 	<ul class="overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-sm" aria-label="Notifications">
 		{#each notifications as notification (notification.id)}
 			<li class={`relative overflow-hidden border-b border-border transition-colors duration-300 last:border-b-0 ${notification.readAt ? '' : 'bg-muted/35'}`}>
-				{#if notification.post}
-					<a
-						href={postHashForId(notification.post.id)}
-						data-notification-entry
-						class={`flex min-w-0 gap-3 p-4 transition-[background-color,padding] duration-300 hover:bg-muted/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:p-5 ${notification.readAt ? '' : 'pr-16 sm:pr-18'}`}
-						onclick={(event) => openNotification(event, notification)}
-						onauxclick={(event) => { if (event.button === 1 && !notification.readAt) state.read.mutate({ id: notification.id }); }}
-					>
-						{@render content(notification)}
-					</a>
-				{:else}
-					<button
-						type="button"
-						data-notification-entry
-						class={`flex w-full min-w-0 gap-3 p-4 text-left transition-[background-color,padding] duration-300 hover:bg-muted/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:p-5 ${notification.readAt ? '' : 'pr-16 sm:pr-18'}`}
-						onclick={() => { if (!notification.readAt) state.read.mutate({ id: notification.id }); }}
-					>
-						{@render content(notification)}
-					</button>
-				{/if}
+				<a
+					href={notification.post ? postHashForId(notification.post.id) : profileHashForUsername(notification.actor.username)}
+					data-notification-entry
+					class={`flex min-w-0 gap-3 p-4 transition-[background-color,padding] duration-300 hover:bg-muted/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:p-5 ${notification.readAt ? '' : 'pr-16 sm:pr-18'}`}
+					onclick={(event) => openNotification(event, notification)}
+					onauxclick={(event) => { if (notification.post && event.button === 1 && !notification.readAt) state.read.mutate({ id: notification.id }); }}
+				>
+					{@render content(notification)}
+				</a>
 				{#if !notification.readAt}
 					<div
 						class="absolute inset-y-0 right-0 w-11 sm:w-12"
@@ -147,13 +140,13 @@
 
 {#snippet content(notification: FluoNotification)}
 	{@const Icon = activity[notification.kind].icon}
-	<span class="relative grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-sm font-bold text-accent-foreground" aria-hidden="true">
-		{displayInitial(notification.actor.displayName)}
-		<span class="absolute -bottom-1 -right-1 grid size-5 place-items-center rounded-full border border-border bg-card text-foreground"><Icon class="size-3" /></span>
+	<span class="relative size-10 shrink-0 self-start">
+		<UserAvatar user={notification.actor} class="size-10 rounded-xl" />
+		<span class="absolute -bottom-1 -left-1 grid size-5 place-items-center rounded-full border border-border bg-card text-foreground" aria-hidden="true"><Icon class="size-3" /></span>
 	</span>
 	<span class="block min-w-0 flex-1 break-words">
 		<span class="block text-sm leading-6">
-			<strong class="font-semibold">{notification.actor.displayName}</strong> {activity[notification.kind].description}
+			<strong class="inline-flex max-w-full items-center gap-1 font-semibold">{notification.actor.displayName}{#if notification.actor.verified}<VerifiedBadge />{/if}</strong> {activity[notification.kind].description}
 			{#if !notification.readAt}<span class="sr-only">Unread.</span>{/if}
 		</span>
 		<span class="block truncate text-xs text-muted-foreground">@{notification.actor.username}</span>

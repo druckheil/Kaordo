@@ -3,21 +3,18 @@
 
 	import { onDestroy } from "svelte";
 	import type { Feed } from "@kaordo/api-client";
-	import type { UserIdentity } from "@kaordo/contracts";
 	import { BookmarkIcon, Button, Input, SearchIcon } from "@kaordo/ui";
 	import type { FluoView } from "./fluo-model";
-	import { displayInitial, fluoViews } from "./fluo-model";
+	import { fluoViews } from "./fluo-model";
 
 	let {
 		view,
 		feed,
-		user,
 		searchTerm = $bindable(""),
 		onFeedChange,
 	}: {
 		view: FluoView;
 		feed: Feed;
-		user: UserIdentity;
 		searchTerm?: string;
 		onFeedChange: (feed: Feed) => void;
 	} = $props();
@@ -89,17 +86,4 @@
 	<p class="mb-5 rounded-xl border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
 		<BookmarkIcon class="mr-2 inline size-4" />Only you can see the posts you save.
 	</p>
-{:else if view === "profile"}
-	<div class="mb-6 overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-sm">
-		<div class="h-20 bg-gradient-to-r from-secondary via-accent to-muted"></div>
-		<div class="-mt-6 flex items-end gap-4 px-5 pb-5">
-			<div class="grid size-14 shrink-0 place-items-center rounded-2xl border-4 border-card bg-primary text-xl font-bold text-primary-foreground" aria-hidden="true">
-				{displayInitial(user.displayName)}
-			</div>
-			<div class="min-w-0 pb-0.5">
-				<h2 class="truncate text-lg font-bold">{user.displayName}</h2>
-				<p class="text-sm text-muted-foreground">@{user.username}</p>
-			</div>
-		</div>
-	</div>
 {/if}

@@ -1,5 +1,7 @@
 // Owns synthetic account and product data for repeatable interface audits without live user content
 
+import { fluoAccountFixtureResponse } from './fluo-account-fixture.mjs';
+
 export const fixtureId = (n) => `01999111-2222-7333-8444-${String(n).padStart(12, '0')}`;
 const now = '2026-10-07T10:00:00Z';
 export const viewer = { id: fixtureId(1), username: 'writer', displayName: 'Alex Morgan', createdAt: now, isAdmin: true };
@@ -14,7 +16,7 @@ export async function installQualityFixture(page, app, { uploadOrigin } = {}) {
   const server = { id: fixtureId(70), name: 'The common room', description: 'A place to share ideas and make things together.', access: 'private', ownerId: viewer.id, memberCount: 2, joined: true, createdAt: now };
   const channel = { id: fixtureId(71), serverId: server.id, conversationId: conversation.id, name: 'general', position: 0, createdAt: now };
   const messages = Array.from({ length: 15 }, (_, i) => ({ id: fixtureId(100 + i), clientId: fixtureId(200 + i), conversationId: conversation.id, sender: i % 2 ? viewer : partner, text: i === 14 ? 'Sounds good! See you tomorrow.' : i === 13 ? 'Shall we meet at the café tomorrow? We can bring our notes and spend some time on the new ideas.' : `A thought for our next conversation ${i + 1}.`, media: i === 12 ? [image] : [], reactions: i === 14 ? [{ emoji: '❤️', count: 1, mine: true }] : [], status: 'read', editedAt: null, deleted: false, systemNotice: false, createdAt: now }));
-  let settings = { notifications: { likes: 'all', dislikes: 'off', replies: 'all', follows: 'all', unfollows: 'off', quotes: 'all' }, privacy: { accountVisibility: 'public', showLikes: true } };
+  let settings = { notifications: { likes: 'all', dislikes: 'off', replies: 'all', follows: 'all', unfollows: 'off', quotes: 'all' }, privacy: { accountVisibility: 'public', showLikes: true, presenceVisibility: 'all' } };
   let notifications = [{ id: fixtureId(90), kind: 'like', actor: partner, post: posts[0], readAt: null, createdAt: now }, { id: fixtureId(91), kind: 'follow', actor: partner, post: null, readAt: now, createdAt: now }];
   const dictionary = { id: fixtureId(80), learningLanguage: 'de', nativeLanguage: 'en', dailyGoal: 20, timeZone: 'Europe/Berlin', createdAt: now };
   const folders = [{ id: fixtureId(81), dictionaryId: dictionary.id, name: 'Everyday German' }];
@@ -39,7 +41,8 @@ export async function installQualityFixture(page, app, { uploadOrigin } = {}) {
     if (failures.has(path)) { await route.fulfill({ status: 503, json: { error: failures.get(path) } }); return; }
     if (path.endsWith('/events')) { await route.fulfill({ status: 403, json: {} }); return; }
     if (path.startsWith('/v1/ligo/') && (path.endsWith('/read') || path.endsWith('/delivered'))) { await route.fulfill({ status: 204 }); return; }
-    let body;
+    let body = fluoAccountFixtureResponse(request, [viewer, partner], { viewerId: viewer.id, privacy: settings.privacy });
+    if (body) { await route.fulfill({ json: body }); return; }
     if (path === '/v1/session' || path === '/v1/me') body = viewer;
     else if (path === '/v1/accounts') body = { items: [partner], nextCursor: null };
     else if (path === '/v1/fluo/settings') {
@@ -61,8 +64,10 @@ export async function installQualityFixture(page, app, { uploadOrigin } = {}) {
     }
     else if (path === '/v1/fluo/posts') {
       const feed = url.searchParams.get('feed');
+      const authorId = url.searchParams.get('authorId');
       const search = url.searchParams.get('q')?.toLowerCase();
       const items = posts.filter(item => feed !== 'mine' || item.author.id === viewer.id)
+        .filter(item => !authorId || item.author.id === authorId)
         .filter(item => feed !== 'saved' || item.saved)
         .filter(item => !search || (item.text + item.author.displayName + item.author.username).toLowerCase().includes(search));
       body = { items, nextCursor: null };

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
@@ -20,6 +21,7 @@ type FluoDependencies struct {
 	Store         fluo.Store
 	Notifications fluo.NotificationStore
 	Settings      fluo.SettingsStore
+	Profiles      fluo.ProfileStore
 	Media         MediaVerifier
 	MediaBaseURL  string
 	MediaSignKey  []byte
@@ -40,6 +42,13 @@ func mountFluo(router chi.Router, verify VerifyFunc, users account.Store, deps F
 	h := fluoHandler{verify: verify, users: users, deps: deps}
 	router.Get("/v1/internal/media/{id}/referenced", h.mediaReferenced)
 	router.Route("/v1/fluo", func(r chi.Router) {
+		if deps.Profiles != nil {
+			r.Get("/profiles/{username}", h.profile)
+			r.Put("/profile", h.updateProfile)
+			r.Put("/profile/status", h.setStatus)
+			r.Post("/presence", h.touchPresence)
+			r.Get("/users/{id}/connections", h.connections)
+		}
 		if deps.Settings != nil {
 			r.Get("/settings", h.settings)
 			r.Patch("/settings", h.updateSettings)
@@ -80,6 +89,8 @@ func fluoError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, invalidVisibilityMessage)
 	case errors.Is(err, fluo.ErrInvalidSettings):
 		writeError(w, http.StatusBadRequest, "Choose a valid notification or privacy setting.")
+	case errors.Is(err, fluo.ErrInvalidProfile):
+		writeError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), fluo.ErrInvalidProfile.Error()+": "))
 	case errors.Is(err, fluo.ErrPrivateParent):
 		writeError(w, http.StatusBadRequest, "A reply cannot be public while its parent is private.")
 	case errors.Is(err, fluo.ErrSelfFollow):
