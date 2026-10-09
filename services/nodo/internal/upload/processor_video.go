@@ -85,7 +85,7 @@ func (server *Server) processVideo(parent context.Context, source, id string) (m
 }
 
 func probeUploadedVideo(ctx context.Context, source string) (videoProbeReport, error) {
-	probe := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0",
+	probe := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0", //nolint:gosec // fixed binary; paths are stored upload files //nolint:gosec // fixed binary; paths are stored upload files
 		"-show_entries", "stream=width,height:format=duration", "-of", "json", source)
 	reportBytes, err := probe.Output()
 	if err != nil {
@@ -129,7 +129,7 @@ func createVideoOutput(directory, id string) (string, error) {
 }
 
 func transcodeVideo(ctx context.Context, source, output string) error {
-	transcode := exec.CommandContext(ctx, "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+	transcode := exec.CommandContext(ctx, "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", //nolint:gosec // fixed binary; paths are stored upload files
 		"-i", source, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
 		"-vf", "scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p",
 		"-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
@@ -142,7 +142,7 @@ func transcodeVideo(ctx context.Context, source, output string) error {
 }
 
 func probeProcessedVideo(ctx context.Context, path string) (videoStream, error) {
-	probe := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0",
+	probe := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0", //nolint:gosec // fixed binary; path is a stored upload file
 		"-show_entries", "stream=width,height", "-of", "json", path)
 	reportBytes, err := probe.Output()
 	if err != nil {

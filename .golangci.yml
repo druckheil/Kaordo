@@ -1,5 +1,5 @@
 # Lints the four Go modules with correctness, security and complexity checks; gofmt and goimports own formatting
-version: "2"
+version: '2'
 linters:
   default: standard
   enable:
@@ -17,6 +17,14 @@ linters:
     - unparam
     - wastedassign
   settings:
+    errcheck:
+      # Idiomatic best-effort cleanup: rollback after commit, response bodies and temporary paths
+      exclude-functions:
+        - (github.com/jackc/pgx/v5.Tx).Rollback
+        - (io.ReadCloser).Close
+        - (net.Listener).Close
+        - os.Remove
+        - os.RemoveAll
     gocognit:
       min-complexity: 20
     revive:
@@ -25,10 +33,28 @@ linters:
         # Internal application packages document files and packages, not every exported name
         - name: exported
           disabled: true
+        - name: context-as-argument
+          arguments:
+            - allowTypesBefore: '*testing.T'
+  exclusions:
+    rules:
+      # Tests serve no external requests and read as scenarios; their unchecked errors still fail errcheck
+      - path: _test\.go
+        linters: [gocognit, gosec, noctx]
+      # Pending module refactors; remove each entry when its module is reworked.
+      # Kerno and Regado: user-facing messages travel in error text instead of typed errors.
+      - path: (admin/operations|fluo/profile|httpapi/attachment_inputs|agent/partition_plan|agent/partition_apply)\.go
+        text: (error-strings|ST1005)
+      # Nodo: file access moves to os.Root confined to the data directory.
+      - path: nodo/internal/upload/
+        text: (G304|G703)
+      # Functions above the cognitive complexity limit, split during their module pass.
+      - linters: [gocognit]
+        text: func `(\(SettingsPatch\)\.Validate|encryptionAudience|\(\*Ligo\)\.UpdateEncryptedTitle|\(\*Memoro\)\.SaveDay|readDiskLayouts|assignPartitionRoles|layoutPoolPreflight|activateRoleArea|planExistingDevice|validatedRepartSteps|countPoolFilesMeasured|collectMounts)`
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
 formatters:
   enable:
     - gofmt
     - goimports
-issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0

@@ -21,7 +21,7 @@ func TestLegacyStorageSetupOnlyApprovesAnIdentifiedBlankDevice(t *testing.T) {
 
 func TestConfigureStorageRejectsChangedIdentityWithoutRunningCommands(t *testing.T) {
 	called := false
-	run := func(_ context.Context, args ...string) (string, error) {
+	run := func(_ context.Context, _ ...string) (string, error) {
 		called = true
 		return `{"blockdevices":[{"name":"sdc","path":"/dev/sdc","type":"disk","size":1000,"serial":"replacement","mountpoints":[],"children":[]}]}`, nil
 	}

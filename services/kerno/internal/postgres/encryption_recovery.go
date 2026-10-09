@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"errors"
+
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"

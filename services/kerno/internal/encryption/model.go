@@ -46,7 +46,7 @@ type DeviceRemoval struct {
 }
 type Store interface {
 	PublicIdentity(context.Context, string) (PublicIdentity, error)
-	Audience(context.Context, string, string, string, bool, string) (Audience, error)
+	Audience(context.Context, string, string, string, bool) (Audience, error)
 	Identity(context.Context, string) (*Identity, error)
 	Register(context.Context, string, Registration) (Identity, error)
 	Approve(context.Context, string, string, Approval) (Identity, error)

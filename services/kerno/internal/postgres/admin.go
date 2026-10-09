@@ -1,3 +1,4 @@
+// Package postgres implements Kerno's stores with Jet query builders and pgx transactions.
 package postgres
 
 // Aggregates administrative storage and activity metrics

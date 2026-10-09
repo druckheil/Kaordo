@@ -66,14 +66,15 @@ func readJournalStatus(ctx context.Context, run commandRunner) journalStatus {
 
 func journalBytes(ctx context.Context, root string) *int64 {
 	total := int64(0)
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if entry.IsDir() || !(strings.HasSuffix(entry.Name(), ".journal") || strings.HasSuffix(entry.Name(), ".journal~")) {
+		journal := strings.HasSuffix(entry.Name(), ".journal") || strings.HasSuffix(entry.Name(), ".journal~")
+		if entry.IsDir() || !journal {
 			return nil
 		}
 		info, err := entry.Info()
@@ -191,7 +192,7 @@ func applyJournalRetention(ctx context.Context, run commandRunner, days int, lin
 	if !journalPolicyManaged(link, policy) {
 		return journalStatus{}, errors.New("journal policy integration is unavailable")
 	}
-	previous, err := os.ReadFile(policy)
+	previous, err := os.ReadFile(policy) //nolint:gosec // fixed journald drop-in path
 	if err != nil {
 		return journalStatus{}, err
 	}

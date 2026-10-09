@@ -8,7 +8,7 @@ import (
 	"image/png"
 	"os"
 
-	_ "golang.org/x/image/webp"
+	_ "golang.org/x/image/webp" // registers the WebP decoder used by decodeImage
 )
 
 func (server *Server) processImage(source, id, declaredType string) (mediaInfo, string, error) {
@@ -16,7 +16,7 @@ func (server *Server) processImage(source, id, declaredType string) (mediaInfo, 
 	if err != nil {
 		return mediaInfo{}, "", err
 	}
-	defer input.Close()
+	defer func() { _ = input.Close() }() // read-only source
 
 	picture, config, format, err := decodeImage(input, declaredType)
 	if err != nil {

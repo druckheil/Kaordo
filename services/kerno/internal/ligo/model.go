@@ -1,3 +1,4 @@
+// Package ligo defines Ligo conversations, encrypted messages and their persistence contract.
 package ligo
 
 // Defines Ligo domain models, request inputs, and store contracts

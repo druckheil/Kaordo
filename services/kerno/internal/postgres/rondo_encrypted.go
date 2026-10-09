@@ -3,12 +3,13 @@ package postgres
 // Validates device-signed server metadata and atomically grants it to newly invited members
 import (
 	"context"
+	"strings"
+
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
-	"strings"
 )
 
 func validateRondoMetadata(ctx context.Context, executor jetExecutor, ownerID, serverID, text string, public bool, ids []string, channelID string) error {
@@ -45,7 +46,7 @@ func replaceRondoMetadata(ctx context.Context, tx pgx.Tx, actorID, serverID stri
 	if name != input.ExpectedName {
 		return encryption.ErrConflict
 	}
-	audience, err := encryptionAudience(ctx, tx, actorID, "rondo", serverID, false, "")
+	audience, err := encryptionAudience(ctx, tx, actorID, "rondo", serverID, false)
 	if err != nil {
 		return err
 	}

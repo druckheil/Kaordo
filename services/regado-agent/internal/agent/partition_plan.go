@@ -323,7 +323,7 @@ func writeLayoutWorkspace(definitions map[string]string, declaration string) (st
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(work, name), []byte(content), 0600); err != nil {
-			os.RemoveAll(work)
+			_ = os.RemoveAll(work)
 			return "", err
 		}
 	}

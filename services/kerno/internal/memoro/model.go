@@ -1,3 +1,4 @@
+// Package memoro defines owner-encrypted diary days and their persistence contract.
 package memoro
 
 // Defines opaque, owner-scoped diary records with bounded encrypted envelopes

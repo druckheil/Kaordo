@@ -1,3 +1,4 @@
+// Package fluo defines Fluo posts, profiles, notifications, settings and audience keys.
 package fluo
 
 // Defines author audience keys: published for public accounts, sealed to followed accounts otherwise

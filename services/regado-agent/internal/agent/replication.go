@@ -272,7 +272,7 @@ func countPoolFilesMeasured(ctx context.Context, path string, progress func(int6
 		return 0, 0, 0, err
 	}
 	rootDevice := root.Sys().(*syscall.Stat_t).Dev
-	err = filepath.WalkDir(path, func(current string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(path, func(_ string, entry fs.DirEntry, walkErr error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -289,7 +289,7 @@ func countPoolFilesMeasured(ctx context.Context, path string, progress func(int6
 		info, infoErr := entry.Info()
 		if infoErr != nil {
 			unreadable++
-			return nil
+			return nil //nolint:nilerr // unreadable entries are counted rather than aborting the scan
 		}
 		if info.Sys().(*syscall.Stat_t).Dev != rootDevice {
 			if entry.IsDir() {

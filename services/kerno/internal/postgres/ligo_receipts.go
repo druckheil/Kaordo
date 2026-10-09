@@ -39,7 +39,7 @@ func (store *Ligo) SetReaction(ctx context.Context, actorID, conversationID, mes
 		return ligo.Message{}, err
 	}
 	if changed {
-		if err := jetNotify(ctx, tx, "ligo_activity", conversationID); err != nil {
+		if err := notifyLigoActivity(ctx, tx, conversationID); err != nil {
 			return ligo.Message{}, err
 		}
 	}
@@ -89,7 +89,7 @@ func (store *Ligo) markReceipt(ctx context.Context, actorID, conversationID, mes
 		if !accessible {
 			return ligo.ErrNotFound
 		}
-	} else if err := jetNotify(ctx, tx, "ligo_activity", conversationID); err != nil {
+	} else if err := notifyLigoActivity(ctx, tx, conversationID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

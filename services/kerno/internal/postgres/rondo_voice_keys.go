@@ -6,13 +6,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
+	"time"
+
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
-	"strings"
-	"time"
 )
 
 func voiceMembership(ctx context.Context, executor jetExecutor, actorID, channelID string) (string, encryption.Audience, error) {
@@ -24,7 +25,7 @@ func voiceMembership(ctx context.Context, executor jetExecutor, actorID, channel
 		}
 		return "", encryption.Audience{}, err
 	}
-	audience, err := encryptionAudience(ctx, executor, actorID, "rondo", serverID, true, "")
+	audience, err := encryptionAudience(ctx, executor, actorID, "rondo", serverID, true)
 	if err != nil {
 		return "", audience, err
 	}

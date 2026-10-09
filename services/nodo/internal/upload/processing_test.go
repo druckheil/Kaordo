@@ -19,8 +19,8 @@ func TestHandlerCloseStopsBackgroundWorkers(t *testing.T) {
 	}
 	closed := make(chan struct{})
 	go func() {
-		_ = handler.Close()
-		_ = handler.Close()
+		handler.Close()
+		handler.Close()
 		close(closed)
 	}()
 	select {

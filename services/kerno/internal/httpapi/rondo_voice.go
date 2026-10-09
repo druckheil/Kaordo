@@ -43,7 +43,7 @@ func (h rondoHandler) removeVoiceMember(ctx context.Context, removals *sync.Wait
 	defer removals.Done()
 	defer func() { <-limit }()
 	if err := h.deps.Voice.Remove(ctx, channelID, userID); err != nil {
-		log.Printf("Rondo voice removal failed for channel %s: %v", channelID, err)
+		log.Printf("Rondo voice removal failed for channel %q: %v", channelID, err) //nolint:gosec // validated UUID, quoted
 	}
 }
 

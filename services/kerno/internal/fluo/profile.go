@@ -149,7 +149,8 @@ func validateProfileText(name, value string, limit int, multiline bool) error {
 		return fmt.Errorf("%w: %s must contain at most %d characters.", ErrInvalidProfile, name, limit)
 	}
 	for _, character := range value {
-		if unicode.IsControl(character) && !(multiline && (character == '\n' || character == '\r' || character == '\t')) {
+		allowedBreak := multiline && (character == '\n' || character == '\r' || character == '\t')
+		if unicode.IsControl(character) && !allowedBreak {
 			return fmt.Errorf("%w: %s contains an unsupported character.", ErrInvalidProfile, name)
 		}
 	}

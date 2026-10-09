@@ -3,6 +3,7 @@ package postgres
 // Grants signed group titles to added members within one transaction
 import (
 	"context"
+
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
@@ -44,7 +45,7 @@ func (s *Ligo) UpdateEncryptedTitle(ctx context.Context, actorID, id, previous, 
 			return ligo.Conversation{}, err
 		}
 	}
-	audience, err := encryptionAudience(ctx, tx, actorID, "ligo", id, false, "")
+	audience, err := encryptionAudience(ctx, tx, actorID, "ligo", id, false)
 	if err != nil {
 		return ligo.Conversation{}, err
 	}

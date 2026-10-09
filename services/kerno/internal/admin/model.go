@@ -1,3 +1,4 @@
+// Package admin defines Regado administration models, audited operations and their ports.
 package admin
 
 // Defines administrative projections and operations without storage dependencies

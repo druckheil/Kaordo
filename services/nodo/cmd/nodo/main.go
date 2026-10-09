@@ -1,3 +1,4 @@
+// Command nodo receives resumable uploads and serves stored media bytes.
 package main
 
 // Loads Nodo configuration and serves the upload API

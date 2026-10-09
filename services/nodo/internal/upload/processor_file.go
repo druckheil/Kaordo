@@ -12,7 +12,7 @@ func (server *Server) processFile(source, id, filename string) (mediaInfo, strin
 	if err != nil {
 		return mediaInfo{}, "", err
 	}
-	defer input.Close()
+	defer func() { _ = input.Close() }() // read-only source
 
 	stat, err := input.Stat()
 	if err != nil || stat.Size() < 1 || stat.Size() > maxUploadSize {

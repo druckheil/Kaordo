@@ -56,7 +56,7 @@ func (store *Fluo) UpdateProfile(ctx context.Context, userID string, input fluo.
 
 func writeFluoProfile(ctx context.Context, tx pgx.Tx, userID string, input fluo.ProfileUpdate) error {
 	profile := table.FluoProfiles
-	var birthday jetpg.Expression = jetpg.NULL
+	birthday := jetpg.NULL
 	if input.BirthDate != nil {
 		date, _ := time.Parse(time.DateOnly, *input.BirthDate)
 		birthday = jetpg.DateT(date)

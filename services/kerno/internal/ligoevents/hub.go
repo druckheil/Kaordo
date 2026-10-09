@@ -1,3 +1,4 @@
+// Package ligoevents relays PostgreSQL conversation notifications to server-sent event subscribers.
 package ligoevents
 
 // Distributes Ligo activity hints to subscribed user streams

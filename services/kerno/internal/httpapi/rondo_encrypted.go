@@ -2,10 +2,11 @@ package httpapi
 
 // Exposes owner metadata migration and member-scoped encrypted voice keys
 import (
+	"net/http"
+
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
 	"github.com/go-chi/chi/v5"
-	"net/http"
 )
 
 func (h rondoHandler) encryptedStore(w http.ResponseWriter) (rondo.EncryptedStore, bool) {

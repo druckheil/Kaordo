@@ -1,3 +1,4 @@
+// Package regado is Kerno's outbound adapter for the Regado agent and Prometheus.
 package regado
 
 // Queries and aggregates bounded Prometheus history independently of host actions
@@ -59,7 +60,7 @@ func (client *MetricsClient) series(ctx context.Context, query string, start, en
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Prometheus returned %d", response.StatusCode)
+		return nil, fmt.Errorf("metrics query returned status %d", response.StatusCode)
 	}
 	return decodeRangeSamples(response.Body)
 }
@@ -84,7 +85,7 @@ func decodeRangeSamples(body io.Reader) ([]sample, error) {
 		return nil, err
 	}
 	if result.Status != "success" {
-		return nil, errors.New("Prometheus query failed")
+		return nil, errors.New("metrics query failed")
 	}
 	if len(result.Data.Result) == 0 {
 		return []sample{}, nil

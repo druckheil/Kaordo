@@ -4,9 +4,10 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
+
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/google/uuid"
-	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
@@ -14,15 +15,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func insertRondoChannel(ctx context.Context, tx pgx.Tx, serverID, ownerID, name string) (rondo.Channel, error) {
-	return insertEncryptedRondoChannel(ctx, tx, serverID, ownerID, "", name)
-}
 func insertEncryptedRondoChannel(ctx context.Context, tx pgx.Tx, serverID, ownerID, id, name string) (rondo.Channel, error) {
 	if id == "" {
 		id = uuid.NewString()
 	}
 	if strings.HasPrefix(name, encryption.TextPrefix) {
-		audience, err := encryptionAudience(ctx, tx, ownerID, "rondo", serverID, false, "")
+		audience, err := encryptionAudience(ctx, tx, ownerID, "rondo", serverID, false)
 		if err != nil {
 			return rondo.Channel{}, err
 		}

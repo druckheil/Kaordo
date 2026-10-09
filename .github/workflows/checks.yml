@@ -142,6 +142,15 @@ jobs:
           go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
           go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
           go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          install-only: true
+      - name: Lint Go modules
+        run: |
+          for module in kerno nodo mediaauth regado-agent; do
+            (cd "services/$module" && golangci-lint run --config ../../.golangci.yml ./...)
+          done
       - name: Lint GitHub Actions workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/checks.yml
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6

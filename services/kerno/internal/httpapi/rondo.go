@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
@@ -83,19 +82,6 @@ func rondoSearch(w http.ResponseWriter, r *http.Request) (string, bool) {
 		return "", false
 	}
 	return search, true
-}
-
-func rondoName(value string, maximum int) bool {
-	count := utf8.RuneCountInString(value)
-	if count < 1 || count > maximum {
-		return false
-	}
-	for _, letter := range value {
-		if unicode.IsControl(letter) {
-			return false
-		}
-	}
-	return true
 }
 
 func (h rondoHandler) list(w http.ResponseWriter, r *http.Request) {

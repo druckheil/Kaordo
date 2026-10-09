@@ -66,13 +66,13 @@ func NewHandler(config Config) (*Server, error) {
 }
 
 // Close stops background work after the HTTP server has drained active requests.
-func (server *Server) Close() error {
+// Close stops maintenance and waits for background processing to finish
+func (server *Server) Close() {
 	server.maintenanceMu.Lock()
 	server.closing = true
 	server.cancel()
 	server.maintenanceMu.Unlock()
 	server.workers.Wait()
-	return nil
 }
 
 func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -81,10 +81,10 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func normalizeConfig(config Config) (Config, error) {
 	if config.Directory == "" || len(config.MediaKey) != 32 {
-		return Config{}, errors.New("Nodo data directory and 32-byte media key are required")
+		return Config{}, errors.New("a data directory and a 32-byte media key are required")
 	}
 	if config.KernoURL == "" && config.VerifyOwner == nil {
-		return Config{}, errors.New("Kerno internal URL is required")
+		return Config{}, errors.New("the internal Kerno URL is required")
 	}
 	if err := os.MkdirAll(config.Directory, 0700); err != nil {
 		return Config{}, err
@@ -96,7 +96,7 @@ func normalizeConfig(config Config) (Config, error) {
 	config.Directory = absoluteDirectory
 	applyQuotaDefaults(&config)
 	if config.MaxOwnerUploads < 1 || config.MaxOwnerBytes < maxUploadSize {
-		return Config{}, errors.New("Nodo owner quota configuration is invalid")
+		return Config{}, errors.New("owner quota configuration is invalid")
 	}
 	return config, nil
 }

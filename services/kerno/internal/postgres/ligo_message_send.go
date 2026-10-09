@@ -24,7 +24,7 @@ func (store *Ligo) Send(ctx context.Context, actorID, conversationID string, inp
 		return ligo.Message{}, err
 	}
 	if envelope, parseErr := encryption.ParseText(input.Text); parseErr == nil {
-		audience, err := encryptionAudience(ctx, tx, actorID, "ligo", conversationID, false, "")
+		audience, err := encryptionAudience(ctx, tx, actorID, "ligo", conversationID, false)
 		if err != nil {
 			return ligo.Message{}, err
 		}
@@ -176,7 +176,7 @@ func attachMessageMedia(ctx context.Context, tx pgx.Tx, messageID string, media 
 			messageMedia.Kind, messageMedia.MimeType, messageMedia.Filename, messageMedia.Width, messageMedia.Height,
 			messageMedia.SizeBytes, messageMedia.AltText).VALUES(jetUUID(messageID), jetUUID(item.ID), jetpg.Int(int64(position)),
 			jetpg.String(item.Kind), jetpg.String(item.MimeType), jetpg.String(item.Filename), jetpg.Int(int64(item.Width)),
-			jetpg.Int(int64(item.Height)), jetpg.Int(int64(item.Size)), jetpg.String(item.AltText)))
+			jetpg.Int(int64(item.Height)), jetpg.Int(item.Size), jetpg.String(item.AltText)))
 		if err != nil {
 			return err
 		}
@@ -191,5 +191,5 @@ func publishConversationActivity(ctx context.Context, tx pgx.Tx, conversationID 
 	).WHERE(conversations.ID.EQ(jetUUID(conversationID)))); err != nil {
 		return err
 	}
-	return jetNotify(ctx, tx, "ligo_activity", conversationID)
+	return notifyLigoActivity(ctx, tx, conversationID)
 }

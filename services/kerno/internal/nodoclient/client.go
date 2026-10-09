@@ -1,3 +1,4 @@
+// Package nodoclient is Kerno's outbound adapter for Nodo upload metadata, purging and storage.
 package nodoclient
 
 // Calls Nodo to validate uploads and purge retired media
@@ -40,7 +41,7 @@ func (client Client) Purge(ctx context.Context, id string) error {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("Nodo cleanup returned status %d", response.StatusCode)
+		return fmt.Errorf("media purge in Nodo returned status %d", response.StatusCode)
 	}
 	return nil
 }
@@ -61,7 +62,7 @@ func (client Client) ValidateLigo(ctx context.Context, bearer, id string) (ligo.
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return ligo.Media{}, fmt.Errorf("Nodo rejected upload metadata with status %d", response.StatusCode)
+		return ligo.Media{}, fmt.Errorf("upload metadata request to Nodo returned status %d", response.StatusCode)
 	}
 	var result struct {
 		ligo.Media
@@ -109,7 +110,7 @@ func (client Client) Validate(ctx context.Context, bearer, id string) (fluo.Medi
 	}
 	// Post attachments are opaque encrypted files; profile images remain public photos.
 	if item.Kind != "image" && item.Kind != "video" && item.Kind != "file" {
-		return fluo.Media{}, errors.New("Fluo requires a photo, video or encrypted file")
+		return fluo.Media{}, errors.New("attachment must be a photo, video or encrypted file")
 	}
 	return fluo.Media{ID: item.ID, Kind: item.Kind, MimeType: item.MimeType,
 		Width: item.Width, Height: item.Height, Size: item.Size}, nil

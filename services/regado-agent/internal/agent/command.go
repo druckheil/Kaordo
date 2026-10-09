@@ -36,7 +36,7 @@ func runCommand(ctx context.Context, args ...string) (string, error) {
 		return "", errors.New("missing command")
 	}
 
-	command := exec.CommandContext(ctx, args[0], args[1:]...)
+	command := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec // callers pass fixed binaries and validated device paths
 	var output bytes.Buffer
 	writer := &limitWriter{writer: &output, remaining: 1 << 20}
 	command.Stdout, command.Stderr = writer, writer

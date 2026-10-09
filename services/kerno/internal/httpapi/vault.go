@@ -3,12 +3,13 @@ package httpapi
 // Exposes authenticated owner-only opaque reads and revision-checked encrypted transactions
 import (
 	"errors"
+	"log"
+	"net/http"
+
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/vault"
 	"github.com/go-chi/chi/v5"
-	"log"
-	"net/http"
 )
 
 type VaultDependencies struct{ Store vault.Store }

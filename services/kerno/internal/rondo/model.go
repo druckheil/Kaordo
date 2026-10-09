@@ -1,3 +1,4 @@
+// Package rondo defines Rondo communities, channels, voice keys and their persistence contract.
 package rondo
 
 // Defines Rondo API models, store operations, and domain errors
@@ -14,8 +15,8 @@ var (
 	ErrNotFound  = errors.New("server or channel not found")
 	ErrForbidden = errors.New("server ownership or membership required")
 	ErrInvalid   = errors.New("invalid Rondo request")
-	ErrConflict  = errors.New("Rondo resource already exists")
-	ErrLimit     = errors.New("Rondo capacity limit reached")
+	ErrConflict  = errors.New("community resource already exists")
+	ErrLimit     = errors.New("community capacity limit reached")
 )
 
 // Server is a Rondo server and the current user's membership state

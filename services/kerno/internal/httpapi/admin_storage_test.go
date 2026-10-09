@@ -28,7 +28,7 @@ func (fixture *storageAdminFixture) Snapshot(context.Context) (json.RawMessage, 
 	return json.RawMessage(`{"replicationReports":[]}`), nil
 }
 func (*storageAdminFixture) Logs(context.Context, string) (json.RawMessage, error) { return nil, nil }
-func (fixture *storageAdminFixture) Action(_ context.Context, action string, request admin.ActionRequest) (json.RawMessage, error) {
+func (fixture *storageAdminFixture) Action(_ context.Context, _ string, request admin.ActionRequest) (json.RawMessage, error) {
 	fixture.actions++
 	if fixture.store.records != 1 {
 		return nil, errors.New("operation reached the agent before audit")

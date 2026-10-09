@@ -1,3 +1,4 @@
+// Package httpapi exposes Kerno over HTTP, coordinating authentication, authorization and feature stores.
 package httpapi
 
 // Handles application account bootstrap and current identity

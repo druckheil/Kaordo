@@ -55,12 +55,12 @@ func (v CardContent) Validate() error {
 	return nil
 }
 
-func ValidText(v string, min, max int) bool {
+func ValidText(v string, minimum, maximum int) bool {
 	if !utf8.ValidString(v) {
 		return false
 	}
 	n := utf8.RuneCountInString(v)
-	if n < min || n > max {
+	if n < minimum || n > maximum {
 		return false
 	}
 	for _, r := range v {

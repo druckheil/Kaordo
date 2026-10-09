@@ -50,7 +50,7 @@ func (h fluoHandler) purgeRetiredMedia(parent context.Context, ids []string) {
 	defer cancel()
 	for _, id := range ids {
 		if err := h.deps.Media.Purge(ctx, id); err != nil {
-			log.Printf("Kerno deferred media cleanup for %s: %v", id, err)
+			log.Printf("Kerno deferred media cleanup for %q: %v", id, err) //nolint:gosec // validated UUID, quoted
 			return
 		}
 	}

@@ -1,3 +1,4 @@
+// Package encryption validates device-encrypted envelopes, identities and key transfers without opening them.
 package encryption
 
 // Validates signed content envelopes while never opening their ciphertext or recipient keys

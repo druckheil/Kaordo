@@ -21,7 +21,7 @@ func (client Client) StorageStatus(ctx context.Context) (json.RawMessage, error)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Nodo storage status returned %d", response.StatusCode)
+		return nil, fmt.Errorf("storage status request to Nodo returned %d", response.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, 16384))
 	if err != nil {
@@ -44,7 +44,7 @@ func (client Client) StartStorageMaintenance(ctx context.Context, repair bool) e
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("Nodo storage operation returned %d", response.StatusCode)
+		return fmt.Errorf("storage operation in Nodo returned %d", response.StatusCode)
 	}
 	return nil
 }

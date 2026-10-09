@@ -236,14 +236,15 @@ func layoutPoolPreflight(ctx context.Context, run commandRunner, request layoutR
 		if step.Role != "storage" {
 			continue
 		}
-		if step.Kind == "resize" {
+		switch step.Kind {
+		case "resize":
 			if !containsPath(pool.Members, step.Source) {
 				return errors.New("the selected pool does not own this Storage partition")
 			}
 			if _, err := repairPreflight(ctx, run, request.Filesystem); err != nil {
 				return err
 			}
-		} else if step.Kind == "create" || step.Kind == "activate" {
+		case "create", "activate":
 			for _, member := range pool.Members {
 				if diskContainsPath(device, member) {
 					return errors.New("the physical device already participates in this pool")

@@ -144,11 +144,10 @@ func (h encryptionHandler) audience(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
-	parent := r.URL.Query().Get("parentId")
-	if !encryption.ValidID(id) || (parent != "" && !encryption.ValidID(parent)) {
-		writeError(w, http.StatusBadRequest, "Use valid audience IDs.")
+	if !encryption.ValidID(id) {
+		writeError(w, http.StatusBadRequest, "Use a valid audience ID.")
 		return
 	}
-	item, err := h.store.Audience(r.Context(), actor.ID, chi.URLParam(r, "module"), id, r.URL.Query().Get("private") == "true", parent)
+	item, err := h.store.Audience(r.Context(), actor.ID, chi.URLParam(r, "module"), id, r.URL.Query().Get("private") == "true")
 	encryptionResponse(w, item, err)
 }

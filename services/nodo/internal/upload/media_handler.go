@@ -88,7 +88,7 @@ func (server *Server) serveMedia(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }() // read-only media
 	setMediaHeaders(w, item)
 	http.ServeContent(w, r, id, stat.ModTime(), file)
 }

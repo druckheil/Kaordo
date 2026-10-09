@@ -137,7 +137,7 @@ func (store *Ligo) Edit(ctx context.Context, actorID, conversationID, messageID,
 		if envelope.Context != "ligo:"+conversationID+":"+clientID {
 			return ligo.Message{}, encryption.ErrInvalid
 		}
-		audience, err := encryptionAudience(ctx, tx, actorID, "ligo-history", messageID, false, "")
+		audience, err := encryptionAudience(ctx, tx, actorID, "ligo-history", messageID, false)
 		if err != nil {
 			return ligo.Message{}, err
 		}
@@ -167,7 +167,7 @@ func (store *Ligo) Edit(ctx context.Context, actorID, conversationID, messageID,
 	).WHERE(conversations.ID.EQ(jetUUID(conversationID)))); err != nil {
 		return ligo.Message{}, err
 	}
-	if err := jetNotify(ctx, tx, "ligo_activity", conversationID); err != nil {
+	if err := notifyLigoActivity(ctx, tx, conversationID); err != nil {
 		return ligo.Message{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

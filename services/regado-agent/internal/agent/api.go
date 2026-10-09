@@ -1,3 +1,4 @@
+// Package agent implements the Regado agent's storage, journal, snapshot and partition operations.
 package agent
 
 // Defines HTTP routes, allowlisted actions, mount validation, and journal parsing

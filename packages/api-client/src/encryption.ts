@@ -30,11 +30,10 @@ export function createEncryptionApi(baseUrl: string) {
 			module: AudienceModule,
 			id: string,
 			privateContent = false,
-			parentId?: string,
 			signal?: AbortSignal
 		) {
 			const { data, error, response } = await client.GET('/v1/crypto/audience/{module}/{id}', {
-				params: { path: { module, id }, query: { private: privateContent, parentId } },
+				params: { path: { module, id }, query: { private: privateContent } },
 				signal
 			});
 			return requireResponseData(data, error, response.status);

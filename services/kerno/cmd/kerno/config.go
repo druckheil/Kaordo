@@ -1,3 +1,4 @@
+// Command kerno serves the Kaordo application API and coordinates access to encrypted user content.
 package main
 
 // Loads and validates Kerno environment configuration

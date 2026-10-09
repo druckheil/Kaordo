@@ -1,3 +1,4 @@
+// Package lingvo serves the embedded German starter catalog for device-encrypted dictionaries.
 package lingvo
 
 // Loads original German starter sets and resolves their native-language translations

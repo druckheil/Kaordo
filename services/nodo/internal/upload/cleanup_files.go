@@ -1,3 +1,4 @@
+// Package upload implements Nodo's tus uploads, media processing, quotas and storage maintenance.
 package upload
 
 // Removes upload artifacts and updates the per-owner usage index

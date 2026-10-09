@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/google/uuid"
 	"sort"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
@@ -185,7 +186,7 @@ func (store *Ligo) CreateConversation(ctx context.Context, actorID string, input
 	if err := addConversationMembers(ctx, tx, id, ids); err != nil {
 		return ligo.Conversation{}, err
 	}
-	if err := jetNotify(ctx, tx, "ligo_activity", id); err != nil {
+	if err := notifyLigoActivity(ctx, tx, id); err != nil {
 		return ligo.Conversation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

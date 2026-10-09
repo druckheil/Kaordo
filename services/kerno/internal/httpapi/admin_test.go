@@ -14,8 +14,8 @@ import (
 )
 
 type adminStub struct {
-	summaryCalls, records, reads int
-	recordError                  error
+	summaryCalls, records int
+	recordError           error
 }
 
 func (store *adminStub) Summary(context.Context) (admin.Summary, error) {

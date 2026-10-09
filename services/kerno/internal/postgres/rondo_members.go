@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"errors"
+
 	"github.com/google/uuid"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"

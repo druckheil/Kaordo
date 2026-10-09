@@ -1,8 +1,10 @@
+// Package vault defines owner-only opaque records with revision-checked writes.
 package vault
 
 // Defines bounded owner-only ciphertext transactions with optimistic concurrency
 import (
 	"context"
+
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 )
 
@@ -42,7 +44,7 @@ func (input Transaction) Validate() error {
 		if write.Revision < 0 {
 			return encryption.ErrInvalid
 		}
-		if err := write.PrivateEnvelope.Validate(2097152); err != nil {
+		if err := write.Validate(2097152); err != nil {
 			return err
 		}
 	}

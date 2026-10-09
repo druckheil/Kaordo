@@ -14,7 +14,7 @@ import (
 )
 
 func (server *Server) referenced(ctx context.Context, id string) (bool, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, //nolint:gosec // operator-configured internal Kerno URL
 		strings.TrimRight(server.config.KernoURL, "/")+"/v1/internal/media/"+id+"/referenced", nil)
 	if err != nil {
 		return false, err
@@ -25,14 +25,14 @@ func (server *Server) referenced(ctx context.Context, id string) (bool, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
-	response, err := client.Do(request)
+	response, err := client.Do(request) //nolint:gosec // operator-configured internal Kerno URL
 	if err != nil {
 		return false, err
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return false, errors.New("Kerno reference check failed")
+		return false, errors.New("reference check in Kerno failed")
 	}
 	return decodeReferenceStatus(response.Body)
 }
@@ -45,7 +45,7 @@ func decodeReferenceStatus(body io.Reader) (bool, error) {
 		return false, err
 	}
 	if result.Referenced == nil {
-		return false, errors.New("Kerno reference response is missing referenced state")
+		return false, errors.New("reference response is missing its referenced state")
 	}
 	return *result.Referenced, nil
 }

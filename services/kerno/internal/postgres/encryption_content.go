@@ -28,10 +28,10 @@ func publicEncryptionIdentity(ctx context.Context, executor jetExecutor, userID 
 func (s *Encryption) PublicIdentity(ctx context.Context, userID string) (encryption.PublicIdentity, error) {
 	return publicEncryptionIdentity(ctx, s.pool, userID)
 }
-func (s *Encryption) Audience(ctx context.Context, actorID, module, id string, private bool, parentID string) (encryption.Audience, error) {
-	return encryptionAudience(ctx, s.pool, actorID, module, id, private, parentID)
+func (s *Encryption) Audience(ctx context.Context, actorID, module, id string, private bool) (encryption.Audience, error) {
+	return encryptionAudience(ctx, s.pool, actorID, module, id, private)
 }
-func encryptionAudience(ctx context.Context, executor jetExecutor, actorID, module, id string, private bool, parentID string) (encryption.Audience, error) {
+func encryptionAudience(ctx context.Context, executor jetExecutor, actorID, module, id string, private bool) (encryption.Audience, error) {
 	result := encryption.Audience{Users: make([]encryption.PublicIdentity, 0)}
 	ids := []string{actorID}
 	switch module {

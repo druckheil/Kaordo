@@ -24,7 +24,7 @@ func maintenanceFixture(t *testing.T, references http.HandlerFunc) *Server {
 	server := &Server{config: Config{Directory: t.TempDir(), KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}, ctx: ctx, cancel: cancel}
 	server.quota = &uploadQuota{directory: server.config.Directory}
 	server.handler = server.routes()
-	t.Cleanup(func() { _ = server.Close() })
+	t.Cleanup(server.Close)
 	return server
 }
 
@@ -135,7 +135,7 @@ func TestMaintenanceNoticesMissingMediaAndRechecksFreshness(t *testing.T) {
 
 func TestStorageMaintenanceRequiresInternalAuthAndRunsOutsideRequests(t *testing.T) {
 	entered := make(chan struct{})
-	server := maintenanceFixture(t, func(w http.ResponseWriter, r *http.Request) {
+	server := maintenanceFixture(t, func(_ http.ResponseWriter, r *http.Request) {
 		close(entered)
 		<-r.Context().Done()
 	})
@@ -166,7 +166,7 @@ func TestStorageMaintenanceRequiresInternalAuthAndRunsOutsideRequests(t *testing
 	if response.Code != 409 {
 		t.Fatalf("concurrent maintenance = %d", response.Code)
 	}
-	_ = server.Close()
+	server.Close()
 	server.maintenanceMu.Lock()
 	report := server.maintenance
 	server.maintenanceMu.Unlock()

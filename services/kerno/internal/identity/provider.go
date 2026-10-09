@@ -1,3 +1,4 @@
+// Package identity verifies OpenID Connect access tokens issued by Keycloak.
 package identity
 
 // Creates the OIDC provider and validates normalized identity claims

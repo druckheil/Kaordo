@@ -3,6 +3,7 @@ package postgres
 // Commits encrypted private record batches atomically without opening user content
 import (
 	"context"
+
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	"github.com/druckheil/Kaordo/services/kerno/internal/vault"

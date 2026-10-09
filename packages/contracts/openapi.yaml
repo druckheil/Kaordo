@@ -2041,7 +2041,6 @@ paths:
           }
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: private, in: query, schema: { type: boolean } }
-        - { name: parentId, in: query, schema: { type: string, format: uuid } }
       responses:
         '200':
           {

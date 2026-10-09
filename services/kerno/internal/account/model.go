@@ -1,3 +1,4 @@
+// Package account defines Kaordo accounts and their persistence contract.
 package account
 
 // Defines application identity independently of persistence and HTTP

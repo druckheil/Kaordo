@@ -2620,7 +2620,6 @@ export interface operations {
         parameters: {
             query?: {
                 private?: boolean;
-                parentId?: string;
             };
             header?: never;
             path: {

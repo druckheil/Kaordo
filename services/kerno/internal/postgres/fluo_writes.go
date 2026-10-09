@@ -189,7 +189,7 @@ func attachPostMedia(ctx context.Context, tx pgx.Tx, postID string, media []fluo
 			postMedia.Kind, postMedia.MimeType, postMedia.Width, postMedia.Height, postMedia.SizeBytes, postMedia.AltText).
 			VALUES(jetUUID(postID), jetUUID(item.ID), jetpg.Int(int64(position)), jetpg.String(item.Kind),
 				jetpg.String(item.MimeType), jetpg.Int(int64(item.Width)), jetpg.Int(int64(item.Height)),
-				jetpg.Int(int64(item.Size)), jetpg.String(item.AltText)))
+				jetpg.Int(item.Size), jetpg.String(item.AltText)))
 		if err != nil {
 			return err
 		}

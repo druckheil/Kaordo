@@ -7,8 +7,7 @@ import {
 	encryptionSession,
 	sealContent,
 	encryptedMediaSchema,
-	type EncryptedMedia,
-	type Audience
+	type EncryptedMedia
 } from '@kaordo/crypto';
 import type { ContentCodec } from './content-codec.ts';
 interface Body {
@@ -91,14 +90,7 @@ export function createLigoContent(codec: ContentCodec) {
 		}
 		return { ...value, title, lastMessage: { ...last, text } };
 	}
-	const audience = (id: string, originalId?: string) =>
-		codec.audience(originalId ? 'ligo-history' : 'ligo', originalId ?? id);
-	async function encode(
-		id: string,
-		input: LigoNewMessage,
-		originalId?: string,
-		prepared?: Audience
-	) {
+	async function encode(id: string, input: LigoNewMessage) {
 		if ([...input.text].length > 4000)
 			throw new Error('A message can contain up to 4,000 characters.');
 		const body = {
@@ -107,17 +99,7 @@ export function createLigoContent(codec: ContentCodec) {
 		};
 		return {
 			...input,
-			text: envelopeText(
-				await codec.seal(
-					body,
-					`ligo:${id}:${input.clientId}`,
-					originalId ? 'ligo-history' : 'ligo',
-					originalId ?? id,
-					false,
-					undefined,
-					prepared
-				)
-			),
+			text: envelopeText(await codec.seal(body, `ligo:${id}:${input.clientId}`, 'ligo', id)),
 			altTexts: {}
 		};
 	}
@@ -141,5 +123,5 @@ export function createLigoContent(codec: ContentCodec) {
 		);
 		return envelopeText(await sealContent({ title }, `ligo-group:${id}`, { public: false, users }));
 	}
-	return { message, conversation, audience, encode, edit, title };
+	return { message, conversation, encode, edit, title };
 }

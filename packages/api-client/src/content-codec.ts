@@ -51,10 +51,9 @@ export function createContentCodec(baseUrl: string) {
 	async function audience(
 		module: AudienceModule,
 		id: string,
-		privateContent = false,
-		parentId?: string
+		privateContent = false
 	): Promise<Audience> {
-		const result = await api.audience(module, id, privateContent, parentId, session.signal);
+		const result = await api.audience(module, id, privateContent, session.signal);
 		for (const user of result.users)
 			await pinPeerIdentity(
 				session.ownerId,
@@ -69,15 +68,9 @@ export function createContentCodec(baseUrl: string) {
 		context: string,
 		module: AudienceModule,
 		id: string,
-		privateContent = false,
-		parentId?: string,
-		prepared?: Audience
+		privateContent = false
 	) {
-		return sealContent(
-			value,
-			context,
-			prepared ?? (await audience(module, id, privateContent, parentId))
-		);
+		return sealContent(value, context, await audience(module, id, privateContent));
 	}
 	function attachments(
 		ids: string[] = [],

@@ -3,6 +3,7 @@ package agent
 // Collects host telemetry and dynamically discovered device and mount details
 import (
 	"context"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -213,8 +214,17 @@ func statMount(path string) (mount, error) {
 	if err := syscall.Statfs(path, &stat); err != nil {
 		return mount{}, err
 	}
-	total := int64(stat.Blocks) * int64(stat.Bsize)
-	free := int64(stat.Bavail) * int64(stat.Bsize)
-	used := total - int64(stat.Bfree)*int64(stat.Bsize)
+	blockSize := int64(stat.Bsize) //nolint:unconvert // Bsize is uint32 on some platforms
+	total := blocksToBytes(stat.Blocks, blockSize)
+	free := blocksToBytes(stat.Bavail, blockSize)
+	used := total - blocksToBytes(stat.Bfree, blockSize)
 	return mount{Path: path, Total: total, Used: used, Free: free, Available: true}, nil
+}
+
+// blocksToBytes saturates instead of overflowing on implausibly large filesystem reports
+func blocksToBytes(blocks uint64, blockSize int64) int64 {
+	if blockSize <= 0 || blocks > uint64(math.MaxInt64/blockSize) { //nolint:gosec // positive quotient
+		return math.MaxInt64
+	}
+	return int64(blocks) * blockSize //nolint:gosec // bounded by the check above
 }

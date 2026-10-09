@@ -39,7 +39,7 @@ func TestUploadLocationUsesProxyHTTPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = handler.Close() })
+	t.Cleanup(handler.Close)
 	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8082/v1/uploads/", nil)
 	request.Header.Set("Authorization", "Bearer alice")
 	request.Header.Set("Tus-Resumable", "1.0.0")
@@ -89,7 +89,7 @@ func TestResumableImageUploadAndAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = handler.Close() })
+	t.Cleanup(handler.Close)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	client := server.Client()
@@ -234,7 +234,7 @@ func TestResumableImageUploadAndAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = restarted.Close() })
+	t.Cleanup(restarted.Close)
 	restartedServer := httptest.NewServer(restarted)
 	defer restartedServer.Close()
 	restartPost, err := http.NewRequest(http.MethodPost, restartedServer.URL+"/v1/uploads/", nil)
@@ -314,7 +314,7 @@ func TestFourConcurrentImageUploadsAcceptMislabeledWebP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = handler.Close() })
+	t.Cleanup(handler.Close)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	client := server.Client()
@@ -490,7 +490,7 @@ func TestResumableVideoUploadAndPlayback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = handler.Close() })
+	t.Cleanup(handler.Close)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	create, err := http.NewRequest(http.MethodPost, server.URL+"/v1/uploads/", nil)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
@@ -116,53 +117,78 @@ func (s *Fluo) UpdateKeyring(ctx context.Context, ownerID string, update fluo.Ke
 	if err := lockFluoKeyring(ctx, tx, ownerID, true); err != nil {
 		return fluo.KeyringState{}, err
 	}
-	if update.Create != 0 {
-		current, _, err := currentFluoKey(ctx, tx, ownerID)
-		if err != nil {
-			return fluo.KeyringState{}, err
-		}
-		if update.Create != current+1 {
-			return fluo.KeyringState{}, fluo.ErrKeyringStale
-		}
-		if _, err := jetExec(ctx, tx, jetpg.RawStatement(`INSERT INTO fluo_keyrings (owner_id, version) VALUES (#owner::uuid, #version)`,
-			jetpg.RawArgs{"#owner": ownerID, "#version": update.Create})); err != nil {
-			return fluo.KeyringState{}, err
-		}
-	}
-	private, err := fluoAccountPrivate(ctx, tx, ownerID)
-	if err != nil {
+	if err := createFluoKeyVersion(ctx, tx, ownerID, update.Create); err != nil {
 		return fluo.KeyringState{}, err
 	}
-	for _, item := range update.Publish {
-		if private {
-			return fluo.KeyringState{}, fluo.ErrKeyringStale
-		}
-		changed, err := jetExec(ctx, tx, jetpg.RawStatement(`UPDATE fluo_keyrings SET public_key = #key
-			WHERE owner_id = #owner::uuid AND version = #version AND (public_key IS NULL OR public_key = #key)`,
-			jetpg.RawArgs{"#owner": ownerID, "#version": item.Version, "#key": item.Key}))
-		if err != nil {
-			return fluo.KeyringState{}, err
-		}
-		if changed.RowsAffected() == 0 {
-			return fluo.KeyringState{}, fluo.ErrKeyringStale
-		}
+	if err := publishFluoKeys(ctx, tx, ownerID, update.Publish); err != nil {
+		return fluo.KeyringState{}, err
 	}
-	for _, item := range update.Grants {
-		// Grants for accounts unfollowed meanwhile are skipped; the next reconciliation reflects current follows.
-		if _, err := jetExec(ctx, tx, jetpg.RawStatement(`INSERT INTO fluo_keyring_grants (owner_id, version, recipient_id, sealed_key)
-			SELECT #owner::uuid, #version, #recipient::uuid, #key
-			WHERE EXISTS (SELECT 1 FROM fluo_follows WHERE follower_id = #owner::uuid AND followed_id = #recipient::uuid)
-			  AND EXISTS (SELECT 1 FROM fluo_keyrings WHERE owner_id = #owner::uuid AND version = #version)
-			ON CONFLICT DO NOTHING`,
-			jetpg.RawArgs{"#owner": ownerID, "#version": item.Version, "#recipient": item.RecipientID, "#key": item.SealedKey})); err != nil {
-			return fluo.KeyringState{}, err
-		}
+	if err := grantFluoKeys(ctx, tx, ownerID, update.Grants); err != nil {
+		return fluo.KeyringState{}, err
 	}
 	state, err := fluoKeyringState(ctx, tx, ownerID)
 	if err != nil {
 		return state, err
 	}
 	return state, tx.Commit(ctx)
+}
+
+// createFluoKeyVersion records the next version; 0 means no new version was requested
+func createFluoKeyVersion(ctx context.Context, tx pgx.Tx, ownerID string, version int) error {
+	if version == 0 {
+		return nil
+	}
+	current, _, err := currentFluoKey(ctx, tx, ownerID)
+	if err != nil {
+		return err
+	}
+	if version != current+1 {
+		return fluo.ErrKeyringStale
+	}
+	_, err = jetExec(ctx, tx, jetpg.RawStatement(`INSERT INTO fluo_keyrings (owner_id, version) VALUES (#owner::uuid, #version)`,
+		jetpg.RawArgs{"#owner": ownerID, "#version": version}))
+	return err
+}
+
+// publishFluoKeys exposes key versions, which only a public account may do
+func publishFluoKeys(ctx context.Context, tx pgx.Tx, ownerID string, keys []fluo.PublishedKey) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	private, err := fluoAccountPrivate(ctx, tx, ownerID)
+	if err != nil {
+		return err
+	}
+	if private {
+		return fluo.ErrKeyringStale
+	}
+	for _, item := range keys {
+		changed, err := jetExec(ctx, tx, jetpg.RawStatement(`UPDATE fluo_keyrings SET public_key = #key
+			WHERE owner_id = #owner::uuid AND version = #version AND (public_key IS NULL OR public_key = #key)`,
+			jetpg.RawArgs{"#owner": ownerID, "#version": item.Version, "#key": item.Key}))
+		if err != nil {
+			return err
+		}
+		if changed.RowsAffected() == 0 {
+			return fluo.ErrKeyringStale
+		}
+	}
+	return nil
+}
+
+// grantFluoKeys stores sealed copies; accounts unfollowed meanwhile are skipped until the next reconciliation
+func grantFluoKeys(ctx context.Context, tx pgx.Tx, ownerID string, grants []fluo.KeyGrant) error {
+	for _, item := range grants {
+		if _, err := jetExec(ctx, tx, jetpg.RawStatement(`INSERT INTO fluo_keyring_grants (owner_id, version, recipient_id, sealed_key)
+			SELECT #owner::uuid, #version, #recipient::uuid, #key
+			WHERE EXISTS (SELECT 1 FROM fluo_follows WHERE follower_id = #owner::uuid AND followed_id = #recipient::uuid)
+			  AND EXISTS (SELECT 1 FROM fluo_keyrings WHERE owner_id = #owner::uuid AND version = #version)
+			ON CONFLICT DO NOTHING`,
+			jetpg.RawArgs{"#owner": ownerID, "#version": item.Version, "#recipient": item.RecipientID, "#key": item.SealedKey})); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Fluo) Keys(ctx context.Context, viewerID string, refs []encryption.KeyRef) ([]fluo.KeyMaterial, error) {
@@ -172,7 +198,7 @@ func (s *Fluo) Keys(ctx context.Context, viewerID string, refs []encryption.KeyR
 	owners := make([]string, len(refs))
 	versions := make([]int32, len(refs))
 	for index, ref := range refs {
-		if !fluo.ValidID(ref.OwnerID) || ref.Version < 1 {
+		if !fluo.ValidID(ref.OwnerID) || ref.Version < 1 || ref.Version > math.MaxInt32 {
 			return nil, fluo.ErrInvalidKeyring
 		}
 		owners[index], versions[index] = ref.OwnerID, int32(ref.Version)
@@ -203,15 +229,8 @@ func (s *Fluo) Keys(ctx context.Context, viewerID string, refs []encryption.KeyR
 
 // verifyFluoPostKeyring requires the author's current audience key plus every other key protecting the parent
 func verifyFluoPostKeyring(ctx context.Context, tx pgx.Tx, actorID, visibility string, parentID *string, content json.RawMessage) error {
-	envelope, err := encryption.ParseKeyring(content)
-	if err != nil || envelope.SenderID != actorID {
-		return encryption.ErrInvalid
-	}
-	identity, err := publicEncryptionIdentity(ctx, tx, actorID)
+	envelope, err := signedFluoEnvelope(ctx, tx, actorID, content)
 	if err != nil {
-		return err
-	}
-	if err := envelope.Verify(identity.SigningPublicKey); err != nil {
 		return err
 	}
 	own, _ := envelope.Ref(actorID)
@@ -221,6 +240,38 @@ func verifyFluoPostKeyring(ctx context.Context, tx pgx.Tx, actorID, visibility s
 		}
 		return nil
 	}
+	if err := requireCurrentFluoKey(ctx, tx, actorID, own.Version); err != nil {
+		return err
+	}
+	inherited, err := inheritedFluoKeys(ctx, tx, actorID, parentID)
+	if err != nil {
+		return err
+	}
+	if len(envelope.Keyring) != len(inherited)+1 {
+		return encryption.ErrInvalid
+	}
+	for _, ref := range envelope.Keyring {
+		if version, ok := inherited[ref.OwnerID]; ref.OwnerID != actorID && (!ok || version != ref.Version) {
+			return encryption.ErrInvalid
+		}
+	}
+	return nil
+}
+
+func signedFluoEnvelope(ctx context.Context, tx pgx.Tx, actorID string, content json.RawMessage) (encryption.KeyringEnvelope, error) {
+	envelope, err := encryption.ParseKeyring(content)
+	if err != nil || envelope.SenderID != actorID {
+		return envelope, encryption.ErrInvalid
+	}
+	identity, err := publicEncryptionIdentity(ctx, tx, actorID)
+	if err != nil {
+		return envelope, err
+	}
+	return envelope, envelope.Verify(identity.SigningPublicKey)
+}
+
+// requireCurrentFluoKey rejects stale versions and a published key used after the account became private
+func requireCurrentFluoKey(ctx context.Context, tx pgx.Tx, actorID string, version int) error {
 	current, published, err := currentFluoKey(ctx, tx, actorID)
 	if err != nil {
 		return err
@@ -229,33 +280,31 @@ func verifyFluoPostKeyring(ctx context.Context, tx pgx.Tx, actorID, visibility s
 	if err != nil {
 		return err
 	}
-	if current == 0 || own.Version != current || private && published {
+	if current == 0 || version != current || private && published {
 		return fluo.ErrKeyringStale
 	}
-	expected := map[string]int{}
-	if parentID != nil {
-		var raw []byte
-		if err := jetQueryRow(ctx, tx, jetpg.RawStatement(`SELECT content FROM fluo_posts WHERE id = #parent::uuid`,
-			jetpg.RawArgs{"#parent": *parentID})).Scan(&raw); err != nil {
-			return err
-		}
-		parent, err := encryption.ParseKeyring(raw)
-		if err != nil {
-			return err
-		}
-		for _, ref := range parent.Keyring {
-			if ref.OwnerID != actorID {
-				expected[ref.OwnerID] = ref.Version
-			}
-		}
-	}
-	if len(envelope.Keyring) != len(expected)+1 {
-		return encryption.ErrInvalid
-	}
-	for _, ref := range envelope.Keyring {
-		if version, ok := expected[ref.OwnerID]; ref.OwnerID != actorID && (!ok || version != ref.Version) {
-			return encryption.ErrInvalid
-		}
-	}
 	return nil
+}
+
+// inheritedFluoKeys returns the parent's audience keys other than the replying author's own
+func inheritedFluoKeys(ctx context.Context, tx pgx.Tx, actorID string, parentID *string) (map[string]int, error) {
+	inherited := map[string]int{}
+	if parentID == nil {
+		return inherited, nil
+	}
+	var raw []byte
+	if err := jetQueryRow(ctx, tx, jetpg.RawStatement(`SELECT content FROM fluo_posts WHERE id = #parent::uuid`,
+		jetpg.RawArgs{"#parent": *parentID})).Scan(&raw); err != nil {
+		return nil, err
+	}
+	parent, err := encryption.ParseKeyring(raw)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range parent.Keyring {
+		if ref.OwnerID != actorID {
+			inherited[ref.OwnerID] = ref.Version
+		}
+	}
+	return inherited, nil
 }

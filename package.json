@@ -43,7 +43,8 @@
 		"test:ui": "playwright test --project=browser",
 		"test:ui:browsers": "playwright test --config=playwright.audit.config.mjs",
 		"test:integration": "KAORDO_START_SERVICES=1 playwright test --project=live --workers=1 --reporter=line",
-		"lint": "eslint ."
+		"lint": "eslint .",
+		"lint:go": "for module in kerno nodo mediaauth regado-agent; do (cd services/$module && golangci-lint run --config ../../.golangci.yml ./...) || exit 1; done"
 	},
 	"devDependencies": {
 		"@axe-core/playwright": "^4.13.0",

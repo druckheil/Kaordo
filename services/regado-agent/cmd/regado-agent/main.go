@@ -1,3 +1,4 @@
+// Command regado-agent exposes fixed host operations to Kerno over a protected Unix socket.
 package main
 
 // Configures the local Unix socket and starts the agent HTTP server
@@ -33,8 +34,10 @@ func run() error {
 		defer cancel()
 		return agent.MountSystemVolumes(ctx)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	path := socketPath()
-	listener, err := listenOnUnixSocket(path)
+	listener, err := listenOnUnixSocket(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -43,8 +46,6 @@ func run() error {
 	handler := agent.NewHandler()
 	defer handler.Close()
 	server := newHTTPServer(handler)
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	log.Printf("Regado agent listening on %s", path)
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(listener) }()
@@ -74,16 +75,17 @@ func socketPath() string {
 	return defaultSocketPath
 }
 
-func listenOnUnixSocket(path string) (net.Listener, error) {
+func listenOnUnixSocket(ctx context.Context, path string) (net.Listener, error) {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("remove stale socket %q: %w", path, err)
 	}
 
-	listener, err := net.Listen("unix", path)
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "unix", path)
 	if err != nil {
 		return nil, fmt.Errorf("listen on Unix socket %q: %w", path, err)
 	}
-	if err := os.Chmod(path, 0660); err != nil {
+	// Kerno connects through the socket group; other users have no access
+	if err := os.Chmod(path, 0660); err != nil { //nolint:gosec // group access is the socket's authorization boundary
 		_ = listener.Close()
 		return nil, fmt.Errorf("set permissions on Unix socket %q: %w", path, err)
 	}
