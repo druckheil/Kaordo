@@ -4,8 +4,9 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -21,7 +22,8 @@ const (
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatal(err)
+		slog.Error("stopped", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -57,7 +59,7 @@ func run() error {
 func serve(ctx context.Context, server *http.Server) error {
 	result := make(chan error, 1)
 	go func() { result <- server.ListenAndServe() }()
-	log.Printf("Kerno listening on %s", server.Addr)
+	slog.Info("Kerno listening", "addr", server.Addr)
 
 	select {
 	case err := <-result:

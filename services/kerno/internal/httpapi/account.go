@@ -4,7 +4,7 @@ package httpapi
 // Handles application account bootstrap and current identity
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
@@ -30,7 +30,7 @@ func createSession(w http.ResponseWriter, r *http.Request, verify VerifyFunc, us
 	}
 	user, err := users.Upsert(r.Context(), claims.Subject, claims.Username, claims.Name)
 	if err != nil {
-		log.Printf("account record upsert failed: %v", err)
+		slog.Error("account record upsert failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "Could not create the account record.")
 		return
 	}

@@ -3,7 +3,7 @@ package httpapi
 // Validates Fluo attachments and decorates authorized media responses
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -50,7 +50,7 @@ func (h fluoHandler) purgeRetiredMedia(parent context.Context, ids []string) {
 	defer cancel()
 	for _, id := range ids {
 		if err := h.deps.Media.Purge(ctx, id); err != nil {
-			log.Printf("Kerno deferred media cleanup for %q: %v", id, err) //nolint:gosec // validated UUID, quoted
+			slog.Warn("Fluo media cleanup deferred", "upload", id, "err", err)
 			return
 		}
 	}
@@ -89,7 +89,7 @@ func (h fluoHandler) validatePostMedia(w http.ResponseWriter, r *http.Request, i
 		media = append(media, item)
 	}
 	if err := inputs.validateReferences(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeInvalid(w, err)
 		return nil, false
 	}
 	return media, true
@@ -98,7 +98,7 @@ func (h fluoHandler) validatePostMedia(w http.ResponseWriter, r *http.Request, i
 func (h fluoHandler) validatePostAttachment(w http.ResponseWriter, r *http.Request, id string, inputs attachmentInputs) (fluo.Media, bool) {
 	altText, err := inputs.normalize(id)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeInvalid(w, err)
 		return fluo.Media{}, false
 	}
 	if h.deps.Media == nil {

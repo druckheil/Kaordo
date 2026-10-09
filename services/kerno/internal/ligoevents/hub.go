@@ -4,7 +4,7 @@ package ligoevents
 // Distributes Ligo activity hints to subscribed user streams
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -112,7 +112,7 @@ func (hub *Hub) run(ctx context.Context, dsn string) {
 		if ctx.Err() != nil {
 			return
 		}
-		log.Printf("Ligo event listener reconnecting: %v", err)
+		slog.Warn("Ligo event listener reconnecting", "err", err)
 		hub.resync()
 		if !waitForReconnect(ctx) {
 			return

@@ -4,7 +4,7 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -139,7 +139,7 @@ func memoroResponse(w http.ResponseWriter, value any, err error) {
 	case errors.Is(err, memoro.ErrLimit):
 		writeError(w, http.StatusConflict, "A month can contain up to 31 day records.")
 	default:
-		log.Printf("Memoro request failed: %v", err)
+		slog.Error("Memoro request failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "Memoro could not complete the request.")
 	}
 }

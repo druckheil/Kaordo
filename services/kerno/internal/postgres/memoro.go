@@ -70,17 +70,17 @@ func (s *Memoro) Day(ctx context.Context, actorID, dayTag string) (*memoro.Day, 
 	}
 	return memoroDay(ctx, s.pool, actorID, dayTag)
 }
+
+// SaveDay writes one day's document at the expected revision and replaces its attachments
 func (s *Memoro) SaveDay(ctx context.Context, actorID, dayTag string, input memoro.DayUpdate, media []memoro.Media) (memoro.Day, error) {
+	if !memoro.ValidTag(dayTag) {
+		return memoro.Day{}, memoro.ErrInvalid
+	}
 	if err := input.Validate(); err != nil {
 		return memoro.Day{}, err
 	}
-	if !memoro.ValidTag(dayTag) || len(media) != len(input.AttachmentIDs) {
-		return memoro.Day{}, memoro.ErrInvalid
-	}
-	for i, item := range media {
-		if item.ID != input.AttachmentIDs[i] || item.Size < 17 || item.Size > 104857600 {
-			return memoro.Day{}, memoro.ErrInvalid
-		}
+	if err := input.ValidateMedia(media); err != nil {
+		return memoro.Day{}, err
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -94,56 +94,80 @@ func (s *Memoro) SaveDay(ctx context.Context, actorID, dayTag string, input memo
 	if err != nil {
 		return memoro.Day{}, err
 	}
-	if (previous == nil && input.Revision != 0) || (previous != nil && (previous.Revision != input.Revision || previous.MonthTag != input.MonthTag)) {
-		return memoro.Day{}, memoro.ErrConflict
-	}
-	d := table.MemoroDays
-	if previous == nil {
-		var count int
-		if err := jetQueryRow(ctx, tx, d.SELECT(jetpg.COUNT(d.DayTag)).WHERE(jetpg.AND(d.UserID.EQ(jetUUID(actorID)), d.MonthTag.EQ(jetpg.String(input.MonthTag))))).Scan(&count); err != nil {
-			return memoro.Day{}, err
-		}
-		if count >= 31 {
-			return memoro.Day{}, memoro.ErrLimit
-		}
-		if _, err := jetExec(ctx, tx, d.INSERT(d.UserID, d.DayTag, d.MonthTag, d.Nonce, d.Ciphertext, d.SummaryNonce, d.SummaryCiphertext).
-			VALUES(jetUUID(actorID), jetpg.String(dayTag), jetpg.String(input.MonthTag), jetpg.String(input.Nonce), jetpg.String(input.Ciphertext), jetpg.String(input.Summary.Nonce), jetpg.String(input.Summary.Ciphertext))); err != nil {
-			return memoro.Day{}, err
-		}
-	} else {
-		if _, err := jetExec(ctx, tx, d.UPDATE().SET(d.Nonce.SET(jetpg.String(input.Nonce)), d.Ciphertext.SET(jetpg.String(input.Ciphertext)),
-			d.SummaryNonce.SET(jetpg.String(input.Summary.Nonce)), d.SummaryCiphertext.SET(jetpg.String(input.Summary.Ciphertext)),
-			d.Revision.SET(d.Revision.ADD(jetpg.Int(1))), d.UpdatedAt.SET(jetpg.RawTimestampz("now()"))).
-			WHERE(jetpg.AND(d.UserID.EQ(jetUUID(actorID)), d.DayTag.EQ(jetpg.String(dayTag))))); err != nil {
-			return memoro.Day{}, err
-		}
-	}
-	claimed, err := claimUploads(ctx, tx, actorID, input.AttachmentIDs)
-	if err != nil {
+	if err := writeMemoroDay(ctx, tx, actorID, dayTag, input, previous); err != nil {
 		return memoro.Day{}, err
 	}
+	if err := replaceMemoroDayMedia(ctx, tx, actorID, dayTag, media, previous); err != nil {
+		return memoro.Day{}, err
+	}
+	result := memoro.Day{DayTag: dayTag, MonthTag: input.MonthTag, Revision: input.Revision + 1, Envelope: input.Envelope, Media: media}
+	return result, tx.Commit(ctx)
+}
+
+// maxMemoroMonthDays bounds the documents one opaque month tag can group
+const maxMemoroMonthDays = 31
+
+func writeMemoroDay(ctx context.Context, tx pgx.Tx, actorID, dayTag string, input memoro.DayUpdate, previous *memoro.Day) error {
+	d := table.MemoroDays
+	if previous != nil {
+		if previous.Revision != input.Revision || previous.MonthTag != input.MonthTag {
+			return memoro.ErrConflict
+		}
+		_, err := jetExec(ctx, tx, d.UPDATE().SET(d.Nonce.SET(jetpg.String(input.Nonce)), d.Ciphertext.SET(jetpg.String(input.Ciphertext)),
+			d.SummaryNonce.SET(jetpg.String(input.Summary.Nonce)), d.SummaryCiphertext.SET(jetpg.String(input.Summary.Ciphertext)),
+			d.Revision.SET(d.Revision.ADD(jetpg.Int(1))), d.UpdatedAt.SET(jetpg.RawTimestampz("now()"))).
+			WHERE(jetpg.AND(d.UserID.EQ(jetUUID(actorID)), d.DayTag.EQ(jetpg.String(dayTag)))))
+		return err
+	}
+	if input.Revision != 0 {
+		return memoro.ErrConflict
+	}
+	var count int
+	if err := jetQueryRow(ctx, tx, d.SELECT(jetpg.COUNT(d.DayTag)).
+		WHERE(jetpg.AND(d.UserID.EQ(jetUUID(actorID)), d.MonthTag.EQ(jetpg.String(input.MonthTag))))).Scan(&count); err != nil {
+		return err
+	}
+	if count >= maxMemoroMonthDays {
+		return memoro.ErrLimit
+	}
+	_, err := jetExec(ctx, tx, d.INSERT(d.UserID, d.DayTag, d.MonthTag, d.Nonce, d.Ciphertext, d.SummaryNonce, d.SummaryCiphertext).
+		VALUES(jetUUID(actorID), jetpg.String(dayTag), jetpg.String(input.MonthTag), jetpg.String(input.Nonce),
+			jetpg.String(input.Ciphertext), jetpg.String(input.Summary.Nonce), jetpg.String(input.Summary.Ciphertext)))
+	return err
+}
+
+// replaceMemoroDayMedia claims the new uploads, then retires earlier ones no longer referenced
+func replaceMemoroDayMedia(ctx context.Context, tx pgx.Tx, actorID, dayTag string, media []memoro.Media, previous *memoro.Day) error {
+	ids := make([]string, len(media))
+	for i, item := range media {
+		ids[i] = item.ID
+	}
+	claimed, err := claimUploads(ctx, tx, actorID, ids)
+	if err != nil {
+		return err
+	}
 	if !claimed {
-		return memoro.Day{}, memoro.ErrMedia
+		return memoro.ErrMedia
 	}
 	m := table.MemoroDayMedia
 	if _, err := jetExec(ctx, tx, m.DELETE().WHERE(jetpg.AND(m.UserID.EQ(jetUUID(actorID)), m.DayTag.EQ(jetpg.String(dayTag))))); err != nil {
-		return memoro.Day{}, err
+		return err
 	}
 	for _, item := range media {
 		if _, err := jetExec(ctx, tx, m.INSERT(m.UserID, m.DayTag, m.UploadID, m.SizeBytes).
 			VALUES(jetUUID(actorID), jetpg.String(dayTag), jetUUID(item.ID), jetpg.Int(item.Size))); err != nil {
-			return memoro.Day{}, err
+			return err
 		}
 	}
-	if previous != nil {
-		for _, item := range previous.Media {
-			if _, err := retireUnreferencedUpload(ctx, tx, item.ID); err != nil {
-				return memoro.Day{}, err
-			}
+	if previous == nil {
+		return nil
+	}
+	for _, item := range previous.Media {
+		if _, err := retireUnreferencedUpload(ctx, tx, item.ID); err != nil {
+			return err
 		}
 	}
-	result := memoro.Day{DayTag: dayTag, MonthTag: input.MonthTag, Revision: input.Revision + 1, Envelope: input.Envelope, Media: media}
-	return result, tx.Commit(ctx)
+	return nil
 }
 
 var _ memoro.Store = (*Memoro)(nil)

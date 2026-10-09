@@ -31,17 +31,7 @@ func (s *Ligo) UpdateEncryptedTitle(ctx context.Context, actorID, id, previous, 
 		return ligo.Conversation{}, encryption.ErrConflict
 	}
 	if len(added) > 0 {
-		total, existing, err := countGroupMembers(ctx, tx, id, added)
-		if err != nil {
-			return ligo.Conversation{}, err
-		}
-		if total+len(added)-existing > 25 {
-			return ligo.Conversation{}, ligo.ErrInvalid
-		}
-		if err := ensureUsersExist(ctx, tx, added); err != nil {
-			return ligo.Conversation{}, err
-		}
-		if err := insertGroupMembers(ctx, tx, id, added); err != nil {
+		if _, err := addGroupMembers(ctx, tx, id, added); err != nil {
 			return ligo.Conversation{}, err
 		}
 	}

@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,135 +32,126 @@ func (s *Encryption) PublicIdentity(ctx context.Context, userID string) (encrypt
 func (s *Encryption) Audience(ctx context.Context, actorID, module, id string, private bool) (encryption.Audience, error) {
 	return encryptionAudience(ctx, s.pool, actorID, module, id, private)
 }
+
+// maxAudience bounds how many accounts one content key may be sealed to
+const maxAudience = 512
+
+// encryptionAudience lists who must receive a content key: the members of a Ligo
+// conversation, the members present when a message was sent, or a Rondo server's audience
 func encryptionAudience(ctx context.Context, executor jetExecutor, actorID, module, id string, private bool) (encryption.Audience, error) {
-	result := encryption.Audience{Users: make([]encryption.PublicIdentity, 0)}
-	ids := []string{actorID}
+	var (
+		audience encryption.Audience
+		ids      []string
+		err      error
+	)
 	switch module {
 	case "ligo":
-		members := table.LigoMembers
-		var allowed bool
-		if err := jetQueryRow(ctx, executor, jetpg.SELECT(jetpg.EXISTS(members.SELECT(members.UserID).WHERE(jetpg.AND(members.ConversationID.EQ(jetUUID(id)), members.UserID.EQ(jetUUID(actorID))))))).Scan(&allowed); err != nil {
-			return result, err
-		}
-		if !allowed {
-			return result, encryption.ErrNotFound
-		}
-		rows, err := jetQuery(ctx, executor, members.SELECT(members.UserID).WHERE(members.ConversationID.EQ(jetUUID(id))).LIMIT(513))
-		if err != nil {
-			return result, err
-		}
-		defer rows.Close()
-		ids = ids[:0]
-		for rows.Next() {
-			var member string
-			if err := rows.Scan(&member); err != nil {
-				return result, err
-			}
-			ids = append(ids, member)
-		}
-		if err := rows.Err(); err != nil {
-			return result, err
-		}
+		ids, err = ligoAudience(ctx, executor, actorID, id)
 	case "ligo-history":
-		messages := table.LigoMessages
-		members := table.LigoMembers
-		var conversationID string
-		var created time.Time
-		if err := jetQueryRow(ctx, executor, messages.SELECT(messages.ConversationID, messages.CreatedAt).WHERE(jetpg.AND(messages.ID.EQ(jetUUID(id)), messages.SenderID.EQ(jetUUID(actorID))))).Scan(&conversationID, &created); err != nil {
-			return result, encryption.ErrNotFound
-		}
-		rows, err := jetQuery(ctx, executor, members.SELECT(members.UserID).WHERE(jetpg.AND(members.ConversationID.EQ(jetUUID(conversationID)), members.JoinedAt.LT_EQ(jetpg.TimestampzT(created)))).LIMIT(513))
-		if err != nil {
-			return result, err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var member string
-			if err := rows.Scan(&member); err != nil {
-				return result, err
-			}
-			ids = append(ids, member)
-		}
-		if err := rows.Err(); err != nil {
-			return result, err
-		}
+		ids, err = ligoHistoryAudience(ctx, executor, actorID, id)
 	case "rondo":
-		if id == actorID {
-			result.Public = !private
-			break
-		}
-		servers := table.RondoServers
-		members := table.RondoMembers
-		var access string
-		err := jetQueryRow(ctx, executor, servers.SELECT(servers.Access).WHERE(jetpg.AND(servers.ID.EQ(jetUUID(id)),
-			jetpg.EXISTS(members.SELECT(members.UserID).WHERE(jetpg.AND(members.ServerID.EQ(servers.ID), members.UserID.EQ(jetUUID(actorID)))))))).Scan(&access)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return result, encryption.ErrNotFound
-		}
-		if err != nil {
-			return result, err
-		}
-		result.Public = access == "public" && !private
-		if !result.Public {
-			rows, err := jetQuery(ctx, executor, members.SELECT(members.UserID).WHERE(members.ServerID.EQ(jetUUID(id))).LIMIT(513))
-			if err != nil {
-				return result, err
-			}
-			defer rows.Close()
-			ids = ids[:0]
-			for rows.Next() {
-				var member string
-				if err := rows.Scan(&member); err != nil {
-					return result, err
-				}
-				ids = append(ids, member)
-			}
-			if err := rows.Err(); err != nil {
-				return result, err
-			}
-		} else {
-			var owner string
-			if err := jetQueryRow(ctx, executor, servers.SELECT(servers.OwnerID).WHERE(servers.ID.EQ(jetUUID(id)))).Scan(&owner); err != nil {
-				return result, err
-			}
-			ids = []string{owner}
-		}
+		audience.Public, ids, err = rondoAudience(ctx, executor, actorID, id, private)
 	default:
-		return result, encryption.ErrInvalid
+		return audience, encryption.ErrInvalid
 	}
-	seen := map[string]bool{}
-	unique := make([]string, 0, len(ids))
-	for _, userID := range ids {
-		if seen[userID] {
-			continue
-		}
-		seen[userID] = true
-		if len(unique) >= 512 {
-			return result, encryption.ErrLimit
-		}
-		unique = append(unique, userID)
-	}
-	a := table.CryptoAccounts
-	rows, err := jetQuery(ctx, executor, a.SELECT(a.UserID, a.EncryptionPublicKey, a.SigningPublicKey).WHERE(a.UserID.IN(jetUUIDList(unique)...)))
 	if err != nil {
-		return result, err
+		return audience, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var identity encryption.PublicIdentity
-		if err := rows.Scan(&identity.ID, &identity.EncryptionPublicKey, &identity.SigningPublicKey); err != nil {
-			return result, err
-		}
-		result.Users = append(result.Users, identity)
-	}
-	if err := rows.Err(); err != nil {
-		return result, err
-	}
-	if len(result.Users) != len(unique) {
-		return result, encryption.ErrNotFound
-	}
-	return result, nil
+	audience.Users, err = audienceIdentities(ctx, executor, ids)
+	return audience, err
 }
+
+func ligoAudience(ctx context.Context, executor jetExecutor, actorID, conversationID string) ([]string, error) {
+	members := table.LigoMembers
+	var allowed bool
+	membership := members.SELECT(members.UserID).WHERE(jetpg.AND(
+		members.ConversationID.EQ(jetUUID(conversationID)), members.UserID.EQ(jetUUID(actorID))))
+	if err := jetQueryRow(ctx, executor, jetpg.SELECT(jetpg.EXISTS(membership))).Scan(&allowed); err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, encryption.ErrNotFound
+	}
+	return queryUserIDs(ctx, executor, members.SELECT(members.UserID).
+		WHERE(members.ConversationID.EQ(jetUUID(conversationID))).LIMIT(maxAudience+1))
+}
+
+// ligoHistoryAudience covers re-encrypting the actor's own message for the members who could see it
+func ligoHistoryAudience(ctx context.Context, executor jetExecutor, actorID, messageID string) ([]string, error) {
+	messages, members := table.LigoMessages, table.LigoMembers
+	var conversationID string
+	var created time.Time
+	if err := jetQueryRow(ctx, executor, messages.SELECT(messages.ConversationID, messages.CreatedAt).
+		WHERE(jetpg.AND(messages.ID.EQ(jetUUID(messageID)), messages.SenderID.EQ(jetUUID(actorID))))).
+		Scan(&conversationID, &created); err != nil {
+		return nil, encryption.ErrNotFound
+	}
+	earlier, err := queryUserIDs(ctx, executor, members.SELECT(members.UserID).WHERE(jetpg.AND(
+		members.ConversationID.EQ(jetUUID(conversationID)), members.JoinedAt.LT_EQ(jetpg.TimestampzT(created)))).
+		LIMIT(maxAudience+1))
+	return append([]string{actorID}, earlier...), err
+}
+
+// rondoAudience seals private servers to their members; public servers need only the owner's key.
+// An id equal to the actor addresses the actor's own server list.
+func rondoAudience(ctx context.Context, executor jetExecutor, actorID, serverID string, private bool) (bool, []string, error) {
+	if serverID == actorID {
+		return !private, []string{actorID}, nil
+	}
+	servers, members := table.RondoServers, table.RondoMembers
+	var access, owner string
+	err := jetQueryRow(ctx, executor, servers.SELECT(servers.Access, servers.OwnerID).WHERE(jetpg.AND(
+		servers.ID.EQ(jetUUID(serverID)),
+		jetpg.EXISTS(members.SELECT(members.UserID).WHERE(jetpg.AND(
+			members.ServerID.EQ(servers.ID), members.UserID.EQ(jetUUID(actorID)))))))).Scan(&access, &owner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil, encryption.ErrNotFound
+	}
+	if err != nil {
+		return false, nil, err
+	}
+	if access == "public" && !private {
+		return true, []string{owner}, nil
+	}
+	ids, err := queryUserIDs(ctx, executor, members.SELECT(members.UserID).
+		WHERE(members.ServerID.EQ(jetUUID(serverID))).LIMIT(maxAudience+1))
+	return false, ids, err
+}
+
+// audienceIdentities resolves unique account IDs to public keys; every account must have keys
+func audienceIdentities(ctx context.Context, executor jetExecutor, ids []string) ([]encryption.PublicIdentity, error) {
+	unique := slices.Compact(slices.Sorted(slices.Values(ids)))
+	if len(unique) > maxAudience {
+		return nil, encryption.ErrLimit
+	}
+	accounts := table.CryptoAccounts
+	rows, err := jetQuery(ctx, executor, accounts.SELECT(accounts.UserID, accounts.EncryptionPublicKey, accounts.SigningPublicKey).
+		WHERE(accounts.UserID.IN(jetUUIDList(unique)...)))
+	if err != nil {
+		return nil, err
+	}
+	identities, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (encryption.PublicIdentity, error) {
+		var identity encryption.PublicIdentity
+		err := row.Scan(&identity.ID, &identity.EncryptionPublicKey, &identity.SigningPublicKey)
+		return identity, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(identities) != len(unique) {
+		return nil, encryption.ErrNotFound
+	}
+	return identities, nil
+}
+
+func queryUserIDs(ctx context.Context, executor jetExecutor, statement jetStatement) ([]string, error) {
+	rows, err := jetQuery(ctx, executor, statement)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
 func verifyContentForAudience(ctx context.Context, executor jetExecutor, actorID string, envelope encryption.ContentEnvelope, audience encryption.Audience, contextPrefix string) error {
 	if !strings.HasPrefix(envelope.Context, contextPrefix) || (envelope.PublicKey != "") != audience.Public {
 		return encryption.ErrInvalid

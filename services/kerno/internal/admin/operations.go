@@ -3,10 +3,11 @@ package admin
 // Defines fixed system commands and their validation independently of HTTP and host adapters
 import (
 	"errors"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/druckheil/Kaordo/services/kerno/internal/invalid"
 )
 
 var (
@@ -39,24 +40,24 @@ func ValidSystemAction(action string) bool {
 
 func (command SystemAction) Validate() error {
 	if !ValidSystemAction(command.Name) {
-		return fmt.Errorf("%w: Unsupported system action.", ErrInvalidOperation)
+		return invalid.Input(ErrInvalidOperation, "Unsupported system action.")
 	}
 	if !ValidReason(command.Reason, 10, 500) {
-		return fmt.Errorf("%w: A reason of 10 to 500 characters is required.", ErrInvalidOperation)
+		return invalid.Input(ErrInvalidOperation, "A reason of 10 to 500 characters is required.")
 	}
 	request := command.Request
 	switch command.Name {
 	case "scrub-filesystem", "check-storage", "repair-storage":
 		if !validMountTarget(request.Target) || (command.Name != "scrub-filesystem" && request.Target == "/") || request.Identity != "" || request.Filesystem != "" {
-			return fmt.Errorf("%w: A mounted filesystem path is required.", ErrInvalidOperation)
+			return invalid.Input(ErrInvalidOperation, "A mounted filesystem path is required.")
 		}
 	case "configure-storage":
 		if !ValidStorageDevice(request.Target, request.Identity) || request.Filesystem == "/" || !validMountTarget(request.Filesystem) {
-			return fmt.Errorf("%w: A physical device, stable identity, and mounted data-pool path are required.", ErrInvalidOperation)
+			return invalid.Input(ErrInvalidOperation, "A physical device, stable identity, and mounted data-pool path are required.")
 		}
 	default:
 		if request.Target != "" || request.Identity != "" || request.Filesystem != "" {
-			return fmt.Errorf("%w: This operation does not accept a storage target.", ErrInvalidOperation)
+			return invalid.Input(ErrInvalidOperation, "This operation does not accept a storage target.")
 		}
 	}
 	return nil

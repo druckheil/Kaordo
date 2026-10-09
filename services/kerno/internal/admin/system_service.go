@@ -4,7 +4,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"strings"
 )
 
@@ -66,7 +66,7 @@ func (service *SystemOperations) Execute(ctx context.Context, actorID string, co
 		return nil, err
 	}
 	if err := service.record(ctx, actorID, command, "completed", "accepted"); err != nil {
-		log.Printf("Regado outcome audit failed: %v", err)
+		slog.Error("Regado outcome audit failed", "err", err)
 	}
 	return result, nil
 }

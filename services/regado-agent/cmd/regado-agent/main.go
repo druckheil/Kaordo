@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -24,7 +24,8 @@ const (
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatal(err)
+		slog.Error("stopped", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -46,7 +47,7 @@ func run() error {
 	handler := agent.NewHandler()
 	defer handler.Close()
 	server := newHTTPServer(handler)
-	log.Printf("Regado agent listening on %s", path)
+	slog.Info("Regado agent listening", "socket", path)
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(listener) }()
 	select {

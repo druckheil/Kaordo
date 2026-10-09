@@ -65,3 +65,17 @@ func (input DayUpdate) Validate() error {
 	}
 	return nil
 }
+
+// ValidateMedia checks that the claimed uploads match the attachment IDs in order.
+// Encrypted media carries at least a header, nonce and tag; the cap matches Nodo's limit.
+func (input DayUpdate) ValidateMedia(media []Media) error {
+	if len(media) != len(input.AttachmentIDs) {
+		return ErrInvalid
+	}
+	for i, item := range media {
+		if item.ID != input.AttachmentIDs[i] || item.Size < 17 || item.Size > 100*1024*1024 {
+			return ErrInvalid
+		}
+	}
+	return nil
+}

@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"slices"
@@ -243,7 +243,7 @@ func parseJournalEntry(raw []byte) (map[string]string, bool) {
 func respond(w http.ResponseWriter, value any, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
-		log.Printf("agent request: %v", err)
+		slog.Error("agent request failed", "err", err)
 		http.Error(w, "system operation failed", http.StatusBadGateway)
 		return
 	}

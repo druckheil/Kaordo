@@ -262,27 +262,14 @@ func (store *Ligo) AddMembers(ctx context.Context, actorID, conversationID strin
 		return ligo.Conversation{}, ligo.ErrForbidden
 	}
 
-	total, alreadyMembers, err := countGroupMembers(ctx, tx, conversationID, memberIDs)
+	added, err := addGroupMembers(ctx, tx, conversationID, memberIDs)
 	if err != nil {
 		return ligo.Conversation{}, err
 	}
-	if total+len(memberIDs)-alreadyMembers > 25 {
-		return ligo.Conversation{}, ligo.ErrInvalid
-	}
-	if err := ensureUsersExist(ctx, tx, memberIDs); err != nil {
-		return ligo.Conversation{}, err
-	}
-	if alreadyMembers == len(memberIDs) {
-		if err := tx.Commit(ctx); err != nil {
+	if added {
+		if err := publishConversationActivity(ctx, tx, conversationID); err != nil {
 			return ligo.Conversation{}, err
 		}
-		return store.GetConversation(ctx, actorID, conversationID)
-	}
-	if err := insertGroupMembers(ctx, tx, conversationID, memberIDs); err != nil {
-		return ligo.Conversation{}, err
-	}
-	if err := publishConversationActivity(ctx, tx, conversationID); err != nil {
-		return ligo.Conversation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ligo.Conversation{}, err
@@ -300,6 +287,28 @@ func lockGroupCreator(ctx context.Context, tx pgx.Tx, conversationID string) (st
 		return "", ligo.ErrNotFound
 	}
 	return creator, err
+}
+
+// maxGroupMembers includes the creator
+const maxGroupMembers = 25
+
+// addGroupMembers adds existing accounts to a locked group within its size limit and
+// reports whether anyone new joined
+func addGroupMembers(ctx context.Context, tx pgx.Tx, conversationID string, memberIDs []string) (bool, error) {
+	total, alreadyMembers, err := countGroupMembers(ctx, tx, conversationID, memberIDs)
+	if err != nil {
+		return false, err
+	}
+	if total+len(memberIDs)-alreadyMembers > maxGroupMembers {
+		return false, ligo.ErrInvalid
+	}
+	if err := ensureUsersExist(ctx, tx, memberIDs); err != nil {
+		return false, err
+	}
+	if alreadyMembers == len(memberIDs) {
+		return false, nil
+	}
+	return true, insertGroupMembers(ctx, tx, conversationID, memberIDs)
 }
 
 func countGroupMembers(ctx context.Context, tx pgx.Tx, conversationID string, memberIDs []string) (int, int, error) {

@@ -4,7 +4,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -49,7 +49,7 @@ func (h adminHandler) logRetention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := record("completed"); err != nil {
-		log.Printf("Regado journal outcome audit failed: %v", err)
+		slog.Error("Regado journal outcome audit failed", "err", err)
 	}
 	writeJSON(w, http.StatusOK, result)
 }

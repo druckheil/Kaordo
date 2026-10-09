@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
@@ -106,7 +105,7 @@ func fluoError(w http.ResponseWriter, err error) {
 	case errors.Is(err, fluo.ErrInvalidSettings):
 		writeError(w, http.StatusBadRequest, "Choose a valid notification or privacy setting.")
 	case errors.Is(err, fluo.ErrInvalidProfile):
-		writeError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), fluo.ErrInvalidProfile.Error()+": "))
+		writeInvalid(w, err)
 	case errors.Is(err, fluo.ErrPrivateParent):
 		writeError(w, http.StatusBadRequest, "A reply cannot be public while its parent is private.")
 	case errors.Is(err, fluo.ErrSelfFollow):

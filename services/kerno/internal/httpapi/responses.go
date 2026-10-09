@@ -7,10 +7,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/druckheil/Kaordo/services/kerno/internal/invalid"
 )
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
+}
+
+// writeInvalid reports a validation failure with the message its domain chose for the user
+func writeInvalid(w http.ResponseWriter, err error) {
+	message, ok := invalid.Message(err)
+	if !ok {
+		message = "The request is invalid."
+	}
+	writeError(w, http.StatusBadRequest, message)
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, destination any) bool {

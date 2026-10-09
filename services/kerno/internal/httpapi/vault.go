@@ -3,7 +3,7 @@ package httpapi
 // Exposes authenticated owner-only opaque reads and revision-checked encrypted transactions
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
@@ -55,7 +55,7 @@ func vaultResponse(w http.ResponseWriter, items []vault.Record, err error) {
 	case errors.Is(err, encryption.ErrConflict):
 		writeError(w, http.StatusConflict, "Your encrypted data changed on another device. Reload before saving.")
 	default:
-		log.Printf("Encrypted record request failed: %v", err)
+		slog.Error("encrypted record request failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "Could not complete the encrypted record request.")
 	}
 }

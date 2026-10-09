@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/go-chi/chi/v5"
@@ -110,7 +109,7 @@ func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, admin.ErrInvalidOperation):
-			writeError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), admin.ErrInvalidOperation.Error()+": "))
+			writeInvalid(w, err)
 		case errors.Is(err, admin.ErrSystemUnavailable):
 			writeError(w, http.StatusServiceUnavailable, "System agent is unavailable.")
 		case errors.Is(err, admin.ErrFileReferencesUnavailable):

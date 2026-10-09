@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 )
@@ -37,7 +37,7 @@ func (server *Server) cleanupLoop() {
 func (server *Server) garbageCollect(ctx context.Context) {
 	entries, err := fs.ReadDir(server.root.FS(), ".")
 	if err != nil {
-		log.Printf("Nodo cleanup scan failed: %v", err)
+		slog.Error("cleanup scan failed", "err", err)
 		return
 	}
 
@@ -93,7 +93,7 @@ func isCanonicalGCEntry(root *os.Root, id, name string) bool {
 
 func (server *Server) cleanupExpiredUpload(ctx context.Context, id string) {
 	if _, err := server.removeIfUnreferenced(ctx, id); err != nil {
-		log.Printf("Nodo deferred cleanup for %s: %v", id, err)
+		slog.Warn("cleanup deferred", "upload", id, "err", err)
 	}
 }
 

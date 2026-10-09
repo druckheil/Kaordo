@@ -3,7 +3,7 @@ package httpapi
 // Exposes only public identities and sealed keys belonging to the authenticated account
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
@@ -121,7 +121,7 @@ func encryptionResponse(w http.ResponseWriter, value any, err error) {
 	case errors.Is(err, encryption.ErrLimit):
 		writeError(w, http.StatusConflict, "An account can have up to 20 encryption devices.")
 	default:
-		log.Printf("Encryption identity request failed: %v", err)
+		slog.Error("encryption identity request failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "Could not load encryption devices.")
 	}
 }

@@ -3,7 +3,7 @@ package httpapi
 // Coordinates Ligo message reads, sends and changes
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -153,7 +153,7 @@ func (h ligoHandler) deleteMessage(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		for _, id := range retired {
 			if err := h.deps.Media.Purge(ctx, id); err != nil {
-				log.Printf("Kerno deferred Ligo media cleanup for %q: %v", id, err) //nolint:gosec // validated UUID, quoted
+				slog.Warn("Ligo media cleanup deferred", "upload", id, "err", err)
 				break
 			}
 		}

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
@@ -82,7 +82,7 @@ func adminFailure(w http.ResponseWriter, err error) {
 	case errors.Is(err, admin.ErrTarget), errors.Is(err, admin.ErrNotFound):
 		writeError(w, http.StatusNotFound, "The requested account is unavailable.")
 	default:
-		log.Printf("Regado request failed: %v", err)
+		slog.Error("Regado request failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "Regado could not complete this request.")
 	}
 }

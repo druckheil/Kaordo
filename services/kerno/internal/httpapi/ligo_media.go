@@ -32,7 +32,7 @@ func (h ligoHandler) validateMessageMedia(w http.ResponseWriter, r *http.Request
 		media = append(media, item)
 	}
 	if err := inputs.validateReferences(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeInvalid(w, err)
 		return nil, false
 	}
 	return media, true
@@ -41,7 +41,7 @@ func (h ligoHandler) validateMessageMedia(w http.ResponseWriter, r *http.Request
 func (h ligoHandler) validateMessageAttachment(w http.ResponseWriter, r *http.Request, uploadID string, inputs attachmentInputs) (ligo.Media, bool) {
 	altText, err := inputs.normalize(uploadID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeInvalid(w, err)
 		return ligo.Media{}, false
 	}
 	if h.deps.Media == nil {

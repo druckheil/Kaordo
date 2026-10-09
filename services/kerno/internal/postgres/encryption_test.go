@@ -7,11 +7,14 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
+	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/memoro"
+	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/vault"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -185,5 +188,61 @@ func TestMemoroDayRevisions(t *testing.T) {
 	}
 	if day, err := store.Day(ctx, other.id, dayTag); err != nil || day != nil {
 		t.Fatalf("another account read %+v, %v", day, err)
+	}
+}
+
+func TestEncryptionAudiences(t *testing.T) {
+	ctx, pool := testDatabase(t)
+	store, rondoStore := NewEncryption(pool), NewRondo(pool)
+	owner, _ := registerTestAccount(t, ctx, pool, "audience-owner")
+	member, _ := registerTestAccount(t, ctx, pool, "audience-member")
+	outsider, _ := registerTestAccount(t, ctx, pool, "audience-outsider")
+	users := func(audience encryption.Audience) []string {
+		ids := make([]string, 0, len(audience.Users))
+		for _, user := range audience.Users {
+			ids = append(ids, user.ID)
+		}
+		return slices.Sorted(slices.Values(ids))
+	}
+	members := slices.Sorted(slices.Values([]string{owner.id, member.id}))
+
+	duo, err := NewLigo(pool).CreateConversation(ctx, owner.id, ligo.NewConversation{Kind: "duo", ParticipantIDs: []string{member.id}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if audience, err := store.Audience(ctx, owner.id, "ligo", duo.ID, false); err != nil || audience.Public || !slices.Equal(users(audience), members) {
+		t.Fatalf("conversation audience = %+v, %v", audience, err)
+	}
+	if _, err := store.Audience(ctx, outsider.id, "ligo", duo.ID, false); !errors.Is(err, encryption.ErrNotFound) {
+		t.Fatalf("outsider conversation audience = %v", err)
+	}
+
+	private, err := rondoStore.Create(ctx, owner.id, rondo.NewServer{Name: "Audience team", Access: "private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rondoStore.Invite(ctx, owner.id, private.Server.ID, member.id); err != nil {
+		t.Fatal(err)
+	}
+	if audience, err := store.Audience(ctx, member.id, "rondo", private.Server.ID, false); err != nil || audience.Public || !slices.Equal(users(audience), members) {
+		t.Fatalf("private server audience = %+v, %v", audience, err)
+	}
+	if _, err := store.Audience(ctx, outsider.id, "rondo", private.Server.ID, false); !errors.Is(err, encryption.ErrNotFound) {
+		t.Fatalf("outsider server audience = %v", err)
+	}
+
+	// A public server needs only its owner's key unless the content itself is private
+	public, err := rondoStore.Create(ctx, owner.id, rondo.NewServer{Name: "Audience lobby", Access: "public"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if audience, err := store.Audience(ctx, owner.id, "rondo", public.Server.ID, false); err != nil || !audience.Public || !slices.Equal(users(audience), []string{owner.id}) {
+		t.Fatalf("public server audience = %+v, %v", audience, err)
+	}
+	if audience, err := store.Audience(ctx, owner.id, "rondo", public.Server.ID, true); err != nil || audience.Public || !slices.Equal(users(audience), []string{owner.id}) {
+		t.Fatalf("private content on a public server = %+v, %v", audience, err)
+	}
+	if _, err := store.Audience(ctx, owner.id, "unknown", duo.ID, false); !errors.Is(err, encryption.ErrInvalid) {
+		t.Fatalf("unknown audience module = %v", err)
 	}
 }
