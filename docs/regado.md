@@ -4,6 +4,8 @@ Regado observes and operates Kaordo hosts. It never edits disks or services ad h
 
 The same model serves one host with two disks and many hosts with many disks. Nothing in it assumes a device name, a disk count or a host count.
 
+This document describes the implemented operations and the remaining design. Quotas, scheduled snapshots, backup targets, recovery export and remote hosts are still planned; storing their policy fields does not apply them yet.
+
 ## Ownership
 
 | Component                          | Owns                                                                                                                                        |
@@ -13,7 +15,7 @@ The same model serves one host with two disks and many hosts with many disks. No
 | Kerno                              | Admin authorization, audit records (with state diffs), the host registry, alert delivery (Ligo system notice, ntfy)                         |
 | Regado                             | Presentation and confirmation flows. It never computes host decisions itself                                                                |
 
-The agent's copy is authoritative for its host. Kerno can rebuild its view from the agents at any time. The agent stays offline-capable: schedules, snapshots and integrity checks keep running when Kerno is down.
+The agent's copy is authoritative for its host. Kerno can rebuild its view from the agents at any time. Integrity schedules and alert evaluation keep running when Kerno is down; notification delivery resumes through Kerno.
 
 ## Desired state document
 
@@ -28,11 +30,37 @@ Stored at `/var/lib/regado-agent/state/current.json`, together with the last 50 
 		"metadataProfile": "auto"
 	},
 	"volumes": { "postgresql": { "quotaBytes": null }, "media": { "quotaBytes": 600000000000 } },
-	"snapshots": { "postgresql": "frequent", "media": "daily", "system": "daily" },
+	"snapshots": {
+		"postgresql": {
+			"schedule": "hourly",
+			"keepHourly": 24,
+			"keepDaily": 7,
+			"keepWeekly": 4,
+			"keepMonthly": 3
+		},
+		"media": {
+			"schedule": "daily",
+			"keepHourly": 0,
+			"keepDaily": 7,
+			"keepWeekly": 4,
+			"keepMonthly": 3
+		},
+		"system": {
+			"schedule": "daily",
+			"keepHourly": 0,
+			"keepDaily": 7,
+			"keepWeekly": 2,
+			"keepMonthly": 0
+		}
+	},
 	"integrity": { "scrub": "monthly", "smartShort": "weekly", "smartLong": "monthly" },
 	"backups": { "targets": [], "policies": [] },
 	"cleanup": { "nixGenerationsDays": 30, "releasesKeep": 3, "journalDays": 14 },
-	"alerts": { "ntfy": { "url": "https://ntfy.sh", "topic": "kaordo-…" } }
+	"alerts": {
+		"poolWarningPercent": 80,
+		"poolCriticalPercent": 90,
+		"ntfy": { "url": "https://ntfy.sh", "topic": "kaordo-example" }
+	}
 }
 ```
 
@@ -40,11 +68,11 @@ Stored at `/var/lib/regado-agent/state/current.json`, together with the last 50 
 - `metadataProfile: auto` means `raid1` with two devices and `raid1c3` with three or more. Data stays `raid1` (two copies) unless the operator chooses `raid1c3`. RAID5/6 is not offered.
 - Volumes and their mount points are fixed by Nix; the document only sets quotas and snapshot policies for them.
 - Secrets never appear in the document. The ntfy token lives in Kerno's environment.
-- `GET /state/export` renders the document and the disk template as a disko module, so a lost host can be reinstalled with `nixos-anywhere`.
+- Planned: `GET /state/export` will render the document and the disk template as a disko module for reinstalling a lost host. This route is not implemented.
 
 ## Operations
 
-Operations are the only way to change a host. Examples: adding, replacing or removing a device, a scrub, a SMART test, a snapshot run, a backup, a cleanup, a service restart, a journal retention change.
+Regado changes a host through operations: pool changes, integrity checks and journal retention are implemented. Snapshot, backup and other retention operations are planned. The authorized one-time production migration uses the operator scripts in `deploy/nixos`, which take the deployment lock and pause the agent during partition changes.
 
 - Stored as JSON under `/var/lib/regado-agent/operations/`, so they survive restarts. An operation that was running when the agent stopped becomes `interrupted`, and its reconciler decides whether to resume it (scrub and balance resume natively) or to report it.
 - Fields: ID (UUIDv7), kind, target, reason, requester (account ID or `schedule`), state (`queued`, `running`, `succeeded`, `failed`, `cancelled`, `interrupted`), timestamps, error. Ordered stages, each with state, done/total/unit progress and optional detail. A bounded log.
@@ -58,14 +86,14 @@ Operations are the only way to change a host. Examples: adding, replacing or rem
 
 Every disk uses the same template. There are no OS or storage partitions.
 
-| GPT partition                               | Size              | Purpose                                  |
-| ------------------------------------------- | ----------------- | ---------------------------------------- |
-| 1 `BIOS boot` (or EFI system on UEFI hosts) | 2 MiB (1 GiB EFI) | Bootloader, installed on every pool disk |
-| 2 `kaordo-pool`                             | rest              | Member of the host's Btrfs pool          |
+| GPT partition                               | Size              | Purpose                                                  |
+| ------------------------------------------- | ----------------- | -------------------------------------------------------- |
+| 1 `BIOS boot` (or EFI system on UEFI hosts) | 2 MiB (1 GiB EFI) | BIOS GRUB on each pool disk; EFI installation is planned |
+| 2 `kaordo-pool`                             | rest              | Member of the host's Btrfs pool                          |
 
-The pool holds everything: `@root`, `@nix`, `@log`, `@kaordo/postgresql`, `@kaordo/media`, `@kaordo/prometheus`, `@kaordo/releases` and `@snapshots`. Usage is tracked with Btrfs simple quotas. The boot reconciler keeps GRUB installed on every pool disk and reinstalls it when the system's GRUB changes. Any disk can therefore boot the host. A `degraded` boot entry mounts the pool when a member is missing.
+The pool holds `@root`, `@nix`, `@log`, `@kaordo/postgresql`, `@kaordo/media`, `@kaordo/prometheus`, `@kaordo/releases` and an empty `@snapshots` destination. Quota enforcement and subvolume usage reporting are planned. On the BIOS production host, NixOS installs GRUB on every present desired pool disk; the agent installs it during add and replace operations after detecting that the root is on the pool. A `degraded` boot entry is configured for a missing member. Normal boot from the pool has been verified; production boot with a disk physically absent has not been tested. EFI partitioning exists, but agent bootloader installation for EFI is not implemented.
 
-Backup-target disks are not pool members. They hold one independent Btrfs filesystem labelled `kaordo-backup`.
+Planned backup-target disks are independent of the pool and will hold a Btrfs filesystem labelled `kaordo-backup`.
 
 ## Device lifecycle
 
@@ -81,12 +109,12 @@ The agent classifies every physical device:
 
 A pool member that is listed in the desired state but absent is reported as `missing` on the pool, and the planner offers to rebuild its copies on a new device or drop it.
 
-| Operation               | Stages                                                                                                                                                                                                   |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Add to pool             | Verify identity and SMART, wipe after confirmation when the disk is not blank, partition with the template, install the bootloader, `btrfs device add`, rebalance (convert profiles when needed), verify |
-| Replace                 | Partition the new disk, `btrfs replace` (works with the old disk missing), resize to the full size, install the bootloader, verify                                                                       |
-| Remove                  | Capacity preflight (the remaining devices must hold two copies of the used data), `btrfs device remove`, wipe signatures                                                                                 |
-| Assign as backup target | Verify and wipe after confirmation, create the `kaordo-backup` filesystem, register the target                                                                                                           |
+| Operation                         | Stages                                                                                                                                                                                                   |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Add to pool                       | Verify identity and SMART, wipe after confirmation when the disk is not blank, partition with the template, install the bootloader, `btrfs device add`, rebalance (convert profiles when needed), verify |
+| Replace                           | Partition the new disk, `btrfs replace` (works with the old disk missing), resize to the full size, install the bootloader, verify                                                                       |
+| Remove                            | Capacity preflight (the remaining devices must hold two copies of the used data), `btrfs device remove`, wipe signatures                                                                                 |
+| Assign as backup target (planned) | Verify and wipe after confirmation, create the `kaordo-backup` filesystem, register the target                                                                                                           |
 
 Progress comes from the tools themselves: `btrfs balance status`, `btrfs replace status` and device usage while a device is removed.
 
@@ -101,8 +129,10 @@ Progress comes from the tools themselves: `btrfs balance status`, `btrfs replace
 
 ## Snapshots and backups
 
-- **Snapshots.** Created by btrbk from a configuration the agent generates from the desired state. They are read-only, atomic per subvolume, and kept with hourly, daily, weekly and monthly retention. They protect against deletion, bad migrations and application bugs, but not against losing the host.
-- **Backups.** Snapshots sent incrementally (`btrfs send/receive` through btrbk) to targets, with their own retention.
+Scheduled snapshots, backup-target lifecycle and restoration through Regado are not implemented. The desired state validates their policy fields for future use. The production migration used an independent encrypted restic checkpoint with verified database restores; this is a one-time operator copy, not a scheduled backup.
+
+- **Planned snapshots.** btrbk will consume configuration generated from the desired state. Snapshots will be read-only and atomic per subvolume, with hourly, daily, weekly and monthly retention. They can protect against deletion and application bugs, but not against losing the host. A PostgreSQL recovery workflow also needs matching cluster state and runtime.
+- **Planned backups.** Snapshots sent incrementally (`btrfs send/receive` through btrbk) to targets, with their own retention.
   - Disk targets are local `kaordo-backup` disks; remote Btrfs hosts are added later.
   - Restore drills mount a backup snapshot read-only, start a temporary PostgreSQL on it and verify it.
   - Restoring promotes a backup snapshot into a new subvolume and switches it in only after the operator confirms.
@@ -110,13 +140,12 @@ Progress comes from the tools themselves: `btrfs balance status`, `btrfs replace
 
 ## Cleanup
 
-Each item reports the space it reclaims, as an operation or schedule:
+Implemented cleanup:
 
 - unreferenced Nodo uploads (Nodo's reference-checked garbage collection every 6 hours; Regado can run a media check or cleanup on demand, audited by Kerno);
-- snapshot and backup retention;
-- Nix generations older than the policy, followed by `nix-collect-garbage`;
-- release directories beyond `releasesKeep`, never the active or previous one;
 - the journal's age: `cleanup.journalDays` is the only source, edited from Regado's Logs tab. The agent applies a change as a `cleanup.journal` operation, keeps an existing setting when it first adopts the host, and reapplies the desired value when journald reports another one.
+
+Planned: snapshot and backup retention, Nix generation retention and garbage collection, release directories beyond `releasesKeep` (preserving active and previous releases), and reports of reclaimed space. The migration's selective retirement of ext4 boot generations is an operator step, not an implemented retention scheduler.
 
 ## Alerts
 
@@ -147,16 +176,19 @@ Every API is addressed by host: `/v1/admin/hosts/{host}/…`. Kerno's host regis
 ## Verification
 
 - **Unit tests.** Go tests inject command output for parsing and planning.
-- **Host tests.** A privileged Linux container runs the agent's operations against real `btrfs-progs`, `sgdisk` and btrbk on loop devices: add, replace (also with the old device missing), remove, scrub with injected corruption, snapshots and restore. They run locally (`pnpm test:host`) and in CI.
+- **Host tests.** A privileged Linux container runs real `btrfs-progs` and `sgdisk` on loop devices: add, replace (also with the old device missing), remove, scrub with injected corruption, system-data migration and both legacy partition reshapes while preserving RAID1. They run locally (`pnpm test:host`) and in CI. Snapshot scheduling and restoration through Regado are not covered because they are not implemented.
 - **Browser tests.** Playwright fixtures cover Regado flows, confirmations and progress.
 
 ## Delivery phases
 
-Done: the operation journal, the desired state store, host addressing in Kerno and the contract, device classification, pool planning and the add, replace, convert and remove operations, SMART facts, scheduled and on-demand integrity checks, alerts with Ligo and ntfy delivery, and the Regado Storage view. The partition planner, file-copy checker and layout dialog are removed. Everything else below is still to be built.
+Implemented: the operation journal and activity view, desired state with revisions, host addressing, device classification, pool planning and add/replace/convert/remove operations, SMART facts, scheduled and on-demand integrity checks, Ligo and ntfy alert delivery, the Storage view, and journal retention from the desired state. The partition planner, file-copy checker and layout dialog are removed. BIOS bootloader installation is enabled for pool-root hosts. The system migration and partition reshape scripts are covered by regression and real Btrfs host tests.
 
-1. **Foundation.** The operation journal and API, the desired state store with revisions and export, host addressing in Kerno and the contract, alert evaluation and delivery (Ligo and ntfy), and the Regado operations activity view.
-2. **Storage.** Device classification and lifecycle operations, the boot reconciler, integrity schedules, space and quota reporting, cleanup. Replaces the partition planner, file-copy checker and layout dialog.
-3. **Snapshots and backups.** Through btrbk, plus backup-target disks, restore drills and restore.
-4. **Host migration.** Move production's system into the pool in place with `deploy/nixos/migrate-to-pool.sh`, then rebuild each disk to the template through Regado's pool changes. Needs the operator's explicit confirmation.
-5. **Console.** The Overview health summary, Logs (time range, filters, cursor pagination, live tail), Users, Audit and System.
-6. **Fleet.** Remote agents over WireGuard, Garage for media, PostgreSQL replication. Done when a second host exists.
+Production migration evidence and runtime limitations are recorded in [Production pool migration, 2026-10-10](storage-migration-2026-10-10.md).
+
+Remaining work:
+
+1. **Storage policies.** Subvolume quotas and usage reporting; Nix and release retention.
+2. **Snapshots and backups.** Scheduled btrbk snapshots, backup-target disks, restore drills and restore. Independent scheduled backup destinations remain operator configuration.
+3. **Recovery export.** Generate a reinstallable Nix/disko description from the desired state.
+4. **Console.** Extend the existing Overview, Logs, Users, Audit and System views with the planned summaries, filters, pagination and live tail.
+5. **Fleet.** Remote agents over WireGuard, Garage for media and PostgreSQL replication when a second host exists.
