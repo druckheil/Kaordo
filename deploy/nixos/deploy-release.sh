@@ -37,7 +37,7 @@ node_runtime=
 previous_system=
 previous_site=
 previous_release=
-services=(caddy keycloak postgresql livekit kerno nodo regado-agent kaordo-system-volumes prometheus prometheus-node-exporter ddclient.timer)
+services=(caddy keycloak postgresql livekit kerno nodo regado-agent prometheus prometheus-node-exporter ddclient.timer)
 
 mkdir -p "$temporary_root" "$data_root/releases" "$data_root/rollbacks"
 if ! mkdir "$lock" 2>/dev/null; then
@@ -117,7 +117,6 @@ restore_release() {
       wait_for_http http://127.0.0.1:8080/realms/master 120 &&
         "$node_runtime" "$release_root/etc/nixos/deploy/nixos/sync-keycloak-production.mjs" --restore "$backup_root/keycloak.json" || rollback_failed=1
     fi
-    systemctl restart kaordo-system-volumes || rollback_failed=1
     systemctl start regado-agent nodo kerno || rollback_failed=1
     wait_for_http http://127.0.0.1:8081/healthz &&
       wait_for_http http://127.0.0.1:8082/healthz && check_services || rollback_failed=1
@@ -199,7 +198,6 @@ for binary in kerno nodo regado-agent; do mv -f "$data_root/bin/.$binary-new" "$
 system_switch_started=1
 nixos-rebuild switch --store-path "$(readlink -f "$release_root/nixos-system")"
 [[ "$(readlink -f /run/current-system)" == "$(readlink -f "$release_root/nixos-system")" ]]
-systemctl restart kaordo-system-volumes
 systemctl restart regado-agent
 systemctl restart nodo
 systemctl restart kerno
