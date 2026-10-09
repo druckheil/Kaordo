@@ -6,7 +6,8 @@ let
   subvolume = name: {
     device = pool;
     fsType = "btrfs";
-    options = [ "subvol=${name}" "compress=zstd:3" "noatime" ];
+    # Btrfs keeps the mount alive when a member is replaced; systemd must not stop it with that device
+    options = [ "subvol=${name}" "compress=zstd:3" "noatime" "x-systemd.device-bound=false" ];
   };
   mounts = [ "/" "/nix" "/var/log" "/srv/kaordo" ];
   # regado-agent's desired state names the pool disks; every present one gets GRUB's boot code
