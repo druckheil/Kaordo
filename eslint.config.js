@@ -19,7 +19,15 @@ export default ts.config(
 	},
 	js.configs.recommended,
 	ts.configs.recommended,
-	{ files: typedSources, extends: [ts.configs.strictTypeChecked, ts.configs.stylisticTypeChecked] },
+	{
+		files: typedSources,
+		extends: [ts.configs.strictTypeChecked, ts.configs.stylisticTypeChecked],
+		rules: {
+			// Arrow shorthand is the idiomatic form of Svelte event handlers
+			'@typescript-eslint/no-confusing-void-expression': ['error', { ignoreArrowShorthand: true }],
+			'@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }]
+		}
+	},
 	// Svelte's parser must follow the TypeScript presets, which otherwise claim .svelte files
 	svelte.configs.recommended,
 	prettier,

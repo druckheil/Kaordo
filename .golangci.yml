@@ -1,0 +1,34 @@
+# Lints the four Go modules with correctness, security and complexity checks; gofmt and goimports own formatting
+version: "2"
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gocognit
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+    - unparam
+    - wastedassign
+  settings:
+    gocognit:
+      min-complexity: 20
+    revive:
+      enable-default-rules: true
+      rules:
+        # Internal application packages document files and packages, not every exported name
+        - name: exported
+          disabled: true
+formatters:
+  enable:
+    - gofmt
+    - goimports
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

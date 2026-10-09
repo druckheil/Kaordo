@@ -1,0 +1,1243 @@
+{
+  "apps/fluo/src/lib/Composer.svelte": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/FluoApp.svelte": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 1
+    },
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 12
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 7
+    }
+  },
+  "apps/fluo/src/lib/FluoFeed.svelte": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/FluoNavigation.svelte": {
+    "@typescript-eslint/no-confusing-void-expression": {
+      "count": 2
+    }
+  },
+  "apps/fluo/src/lib/FluoNotifications.svelte": {
+    "@typescript-eslint/no-confusing-void-expression": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/FluoPageHeader.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/FluoProfile.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 3
+    }
+  },
+  "apps/fluo/src/lib/FluoSettings.svelte": {
+    "@typescript-eslint/no-confusing-void-expression": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "apps/fluo/src/lib/PostActions.svelte": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/PostItem.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/PostReaction.svelte": {
+    "@typescript-eslint/prefer-optional-chain": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/PostReplies.svelte": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/ProfileEditor.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/ProfileLink.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/ProfilePresence.svelte": {
+    "@typescript-eslint/no-confusing-void-expression": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/QuotePreview.svelte": {
+    "@typescript-eslint/no-confusing-void-expression": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/post-actions.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    }
+  },
+  "apps/fluo/src/lib/post-navigation.ts": {
+    "@typescript-eslint/no-dynamic-delete": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/lib/profile-editor-state.svelte.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 6
+    }
+  },
+  "apps/fluo/src/lib/settings-state.svelte.ts": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 2
+    }
+  },
+  "apps/fluo/src/routes/+layout.svelte": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "apps/fluo/src/routes/+page.svelte": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "apps/ligo/src/lib/ConversationDialog.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 2
+    }
+  },
+  "apps/ligo/src/lib/ConversationSidebar.svelte": {
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 2
+    }
+  },
+  "apps/ligo/src/lib/LigoApp.svelte": {
+    "@typescript-eslint/no-redundant-type-constituents": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-conversion": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "apps/ligo/src/lib/conversation-dialog-state.svelte.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    }
+  },
+  "apps/ligo/src/routes/+layout.svelte": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "apps/ligo/src/routes/+page.svelte": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "apps/lingvo/src/lib/CardAIInput.svelte": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 1
+    }
+  },
+  "apps/lingvo/src/lib/CardEditor.svelte": {
+    "@typescript-eslint/unbound-method": {
+      "count": 3
+    },
+    "svelte/require-each-key": {
+      "count": 2
+    }
+  },
+  "apps/lingvo/src/lib/Dashboard.svelte": {
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 3
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 3
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    },
+    "svelte/require-each-key": {
+      "count": 2
+    }
+  },
+  "apps/lingvo/src/lib/Dictionary.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unused-expressions": {
+      "count": 3
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 5
+    },
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/lingvo/src/lib/FolderPicker.svelte": {
+    "@typescript-eslint/unbound-method": {
+      "count": 1
+    }
+  },
+  "apps/lingvo/src/lib/Library.svelte": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 2
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 3
+    }
+  },
+  "apps/lingvo/src/lib/LingvoApp.svelte": {
+    "@typescript-eslint/no-confusing-void-expression": {
+      "count": 16
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-expressions": {
+      "count": 2
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 1
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 2
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    },
+    "svelte/require-each-key": {
+      "count": 3
+    }
+  },
+  "apps/lingvo/src/lib/PhraseExercise.svelte": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 1
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 1
+    },
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/lingvo/src/lib/Preferences.svelte": {
+    "@typescript-eslint/unbound-method": {
+      "count": 3
+    },
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/lingvo/src/lib/Study.svelte": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unused-expressions": {
+      "count": 2
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 2
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 4
+    },
+    "svelte/require-each-key": {
+      "count": 2
+    }
+  },
+  "apps/lingvo/src/lib/Transfer.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 4
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 3
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    },
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/lingvo/src/lib/study-state.svelte.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "apps/lingvo/src/routes/+layout.svelte": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "apps/lingvo/src/routes/+page.svelte": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "apps/memoro/src/lib/DiaryCalendar.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 3
+    },
+    "svelte/require-each-key": {
+      "count": 5
+    }
+  },
+  "apps/memoro/src/lib/EntryEditor.svelte": {
+    "@typescript-eslint/no-useless-default-assignment": {
+      "count": 1
+    }
+  },
+  "apps/memoro/src/lib/EventDots.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/memoro/src/lib/MemoroApp.svelte": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 1
+    },
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 2
+    }
+  },
+  "apps/memoro/src/lib/TaskEditor.svelte": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 1
+    },
+    "@typescript-eslint/no-useless-default-assignment": {
+      "count": 1
+    },
+    "svelte/require-each-key": {
+      "count": 2
+    }
+  },
+  "apps/memoro/src/lib/memoro-state.svelte.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "apps/memoro/src/routes/+layout.svelte": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "apps/portal/src/lib/changelog.ts": {
+    "@typescript-eslint/prefer-regexp-exec": {
+      "count": 1
+    }
+  },
+  "apps/portal/src/lib/portal-model.ts": {
+    "@typescript-eslint/consistent-type-definitions": {
+      "count": 1
+    }
+  },
+  "apps/portal/src/routes/+layout.svelte": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "apps/portal/src/routes/+page.svelte": {
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    }
+  },
+  "apps/portal/src/routes/changelog/+page.svelte": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "svelte/prefer-const": {
+      "count": 3
+    }
+  },
+  "apps/regado/src/lib/AdminIntentDialog.svelte": {
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    }
+  },
+  "apps/regado/src/lib/LogsPanel.svelte": {
+    "@typescript-eslint/no-useless-default-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 1
+    },
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/regado/src/lib/NixOSStoragePanel.svelte": {
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 8
+    }
+  },
+  "apps/regado/src/lib/OverviewPanel.svelte": {
+    "@typescript-eslint/no-useless-default-assignment": {
+      "count": 1
+    }
+  },
+  "apps/regado/src/lib/RegadoDashboard.svelte": {
+    "@typescript-eslint/no-confusing-void-expression": {
+      "count": 1
+    },
+    "@typescript-eslint/no-meaningless-void-operator": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 3
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    },
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/regado/src/lib/StorageDeviceCard.svelte": {
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 5
+    }
+  },
+  "apps/regado/src/lib/StorageLayoutDialog.svelte": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 2
+    },
+    "svelte/require-each-key": {
+      "count": 3
+    }
+  },
+  "apps/regado/src/lib/StoragePanel.svelte": {
+    "@typescript-eslint/no-unnecessary-type-conversion": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 7
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/regado/src/lib/SystemPanel.svelte": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 7
+    },
+    "@typescript-eslint/prefer-optional-chain": {
+      "count": 1
+    }
+  },
+  "apps/regado/src/lib/admin-action-state.svelte.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 7
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    },
+    "no-case-declarations": {
+      "count": 1
+    }
+  },
+  "apps/regado/src/lib/regado-model.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/regado/src/lib/storage-layout.ts": {
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    }
+  },
+  "apps/regado/src/routes/+layout.svelte": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "apps/regado/src/routes/+page.svelte": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "apps/rondo/src/lib/RondoApp.svelte": {
+    "@typescript-eslint/no-redundant-type-constituents": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-conversion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 3
+    }
+  },
+  "apps/rondo/src/lib/RondoCommunityDialogs.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "apps/rondo/src/lib/RondoSettings.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 2
+    }
+  },
+  "apps/rondo/src/lib/VoiceTile.svelte": {
+    "svelte/no-unused-svelte-ignore": {
+      "count": 1
+    }
+  },
+  "apps/rondo/src/lib/community-state.svelte.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 9
+    }
+  },
+  "apps/rondo/src/lib/device-settings-state.svelte.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 6
+    },
+    "svelte/prefer-const": {
+      "count": 1
+    }
+  },
+  "apps/rondo/src/lib/rondo-state.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "apps/rondo/src/lib/voice-state.svelte.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/rondo/src/routes/+layout.svelte": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "apps/rondo/src/routes/+page.svelte": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "packages/account-ui/src/AccountGate.svelte": {
+    "@typescript-eslint/no-confusing-void-expression": {
+      "count": 2
+    }
+  },
+  "packages/account-ui/src/UserAvatar.svelte": {
+    "@typescript-eslint/consistent-type-definitions": {
+      "count": 1
+    }
+  },
+  "packages/account-ui/src/encryption-state.svelte.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-optional-chain": {
+      "count": 1
+    }
+  },
+  "packages/account-ui/src/session.ts": {
+    "@typescript-eslint/consistent-type-definitions": {
+      "count": 1
+    }
+  },
+  "packages/account-ui/src/user-presentation-state.svelte.ts": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 4
+    }
+  },
+  "packages/api-client/src/admin-queries.ts": {
+    "@typescript-eslint/consistent-type-definitions": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/admin.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/content-codec.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/fluo-content.ts": {
+    "@typescript-eslint/no-misused-spread": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/fluo-keys.ts": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 1
+    },
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/fluo-profiles.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/fluo.ts": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 2
+    }
+  },
+  "packages/api-client/src/ligo-content.ts": {
+    "@typescript-eslint/no-misused-spread": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/ligo.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/lingvo.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/message-cache.ts": {
+    "@typescript-eslint/consistent-type-definitions": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/private-records.ts": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 1
+    },
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/rondo-content.ts": {
+    "@typescript-eslint/no-misused-spread": {
+      "count": 2
+    },
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "packages/api-client/src/rondo.ts": {
+    "@typescript-eslint/no-misused-spread": {
+      "count": 1
+    },
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/auth/src/index.ts": {
+    "@typescript-eslint/no-unnecessary-type-conversion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "packages/chat-client/src/conversation-state.svelte.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "packages/chat-ui/src/MessageBubble.svelte": {
+    "@typescript-eslint/no-confusing-void-expression": {
+      "count": 5
+    },
+    "svelte/require-each-key": {
+      "count": 3
+    }
+  },
+  "packages/chat-ui/src/MessageList.svelte": {
+    "@typescript-eslint/consistent-type-definitions": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "packages/chat-ui/src/message-formatting.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "packages/chat-ui/src/message-grouping.ts": {
+    "@typescript-eslint/prefer-optional-chain": {
+      "count": 1
+    }
+  },
+  "packages/crypto/src/bytes.ts": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "packages/crypto/src/device-storage.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    }
+  },
+  "packages/crypto/src/keys.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 9
+    }
+  },
+  "packages/crypto/src/media.ts": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 1
+    },
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-promise-reject-errors": {
+      "count": 2
+    },
+    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+      "count": 1
+    }
+  },
+  "packages/crypto/src/recovery.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "packages/editor-ui/src/DraftAttachments.svelte": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "packages/editor-ui/src/RichText.svelte": {
+    "@typescript-eslint/consistent-type-definitions": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    },
+    "@typescript-eslint/prefer-optional-chain": {
+      "count": 1
+    },
+    "svelte/require-each-key": {
+      "count": 2
+    }
+  },
+  "packages/lingvo-client/src/ai-input.ts": {
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 2
+    }
+  },
+  "packages/lingvo-client/src/card-input.ts": {
+    "@typescript-eslint/no-misused-spread": {
+      "count": 1
+    },
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 4
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 1
+    },
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "packages/lingvo-client/src/csv.ts": {
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 1
+    },
+    "preserve-caught-error": {
+      "count": 1
+    }
+  },
+  "packages/lingvo-client/src/private-dictionary.ts": {
+    "@typescript-eslint/no-misused-spread": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 11
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-enum-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-optional-chain": {
+      "count": 3
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 1
+    },
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "packages/lingvo-client/src/scheduler.ts": {
+    "@typescript-eslint/no-unsafe-enum-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-plus-operands": {
+      "count": 5
+    }
+  },
+  "packages/media-client/src/index.ts": {
+    "@typescript-eslint/array-type": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    },
+    "@typescript-eslint/prefer-promise-reject-errors": {
+      "count": 1
+    }
+  },
+  "packages/media-client/src/media-metadata.ts": {
+    "@typescript-eslint/prefer-promise-reject-errors": {
+      "count": 1
+    }
+  },
+  "packages/media-ui/src/ImageCropDialog.svelte": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "packages/media-ui/src/MediaGallery.svelte": {
+    "@typescript-eslint/no-confusing-void-expression": {
+      "count": 3
+    }
+  },
+  "packages/media-ui/src/photo-swipe.ts": {
+    "@typescript-eslint/consistent-type-definitions": {
+      "count": 1
+    }
+  },
+  "packages/memoro-client/src/repository.ts": {
+    "@typescript-eslint/no-deprecated": {
+      "count": 2
+    },
+    "@typescript-eslint/no-empty-function": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/AppHeader.svelte": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/components/ui/alert-dialog/alert-dialog-action.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/components/ui/alert-dialog/alert-dialog-cancel.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/components/ui/attachment/attachment-action.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/components/ui/button/button.svelte": {
+    "@typescript-eslint/no-useless-default-assignment": {
+      "count": 1
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/components/ui/context-menu/context-menu-radio-item.svelte": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/components/ui/dialog/dialog-content.svelte": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/components/ui/dropdown-menu/dropdown-menu-group-heading.svelte": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/components/ui/dropdown-menu/dropdown-menu-radio-item.svelte": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/components/ui/input/input.svelte": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    }
+  },
+  "packages/ui/src/lib/components/ui/progress/progress.svelte": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "packages/ui/src/lib/components/ui/toggle-group/toggle-group-item.svelte": {
+    "@typescript-eslint/no-redundant-type-constituents": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 5
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 4
+    }
+  },
+  "packages/ui/src/lib/components/ui/toggle-group/toggle-group.svelte": {
+    "@typescript-eslint/no-redundant-type-constituents": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 3
+    }
+  },
+  "packages/ui/src/routes/+layout.svelte": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    }
+  },
+  "packages/voice-client/src/connection.ts": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-enum-comparison": {
+      "count": 2
+    }
+  },
+  "packages/voice-client/src/devices.ts": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "packages/voice-client/src/microphone-volume.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "packages/voice-client/src/participant-state.ts": {
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    }
+  },
+  "packages/voice-client/src/sounds.ts": {
+    "@typescript-eslint/no-empty-function": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "scripts/account-session.test.mjs": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/auth-live.integration.mjs": {
+    "@typescript-eslint/no-unused-expressions": {
+      "count": 1
+    }
+  },
+  "scripts/local-ports.mjs": {
+    "preserve-caught-error": {
+      "count": 1
+    }
+  },
+  "scripts/ui-fixture.mjs": {
+    "no-empty-pattern": {
+      "count": 2
+    }
+  },
+  "scripts/ui-quality.test.mjs": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  }
+}
