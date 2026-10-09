@@ -185,6 +185,138 @@ test('source guard rejects a changed commit or changed dirty content during the 
 	}
 });
 
+async function migrationFixture(phase = 'trial') {
+	const directory = await mkdtemp('/tmp/kd-migration-');
+	await put(join(directory, 'pool/@migration/phase'), phase);
+	await put(join(directory, 'pool/@migration/original-root-uuid'), 'original-root');
+	await put(join(directory, 'pool/@migration/original-entries'), 'original\0');
+	await put(join(directory, 'pool/original/data'), 'rollback copy');
+	await put(join(directory, 'pool/new-after-cutover/data'), 'new operator data');
+	await put(join(directory, 'pool/@kaordo/data'), 'live data');
+	await mkdir(join(directory, 'system'));
+	await symlink(join(directory, 'system'), join(directory, 'built'));
+	await put(join(directory, 'pool/@migration/system'), await realpath(join(directory, 'system')));
+	return directory;
+}
+
+function runMigration(directory, script) {
+	return spawnSync('bash', ['-s'], {
+		encoding: 'utf8',
+		env: {
+			...process.env,
+			MIGRATION_SCRIPT: join(root, 'deploy/nixos/migrate-to-pool.sh'),
+			MIGRATION_FIXTURE: directory
+		},
+		input: `source "$MIGRATION_SCRIPT"
+top="$MIGRATION_FIXTURE/pool"
+built="$MIGRATION_FIXTURE/built"
+boot_directory="$MIGRATION_FIXTURE/boot"
+root_on_pool() { return 0; }
+mount_top() { :; }
+${script}`
+	});
+}
+
+test('migration cleanup refuses to delete rollback data before finalization', async () => {
+	const directory = await migrationFixture();
+	try {
+		const result = runMigration(directory, 'cleanup');
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /finalize first/);
+		assert.equal(await readFile(join(directory, 'pool/original/data'), 'utf8'), 'rollback copy');
+		assert.equal(await readFile(join(directory, 'pool/@kaordo/data'), 'utf8'), 'live data');
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test('migration cleanup removes only entries recorded at cutover', async () => {
+	const directory = await migrationFixture('finalized');
+	try {
+		const result = runMigration(
+			directory,
+			// Linux rm implements --one-file-system; this fixture only uses ordinary directories
+			`rm() {
+  local args=()
+  for argument in "$@"; do
+    [[ "$argument" == --one-file-system ]] || args+=("$argument")
+  done
+  command rm "\${args[@]}"
+}
+cleanup`
+		);
+		assert.equal(result.status, 0, result.stderr);
+		await assert.rejects(stat(join(directory, 'pool/original')), { code: 'ENOENT' });
+		assert.equal(
+			await readFile(join(directory, 'pool/new-after-cutover/data'), 'utf8'),
+			'new operator data'
+		);
+		assert.equal(await readFile(join(directory, 'pool/@kaordo/data'), 'utf8'), 'live data');
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test('migration restores active services when the final system copy fails', async () => {
+	const directory = await migrationFixture('prepared');
+	try {
+		const result = runMigration(
+			directory,
+			`root_on_pool() { return 1; }
+check() { :; }
+findmnt() { printf 'original-root\\n'; }
+systemctl() {
+  if [[ "$1" == is-active ]]; then
+    [[ "$3" == kerno || "$3" == postgresql || "$3" == nix-daemon.socket ]]
+  else printf '%s\\n' "$*" >> "$MIGRATION_FIXTURE/events"; fi
+}
+grub-editenv() { printf '%s\\n' "grub:$*" >> "$MIGRATION_FIXTURE/events"; }
+sync_system() { return 42; }
+trap finish EXIT
+cutover`
+		);
+		assert.equal(result.status, 42, result.stderr);
+		assert.match(result.stderr, /restarting the previously active services/);
+		assert.match(
+			await readFile(join(directory, 'events'), 'utf8'),
+			/start kerno postgresql nix-daemon.socket/
+		);
+		assert.equal(await readFile(join(directory, 'pool/original/data'), 'utf8'), 'rollback copy');
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test('migration cleanup cannot delete a later directory when rerun', async () => {
+	const directory = await migrationFixture('cleaned');
+	try {
+		const result = runMigration(directory, 'cleanup');
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(await readFile(join(directory, 'pool/original/data'), 'utf8'), 'rollback copy');
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test('migration rejects a different trial closure before stopping services', async () => {
+	const directory = await migrationFixture('prepared');
+	try {
+		await put(join(directory, 'pool/@migration/system'), '/different-system');
+		const result = runMigration(
+			directory,
+			`root_on_pool() { return 1; }
+check() { :; }
+systemctl() { printf '%s\\n' "$*" >> "$MIGRATION_FIXTURE/events"; }
+cutover`
+		);
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /recorded system must match/);
+		await assert.rejects(stat(join(directory, 'events')), { code: 'ENOENT' });
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 async function hostFixture(failure = '') {
 	const directory = await mkdtemp('/tmp/kd-host-');
 	const data = join(directory, 'data');

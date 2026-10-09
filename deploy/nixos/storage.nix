@@ -15,12 +15,17 @@ let
   present = builtins.filter (id: builtins.pathExists "/dev/disk/by-id/${id}") desired.pool.devices;
 in
 {
+  assertions = [{
+    assertion = builtins.length desired.pool.devices >= 2 && present != [ ];
+    message = "Pool boot requires two desired disks and at least one present bootloader device";
+  }];
+
   boot.supportedFilesystems = [ "btrfs" ];
   boot.initrd.supportedFilesystems = [ "btrfs" ];
 
   fileSystems = {
     "/" = subvolume "@root";
-    "/nix" = subvolume "@nix";
+    "/nix" = subvolume "@nix" // { neededForBoot = true; };
     "/var/log" = subvolume "@log" // { neededForBoot = true; };
     # Nested subvolumes postgresql, media, prometheus and releases appear inside @kaordo
     "/srv/kaordo" = subvolume "@kaordo";

@@ -49,11 +49,13 @@ Secrets never enter Git or the Nix store. `provision-secrets.sh` idempotently cr
 
 1. `check` verifies two healthy RAID1 members and free space.
 2. `prepare` copies the running system into `@root`, `@nix` and `@log`, imports `storage.nix` into the copy's configuration and builds it. Services keep running.
-3. `cutover` stops the services, syncs the system again, and reflinks the data into `@kaordo`; the copy shares every block and is verified file by file. It then arms one trial boot of the new system from the old menu, and the operator reboots.
-4. `finalize`, on the trial system, makes it the default and installs GRUB on every pool disk. If the trial boot hangs instead, power-cycling starts the old system with its data untouched.
-5. `cleanup` removes the pre-migration data from the pool's top level.
+3. `cutover` stops the services, syncs the system again, and reflinks the data into `@kaordo`; the copy shares every block and its paths, sizes, ownership, permissions and timestamps are checked. It records the copied entries, validates the GRUB menu and arms one trial boot. A failure restarts the previously active services. The operator then reboots; physical or iLO access must be available if SSH does not return.
+4. `finalize`, on the recorded trial system, checks the subvolume mounts and service health, makes it the default and installs GRUB on every pool disk. If the trial boot hangs instead, power-cycling starts the old system. Its data is the copy from cutover: writes accepted by the trial system need reconciliation before a later rollback.
+5. `cleanup` requires successful finalization and removes only the pre-migration entries recorded during cutover. New entries and subvolumes remain intact. It permanently retires the old application's data copy.
 
-Afterwards the old ext4 partition only backs older boot entries. Rebuilding each disk to the template (BIOS boot plus one pool partition) runs through Regado: drop the disk from the pool, then add it back.
+The stages share the production deployment lock. Do not deploy another release between preparation and finalization. Keep an encrypted recovery copy on an independent device before retiring the old root or reshaping partitions; the pool copy is not a backup.
+
+Afterwards the old ext4 partition only backs older boot entries. A two-device RAID1 cannot remove one member while preserving two copies. Completing the uniform template therefore needs a separately rehearsed partition migration or a third temporary device; do not drop and re-add a disk from this two-device pool. The in-place system migration itself leaves partition boundaries unchanged.
 
 ## Manual recovery
 
@@ -73,5 +75,5 @@ Afterwards the old ext4 partition only backs older boot entries. Rebuilding each
 - **Verification badge.** Set it the same way: `INSERT INTO fluo_profiles (user_id, verified) VALUES ('<id>', true) ON CONFLICT (user_id) DO UPDATE SET verified = true`.
 - **Journal.** Persistent journald is capped at 256 MiB, and the age limit starts at 14 days. The age limit is `cleanup.journalDays` in the host's desired state: 1, 7, 14, 30 or 90 days, or none. Regado's Logs tab edits it, and the agent writes `/var/lib/regado-agent/journald-retention.conf`, which survives rebuilds. After a reinstall the agent reapplies the desired value.
 - **DNS.** `ddclient.service` is a oneshot, so between runs it is normally `inactive (dead)`. Check `ddclient.timer` and the last result before treating that as a failure.
-- **Health.** Check `systemctl --failed`, `ddclient.timer`, `btrfs-scrub-srv-kaordo.timer`, `127.0.0.1:8081/healthz` (Kerno) and `127.0.0.1:8082/healthz` (Nodo).
+- **Health.** Check `systemctl --failed`, `ddclient.timer`, the agent's integrity operations, `127.0.0.1:8081/healthz` (Kerno) and `127.0.0.1:8082/healthz` (Nodo).
 - **Backups.** RAID1 is not a backup. Configure an encrypted restic repository on an independent device or remote storage, keep a recoverable copy of its password, and schedule it before treating production data as backed up.
