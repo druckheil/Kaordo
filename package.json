@@ -17,10 +17,7 @@
 		"test:backup:live": "playwright test --project=live backup-live.integration.mjs --workers=1",
 		"test:auth": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs scripts/api-client.test.mjs scripts/auth-config.test.mjs",
 		"test:auth:live": "playwright test --project=live auth-live.integration.mjs --workers=1",
-		"test:auth:live:identity": "pnpm test:auth:live --grep \"remembered OIDC|identity theme|identity OTP\"",
 		"test:product:db": "node scripts/product-db.integration.mjs",
-		"test:fluo:db": "node scripts/product-db.integration.mjs",
-		"test:ligo:db": "node scripts/product-db.integration.mjs",
 		"test:backup": "node --test scripts/backup-config.test.mjs",
 		"test:dependencies": "node --test scripts/dependencies.test.mjs",
 		"test:dev": "node --test scripts/dev-local.test.mjs",
@@ -37,7 +34,6 @@
 		"test:ui-public": "pnpm build:pages && playwright test --project=browser ui-public.test.mjs",
 		"test:regado:ui": "playwright test --project=browser regado-ui.test.mjs",
 		"test:product:ui": "playwright test --project=browser product-ui.test.mjs",
-		"test:rondo:db": "node scripts/product-db.integration.mjs",
 		"dev:integration": "node scripts/dev-local.mjs --static",
 		"test:unit": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs scripts/api-client.test.mjs scripts/auth-config.test.mjs scripts/backup-config.test.mjs scripts/build-pages-config.test.mjs scripts/dependencies.test.mjs scripts/deploy-production.test.mjs scripts/dev-local.test.mjs scripts/ligo-message-layout.test.mjs scripts/lingvo-client.test.mjs scripts/media-layout.test.mjs scripts/media-upload-storage.test.mjs scripts/media-clipboard.test.mjs scripts/ci-config.test.mjs",
 		"test:ui": "playwright test --project=browser",
@@ -45,6 +41,7 @@
 		"test:integration": "KAORDO_START_SERVICES=1 playwright test --project=live --workers=1 --reporter=line",
 		"lint": "eslint .",
 		"lint:go": "for module in kerno nodo mediaauth regado-agent; do (cd services/$module && golangci-lint run --config ../../.golangci.yml ./...) || exit 1; done",
+		"test:go": "go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...",
 		"knip": "knip"
 	},
 	"devDependencies": {

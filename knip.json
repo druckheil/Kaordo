@@ -29,6 +29,6 @@
 			"project": ["src/**/*.{ts,svelte}"]
 		}
 	},
-	"ignoreBinaries": ["golangci-lint", "restic"],
+	"ignoreBinaries": ["go", "golangci-lint", "restic"],
 	"ignoreDependencies": ["tailwindcss"]
 }

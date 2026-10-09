@@ -1,21 +1,23 @@
 # Keycloak
 
-The local Compose profile imports `kaordo-realm.json` into Keycloak 26.7.4. Registration is enabled. `CONFIGURE_TOTP` and `CONFIGURE_RECOVERY_AUTHN_CODES` are default required actions. The browser flow offers TOTP and one-time recovery codes as alternative second factors. The browser client requires PKCE S256, and its access tokens include the `kerno-api` audience. The default `basic` and `profile` scopes supply `sub` and `preferred_username` for Kerno. Password grant and implicit flow are disabled for the browser client.
+- `kaordo-realm.json` is the local realm, imported into an empty identity database. Production uses `deploy/nixos/kaordo-realm.json`.
+- `registration-profile.json` leaves only Username editable at registration.
+- `themes/kaordo/login` is the hosted-form theme. Its palettes and head script are generated from `packages/ui/src/lib/themes` by `node scripts/sync-theme.mjs`. Do not edit the generated files by hand.
 
-`registration-profile.json` leaves only Username editable on the registration form. The Kaordo login theme renders one Password input and submits the confirmation value required by Keycloak's built-in password validator. `pnpm dev` applies the registration profile, the web client's `kerno-api` audience mapper and default scopes, the realm password/TOTP policy, required actions, and second-factor browser flow through the local Admin API on every start, including realms imported earlier. If Keycloak is started manually, run `pnpm auth:configure` after it is ready. This reconciles and verifies the settings without deleting existing users and checks an example access token for `aud`, `sub`, and `preferred_username`. Existing access tokens must be refreshed after a scope change before Kerno will accept them.
+Import skips an existing realm, so policy is reconciled through the Admin API: `scripts/sync-keycloak.mjs` locally (run by `pnpm dev` and `pnpm auth:configure`) and `deploy/nixos/sync-keycloak-production.mjs` in production. Both scripts apply:
 
-The `kaordo` login theme inherits Keycloak's supported form templates and applies the selected shared palette and spacing. Passwords and OTP secrets remain with Keycloak. Keycloak shows recovery codes once after TOTP setup; users must save them. Each recovery code works once. The local profile has no public abuse controls. Startup import skips a realm that already exists; run `pnpm auth:configure` after changing the JSON policy.
+- the registration profile;
+- required TOTP and recovery codes, and the second-factor browser flow;
+- password and OTP policy;
+- 30-day idle and five-year maximum sessions, five-minute access tokens and rotating refresh tokens;
+- the `basic` and `profile` default scopes and the `kerno-api` audience mapper.
 
-The palettes in `login/resources/css/deep-purple.css` and `themes.css`, and the native `theme.js` head script, are generated from `packages/ui/src/lib/themes`, its catalog and `preferences.json`. Run `node scripts/sync-theme.mjs` after editing them; `pnpm build:pages` also synchronizes them. Do not maintain a second theme list, palette or preference key definition. The native script reads `kaordo.theme` (Deep Purple by default) and `kaordo.color-mode`, following the operating system until a mode is chosen. App-initiated authentication also carries `kaordo_theme` and `kaordo_mode` in the entry URL. Valid catalog IDs and light/dark/system modes override the identity origin's older preferences before paint, persist for subsequent forms and are removed from the URL after consumption. The current form still applies them when storage is unavailable. This works across local development origins as well as the shared production origin. The script continues to handle system changes and storage events from other tabs. Hosted forms use the font stack with available system fallbacks; app Fontsource assets belong to the static builds.
+They then read the effective policy back. When a user exists they also verify an issued access token's `aud`, `sub` and `preferred_username`. Existing users and credentials are never deleted.
 
-The focused form checks require local Keycloak and its database, without starting the apps:
+App sign-in links carry `kaordo_theme` and `kaordo_mode`. The theme script applies them before paint, saves them on the identity origin and strips them from the URL, so hosted forms match the app's appearance across origins.
+
+Focused checks against a local Keycloak, without starting the apps:
 
 ```sh
-node --test --test-name-pattern='identity (theme|OTP)' scripts/auth-live.integration.mjs
+pnpm exec playwright test --project=live auth-live.integration.mjs --grep 'identity (theme|OTP)'
 ```
-
-They check login/registration in both color modes, persisted preference overriding the system, 320px reflow, password visibility with hover and keyboard focus, and invalid credential/OTP styling. The OTP check creates and deletes a temporary Keycloak identity, configures its native TOTP and recovery flow, and never creates an application account. Set `KAORDO_UI_SNAPSHOTS=1` to capture the tested forms. The full live journey below additionally exercises application account creation and SSO.
-
-The local headless authentication test checks the entry, registration, TOTP, recovery, and login states for automatically detectable WCAG A/AA violations with axe-core. This check does not replace keyboard or screen-reader testing.
-
-The sync script now separates policy loading, realm/client reconciliation and effective-token checks. This is a code organization change, not an identity schema or password-policy reset. The browser auth/account packages share initialization and snapshot control. `pnpm test:auth` checks policy and failure cases; `pnpm test:auth:live` checks the real hosted forms and SSO. See [current verification](../../docs/refactoring.md).

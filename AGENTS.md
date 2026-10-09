@@ -20,7 +20,7 @@ Implemented applications are Portal authentication/account entry, Fluo social po
 - Four Go modules are in `go.work`: Kerno coordinates business metadata/access; Nodo owns tus uploads and bytes; mediaauth signs/verifies media links; regado-agent exposes fixed Linux operations through a protected Unix socket.
 - Kerno uses Jet query builders with pgx transactions. Domain packages validate data; HTTP handlers coordinate authorization and services; PostgreSQL files are split by feature and operation. Keep transaction and access boundaries intact.
 - Kerno's `account` and `admin` packages own their models, errors and store contracts. HTTP depends on those contracts; PostgreSQL implements them and translates driver absence errors. `admin.SystemOperations` owns command validation, audit ordering and storage-maintenance coordination through consumer-owned ports. `nodoclient`, `regado` and `rondovoice` are outbound adapters. `cmd/kerno` is the composition root; `cmd/regado-agent` owns process/socket lifecycle and `internal/agent` owns protected host operations.
-- The local Compose profile runs PostgreSQL, Keycloak and LiveKit. The NixOS production profile includes Caddy, Namecheap DDNS, Prometheus, Node Exporter and regado-agent. Cloudflare and Synapse directories are reserved integrations, not active production dependencies.
+- The local Compose profile runs PostgreSQL, Keycloak and LiveKit. The NixOS production profile includes Caddy, Namecheap DDNS, Prometheus, Node Exporter and regado-agent. Matrix/Synapse and Cloudflare are not part of the system.
 - Production Data1 mirrors data and metadata across two physical disks. NixOS has one separate root partition. Independent backup destinations remain operator configuration. Never claim RAID1 is a backup, that undeployed source protects existing production data, or that browser encryption defeats malicious client delivery. There are no administrator/system escrow keys or content-access cases.
 
 ## Working rules
@@ -37,31 +37,27 @@ Implemented applications are Portal authentication/account entry, Fluo social po
 
 ## Verification
 
-See `docs/refactoring.md` for the current code map and verified refactor evidence. Follow `docs/ci.md` for suite ownership, isolation, failure diagnosis and GitHub Actions rules. Main commands:
+`docs/architecture.md` is the code map. Follow `docs/ci.md` for suite ownership, isolation, failure diagnosis and GitHub Actions rules. Main commands:
 
 ```sh
 pnpm check:front
+pnpm format:check
+pnpm lint
+pnpm knip
 pnpm --filter @kaordo/contracts generate
-pnpm test:pages
 pnpm test:unit
+pnpm test:pages
 pnpm test:ui
-pnpm test:integration # static apps built; Docker, ffmpeg and restic available
-pnpm test:auth
-pnpm test:dev
-pnpm test:media
-pnpm test:dependencies
-pnpm test:ui-layout
-pnpm test:product:ui
-pnpm test:regado:ui
-pnpm exec playwright test --project=browser ui-public.test.mjs
+pnpm test:integration # static apps built; Docker, ffmpeg and restic available; pnpm dev stopped
 pnpm test:product:db # local application database running
 pnpm test:auth:live # pnpm dev running
 pnpm test:backup:live # both local database containers running
 pnpm audit --audit-level=low
-go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
-go vet ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
-go build ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...
+pnpm lint:go
+pnpm test:go
 ```
+
+New ESLint findings fail CI. Existing ones are recorded in `eslint-suppressions.json`; fix them rather than adding suppressions, then run `pnpm lint --prune-suppressions`. Temporary golangci-lint exclusions in `.golangci.yml` follow the same rule.
 
 ## CI changes
 
