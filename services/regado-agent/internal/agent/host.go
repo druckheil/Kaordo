@@ -106,3 +106,22 @@ func readKernelVersion() string {
 	}
 	return strings.TrimSpace(string(raw))
 }
+
+func parseOSRelease(raw string) (name, version string) {
+	for line := range strings.SplitSeq(raw, "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = unquoted
+		}
+		switch key {
+		case "NAME":
+			name = value
+		case "VERSION_ID":
+			version = value
+		}
+	}
+	return
+}

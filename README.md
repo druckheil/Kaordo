@@ -53,4 +53,5 @@ pnpm test:go
 - [CI](docs/ci.md): test layers, local reproduction and test rules
 - [Releases](docs/releases.md): public release notes and release procedure
 - [Production](deploy/nixos/README.md): NixOS host, deployment, rollback and operations
-- [Keycloak](deploy/keycloak/README.md) and [storage](deploy/storage/README.md)
+- [Regado host operations](docs/regado.md): desired state, operations, storage, integrity and alerts
+- [Keycloak](deploy/keycloak/README.md)

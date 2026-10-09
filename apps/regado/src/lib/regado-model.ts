@@ -1,13 +1,7 @@
 // Defines Regado navigation, administrator intents, and display formatting
 
 import type { AdminApi } from '@kaordo/api-client';
-import type {
-	AdminDisk,
-	AdminLogs,
-	AdminMount,
-	AdminSystem,
-	AdminLogRetentionDays
-} from '@kaordo/contracts';
+import type { AdminLogs, AdminLogRetentionDays } from '@kaordo/contracts';
 
 export const dashboardTabs = ['Overview', 'Storage', 'Logs', 'Users', 'Audit', 'System'] as const;
 
@@ -34,15 +28,7 @@ export type AdminIntent =
 	| { type: 'log-retention'; days: AdminLogRetentionDays; name: string }
 	| { type: 'status'; id: string; name: string; disabled: boolean }
 	| { type: 'role'; id: string; name: string; isAdmin: boolean }
-	| {
-			type: 'action';
-			id: AdminSystemAction;
-			name: string;
-			target?: string;
-			identity?: string;
-			filesystem?: string;
-			resumeSetup?: boolean;
-	  };
+	| { type: 'action'; id: AdminSystemAction; name: string };
 
 export const logServices = [
 	'kerno',
@@ -72,50 +58,6 @@ export function isRefreshableTab(tab: DashboardTab): boolean {
 
 export function isRestartableService(service: string): service is RestartableService {
 	return Object.hasOwn(restartActions, service);
-}
-
-export function storageDevices(disks: AdminDisk[]): AdminDisk[] {
-	const result: AdminDisk[] = [];
-	const visit = (device: AdminDisk) => {
-		if (device.type === 'disk') result.push(device);
-		for (const child of device.children ?? []) visit(child);
-	};
-	for (const disk of disks) visit(disk);
-	return result;
-}
-
-export function fileCopySummary(system: AdminSystem | null, pool: AdminMount) {
-	const report = system?.replicationReports?.find((item) => item.path === pool.path);
-	if (!report?.checkedAt) return null;
-	const total = report.files;
-	const media = system?.mediaMaintenance;
-	const containsMedia =
-		!!media && (media.directory === pool.path || media.directory.startsWith(pool.path + '/'));
-	const referencesFresh =
-		!!media?.checkedAt &&
-		!!media.startedAt &&
-		!!report.startedAt &&
-		Date.parse(media.startedAt) >= Date.parse(report.startedAt) &&
-		media.state === 'complete';
-	const surplus = containsMedia && referencesFresh ? Math.min(total, media.surplusFiles) : 0;
-	const unknownReferences =
-		containsMedia && referencesFresh
-			? Math.min(total - surplus, media.unverifiedFiles)
-			: containsMedia || !media
-				? total - surplus
-				: 0;
-	const remaining = total - surplus - unknownReferences;
-	const verified = report.checksumState === 'passed';
-	const duplicated = verified && report.duplication === 'duplicated' ? remaining : 0;
-	const single = verified && report.duplication === 'single' ? remaining : 0;
-	return {
-		report,
-		total,
-		duplicated,
-		single,
-		surplus,
-		unverified: total - duplicated - single - surplus
-	};
 }
 
 export function formatBytes(value: number | undefined): string {
@@ -166,17 +108,11 @@ export function intentDescription(intent: AdminIntent | null): string {
 			if (intent.id === 'restart-ddclient') {
 				return 'This runs one DNS check and starts the automatic update timer if necessary. The updater exits after each check; a scheduled idle service is healthy.';
 			}
-			if (intent.id === 'repair-storage') {
-				return 'This restores two-copy Btrfs allocation on separate disks, repairs damaged blocks from valid copies, and removes only uploads older than 24 hours that Kerno confirms have no references. Fresh uploads, referenced files and surviving copies are retained. Progress appears in File copies.';
+			if (intent.id === 'check-media') {
+				return 'This counts stored media and checks each expired upload against its references. Nothing is removed. The check is recorded in the administrator audit.';
 			}
-			if (intent.id === 'check-storage') {
-				return 'This scans checksummed data and metadata on every pool disk, counts regular files, and checks expired upload references. It does not delete files. Progress appears in File copies.';
-			}
-			if (intent.id === 'configure-storage') {
-				if (intent.resumeSetup) {
-					return 'This resumes the prepared Kaordo data partition and adds it to the selected Btrfs pool. The agent rechecks the hardware identity and partition before proceeding.';
-				}
-				return 'This prepares the selected empty disk and adds it to the Btrfs pool. The agent rechecks the hardware identity and refuses system disks, existing partitions, mounted filesystems, active swap, or filesystem signatures.';
+			if (intent.id === 'clean-media') {
+				return 'This removes uploads older than 24 hours that nothing references, then checks again. Files whose references cannot be verified are kept. The cleanup is recorded in the administrator audit.';
 			}
 			return 'This system operation is recorded in the administrator audit.';
 		default:

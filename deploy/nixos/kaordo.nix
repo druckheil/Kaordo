@@ -33,7 +33,6 @@ in
     "d /var/lib/regado-agent 0700 root regado-agent - -"
     "C /var/lib/regado-agent/journald-retention.conf 0600 root root - ${pkgs.writeText "kaordo-journal-retention-default.conf" "[Journal]\nMaxRetentionSec=14day\n"}"
     "d /var/lib/btrfs 0755 root root - -"
-    "d /var/lib/kaordo-volumes 0755 root root - -"
     "d ${dataRoot}/postgresql 0700 postgres postgres - -"
     "d ${dataRoot}/media 0700 kaordo kaordo - -"
     "d ${dataRoot}/secrets 0700 root root - -"
@@ -73,11 +72,9 @@ in
   systemd.services.regado-agent = {
     description = "Kaordo local system monitor and restricted control agent";
     wantedBy = [ "multi-user.target" ];
-    after = [ "local-fs.target" "kaordo-system-volumes.service" ];
-    wants = [ "kaordo-system-volumes.service" ];
+    after = [ "local-fs.target" ];
     unitConfig.RequiresMountsFor = dataRoot;
-    path = [ pkgs.util-linux pkgs.btrfs-progs pkgs.gptfdisk pkgs.dosfstools pkgs.parted pkgs.systemd pkgs.smartmontools pkgs.disko pkgs.nix pkgs.e2fsprogs ];
-    environment.NIX_PATH = "nixpkgs=${pkgs.path}";
+    path = [ pkgs.util-linux pkgs.btrfs-progs pkgs.gptfdisk pkgs.dosfstools pkgs.systemd pkgs.smartmontools ];
     serviceConfig = {
       User = "root";
       Group = "regado-agent";
@@ -93,26 +90,12 @@ in
       PrivateTmp = true;
       ProtectHome = true;
       ProtectSystem = "strict";
-      ReadWritePaths = [ dataRoot "/run/regado-agent" "/var/lib/btrfs" "/var/lib/regado-agent" "/var/lib/kaordo-volumes" "-/var/log/journal" "-/run/log/journal" ];
+      ReadWritePaths = [ dataRoot "/run/regado-agent" "/var/lib/btrfs" "/var/lib/regado-agent" "-/var/log/journal" "-/run/log/journal" ];
       RestrictAddressFamilies = [ "AF_UNIX" ];
     };
   };
 
-  # Mount prepared System volumes by UUID through the host systemd manager
-  systemd.services.kaordo-system-volumes = {
-    description = "Mount Kaordo System data partitions";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "local-fs.target" ];
-    unitConfig.RequiresMountsFor = dataRoot;
-    path = [ pkgs.util-linux pkgs.systemd ];
-    serviceConfig = {
-      Type = "oneshot";
-      ExecStart = "${dataRoot}/bin/regado-agent --mount-system-volumes";
-      RemainAfterExit = true;
-    };
-  };
-
-  environment.systemPackages = with pkgs; [ btrfs-progs disko e2fsprogs nodejs restic smartmontools ];
+  environment.systemPackages = with pkgs; [ btrfs-progs e2fsprogs nodejs restic smartmontools ];
 
   services.postgresql = {
     enable = true;

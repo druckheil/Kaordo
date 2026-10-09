@@ -58,6 +58,8 @@ type Device struct {
 	Class       Class       `json:"class"`
 	// HostsSystem is set when the device carries /, /boot or /nix outside the pool.
 	HostsSystem bool `json:"hostsSystem"`
+	// Health is the latest SMART report, absent until the first read finishes.
+	Health *Health `json:"health"`
 }
 
 type Options struct {

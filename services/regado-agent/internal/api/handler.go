@@ -15,8 +15,8 @@ import (
 
 const bodyLimit = 64 << 10
 
-// NewHandler serves the declarative host API and passes other routes to legacy.
-func NewHandler(service *Service, legacy http.Handler) http.Handler {
+// NewHandler serves the declarative host API and passes telemetry, journal and service routes to system.
+func NewHandler(service *Service, system http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /host", func(w http.ResponseWriter, r *http.Request) {
 		facts, err := service.Facts(r.Context())
@@ -54,8 +54,8 @@ func NewHandler(service *Service, legacy http.Handler) http.Handler {
 		cancelled, err := service.Operations.Cancel(r.PathValue("id"))
 		respond(w, cancelled, err)
 	})
-	if legacy != nil {
-		mux.Handle("/", legacy)
+	if system != nil {
+		mux.Handle("/", system)
 	}
 	return mux
 }

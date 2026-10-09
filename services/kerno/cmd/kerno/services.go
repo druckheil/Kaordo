@@ -105,10 +105,10 @@ func adminDependencies(cfg config, pool *pgxpool.Pool) httpapi.AdminDependencies
 	store := postgres.NewAdmin(pool)
 	agent := regado.NewSystemClient(regadoAgentSocket)
 	return httpapi.AdminDependencies{
-		Store:       store,
-		System:      agent,
-		Metrics:     regado.NewMetricsClient(metricsEndpoint),
-		Maintenance: nodoclient.Client{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey},
+		Store:   store,
+		System:  agent,
+		Metrics: regado.NewMetricsClient(metricsEndpoint),
+		Media:   nodoclient.Client{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey},
 		// The local agent is the first host; remote agents join this registry
 		Hosts: admin.NewHosts(map[string]admin.HostAgent{"local": agent}, store),
 	}

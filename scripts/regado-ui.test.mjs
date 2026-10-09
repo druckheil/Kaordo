@@ -1,4 +1,4 @@
-// Exercises Regado navigation, accessible storage evidence, and guarded administrator actions
+// Exercises Regado navigation, pool changes, media maintenance and guarded administrator actions
 import {
 	assertAccessible as accessibility,
 	assertInterfaceGeometry,
@@ -37,10 +37,7 @@ test('Regado overview explains charts and supports both appearances', async ({
 test('Regado charts follow repeated viewport changes without resize feedback', async ({
 	regado: { page }
 }) => {
-	for (const [section, count] of [
-		['Overview', 6],
-		['Storage', 1]
-	]) {
+	for (const [section, count] of [['Overview', 6]]) {
 		await openSection(page, section);
 		await expect(page.locator('.uplot')).toHaveCount(count);
 		for (const width of [320, 1440, 390, 1024, 1440]) {
@@ -205,96 +202,132 @@ test('Regado system explains service status and confirms DNS maintenance', async
 		})
 	).toBeVisible();
 	expect(systemActions.at(-1).path).toBe('/v1/admin/actions/restart-ddclient');
-	await page
-		.getByRole('region', { name: 'Storage maintenance', exact: true })
-		.getByRole('button', { name: 'Open storage', exact: true })
-		.click();
-	await expect(page.getByRole('heading', { name: 'NixOS system', exact: true })).toBeVisible();
 });
 
-test('Regado storage distinguishes physical capacity and applies a confirmed device layout', async ({
-	regado: { page, layoutActions }
+test('Regado storage adds a device through a planned, confirmed pool change', async ({
+	regado: { page, host }
 }) => {
 	await openSection(page, 'Storage');
-	await expect(page.getByRole('heading', { name: 'NixOS system', exact: true })).toBeVisible();
+	const summary = page.getByRole('region', { name: 'fixture-server', exact: true });
+	await expect(summary.getByText('Healthy', { exact: true })).toBeVisible();
+	await expect(summary).toContainText('· 2 devices ·');
 	await expect(
-		page.getByRole('heading', { name: 'Compressed RAM swap', exact: true })
+		summary.getByText('2 copies on separate devices', { exact: true }).first()
 	).toBeVisible();
-	await expect(page.getByText('zram0 · 1.0 MiB of 4.0 GiB in use', { exact: true })).toBeVisible();
+	const devices = page.getByRole('region', { name: 'Devices', exact: true });
 	await expect(
-		page
-			.getByText('Available to allocate', { exact: true })
-			.locator('..')
-			.getByText('64.0 GiB', { exact: true })
+		devices
+			.getByRole('listitem', { name: 'WDC WD10EZRX · WD-A', exact: true })
+			.getByText('SMART passed · 35 °C · 41,000 hours', { exact: true })
 	).toBeVisible();
-	await expect(page.getByText('Physical pool capacity', { exact: true })).toBeVisible();
-	await expect(page.getByText('98.0%', { exact: true })).toBeVisible();
-	await expect(page.getByText('Mirrored · healthy', { exact: true })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Mounted filesystems', exact: true })).toHaveCount(
-		0
-	);
-	await expect(page.getByText('No filesystem errors reported', { exact: true })).toHaveCount(0);
-	await expect(page.getByText(/Scrub device \/dev\//)).toHaveCount(0);
-	const newDisk = page.getByRole('article', {
-		name: 'Device /dev/sdc',
-		exact: true
-	});
-	await newDisk.getByRole('button', { name: 'Manage partitions', exact: true }).click();
-	await page.getByLabel('System · GiB', { exact: true }).fill('64');
-	await page.getByLabel('Storage · GiB', { exact: true }).fill('867');
-	await page.getByRole('button', { name: 'Preview layout', exact: true }).click();
-	await expect(page.getByText('Layout engine: disko', { exact: true })).toBeVisible();
-	await accessibility(page, 'Partition layout dialog');
+
+	await devices
+		.getByRole('listitem', { name: 'WDC WD10EZRX · WD-C', exact: true })
+		.getByRole('button', { name: 'Add to pool', exact: true })
+		.click();
+	const dialog = page.getByRole('dialog', { name: 'Change the storage pool', exact: true });
+	await expect(
+		dialog.getByRole('checkbox', { name: 'WDC WD10EZRX · WD-C', exact: true })
+	).toBeChecked();
+	await dialog.getByRole('radio', { name: '3 copies on separate devices', exact: true }).click();
+	await expect(
+		dialog.getByText('Erase WDC WD10EZRX (WD-C) and add it to the pool', { exact: true })
+	).toBeVisible();
+	await expect(dialog.getByText('Rewrite files with three copies', { exact: true })).toBeVisible();
+	const apply = dialog.getByRole('button', { name: 'Apply', exact: true });
+	await dialog.getByLabel('Reason', { exact: true }).fill('Add the third disk for three copies');
+	await expect(apply, 'Erasing needs the typed serial').toBeDisabled();
+	await dialog.getByLabel('Type WD-C to confirm', { exact: true }).fill('WD-C');
+	await accessibility(page, 'Pool change dialog');
 	await page.setViewportSize({ width: 320, height: 700 });
 	await settleInterface(page);
 	await expect
 		.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), {
-			message: 'Partition dialog has no horizontal overflow'
+			message: 'Pool change dialog has no horizontal overflow'
 		})
 		.toBeLessThanOrEqual(1);
 	await page.setViewportSize({ width: 1440, height: 900 });
-	await page
-		.getByLabel('Reason', { exact: true })
-		.fill('Allocate operating-system and file-storage areas');
-	await page.getByLabel('Type /dev/sdc to confirm', { exact: true }).fill('/dev/sdc');
-	await page.getByRole('button', { name: 'Apply layout', exact: true }).click();
-	await expect(page.getByRole('dialog')).toBeHidden();
-	expect(layoutActions[0]).toEqual({
-		device: '/dev/sdc',
-		identity: 'serial:fixture-sdc',
-		filesystem: '/srv/kaordo',
-		systemBytes: 64 * 2 ** 30,
-		storageBytes: 867 * 2 ** 30,
-		fingerprint: 'a'.repeat(64),
-		confirmation: '/dev/sdc',
-		reason: 'Allocate operating-system and file-storage areas'
+	await apply.click();
+	await expect(dialog).toBeHidden();
+	expect(host.changes).toEqual([
+		{
+			document: expect.objectContaining({
+				revision: 1,
+				pool: {
+					devices: ['wwn-0x50014ee0aaaa0001', 'wwn-0x50014ee0aaaa0002', 'wwn-0x50014ee0aaaa0003'],
+					dataProfile: 'raid1c3',
+					metadataProfile: 'auto'
+				}
+			}),
+			confirmations: ['WD-C'],
+			reason: 'Add the third disk for three copies'
+		}
+	]);
+
+	const operation = page.getByRole('listitem', {
+		name: 'Apply desired state (revision 2)',
+		exact: true
 	});
-	await expect(page.getByText('50.0%', { exact: true }).first()).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Check copies', exact: true })).toBeEnabled({
-		timeout: maintenanceTimeout
-	});
+	await expect(operation.getByText(/^Running · You ·/)).toBeVisible();
+	await expect(operation.getByRole('progressbar')).toBeVisible();
+	await expect(operation.getByText(/^Done · You ·/)).toBeVisible({ timeout: maintenanceTimeout });
+	await expect(summary).toContainText('· 3 devices ·');
+	await expect(
+		devices
+			.getByRole('listitem', { name: 'WDC WD10EZRX · WD-C', exact: true })
+			.getByRole('button', { name: 'Remove from pool', exact: true })
+	).toBeEnabled();
+	await operation.getByRole('button', { name: 'Show log', exact: true }).click();
+	await expect(operation.getByRole('list', { name: 'Operation log', exact: true })).toContainText(
+		'Wiping signatures on /dev/sdc'
+	);
 });
 
-test('Regado storage checks and repair explain bounded cleanup and report progress', async ({
+test('Regado storage refuses a plan that would leave too few devices', async ({
+	regado: { page, host }
+}) => {
+	await openSection(page, 'Storage');
+	await page
+		.getByRole('listitem', { name: 'WDC WD10EZRX · WD-B', exact: true })
+		.getByRole('button', { name: 'Remove from pool', exact: true })
+		.click();
+	const dialog = page.getByRole('dialog', { name: 'Change the storage pool', exact: true });
+	await expect(
+		dialog.getByText(
+			'Two copies need at least two devices; add a device before removing this one.',
+			{
+				exact: true
+			}
+		)
+	).toBeVisible();
+	await dialog.getByLabel('Reason', { exact: true }).fill('Retire the older disk from the pool');
+	await expect(dialog.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
+	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+	expect(host.changes).toEqual([]);
+});
+
+test('Regado media checks and cleanup are confirmed and report progress', async ({
 	regado: { page, systemActions }
 }) => {
 	await openSection(page, 'Storage');
-	await page.getByRole('button', { name: 'Check copies', exact: true }).click();
-	await expect(page.getByText('Scanning disk checksums…', { exact: true })).toBeVisible();
-	const repair = page.getByRole('button', {
-		name: 'Repair and clean up',
-		exact: true
-	});
-	await expect(repair).toBeVisible();
-	await expect(repair).toBeEnabled({ timeout: maintenanceTimeout });
-	expect(systemActions[0].change.target).toBe('/srv/kaordo');
-	await repair.click();
+	const media = page.getByRole('region', { name: 'Media files', exact: true });
+	await expect(media.getByText('10 files · 1.0 MiB', { exact: true })).toBeVisible();
+	await expect(media.getByText('1 file · 4.0 KiB', { exact: true })).toBeVisible();
+	await media.getByRole('button', { name: 'Clean up', exact: true }).click();
 	await expect(
-		page.getByRole('dialog').getByText(/removes only uploads older than 24 hours/)
+		page.getByRole('dialog').getByText(/removes uploads older than 24 hours/)
 	).toBeVisible();
+	await page
+		.getByRole('textbox', { name: 'Reason', exact: true })
+		.fill('Remove unused uploads now');
 	await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-	await expect(page.getByText('Scanning disk checksums…', { exact: true })).toBeVisible();
-	expect(systemActions[1].change.target).toBe('/srv/kaordo');
+	await expect(media.getByText('Cleaning up · Checking references', { exact: true })).toBeVisible();
+	await expect(media.getByRole('button', { name: 'Check', exact: true })).toBeEnabled({
+		timeout: maintenanceTimeout
+	});
+	expect(systemActions).toEqual([
+		{ path: '/v1/admin/actions/clean-media', change: { reason: 'Remove unused uploads now' } }
+	]);
 });
 
 test('Regado discards obsolete log failures after switching to accounts', async ({

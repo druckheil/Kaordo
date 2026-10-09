@@ -133,7 +133,7 @@ func TestJournalRetentionRejectsUnsupportedBodiesBeforeCommands(t *testing.T) {
 	for _, body := range []string{"{}", `{"retentionDays":null}`, `{"retentionDays":-1}`, `{"retentionDays":10000}`, `{"retentionDays":"7"}`, `{"retentionDays":7,"path":"/etc"}`, `{"retentionDays":7} {}`} {
 		called := false
 		response := httptest.NewRecorder()
-		journalRetentionHandler(func(context.Context, ...string) (string, error) { called = true; return "", nil }).ServeHTTP(response, httptest.NewRequest("PATCH", "/logs/retention", strings.NewReader(body)))
+		journalRetentionHandler(func(context.Context, ...string) (string, error) { called = true; return "", nil }, "/nonexistent/policy.conf").ServeHTTP(response, httptest.NewRequest("PATCH", "/logs/retention", strings.NewReader(body)))
 		if response.Code != 400 || called {
 			t.Fatalf("unsafe body accepted: %s status=%d", body, response.Code)
 		}

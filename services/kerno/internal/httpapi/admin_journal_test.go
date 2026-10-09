@@ -14,7 +14,7 @@ import (
 )
 
 type journalAdminFixture struct {
-	*storageAdminFixture
+	*actionFixture
 	calls int
 	fail  bool
 }
@@ -48,7 +48,7 @@ func TestAdminJournalRetentionAuthorizationAndAudit(t *testing.T) {
 			if check.auditFailure {
 				store.recordError = errors.New("audit unavailable")
 			}
-			fixture := &journalAdminFixture{storageAdminFixture: &storageAdminFixture{store: store}, fail: check.agentFailure}
+			fixture := &journalAdminFixture{actionFixture: &actionFixture{store: store}, fail: check.agentFailure}
 			users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555551", IsAdmin: check.admin}}
 			verify := func(context.Context, string) (identity.Claims, error) {
 				return identity.Claims{Subject: "operator"}, nil

@@ -25,8 +25,8 @@ func (h adminHandler) system(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	system["mediaMaintenance"] = json.RawMessage("null")
-	if h.deps.Maintenance != nil {
-		if status, err := h.deps.Maintenance.StorageStatus(r.Context()); err == nil {
+	if h.deps.Media != nil {
+		if status, err := h.deps.Media.MediaStatus(r.Context()); err == nil {
 			system["mediaMaintenance"] = status
 		}
 	}
@@ -89,44 +89,32 @@ func validAdminService(service string) bool {
 }
 
 func (h adminHandler) action(w http.ResponseWriter, r *http.Request) {
-	if !h.requireSystem(w) {
-		return
-	}
 	action := chi.URLParam(r, "action")
 	if !admin.ValidSystemAction(action) {
 		writeError(w, http.StatusBadRequest, "Unsupported system action.")
 		return
 	}
-	var body systemActionInput
+	var body struct {
+		Reason string `json:"reason"`
+	}
 	if !decodeAdminBody(w, r, &body) {
 		return
 	}
-	command := admin.SystemAction{
-		Name: action, Reason: body.Reason,
-		Request: admin.ActionRequest{Target: body.Target, Identity: body.Identity, Filesystem: body.Filesystem},
-	}
-	result, err := h.operations.Execute(r.Context(), adminActor(r).ID, command)
+	result, err := h.operations.Execute(r.Context(), adminActor(r).ID, admin.SystemAction{Name: action, Reason: body.Reason})
 	if err != nil {
 		switch {
 		case errors.Is(err, admin.ErrInvalidOperation):
 			writeInvalid(w, err)
 		case errors.Is(err, admin.ErrSystemUnavailable):
 			writeError(w, http.StatusServiceUnavailable, "System agent is unavailable.")
-		case errors.Is(err, admin.ErrFileReferencesUnavailable):
-			writeError(w, http.StatusServiceUnavailable, "File-reference checks are unavailable.")
-		case errors.Is(err, admin.ErrStorageBusy):
-			writeError(w, http.StatusConflict, "A file-copy operation is already running.")
+		case errors.Is(err, admin.ErrMediaUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "Media maintenance is unavailable.")
+		case errors.Is(err, admin.ErrMediaBusy):
+			writeError(w, http.StatusConflict, "A media check or cleanup is already running.")
 		default:
 			adminFailure(w, err)
 		}
 		return
 	}
 	writeJSON(w, http.StatusAccepted, result)
-}
-
-type systemActionInput struct {
-	Reason     string `json:"reason"`
-	Target     string `json:"target"`
-	Identity   string `json:"identity"`
-	Filesystem string `json:"filesystem"`
 }

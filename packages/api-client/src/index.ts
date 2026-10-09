@@ -7,7 +7,10 @@ export {
 	adminMetricsOptions,
 	adminUsersOptions,
 	adminAuditOptions,
-	adminLogsOptions
+	adminLogsOptions,
+	adminHostOptions,
+	adminHostOperationsOptions,
+	adminHostOperationOptions
 } from './admin-queries.ts';
 
 export {

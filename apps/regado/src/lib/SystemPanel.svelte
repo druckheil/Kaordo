@@ -16,19 +16,16 @@
 		system,
 		metrics,
 		onRestartDns,
-		onRestartService,
-		onOpenStorage
+		onRestartService
 	}: {
 		system: AdminSystem | null;
 		metrics: AdminMetrics | null;
 		onRestartDns: () => void;
 		onRestartService: (service: RestartableService) => void;
-		onOpenStorage: () => void;
 	} = $props();
 	const latestCpu = $derived(metrics?.series.cpuPercent.at(-1)?.value);
 	const latestMemory = $derived(metrics?.series.memoryPercent.at(-1)?.value);
 	const dns = $derived(system?.services.find((service) => service.id === 'ddclient'));
-	const pools = $derived(system?.mounts.filter((mount) => mount.integrity) ?? []);
 	const uptimeHours = $derived(
 		system?.host.uptimeSeconds === undefined ? null : Math.floor(system.host.uptimeSeconds / 3600)
 	);
@@ -45,7 +42,8 @@
 		</p>
 		<p class="mt-3 text-sm text-muted-foreground">
 			{system?.host.cpuModel || 'CPU model unavailable'} · {system?.host.logicalCores ?? '—'} logical
-			cores · {formatBytes(system?.host.memoryTotalBytes)} RAM
+			cores · {formatBytes(system?.host.memoryTotalBytes)} RAM{#each system?.swapDevices ?? [] as swap (swap.path)}
+				· {formatBytes(swap.size)} {swap.kind}{/each}
 		</p>
 		<p class="mt-1 text-xs text-muted-foreground">
 			{system?.host.osName || 'Operating system'}
@@ -127,49 +125,6 @@
 					variant="outline"
 					onclick={onRestartDns}
 					disabled={dns?.loaded !== 'loaded' || dns.active === 'activating'}>Update now</Button
-				>
-			</section>
-			<section class="rounded-xl border border-border p-3" aria-label="Storage maintenance">
-				<div class="flex items-center gap-1">
-					<h3 class="text-sm font-semibold">File checks</h3>
-					<ContextHelp label="File checks"
-						><p>
-							Check copies scans checksums and refreshes the file inventory. Repair and clean up
-							restores redundant placement and removes only expired, unreferenced uploads.
-						</p>
-						<p>
-							Run either operation in Storage. An unchecked pool is not counted as verified.
-						</p></ContextHelp
-					>
-				</div>
-				{#each pools as pool (pool.path)}
-					{@const report = system?.replicationReports?.find((item) => item.path === pool.path)}
-					<div class="mt-3 text-xs">
-						<div class="flex flex-wrap justify-between gap-2">
-							<span class="font-medium break-all">{pool.path}</span><span
-								class={report?.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'}
-								>{report?.state === 'complete'
-									? report.checksumState === 'passed'
-										? 'Checksums passed'
-										: 'Needs attention'
-									: report?.state === 'checking'
-										? 'Checking'
-										: report?.state === 'repairing'
-											? 'Repairing'
-											: report?.state === 'failed'
-												? 'Failed'
-												: 'Not checked'}</span
-							>
-						</div>
-						<p class="mt-1 text-muted-foreground">
-							Last check {formatDateTime(report?.checkedAt)}
-						</p>
-					</div>
-				{:else}<p class="mt-3 text-xs text-muted-foreground">
-						No managed storage pools detected.
-					</p>{/each}
-				<Button class="mt-3" size="xs" variant="outline" onclick={onOpenStorage}
-					>Open storage</Button
 				>
 			</section>
 		</div>

@@ -1,20 +1,17 @@
 <script lang="ts">
 	// Summarizes account activity, host performance, and service health
 
-	import type { AdminMetrics, AdminSummary, AdminSystem } from '@kaordo/contracts';
+	import type { AdminMetrics, AdminSummary, AdminSystem, HostFacts } from '@kaordo/contracts';
 	import MetricChart from './MetricChart.svelte';
 	import ServiceStatus from './ServiceStatus.svelte';
 	import { serviceDescription } from './system-model';
-	import {
-		formatBytes as bytes,
-		storageDevices,
-		type MetricsWindow,
-		metricsWindows
-	} from './regado-model';
+	import { formatBytes as bytes, type MetricsWindow, metricsWindows } from './regado-model';
+	import { poolHealth, usableCapacity } from './storage/storage-model';
 
 	let {
 		summary,
 		system,
+		facts,
 		metrics,
 		loading,
 		timeWindow = $bindable(),
@@ -22,6 +19,7 @@
 	}: {
 		summary: AdminSummary | null;
 		system: AdminSystem | null;
+		facts: HostFacts | null;
 		metrics: AdminMetrics | null;
 		loading: boolean;
 		timeWindow: MetricsWindow;
@@ -35,20 +33,9 @@
 		{ label: 'Media objects', value: summary?.uploads },
 		{ label: 'Referenced media', value: bytes(summary?.mediaBytes) }
 	]);
-	const disks = $derived(storageDevices(system?.disks ?? []));
-	const poolMembers = $derived(
-		new Set((system?.mounts ?? []).flatMap((mount) => mount.integrity?.members ?? [])).size
-	);
-	const diskHealthWarnings = $derived(
-		disks.filter((disk) => disk.health?.state === 'warning' || disk.health?.state === 'failed')
-			.length
-	);
-	const unavailableSmart = $derived(
-		disks.filter(
-			(disk) =>
-				!disk.health || disk.health.state === 'unavailable' || disk.health.state === 'standby'
-		).length
-	);
+	const health = $derived(facts ? poolHealth(facts) : null);
+	const capacity = $derived(facts ? usableCapacity(facts.pool) : null);
+	const members = $derived(facts?.pool.members.filter((member) => !member.missing).length ?? 0);
 
 	function toMiB(points: { time: number; value: number }[]) {
 		return points.map((point) => ({ ...point, value: point.value / 1048576 }));
@@ -131,21 +118,17 @@
 	<section class="rounded-[1.4rem] border border-border bg-card p-6">
 		<h2 class="text-lg font-bold">Storage</h2>
 		<p class="mt-2 text-sm text-muted-foreground">
-			{system
-				? `${disks.length} physical ${disks.length === 1 ? 'disk' : 'disks'} · ${poolMembers} data-pool ${poolMembers === 1 ? 'member' : 'members'} · ${system.swapDevices.length} swap device${system.swapDevices.length === 1 ? '' : 's'}`
-				: 'Discovering host storage…'}
+			{facts
+				? `${members} ${members === 1 ? 'device' : 'devices'} in the pool · ${bytes(capacity?.free)} free of ${bytes(capacity?.total)}`
+				: 'Reading the host’s devices…'}
 		</p>
-		<div class="mt-5 text-4xl font-bold tracking-tight text-link">
-			{system ? disks.length : '—'}
+		<div
+			class={`mt-5 text-4xl font-bold tracking-tight ${health?.level === 'healthy' ? 'text-link' : 'text-destructive'}`}
+		>
+			{health?.summary ?? '—'}
 		</div>
 		<p class="mt-1 text-xs text-muted-foreground">
-			{!system
-				? 'SMART status loads in the background'
-				: diskHealthWarnings > 0
-					? `${diskHealthWarnings} ${diskHealthWarnings === 1 ? 'device needs' : 'devices need'} attention`
-					: unavailableSmart > 0
-						? `No warnings reported · SMART unavailable or in standby on ${unavailableSmart} ${unavailableSmart === 1 ? 'device' : 'devices'}`
-						: 'No SMART warnings reported'}
+			{health?.details[0] ?? (facts ? 'Every copy is in place and no device reports errors.' : '')}
 		</p>
 	</section>
 	<section class="rounded-[1.4rem] border border-border bg-card p-6">

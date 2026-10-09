@@ -54,3 +54,35 @@ export function adminLogsOptions(api: AdminApi, service: string) {
 		queryFn: ({ signal }: ReadContext) => api.logs(service, signal)
 	};
 }
+
+// Host facts refresh quickly while an operation is converging the host
+export function adminHostOptions(api: AdminApi, host: string, active: boolean) {
+	return {
+		...readPolicy,
+		staleTime: 5_000,
+		refetchInterval: active ? 3_000 : 30_000,
+		queryKey: ['regado', 'hosts', host, 'facts'] as const,
+		queryFn: ({ signal }: ReadContext) => api.host(host, signal)
+	};
+}
+
+export function adminHostOperationsOptions(api: AdminApi, host: string, limit = 50) {
+	return {
+		...readPolicy,
+		staleTime: 2_000,
+		queryKey: ['regado', 'hosts', host, 'operations', limit] as const,
+		queryFn: ({ signal }: ReadContext) => api.hostOperations(host, limit, signal),
+		refetchInterval: (query: { state: { data?: { items: { state: string }[] } } }) =>
+			query.state.data?.items.some((item) => item.state === 'queued' || item.state === 'running')
+				? 1_500
+				: 30_000
+	};
+}
+
+export function adminHostOperationOptions(api: AdminApi, host: string, operation: string) {
+	return {
+		...readPolicy,
+		queryKey: ['regado', 'hosts', host, 'operations', 'detail', operation] as const,
+		queryFn: ({ signal }: ReadContext) => api.hostOperation(host, operation, signal)
+	};
+}

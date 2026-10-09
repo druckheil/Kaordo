@@ -70,13 +70,15 @@ Backup-target disks are not pool members. They hold one independent Btrfs filesy
 
 The agent classifies every physical device:
 
-| Class     | Meaning                                                                                 |
-| --------- | --------------------------------------------------------------------------------------- |
-| `pool`    | A member of this host's pool                                                            |
-| `backup`  | An assigned backup target                                                               |
-| `blank`   | No partition table or filesystem signatures                                             |
-| `foreign` | Holds data the agent does not own. Never touched without the operator typing its serial |
-| `missing` | Listed in the desired state but not present                                             |
+| Class          | Meaning                                                                                 |
+| -------------- | --------------------------------------------------------------------------------------- |
+| `pool`         | A member of this host's pool                                                            |
+| `backup`       | An assigned backup target                                                               |
+| `blank`        | No partition table or filesystem signatures                                             |
+| `foreign`      | Holds data the agent does not own. Never touched without the operator typing its serial |
+| `unidentified` | Has no stable `/dev/disk/by-id` name, so the agent cannot manage it                     |
+
+A pool member that is listed in the desired state but absent is reported as `missing` on the pool, and the planner offers to rebuild its copies on a new device or drop it.
 
 | Operation               | Stages                                                                                                                                                                                                   |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -91,7 +93,8 @@ Progress comes from the tools themselves: `btrfs balance status`, `btrfs replace
 
 - **Data integrity.** Btrfs guarantees two copies through the `raid1` profile, and scrub verifies every copy against its checksum, repairing a bad copy from the good one. There is no separate file-copy inventory.
 - **Scheduled checks.** Scrub runs monthly, a SMART short test weekly and a long test monthly. Each is an operation.
-- **Error signals.** Device error counters (`btrfs device stats`), SMART health and attributes (reallocated, pending and offline-uncorrectable sectors, CRC errors), temperature and profile drift all feed alerts.
+- **Error signals.** Device error counters (`btrfs device stats`), SMART health and attributes (reallocated, pending and offline-uncorrectable sectors), temperature and profile drift all feed alerts.
+- **SMART reads.** The agent reads every identified device every 15 minutes with `--nocheck=standby`, so sleeping disks are not woken; a sleeping disk keeps its last report. Facts include the latest report per device.
 
 ## Snapshots and backups
 
@@ -106,7 +109,7 @@ Progress comes from the tools themselves: `btrfs balance status`, `btrfs replace
 
 Each item reports the space it reclaims, as an operation or schedule:
 
-- unreferenced Nodo uploads (Nodo's reference-checked garbage collection);
+- unreferenced Nodo uploads (Nodo's reference-checked garbage collection every 6 hours; Regado can run a media check or cleanup on demand, audited by Kerno);
 - snapshot and backup retention;
 - Nix generations older than the policy, followed by `nix-collect-garbage`;
 - release directories beyond `releasesKeep`, never the active or previous one;
@@ -140,6 +143,8 @@ Every API is addressed by host: `/v1/admin/hosts/{host}/…`. Kerno's host regis
 - **Browser tests.** Playwright fixtures cover Regado flows, confirmations and progress.
 
 ## Delivery phases
+
+Done: the operation journal, the desired state store, host addressing in Kerno and the contract, device classification, pool planning and the add, replace, convert and remove operations, SMART facts, and the Regado Storage view. The partition planner, file-copy checker and layout dialog are removed. Everything else below is still to be built.
 
 1. **Foundation.** The operation journal and API, the desired state store with revisions and export, host addressing in Kerno and the contract, alert evaluation and delivery (Ligo and ntfy), and the Regado operations activity view.
 2. **Storage.** Device classification and lifecycle operations, the boot reconciler, integrity schedules, space and quota reporting, cleanup. Replaces the partition planner, file-copy checker and layout dialog.

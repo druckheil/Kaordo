@@ -32,10 +32,6 @@ type journalStatus struct {
 	Warning       string `json:"warning,omitempty"`
 }
 
-func journalPolicyPath() string {
-	return filepath.Join(storageStateDirectory(), "journald-retention.conf")
-}
-
 func journalPolicyManaged(link, policy string) bool {
 	target, err := filepath.EvalSymlinks(link)
 	if err != nil {
@@ -45,8 +41,8 @@ func journalPolicyManaged(link, policy string) bool {
 	return err == nil && target == expected
 }
 
-func readJournalStatus(ctx context.Context, run commandRunner) journalStatus {
-	status := journalStatus{DiskBytes: journalBytes(ctx, "/var/log/journal"), RuntimeBytes: journalBytes(ctx, "/run/log/journal"), Managed: journalPolicyManaged(journalPolicyLink, journalPolicyPath())}
+func readJournalStatus(ctx context.Context, run commandRunner, link, policy string) journalStatus {
+	status := journalStatus{DiskBytes: journalBytes(ctx, "/var/log/journal"), RuntimeBytes: journalBytes(ctx, "/run/log/journal"), Managed: journalPolicyManaged(link, policy)}
 	if status.DiskBytes != nil || status.RuntimeBytes != nil {
 		total := int64(0)
 		for _, value := range []*int64{status.DiskBytes, status.RuntimeBytes} {
@@ -200,7 +196,7 @@ func applyJournalRetention(ctx context.Context, run commandRunner, days int, lin
 	if err := writeJournalPolicy(policy, content); err != nil {
 		return journalStatus{}, err
 	}
-	status := readJournalStatus(ctx, run)
+	status := readJournalStatus(ctx, run, link, policy)
 	if status.RetentionDays == nil || *status.RetentionDays != days {
 		return journalStatus{}, errors.Join(errors.New("the host configuration overrides this retention policy"), writeJournalPolicy(policy, previous))
 	}
@@ -227,14 +223,14 @@ func applyJournalRetention(ctx context.Context, run commandRunner, days int, lin
 			_, cleanupErr = run(ctx, args...)
 		}
 	}
-	status = readJournalStatus(ctx, run)
+	status = readJournalStatus(ctx, run, link, policy)
 	if cleanupErr != nil {
 		status.Warning = "Retention was saved, but archived-journal cleanup could not complete."
 	}
 	return status, nil
 }
 
-func journalRetentionHandler(run commandRunner) http.HandlerFunc {
+func journalRetentionHandler(run commandRunner, policy string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Days *int `json:"retentionDays"`
@@ -249,7 +245,7 @@ func journalRetentionHandler(run commandRunner) http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 		defer cancel()
-		status, err := applyJournalRetention(ctx, run, *body.Days, journalPolicyLink, journalPolicyPath())
+		status, err := applyJournalRetention(ctx, run, *body.Days, journalPolicyLink, policy)
 		respond(w, status, err)
 	}
 }

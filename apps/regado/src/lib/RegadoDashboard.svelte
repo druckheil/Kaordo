@@ -9,19 +9,20 @@
 		createAdminApi,
 		adminSummaryOptions,
 		adminSystemOptions,
+		adminHostOptions,
 		adminMetricsOptions,
 		adminUsersOptions,
 		adminAuditOptions,
 		adminLogsOptions
 	} from '@kaordo/api-client';
-	import type { UserIdentity } from '@kaordo/contracts';
+	import type { AdminSystem, UserIdentity } from '@kaordo/contracts';
 	import { appPaths } from '@kaordo/links';
 	import { AppHeader, Button } from '@kaordo/ui';
 	import AdminIntentDialog from './AdminIntentDialog.svelte';
 	import AuditPanel from './AuditPanel.svelte';
 	import LogsPanel from './LogsPanel.svelte';
 	import OverviewPanel from './OverviewPanel.svelte';
-	import StoragePanel from './StoragePanel.svelte';
+	import StorageView from './storage/StorageView.svelte';
 	import SystemPanel from './SystemPanel.svelte';
 	import UsersPanel from './UsersPanel.svelte';
 	import { createAdminActionState } from './admin-action-state.svelte';
@@ -75,19 +76,19 @@
 		() => ({
 			...adminSystemOptions(api),
 			enabled: refreshable,
-			refetchInterval: (query) => {
-				if (!refreshable) return false;
-				const data = query.state.data;
-				const running =
-					data?.layoutReports?.some((report) => report.state === 'running') ||
-					data?.replicationReports?.some(
-						(report) => report.state === 'checking' || report.state === 'repairing'
-					) ||
-					data?.mediaMaintenance?.state === 'checking' ||
-					data?.mediaMaintenance?.state === 'repairing';
-				return running ? 2_000 : 30_000;
-			}
+			// A running media check reports progress; poll it closely until it settles
+			refetchInterval: (query: { state: { data?: AdminSystem } }) =>
+				!refreshable
+					? false
+					: ['checking', 'repairing'].includes(query.state.data?.mediaMaintenance?.state ?? '')
+						? 2_000
+						: 30_000
 		}),
+		() => queryClient
+	);
+	// Shares the Storage view's cache entry, so switching tabs shows the last facts at once
+	const hostQuery = createQuery(
+		() => ({ ...adminHostOptions(api, 'local', false), enabled: tab === 'Overview' }),
 		() => queryClient
 	);
 	const metricsQuery = createQuery(
@@ -233,24 +234,20 @@
 				<OverviewPanel
 					{summary}
 					{system}
+					facts={hostQuery.data ?? null}
 					{metrics}
 					{loading}
 					bind:timeWindow
 					onWindowChange={(window: MetricsWindow) => (timeWindow = window)}
 				/>
 			{:else if tab === 'Storage'}
-				<StoragePanel
-					{system}
-					{summary}
-					{metrics}
-					actionBusy={busy}
-					onCheckCopies={(path: string) => void commands.requestCopyCheck(path)}
-					onRepairCopies={commands.requestCopyRepair}
-					onPreviewLayout={(
-						body: import('@kaordo/contracts').AdminLayoutRequest,
-						signal: AbortSignal
-					) => api.previewStorageLayout(body, signal)}
-					onApplyLayout={commands.applyStorageLayout}
+				<StorageView
+					{api}
+					{queryClient}
+					viewerId={user.id}
+					media={system?.mediaMaintenance ?? null}
+					mediaDisabled={busy}
+					onMediaAction={commands.requestMediaAction}
 				/>
 			{:else if tab === 'Logs'}
 				<LogsPanel
@@ -281,7 +278,6 @@
 					{metrics}
 					onRestartDns={commands.requestDnsRestart}
 					onRestartService={commands.requestServiceRestart}
-					onOpenStorage={() => openTab('Storage')}
 				/>
 			{/if}
 		</main>
@@ -290,7 +286,6 @@
 	<AdminIntentDialog
 		intent={form.intent}
 		bind:reason={form.reason}
-		bind:confirmation={form.confirmation}
 		{busy}
 		error={status.actionError}
 		onConfirm={() => void commands.confirmIntent()}

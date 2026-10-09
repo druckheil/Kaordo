@@ -1,7 +1,6 @@
 // Owns administrative command confirmation and mutation feedback
 import type { QueryClient } from '@tanstack/svelte-query';
 import type { AdminApi } from '@kaordo/api-client';
-import type { AdminLayoutRequest } from '@kaordo/contracts';
 import {
 	errorMessage,
 	restartActions,
@@ -10,10 +9,7 @@ import {
 } from './regado-model';
 
 interface ActionDependencies {
-	api: Pick<
-		AdminApi,
-		'action' | 'applyStorageLayout' | 'setLogRetention' | 'setStatus' | 'setRole'
-	>;
+	api: Pick<AdminApi, 'action' | 'setLogRetention' | 'setStatus' | 'setRole'>;
 	queryClient: QueryClient;
 	refreshOverview: () => Promise<void>;
 	loadUsers: () => Promise<void>;
@@ -25,57 +21,15 @@ export function createAdminActionState({
 	refreshOverview,
 	loadUsers
 }: ActionDependencies) {
-	const form = $state({ intent: null as AdminIntent | null, reason: '', confirmation: '' });
+	const form = $state({ intent: null as AdminIntent | null, reason: '' });
 	const status = $state({ busy: false, operationError: '', actionError: '', notice: '' });
 	const lifetime = new AbortController();
 
 	function openIntent(next: AdminIntent): void {
 		form.intent = next;
 		form.reason = '';
-		form.confirmation = '';
 		status.actionError = '';
 		status.notice = '';
-	}
-
-	async function requestCopyCheck(path: string): Promise<void> {
-		if (status.busy) return;
-		status.busy = true;
-		status.operationError = '';
-		try {
-			lifetime.signal.throwIfAborted();
-			const result = await api.action(
-				'check-storage',
-				'Verify file copies, checksums and expired upload references',
-				{ target: path },
-				lifetime.signal
-			);
-			lifetime.signal.throwIfAborted();
-			status.notice = result.output;
-			await refreshOverview();
-		} catch (cause) {
-			if (!lifetime.signal.aborted) status.operationError = errorMessage(cause);
-		} finally {
-			if (!lifetime.signal.aborted) status.busy = false;
-		}
-	}
-
-	async function applyStorageLayout(
-		body: AdminLayoutRequest & { fingerprint: string; confirmation: string; reason: string }
-	): Promise<void> {
-		const result = await api.applyStorageLayout(body, lifetime.signal);
-		lifetime.signal.throwIfAborted();
-		status.notice = result.output;
-		await refreshOverview();
-	}
-
-	function requestCopyRepair(path: string): void {
-		openIntent({
-			type: 'action',
-			id: 'repair-storage',
-			name: `Repair file copies in ${path}`,
-			target: path
-		});
-		form.reason = 'Restore two-copy storage and remove expired unreferenced uploads';
 	}
 
 	function requestDnsRestart(): void {
@@ -91,6 +45,14 @@ export function createAdminActionState({
 			type: 'action',
 			id: restartActions[serviceId],
 			name: serviceId === 'ddclient' ? 'Update DNS now' : `Restart ${serviceId}`
+		});
+	}
+
+	function requestMediaAction(id: 'check-media' | 'clean-media'): void {
+		openIntent({
+			type: 'action',
+			id,
+			name: id === 'check-media' ? 'Check media files' : 'Clean up media files'
 		});
 	}
 
@@ -140,16 +102,7 @@ export function createAdminActionState({
 				await loadUsers();
 				return;
 			case 'action': {
-				const result = await api.action(
-					selected.id,
-					form.reason,
-					{
-						target: selected.target,
-						identity: selected.identity,
-						filesystem: selected.filesystem
-					},
-					lifetime.signal
-				);
+				const result = await api.action(selected.id, form.reason, lifetime.signal);
 				lifetime.signal.throwIfAborted();
 				status.notice = result.output || `${selected.name} requested.`;
 				await refreshOverview();
@@ -162,11 +115,9 @@ export function createAdminActionState({
 			return status;
 		},
 		openIntent,
-		requestCopyCheck,
-		applyStorageLayout,
-		requestCopyRepair,
 		requestDnsRestart,
 		requestServiceRestart,
+		requestMediaAction,
 		confirmIntent,
 		clearOperationError() {
 			status.operationError = '';

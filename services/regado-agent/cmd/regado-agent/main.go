@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,6 +29,7 @@ const (
 	socketEnvironment = "REGADO_AGENT_SOCKET"
 	defaultPoolMount  = "/srv/kaordo"
 	defaultStateDir   = "/var/lib/regado-agent"
+	healthInterval    = 15 * time.Minute
 )
 
 func main() {
@@ -38,11 +40,6 @@ func main() {
 }
 
 func run() error {
-	if len(os.Args) == 2 && os.Args[1] == "--mount-system-volumes" {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
-		return agent.MountSystemVolumes(ctx)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	path := socketPath()
@@ -52,14 +49,19 @@ func run() error {
 	}
 	defer listener.Close()
 
-	service, closeService, err := openService(ctx)
+	directory := environment("REGADO_STATE_DIR", defaultStateDir)
+	service, closeService, err := openService(ctx, directory)
 	if err != nil {
 		return err
 	}
 	defer closeService()
-	legacy := agent.NewHandler()
-	defer legacy.Close()
-	server := newHTTPServer(api.NewHandler(service, legacy))
+	// Background readers stop before the service closes, even when serving fails
+	watch, stopWatching := context.WithCancel(ctx)
+	var watchers sync.WaitGroup
+	defer watchers.Wait()
+	defer stopWatching()
+	watchers.Go(func() { service.WatchHealth(watch, healthInterval) })
+	server := newHTTPServer(api.NewHandler(service, agent.NewHandler(directory)))
 	slog.Info("Regado agent listening", "socket", path)
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(listener) }()
@@ -83,8 +85,7 @@ func run() error {
 }
 
 // openService opens the desired state and operation journal and adopts the current pool on first run
-func openService(ctx context.Context) (*api.Service, func(), error) {
-	directory := environment("REGADO_STATE_DIR", defaultStateDir)
+func openService(ctx context.Context, directory string) (*api.Service, func(), error) {
 	states, err := state.Open(filepath.Join(directory, "state"))
 	if err != nil {
 		return nil, nil, err

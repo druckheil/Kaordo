@@ -1061,39 +1061,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Restarts run through regado-agent; media actions audit or clean stored uploads in Nodo. */
         post: operations["runRegadoAction"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/storage/plan": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["previewRegadoStoragePlan"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/storage/apply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["applyRegadoStoragePlan"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1252,6 +1221,19 @@ export interface components {
             /** @enum {string} */
             class: "pool" | "backup" | "blank" | "foreign" | "unidentified";
             hostsSystem: boolean;
+            health: components["schemas"]["HostDeviceHealth"] | null;
+        };
+        HostDeviceHealth: {
+            /** @enum {string} */
+            state: "passed" | "warning" | "failed" | "unavailable" | "standby";
+            passed: boolean | null;
+            temperatureC: number | null;
+            powerOnHours: number | null;
+            reallocatedSectors: number | null;
+            pendingSectors: number | null;
+            uncorrectableSectors: number | null;
+            /** Format: date-time */
+            checkedAt: string;
         };
         HostDeviceErrors: {
             write: number;
@@ -1804,166 +1786,12 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
-        RegadoDisk: {
-            name: string;
-            path: string;
-            label: string | null;
-            partitionLabel: string | null;
-            fsType: string | null;
-            size: number;
-            type: string;
-            model: string | null;
-            serial: string | null;
-            wwn: string | null;
-            mountpoints: (string | null)[];
-            /** @description Whether this device contains the filesystem mounted at / */
-            systemDisk: boolean;
-            /**
-             * @description Operational state of this physical device in the managed storage pool
-             * @enum {string}
-             */
-            storageState?: "unconfigured" | "queued" | "working";
-            /** @description Whether the host agent's current preflight considers this device safe to onboard */
-            configureEligible?: boolean;
-            /** @description A concise explanation of the current storage state or onboarding eligibility */
-            configureReason?: string;
-            /** @description Discovered physical connection such as SATA */
-            transport?: string | null;
-            /** @description Discovered controller address; no enclosure bay is inferred */
-            address?: string | null;
-            partitionType?: string | null;
-            start?: number;
-            number?: number;
-            /** @enum {string} */
-            role?: "" | "system" | "storage" | "unassigned";
-            bootKind?: string;
-            /** @description Partition-table and alignment slack excluded from allocatable regions */
-            overheadBytes?: number;
-            layoutAvailable?: boolean;
-            unallocated?: {
-                /** @description Byte offset from the start of the physical disk */
-                start: number;
-                size: number;
-            }[];
-            children?: components["schemas"]["RegadoDisk"][];
-            health?: components["schemas"]["RegadoDiskHealth"];
-        };
-        RegadoDiskHealth: {
-            /** @enum {string} */
-            state: "passed" | "warning" | "failed" | "unavailable" | "standby";
-            passed: boolean | null;
-            temperatureC: number | null;
-            powerOnHours: number | null;
-            reallocatedSectors: number | null;
-            pendingSectors: number | null;
-            uncorrectableSectors: number | null;
-            /** Format: date-time */
-            checkedAt: string;
-        };
-        RegadoMount: {
-            path: string;
-            source: string;
-            fsType: string;
-            total: number;
-            used: number;
-            free: number;
-            available: boolean;
-            integrity: components["schemas"]["RegadoFilesystemIntegrity"] | null;
-        };
-        RegadoFilesystemIntegrity: {
-            uuid: string;
-            /** @description Physical block device paths participating in this Btrfs filesystem */
-            members: string[];
-            dataProfile: string;
-            metadataProfile: string;
-            systemProfile: string;
-            mirroredPercent: number;
-            deviceErrors: number;
-            devicesOnline: number;
-            devicesExpected: number;
-            healthy: boolean;
-            balanceRunning: boolean;
-            /** @enum {string} */
-            scrubState: "not-run" | "running" | "complete" | "errors" | "unknown";
-            scrubErrors: number;
-            /** @description Sum of physical pool capacity before RAID replication */
-            physicalTotal?: number;
-            /** @description Physical space used including replicas and metadata */
-            physicalUsed?: number;
-        };
-        RegadoReplicationReport: {
-            path: string;
-            /** @enum {string} */
-            state: "checking" | "repairing" | "complete" | "failed";
-            /** @enum {string} */
-            stage: "replication" | "checksums" | "inventory" | "complete";
-            /** Format: date-time */
-            startedAt: string | null;
-            /** Format: date-time */
-            checkedAt: string | null;
-            files: number;
-            /** @description Logical size of regular files */
-            bytes: number;
-            unreadable: number;
-            /** @enum {string} */
-            duplication: "" | "duplicated" | "single" | "unverified";
-            progress?: components["schemas"]["RegadoOperationProgress"] | null;
-            /** @enum {string} */
-            checksumState: "" | "passed" | "errors";
-            error: string;
-        };
         RegadoOperationProgress: {
             completed: number;
             /** @description Null when no measured denominator is available */
             total: number | null;
             /** @enum {string} */
             unit: "bytes" | "chunks" | "files" | "uploads" | "steps";
-        };
-        RegadoLayoutRequest: {
-            device: string;
-            identity: string;
-            filesystem: string;
-            systemBytes: number;
-            storageBytes: number;
-            fingerprint?: string;
-            confirmation?: string;
-        };
-        RegadoLayoutStep: {
-            /** @enum {string} */
-            kind: "keep" | "boot" | "create" | "resize" | "activate";
-            /** @enum {string} */
-            role: "system" | "storage";
-            number: number;
-            start: number;
-            size: number;
-            previousSize: number;
-            source: string;
-        };
-        RegadoStoragePlan: {
-            device: string;
-            identity: string;
-            fingerprint: string;
-            supported: boolean;
-            /** @enum {string} */
-            backend: "disko" | "systemd-repart";
-            /** @description Exportable Disko role declaration; applying it to existing disks requires operator review */
-            declaration: string;
-            issues: string[];
-            warnings: string[];
-            systemBytes: number;
-            storageBytes: number;
-            availableBytes: number;
-            steps: components["schemas"]["RegadoLayoutStep"][];
-        };
-        RegadoLayoutReport: {
-            device: string;
-            /** @enum {string} */
-            state: "running" | "complete" | "failed";
-            stage: string;
-            /** Format: date-time */
-            startedAt: string;
-            error: string;
-            progress: components["schemas"]["RegadoOperationProgress"] | null;
         };
         RegadoMediaMaintenance: {
             directory: string;
@@ -1998,7 +1826,6 @@ export interface components {
         };
         RegadoActionResult: {
             action: string;
-            target: string;
             output: string;
             accepted: boolean;
         };
@@ -2037,12 +1864,8 @@ export interface components {
             };
             /** Format: date-time */
             time: string;
-            disks: components["schemas"]["RegadoDisk"][];
-            mounts: components["schemas"]["RegadoMount"][];
             swapDevices: components["schemas"]["RegadoSwapDevice"][];
             services: components["schemas"]["RegadoService"][];
-            layoutReports?: components["schemas"]["RegadoLayoutReport"][];
-            replicationReports?: components["schemas"]["RegadoReplicationReport"][];
             mediaMaintenance?: components["schemas"]["RegadoMediaMaintenance"] | null;
         };
         RegadoSample: {
@@ -5215,7 +5038,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                action: "restart-nodo" | "restart-livekit" | "restart-ddclient" | "scrub-filesystem" | "configure-storage" | "check-storage" | "repair-storage";
+                action: "restart-nodo" | "restart-livekit" | "restart-ddclient" | "check-media" | "clean-media";
             };
             cookie?: never;
         };
@@ -5223,87 +5046,11 @@ export interface operations {
             content: {
                 "application/json": {
                     reason: string;
-                    /** @description Device path for configure-storage or mounted Btrfs path for scrub-filesystem/check-storage/repair-storage */
-                    target?: string;
-                    /** @description Stable serial or WWN */
-                    identity?: string;
-                    /** @description Existing mounted Btrfs data-pool path for configure-storage */
-                    filesystem?: string;
                 };
             };
         };
         responses: {
             /** @description Audited system operation accepted */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegadoActionResult"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    previewRegadoStoragePlan: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegadoLayoutRequest"];
-            };
-        };
-        responses: {
-            /** @description Non-mutating layout preview with capability constraints */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegadoStoragePlan"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    applyRegadoStoragePlan: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegadoLayoutRequest"] & {
-                    reason: string;
-                    fingerprint: string;
-                    confirmation: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Revalidated audited layout change queued */
             202: {
                 headers: {
                     [name: string]: unknown;

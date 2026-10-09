@@ -9,8 +9,13 @@ import type {
 	AdminSummary,
 	AdminSystem,
 	AdminUser,
-	AdminStoragePlan,
-	AdminLayoutRequest,
+	HostFacts,
+	HostOperation,
+	HostOperationRecord,
+	HostPoolPlan,
+	HostState,
+	HostStateChange,
+	HostStateChangeResult,
 	paths
 } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
@@ -90,44 +95,83 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
 			});
 			return requireResponseData(data, error, response.status);
 		},
-		async previewStorageLayout(
-			body: AdminLayoutRequest,
-			signal?: AbortSignal
-		): Promise<AdminStoragePlan> {
-			const { data, error, response } = await client.POST('/v1/admin/storage/plan', {
-				body,
-				signal
-			});
-			return requireResponseData(data, error, response.status);
-		},
-		async applyStorageLayout(
-			body: AdminLayoutRequest & { reason: string; fingerprint: string; confirmation: string },
-			signal?: AbortSignal
-		) {
-			const { data, error, response } = await client.POST('/v1/admin/storage/apply', {
-				body,
-				signal
-			});
-			return requireResponseData(data, error, response.status);
-		},
 		async action(
-			action:
-				| 'restart-nodo'
-				| 'restart-livekit'
-				| 'restart-ddclient'
-				| 'scrub-filesystem'
-				| 'configure-storage'
-				| 'check-storage'
-				| 'repair-storage',
+			action: paths['/v1/admin/actions/{action}']['post']['parameters']['path']['action'],
 			reason: string,
-			options: { target?: string; identity?: string; filesystem?: string } = {},
 			signal?: AbortSignal
 		) {
 			const { data, error, response } = await client.POST('/v1/admin/actions/{action}', {
 				params: { path: { action } },
-				body: { reason, ...options },
+				body: { reason },
 				signal
 			});
+			return requireResponseData(data, error, response.status);
+		},
+		async host(host: string, signal?: AbortSignal): Promise<HostFacts> {
+			const { data, error, response } = await client.GET('/v1/admin/hosts/{host}', {
+				params: { path: { host } },
+				signal
+			});
+			return requireResponseData(data, error, response.status);
+		},
+		async planHostState(
+			host: string,
+			document: HostState,
+			signal?: AbortSignal
+		): Promise<HostPoolPlan> {
+			const { data, error, response } = await client.POST('/v1/admin/hosts/{host}/state/plan', {
+				params: { path: { host } },
+				body: document,
+				signal
+			});
+			return requireResponseData(data, error, response.status);
+		},
+		async applyHostState(
+			host: string,
+			change: HostStateChange,
+			signal?: AbortSignal
+		): Promise<HostStateChangeResult> {
+			const { data, error, response } = await client.PUT('/v1/admin/hosts/{host}/state', {
+				params: { path: { host } },
+				body: change,
+				signal
+			});
+			return requireResponseData(data, error, response.status);
+		},
+		async hostOperations(
+			host: string,
+			limit: number,
+			signal?: AbortSignal
+		): Promise<{ items: HostOperation[] }> {
+			const { data, error, response } = await client.GET('/v1/admin/hosts/{host}/operations', {
+				params: { path: { host }, query: { limit } },
+				signal
+			});
+			return requireResponseData(data, error, response.status);
+		},
+		async hostOperation(
+			host: string,
+			operation: string,
+			signal?: AbortSignal
+		): Promise<HostOperationRecord> {
+			const { data, error, response } = await client.GET(
+				'/v1/admin/hosts/{host}/operations/{operation}',
+				{
+					params: { path: { host, operation } },
+					signal
+				}
+			);
+			return requireResponseData(data, error, response.status);
+		},
+		async cancelHostOperation(
+			host: string,
+			operation: string,
+			signal?: AbortSignal
+		): Promise<HostOperation> {
+			const { data, error, response } = await client.POST(
+				'/v1/admin/hosts/{host}/operations/{operation}/cancel',
+				{ params: { path: { host, operation } }, signal }
+			);
 			return requireResponseData(data, error, response.status);
 		}
 	};

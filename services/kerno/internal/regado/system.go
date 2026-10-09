@@ -12,8 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"time"
-
-	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 )
 
 const (
@@ -93,23 +91,6 @@ func (client *SystemClient) SetLogRetention(ctx context.Context, days int) (json
 	return client.requestBody(ctx, http.MethodPatch, "/logs/retention", bytes.NewReader(payload))
 }
 
-func (client *SystemClient) Action(ctx context.Context, action string, request admin.ActionRequest) (json.RawMessage, error) {
-	path := "/actions/" + url.PathEscape(action)
-	payload, err := json.Marshal(request)
-	if err != nil {
-		return nil, err
-	}
-	return client.requestBody(ctx, http.MethodPost, path, bytes.NewReader(payload))
-}
-
-func (client *SystemClient) StorageLayout(ctx context.Context, request admin.LayoutRequest, apply bool) (json.RawMessage, error) {
-	path := "/storage/plan"
-	if apply {
-		path = "/storage/apply"
-	}
-	payload, err := json.Marshal(request)
-	if err != nil {
-		return nil, err
-	}
-	return client.requestBody(ctx, http.MethodPost, path, bytes.NewReader(payload))
+func (client *SystemClient) Action(ctx context.Context, action string) (json.RawMessage, error) {
+	return client.request(ctx, http.MethodPost, "/actions/"+url.PathEscape(action))
 }

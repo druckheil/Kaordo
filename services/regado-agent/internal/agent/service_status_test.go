@@ -42,10 +42,8 @@ func TestDNSActionStartsTimerAndCheckWithoutRestart(t *testing.T) {
 				}
 				return "", nil
 			}
-			monitor := newReplicationMonitor()
-			t.Cleanup(monitor.Close)
 			response := httptest.NewRecorder()
-			newHandler(run, monitor).ServeHTTP(response, httptest.NewRequest("POST", "/actions/restart-ddclient", strings.NewReader("{}")))
+			newHandler(run, t.TempDir()+"/policy.conf").ServeHTTP(response, httptest.NewRequest("POST", "/actions/restart-ddclient", strings.NewReader("{}")))
 			want := []string{"systemctl start ddclient.timer", "systemctl start ddclient.service"}
 			if failing == "ddclient.timer" {
 				want = want[:1]

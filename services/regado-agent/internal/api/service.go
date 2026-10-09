@@ -6,10 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/host"
@@ -62,6 +64,7 @@ type Service struct {
 	States     *state.Store
 	Operations *operation.Manager
 	Executor   storage.Executor
+	Health     host.HealthMonitor
 
 	// mu serializes plans with the writes that act on them
 	mu sync.Mutex
@@ -123,7 +126,29 @@ func (service *Service) Facts(ctx context.Context) (Facts, error) {
 	if err != nil {
 		return Facts{}, err
 	}
+	for index := range devices {
+		devices[index].Health = service.Health.Lookup(devices[index].ID)
+	}
 	return Facts{Host: service.Host, Devices: devices, Pool: pool, Desired: desired, Drift: storage.PlanPool(desired.Pool, devices, pool)}, nil
+}
+
+// WatchHealth refreshes SMART reports until ctx ends, so fact reads never wait on smartctl.
+func (service *Service) WatchHealth(ctx context.Context, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		devices, err := host.Inventory(ctx, service.Run, "", service.Inventory)
+		if err == nil {
+			service.Health.Refresh(ctx, service.Run, devices, time.Now)
+		} else if ctx.Err() == nil {
+			slog.Warn("device inventory for health checks failed", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // Plan previews the steps a document would start without storing it.

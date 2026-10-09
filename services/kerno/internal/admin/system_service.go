@@ -1,6 +1,6 @@
 package admin
 
-// Executes audited system commands through host and file-maintenance ports
+// Executes audited system commands through host and media-maintenance ports
 import (
 	"context"
 	"encoding/json"
@@ -14,9 +14,10 @@ type SystemAgent interface {
 	Logs(context.Context, string) (json.RawMessage, error)
 }
 
-type StorageMaintenance interface {
-	StorageStatus(context.Context) (json.RawMessage, error)
-	StartStorageMaintenance(context.Context, bool) error
+// MediaMaintenance audits stored media against references and removes expired unreferenced uploads.
+type MediaMaintenance interface {
+	MediaStatus(context.Context) (json.RawMessage, error)
+	StartMediaMaintenance(ctx context.Context, clean bool) error
 }
 
 type AuditRecorder interface {
@@ -25,41 +26,42 @@ type AuditRecorder interface {
 
 // SystemCommands keeps the operation consumer independent of agent reads.
 type SystemCommands interface {
-	Action(context.Context, string, ActionRequest) (json.RawMessage, error)
+	Action(context.Context, string) (json.RawMessage, error)
 }
 
 type SystemOperations struct {
-	audit       AuditRecorder
-	system      SystemCommands
-	maintenance StorageMaintenance
+	audit  AuditRecorder
+	system SystemCommands
+	media  MediaMaintenance
 }
 
-func NewSystemOperations(audit AuditRecorder, system SystemCommands, maintenance StorageMaintenance) *SystemOperations {
-	return &SystemOperations{audit: audit, system: system, maintenance: maintenance}
+func NewSystemOperations(audit AuditRecorder, system SystemCommands, media MediaMaintenance) *SystemOperations {
+	return &SystemOperations{audit: audit, system: system, media: media}
 }
 
 func (service *SystemOperations) Execute(ctx context.Context, actorID string, command SystemAction) (json.RawMessage, error) {
-	if service.system == nil {
-		return nil, ErrSystemUnavailable
-	}
 	command.Reason = strings.TrimSpace(command.Reason)
 	if err := command.Validate(); err != nil {
 		return nil, err
 	}
-	mediaMaintenance := false
-	if command.Name == "check-storage" || command.Name == "repair-storage" {
-		var err error
-		mediaMaintenance, err = service.prepareStorageMaintenance(ctx, command.Request.Target)
-		if err != nil {
+	clean, media := mediaActions[command.Name]
+	if media {
+		if err := service.mediaIdle(ctx); err != nil {
 			return nil, err
 		}
+	} else if service.system == nil {
+		return nil, ErrSystemUnavailable
 	}
 	if err := service.record(ctx, actorID, command, "", "requested"); err != nil {
 		return nil, err
 	}
-	result, err := service.system.Action(ctx, command.Name, command.Request)
-	if err == nil && mediaMaintenance {
-		err = service.maintenance.StartStorageMaintenance(ctx, command.Name == "repair-storage")
+	var result json.RawMessage
+	var err error
+	if media {
+		err = service.media.StartMediaMaintenance(ctx, clean)
+		result, _ = json.Marshal(map[string]any{"action": command.Name, "output": "", "accepted": err == nil})
+	} else {
+		result, err = service.system.Action(ctx, command.Name)
 	}
 	if err != nil {
 		_ = service.record(ctx, actorID, command, "failed", "failed")
@@ -71,23 +73,21 @@ func (service *SystemOperations) Execute(ctx context.Context, actorID string, co
 	return result, nil
 }
 
-func (service *SystemOperations) prepareStorageMaintenance(ctx context.Context, target string) (bool, error) {
-	if service.maintenance == nil {
-		return false, ErrFileReferencesUnavailable
+func (service *SystemOperations) mediaIdle(ctx context.Context) error {
+	if service.media == nil {
+		return ErrMediaUnavailable
 	}
-	status, err := service.maintenance.StorageStatus(ctx)
-	var media struct {
-		Directory string `json:"directory"`
-		State     string `json:"state"`
+	status, err := service.media.MediaStatus(ctx)
+	var report struct {
+		State string `json:"state"`
 	}
-	if err != nil || json.Unmarshal(status, &media) != nil || media.Directory == "" {
-		return false, ErrFileReferencesUnavailable
+	if err != nil || json.Unmarshal(status, &report) != nil {
+		return ErrMediaUnavailable
 	}
-	required := media.Directory == target || strings.HasPrefix(media.Directory, target+"/")
-	if required && (media.State == "checking" || media.State == "repairing") {
-		return false, ErrStorageBusy
+	if report.State == "checking" || report.State == "repairing" {
+		return ErrMediaBusy
 	}
-	return required, nil
+	return nil
 }
 
 func (service *SystemOperations) record(ctx context.Context, actorID string, command SystemAction, stage, status string) error {
@@ -95,15 +95,5 @@ func (service *SystemOperations) record(ctx context.Context, actorID string, com
 	if stage != "" {
 		event += "." + stage
 	}
-	details := map[string]string{"status": status}
-	if command.Request.Target != "" {
-		details["target"] = command.Request.Target
-	}
-	if command.Request.Identity != "" {
-		details["identity"] = command.Request.Identity
-	}
-	if command.Request.Filesystem != "" {
-		details["filesystem"] = command.Request.Filesystem
-	}
-	return service.audit.Record(ctx, actorID, "", event, command.Reason, details)
+	return service.audit.Record(ctx, actorID, "", event, command.Reason, map[string]string{"status": status})
 }

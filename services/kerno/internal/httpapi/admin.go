@@ -20,14 +20,12 @@ type AdminMetrics interface {
 	History(context.Context, string) (json.RawMessage, error)
 }
 
-type AdminStorageMaintenance = admin.StorageMaintenance
-
 type AdminDependencies struct {
-	Store       admin.Store
-	System      AdminSystem
-	Metrics     AdminMetrics
-	Maintenance AdminStorageMaintenance
-	Hosts       *admin.Hosts
+	Store   admin.Store
+	System  AdminSystem
+	Metrics AdminMetrics
+	Media   admin.MediaMaintenance
+	Hosts   *admin.Hosts
 }
 
 type adminActorKey struct{}
@@ -38,7 +36,7 @@ type adminHandler struct {
 }
 
 func mountAdmin(router chi.Router, verify VerifyFunc, users account.Store, deps AdminDependencies) {
-	h := adminHandler{deps: deps, operations: admin.NewSystemOperations(deps.Store, deps.System, deps.Maintenance)}
+	h := adminHandler{deps: deps, operations: admin.NewSystemOperations(deps.Store, deps.System, deps.Media)}
 	router.Route("/v1/admin", func(r chi.Router) {
 		r.Use(adminMiddleware(verify, users))
 		r.Get("/summary", h.summary)
@@ -47,8 +45,6 @@ func mountAdmin(router chi.Router, verify VerifyFunc, users account.Store, deps 
 		r.Patch("/users/{id}/role", h.setRole)
 		r.Get("/audit", h.audit)
 		r.Get("/system", h.system)
-		r.Post("/storage/plan", func(w http.ResponseWriter, r *http.Request) { h.storageLayout(w, r, false) })
-		r.Post("/storage/apply", func(w http.ResponseWriter, r *http.Request) { h.storageLayout(w, r, true) })
 		r.Get("/metrics", h.metrics)
 		r.Get("/logs", h.logs)
 		r.Patch("/logs/retention", h.logRetention)

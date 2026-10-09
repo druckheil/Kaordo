@@ -1,6 +1,6 @@
 package nodoclient
 
-// Requests authenticated Nodo artifact audits and garbage collection
+// Requests authenticated Nodo media audits and cleanup of expired unreferenced uploads
 import (
 	"context"
 	"encoding/json"
@@ -14,7 +14,7 @@ import (
 	"github.com/druckheil/Kaordo/services/mediaauth"
 )
 
-func (client Client) StorageStatus(ctx context.Context) (json.RawMessage, error) {
+func (client Client) MediaStatus(ctx context.Context) (json.RawMessage, error) {
 	response, err := client.storageRequest(ctx, http.MethodGet, "")
 	if err != nil {
 		return nil, err
@@ -33,9 +33,9 @@ func (client Client) StorageStatus(ctx context.Context) (json.RawMessage, error)
 	return data, nil
 }
 
-func (client Client) StartStorageMaintenance(ctx context.Context, repair bool) error {
+func (client Client) StartMediaMaintenance(ctx context.Context, clean bool) error {
 	operation := "check"
-	if repair {
+	if clean {
 		operation = "repair"
 	}
 	response, err := client.storageRequest(ctx, http.MethodPost, "/"+operation)

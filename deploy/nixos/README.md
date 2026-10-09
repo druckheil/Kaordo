@@ -1,6 +1,6 @@
 # Production (NixOS)
 
-`kaordo.nix` is imported by `/etc/nixos/configuration.nix`. It runs PostgreSQL, Keycloak, LiveKit, Kerno, Nodo, Caddy (HTTPS for `kaordo.link`), ddclient (Namecheap DDNS, every minute), Prometheus, Node Exporter and regado-agent as systemd services. Prometheus and Node Exporter listen on loopback only, and Kerno is the only way to reach them. Databases, media, static releases (`/srv/kaordo/www/current`), metrics and secrets live on [`Data1`](../storage/README.md).
+`kaordo.nix` is imported by `/etc/nixos/configuration.nix`. It runs PostgreSQL, Keycloak, LiveKit, Kerno, Nodo, Caddy (HTTPS for `kaordo.link`), ddclient (Namecheap DDNS, every minute), Prometheus, Node Exporter and regado-agent as systemd services. Prometheus and Node Exporter listen on loopback only, and Kerno is the only way to reach them. Databases, media, static releases (`/srv/kaordo/www/current`), metrics and secrets live on `Data1`, a Btrfs pool with two copies (RAID1) across both disks, mounted at `/srv/kaordo`. The NixOS root is a separate ext4 partition on one disk and is not mirrored; [Regado](../../docs/regado.md) manages the pool's devices.
 
 ## Network
 
