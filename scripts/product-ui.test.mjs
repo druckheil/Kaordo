@@ -1,6 +1,7 @@
 // Exercises focused post navigation, composing, and native message scrolling
 
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test, expect } from './ui-fixture.mjs';
 import { fluoAccountFixtureResponse } from './fluo-account-fixture.mjs';
 import {
@@ -8,7 +9,8 @@ import {
 	encryptedMessage,
 	encryptedPost,
 	openPost,
-	postText
+	postText,
+	privateRecords
 } from './encryption-fixture.mjs';
 
 const id = (n) => `01999111-2222-7333-8444-${String(n).padStart(12, '0')}`;
@@ -38,6 +40,289 @@ const readablePost = (n, text) => ({
 	updatedAt: now
 });
 const post = (n, text) => encryptedPost(readablePost(n, text));
+
+test('Memoro renews expired media links and shares the metadata refresh', async ({
+	startAppFixture
+}) => {
+	const { page, origin, errors } = await startAppFixture('memoro', { fresh: true });
+	const reloads = [];
+	page.on('websocket', (socket) =>
+		socket.on('framereceived', (frame) => {
+			const payload = JSON.parse(String(frame.payload));
+			if (payload.type === 'full-reload') reloads.push(payload);
+		})
+	);
+	const date = '2026-10-09';
+	const cipher = privateRecords(actor.id, 'memoro');
+	const png = Buffer.from(
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1c8AAAAASUVORK5CYII=',
+		'base64'
+	);
+	const attachments = [1, 2].map((index) => {
+		const context = `${date}/media/${id(900 + index)}`;
+		return { id: id(910 + index), context, ...cipher.sealBytes(png, context) };
+	});
+	const dayTag = cipher.tag(`day:${date}`);
+	const day = {
+		version: 1,
+		date,
+		tasks: [],
+		journal: {
+			content: document('Diary with images'),
+			media: attachments.map(({ id, nonce, context }, index) => ({
+				id,
+				nonce,
+				context,
+				kind: 'image',
+				mimeType: 'image/png',
+				width: 640,
+				height: 480,
+				size: png.length,
+				altText: `Renewed diary image ${index}`
+			}))
+		}
+	};
+	const encrypted = {
+		...cipher.seal(`day:${dayTag}`, day),
+		dayTag,
+		monthTag: cipher.tag(`month:${date.slice(0, 7)}`)
+	};
+	let dayReads = 0;
+	let mediaReads = 0;
+	await page.route(`${origin}/private-media/**`, async (route) => {
+		const url = new URL(route.request().url());
+		assert.ok(
+			Number(url.searchParams.get('exp')) > Date.now() / 1000,
+			'Expired media URLs must be renewed before downloading'
+		);
+		mediaReads++;
+		const attachment = attachments.find((item) => item.id === url.pathname.split('/').at(-1));
+		await route.fulfill({ contentType: 'application/octet-stream', body: attachment.bytes });
+	});
+	await page.route('**/v1/**', async (route) => {
+		const request = route.request();
+		const path = new URL(request.url()).pathname;
+		let body = fluoAccountFixtureResponse(request, [actor, partner], { viewerId: actor.id });
+		if (body) return route.fulfill({ json: body });
+		if (path === '/v1/session' || path === '/v1/me') body = actor;
+		else if (path === '/v1/memoro/month') body = { items: [] };
+		else if (path === `/v1/memoro/days/${dayTag}`) {
+			dayReads++;
+			body = {
+				day: {
+					...encrypted,
+					media: attachments.map((item) => ({
+						id: item.id,
+						size: item.bytes.length,
+						url: `${origin}/private-media/${item.id}?exp=${dayReads === 1 ? 0 : Math.floor(Date.now() / 1000) + 540}`
+					}))
+				}
+			};
+		} else throw new Error(`Unexpected Memoro media request: ${request.method()} ${path}`);
+		return route.fulfill({ json: body });
+	});
+	await page.goto(`${origin}/memoro/?date=${date}`);
+	for (let index = 0; index < 2; index++) {
+		const image = page.getByRole('img', { name: `Renewed diary image ${index}`, exact: true });
+		await image.scrollIntoViewIfNeeded();
+		await expect(image).toHaveAttribute('src', /^blob:/);
+		await expect(image).toHaveJSProperty('naturalWidth', 1);
+	}
+	await page.getByRole('link', { name: 'Open image 1 of 2', exact: true }).click();
+	const viewer = page.locator('.pswp--open');
+	await expect(viewer).toBeVisible();
+	await viewer.getByRole('button', { name: 'Close', exact: true }).click();
+	await expect(viewer).toHaveCount(0);
+	assert.equal(dayReads, 2, 'Concurrent media share one expired-link metadata refresh');
+	assert.equal(mediaReads, 2);
+	assert.deepEqual(reloads, [], 'Opening diary media cannot reload a cold application');
+	assert.deepEqual(errors, []);
+});
+
+test('Fluo opens only visible images and releases them when leaving the feed', async ({
+	startAppFixture
+}) => {
+	const { page, origin, errors } = await startAppFixture('fluo');
+	const posts = Array.from({ length: 20 }, (_, index) =>
+		encryptedPost(readablePost(600 + index, `Media lifecycle ${index}`), {
+			images: [
+				{ ...image, id: id(700 + index), altText: `Lifecycle photo ${index}` },
+				...(index === 0
+					? Array.from({ length: 3 }, (_, extra) => ({
+							...image,
+							id: id(901 + extra),
+							altText: `Lifecycle extra ${extra}`
+						}))
+					: [])
+			]
+		})
+	);
+	let mediaVersion = 1;
+	const mediaBytes = new Map(
+		posts.flatMap((post) =>
+			post.media.map((item) => [item.id, Buffer.from(item.url.split(',')[1], 'base64')])
+		)
+	);
+	const wirePosts = () =>
+		posts.map((post, index) => ({
+			...post,
+			...(index === 0 && mediaVersion > 1
+				? { counts: { ...post.counts, good: 1 }, myReaction: 'good' }
+				: {}),
+			media: post.media.map((item) => ({
+				...item,
+				url: `${origin}/fixture-media/${item.id}?version=${mediaVersion}`
+			}))
+		}));
+	await page.route(`${origin}/fixture-media/**`, async (route) => {
+		const url = new URL(route.request().url());
+		assert.equal(Number(url.searchParams.get('version')), mediaVersion, 'Use renewed media links');
+		await route.fulfill({
+			contentType: 'application/octet-stream',
+			body: mediaBytes.get(url.pathname.split('/').at(-1))
+		});
+	});
+	await page.addInitScript(() => {
+		const create = URL.createObjectURL;
+		window.createdMediaURLs = [];
+		URL.createObjectURL = (blob) => {
+			const url = create.call(URL, blob);
+			window.createdMediaURLs.push(url);
+			return url;
+		};
+	});
+	await page.route('**/v1/**', async (route) => {
+		const request = route.request();
+		const url = new URL(request.url());
+		let body = fluoAccountFixtureResponse(request, [actor, partner], { viewerId: actor.id });
+		if (body) return route.fulfill({ json: body });
+		if (url.pathname === '/v1/session' || url.pathname === '/v1/me') body = actor;
+		else if (url.pathname.endsWith('/unread-count')) body = { unreadCount: 0 };
+		else if (url.pathname === '/v1/fluo/posts')
+			body = {
+				items: url.searchParams.get('feed') === 'saved' ? [] : wirePosts(),
+				nextCursor: null
+			};
+		else if (url.pathname === `/v1/fluo/posts/${posts[0].id}/reaction`) {
+			assert.equal(request.method(), 'PUT');
+			mediaVersion++;
+			body = wirePosts()[0];
+		} else throw new Error(`Unexpected media fixture request: ${request.method()} ${url.pathname}`);
+		return route.fulfill({ json: body });
+	});
+	await page.goto(`${origin}/fluo/`);
+	const imageView = page.getByRole('img', { name: 'Lifecycle photo 0', exact: true });
+	await expect(imageView).toHaveAttribute('src', /^blob:/);
+	const url = await imageView.getAttribute('src');
+	assert.ok(
+		await page.evaluate(() => window.createdMediaURLs.length < 20),
+		'Offscreen media must not be decrypted eagerly'
+	);
+	const canRead = (source) =>
+		page.evaluate(async (value) => {
+			try {
+				return (await fetch(value)).ok;
+			} catch {
+				return false;
+			}
+		}, source);
+	assert.equal(await canRead(url), true);
+	await expect(
+		page.getByRole('img', { name: 'Lifecycle extra 2', exact: true })
+	).not.toHaveAttribute('src', /^blob:/);
+	await page.getByRole('link', { name: 'Open image 1 of 4', exact: true }).click();
+	const viewer = page.locator('.pswp--open');
+	await expect(viewer).toBeVisible();
+	for (let index = 1; index <= 3; index++) {
+		await viewer.getByRole('button', { name: 'Next', exact: true }).click();
+		await expect(viewer.locator('.pswp__counter')).toHaveText(new RegExp(`${index + 1}\\s*/\\s*4`));
+	}
+	await page.waitForFunction(() => {
+		const image = window.pswp?.currSlide?.content.element;
+		return (
+			image instanceof HTMLImageElement && image.naturalWidth > 0 && image.src.startsWith('blob:')
+		);
+	});
+	const viewerURL = await page.evaluate(() => window.pswp.currSlide.content.element.src);
+	assert.equal(
+		await canRead(viewerURL),
+		true,
+		'The viewer opens hidden encrypted slides on demand'
+	);
+	await viewer.getByRole('button', { name: 'Close', exact: true }).click();
+	await expect(viewer).toHaveCount(0);
+	assert.equal(
+		await canRead(viewerURL),
+		false,
+		'Closing the viewer releases media without a mounted thumbnail'
+	);
+	assert.equal(await canRead(url), true, 'Closing the viewer preserves the mounted thumbnail');
+	await page.getByRole('button', { name: 'Like, 0', exact: true }).first().click();
+	await expect(page.getByRole('button', { name: 'Like, 1', exact: true })).toBeEnabled();
+	assert.equal(
+		await imageView.getAttribute('src'),
+		url,
+		'Metadata refresh preserves mounted bytes'
+	);
+	await page.getByRole('button', { name: 'Next attachment', exact: true }).first().click();
+	const deferredImage = page.getByRole('img', { name: 'Lifecycle extra 1', exact: true });
+	await expect(deferredImage).toHaveAttribute('src', /^blob:/);
+	await expect(deferredImage).toHaveJSProperty('naturalWidth', 6);
+	const navigation = page.getByRole('navigation', { name: 'Fluo navigation', exact: true });
+	await navigation.getByRole('button', { name: 'Saved', exact: true }).click();
+	await expect(imageView).toHaveCount(0);
+	assert.equal(await canRead(url), false, 'Leaving the view revokes its decrypted URL');
+	await navigation.getByRole('button', { name: 'Feed', exact: true }).click();
+	await expect(imageView).toHaveAttribute('src', /^blob:/);
+	const reopened = await imageView.getAttribute('src');
+	assert.notEqual(reopened, url, 'A cached post reacquires released media bytes');
+	assert.equal(await canRead(reopened), true);
+	assert.deepEqual(errors, []);
+});
+
+test('Fluo bounds encrypted search and continues through older posts on request', async ({
+	startAppFixture
+}) => {
+	const { page, origin, errors } = await startAppFixture('fluo');
+	const cursors = [];
+	await page.route('**/v1/**', async (route) => {
+		const request = route.request();
+		const url = new URL(request.url());
+		let body = fluoAccountFixtureResponse(request, [actor, partner], { viewerId: actor.id });
+		if (body) return route.fulfill({ json: body });
+		if (url.pathname === '/v1/session' || url.pathname === '/v1/me') body = actor;
+		else if (url.pathname.endsWith('/unread-count')) body = { unreadCount: 0 };
+		else if (url.pathname === '/v1/fluo/posts') {
+			const cursor = url.searchParams.get('cursor');
+			cursors.push(cursor);
+			const index = Number(cursor ?? 0);
+			body = {
+				items: [
+					post(800 + index, index === 4 ? 'Needle in older posts' : `Unrelated page ${index}`)
+				],
+				nextCursor: index < 8 ? String(index + 1) : null
+			};
+		} else
+			throw new Error(`Unexpected search fixture request: ${request.method()} ${url.pathname}`);
+		return route.fulfill({ json: body });
+	});
+	await page.goto(`${origin}/fluo/#search`);
+	await expect(
+		page.getByText('Enter at least two characters to search.', { exact: true })
+	).toBeVisible();
+	const initialRequests = cursors.length;
+	await page.getByRole('searchbox', { name: 'Search posts' }).fill('needle');
+	await expect(page.getByText('No matches in these posts.', { exact: true })).toBeVisible();
+	assert.deepEqual(
+		cursors.slice(initialRequests),
+		[null, '1', '2'],
+		'A missing term scans at most three pages before yielding'
+	);
+	await page.getByRole('button', { name: 'Search older posts', exact: true }).click();
+	await expect(page.getByText('Needle in older posts', { exact: true })).toBeVisible();
+	assert.deepEqual(cursors.slice(initialRequests), [null, '1', '2', '3', '4', '5']);
+	assert.deepEqual(errors, []);
+});
 
 test('Fluo preserves post history after reload and composes replies and quotes', async ({
 	startAppFixture
@@ -326,7 +611,21 @@ test('Ligo starts at the bottom, keeps rapid scrolling native and shares the com
 				createdAt: now
 			},
 			[actor.id, partner.id],
-			i === 44 ? [image] : []
+			i === 44
+				? [image]
+				: i === 43
+					? [
+							{
+								id: id(4),
+								kind: 'file',
+								mimeType: 'text/plain',
+								filename: 'fixture.txt',
+								width: 0,
+								height: 0,
+								data: Buffer.from('Device-decrypted download')
+							}
+						]
+					: []
 		)
 	);
 	await page.route('**/v1/**', async (route) => {
@@ -363,6 +662,13 @@ test('Ligo starts at the bottom, keeps rapid scrolling native and shares the com
 	await page.goto(`${origin}/ligo/#c/${conversation.id}`);
 	const log = page.getByRole('log', { name: 'Messages' });
 	await log.waitFor({ state: 'visible' });
+	const downloadAction = log.getByRole('button', { name: 'Download fixture.txt', exact: true });
+	await expect(downloadAction).toBeVisible();
+	const downloadPromise = page.waitForEvent('download');
+	await downloadAction.click();
+	const downloaded = await downloadPromise;
+	assert.equal(downloaded.suggestedFilename(), 'fixture.txt');
+	assert.equal(await readFile(await downloaded.path(), 'utf8'), 'Device-decrypted download');
 	await page.waitForFunction(() => {
 		const el = document.querySelector('[role="log"]');
 		return (

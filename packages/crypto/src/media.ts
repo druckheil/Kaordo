@@ -1,6 +1,7 @@
 // Encrypts opaque media bytes and retains descriptors only inside encrypted content
 import { fromBase64, toBase64 } from './keys.ts';
-import { decryptedObjectURL, encryptionSession, type EncryptionSession } from './session.ts';
+import { encryptionSession, type EncryptionSession } from './session.ts';
+import { createDecryptedMediaCache } from './media-cache.ts';
 import { encryptedMediaSchema } from './validation.ts';
 import { readResponseBytes } from './bytes.ts';
 
@@ -17,21 +18,16 @@ export interface EncryptedMedia {
 	context: string;
 }
 const descriptors = new Map<string, EncryptedMedia>();
-interface MediaLoad {
-	promise: Promise<string>;
-	controller: AbortController;
-	readers: number;
-	finished: boolean;
-}
-const opened = new Map<string, string>();
-const loading = new Map<string, MediaLoad>();
+let cache: ReturnType<typeof createDecryptedMediaCache> | undefined;
 let activeSession: EncryptionSession | undefined;
 function activate() {
 	const session = encryptionSession();
-	if (activeSession === session) return;
+	if (activeSession === session && cache) return cache;
 	clearMediaSecrets();
 	activeSession = session;
+	cache = createDecryptedMediaCache(session.signal);
 	session.signal.addEventListener('abort', clearMediaSecrets, { once: true });
+	return cache;
 }
 const header = new TextEncoder().encode('Kaordo01');
 export function rememberMedia(value: EncryptedMedia): void {
@@ -54,10 +50,9 @@ export function mediaDescriptor(id: string): EncryptedMedia {
 	return { ...item };
 }
 export function clearMediaSecrets(): void {
-	for (const load of loading.values()) load.controller.abort();
-	loading.clear();
+	cache?.clear();
+	cache = undefined;
 	descriptors.clear();
-	opened.clear();
 	activeSession = undefined;
 }
 export async function encryptMedia(
@@ -103,23 +98,16 @@ export async function encryptMedia(
 export async function decryptMedia(
 	item: EncryptedMedia,
 	source: string,
-	signal?: AbortSignal
+	signal: AbortSignal
 ): Promise<string> {
+	signal.throwIfAborted();
+	const media = activate();
 	rememberMedia(item);
-	signal?.throwIfAborted();
-	const cached = opened.get(item.id);
-	if (cached) return cached;
-	let load = loading.get(item.id);
-	if (load?.controller.signal.aborted) {
-		loading.delete(item.id);
-		load = undefined;
-	}
-	if (!load) {
-		const controller = new AbortController();
-		const combined = AbortSignal.any([encryptionSession().signal, controller.signal]);
-		const promise = (async () => {
+	return media.open(
+		item.id,
+		async (request) => {
 			const response = await fetch(source, {
-				signal: combined,
+				signal: request,
 				credentials: 'omit',
 				cache: 'no-store'
 			});
@@ -144,60 +132,14 @@ export async function decryptMedia(
 				data.subarray(20)
 			);
 			try {
-				combined.throwIfAborted();
-				const url = decryptedObjectURL(
-					new Blob([bytes], {
-						type: item.kind === 'file' ? 'application/octet-stream' : item.mimeType
-					})
-				);
-				opened.set(item.id, url);
-				return url;
+				request.throwIfAborted();
+				return new Blob([bytes], {
+					type: item.kind === 'file' ? 'application/octet-stream' : item.mimeType
+				});
 			} finally {
 				new Uint8Array(bytes).fill(0);
 			}
-		})();
-		load = { promise, controller, readers: 0, finished: false };
-		loading.set(item.id, load);
-		const current = load;
-		void promise
-			.finally(() => {
-				current.finished = true;
-				if (loading.get(item.id) === current) loading.delete(item.id);
-			})
-			.catch(() => {
-				// Readers receive the load failure through the original promise
-			});
-	}
-	const current = load;
-	current.readers++;
-	return new Promise<string>((resolve, reject) => {
-		let released = false;
-		const release = () => {
-			if (released) return;
-			released = true;
-			signal?.removeEventListener('abort', cancel);
-			if (--current.readers === 0 && !current.finished) current.controller.abort();
-		};
-		const cancel = () => {
-			release();
-			const cause: unknown = signal?.reason;
-			reject(cause instanceof Error ? cause : new DOMException('Aborted', 'AbortError'));
-		};
-		signal?.addEventListener('abort', cancel, { once: true });
-		current.promise.then(
-			(value) => {
-				release();
-				resolve(value);
-			},
-			(cause: unknown) => {
-				release();
-				reject(
-					cause instanceof Error
-						? cause
-						: new Error('The encrypted attachment could not load.', { cause })
-				);
-			}
-		);
-		if (signal?.aborted) cancel();
-	});
+		},
+		signal
+	);
 }

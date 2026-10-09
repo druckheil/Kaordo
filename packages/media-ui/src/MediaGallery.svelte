@@ -1,6 +1,5 @@
 <script lang="ts">
 	// Renders responsive post media with carousel and image lightbox support
-	import { onMount } from 'svelte';
 	import type { EmblaCarouselType } from 'embla-carousel';
 	import useEmblaCarousel from 'embla-carousel-svelte';
 	import { Button, ChevronLeftIcon, ChevronRightIcon } from '@kaordo/ui';
@@ -17,6 +16,7 @@
 	} from './media-layout';
 	import { mountPhotoSwipe } from './photo-swipe';
 	import VideoPlayer from './VideoPlayer.svelte';
+	import MediaImage from './MediaImage.svelte';
 
 	interface Props {
 		media: MediaAttachment[];
@@ -38,6 +38,7 @@
 	let canNext = $state(false);
 
 	const firstAttachment = $derived(media[0]);
+	const hasImages = $derived(media.some(isImage));
 	const ratios = $derived(media.map(mediaFrameRatio));
 	const pairedPhotos = $derived(media.length === 2 && media.every(isImage));
 	const pairAspectRatio = $derived(
@@ -62,9 +63,9 @@
 				: 22
 	};
 
-	onMount(() => {
-		if (!media.some(isImage)) return;
-		return mountPhotoSwipe(gallery);
+	$effect(() => {
+		if (!hasImages) return;
+		return mountPhotoSwipe(gallery, () => media);
 	});
 
 	function isImage(item: MediaAttachment): boolean {
@@ -118,26 +119,12 @@
 
 {#snippet attachment(item: MediaAttachment, index: number)}
 	{#if isImage(item)}
-		<a
-			data-pswp-item
-			href={item.url}
-			data-pswp-width={item.width}
-			data-pswp-height={item.height}
-			data-cropped={isExtreme(item) ? 'true' : undefined}
-			class="block h-full w-full overflow-hidden outline-offset-[-4px] focus-visible:rounded-xl focus-visible:outline-3 focus-visible:outline-ring"
-			aria-label={`Open image ${index + 1} of ${media.length}`}
-		>
-			<img
-				src={item.url}
-				alt={imageAltText(item, index)}
-				width={item.width}
-				height={item.height}
-				loading="lazy"
-				decoding="async"
-				draggable="false"
-				class="block h-full w-full object-cover object-center"
-			/>
-		</a>
+		<MediaImage
+			media={item}
+			alt={imageAltText(item, index)}
+			linkLabel={`Open image ${index + 1} of ${media.length}`}
+			cropped={isExtreme(item)}
+		/>
 	{:else}
 		<VideoPlayer media={item} />
 	{/if}

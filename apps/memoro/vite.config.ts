@@ -16,7 +16,9 @@ export default defineConfig({
 	optimizeDeps: {
 		include: [
 			...editorDependencies,
-			...mediaDependencies.map((dependency) => `@kaordo/memoro-client > ${dependency}`)
+			...mediaDependencies.map((dependency) => `@kaordo/memoro-client > ${dependency}`),
+			// The shared editor discovers image cropping after the initial dependency scan
+			'@kaordo/media-ui > cropperjs'
 		]
 	},
 	plugins: [

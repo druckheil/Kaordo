@@ -81,12 +81,14 @@ export function createContentCodec(baseUrl: string) {
 			altText: altTexts[id] ?? mediaDescriptor(id).altText
 		}));
 	}
-	async function media<T extends { id: string; url?: string }>(
+	function media<T extends { id: string; url?: string }>(
 		items: T[],
 		encrypted: EncryptedMedia[],
 		signal?: AbortSignal,
 		preview = false
 	) {
+		session.signal.throwIfAborted();
+		signal?.throwIfAborted();
 		const result = [];
 		for (const item of encrypted) {
 			const source = items.find((value) => value.id === item.id);
@@ -96,9 +98,12 @@ export function createContentCodec(baseUrl: string) {
 			result.push({
 				...source,
 				...item,
-				url: item.kind === 'video' ? '' : await decryptMedia(item, url, signal),
-				...(item.kind === 'video' && !preview
-					? { loadURL: (signal: AbortSignal) => decryptMedia(item, url, signal) }
+				url: '',
+				...(!preview || item.kind === 'image'
+					? {
+							loadURL: (signal: AbortSignal) =>
+								decryptMedia(item, url, AbortSignal.any([signal, session.signal]))
+						}
 					: {})
 			});
 		}

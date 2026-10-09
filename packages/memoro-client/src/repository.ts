@@ -9,8 +9,7 @@ import {
 import {
 	encryptionSession,
 	privateCipher,
-	decryptedObjectURL,
-	releaseDecryptedURL,
+	createDecryptedMediaCache,
 	readResponseBytes
 } from '@kaordo/crypto';
 import type { DraftAttachment } from '@kaordo/editor-ui';
@@ -35,8 +34,8 @@ export function createMemoroRepository(apiBaseUrl: string, nodoBaseUrl: string) 
 	});
 	const api = createMemoroApi(apiBaseUrl, nodoBaseUrl);
 	const queries = new QueryClient({ defaultOptions: { queries: { gcTime: 60_000 } } });
-	const mediaURLs = new Map<string, string>();
-	let disposed = false;
+	const lifetime = new AbortController();
+	const mediaCache = createDecryptedMediaCache(AbortSignal.any([session.signal, lifetime.signal]));
 	const tag = async (date: string) => (await cipher).index(`day:${date}`);
 	// Shared queries are cancelled only by TanStack or the key session; each caller abandons its own wait.
 	async function shared<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -174,44 +173,59 @@ export function createMemoroRepository(apiBaseUrl: string, nodoBaseUrl: string) 
 	): Promise<MediaAttachment[]> {
 		if (!record) return [];
 		const c = await cipher;
+		let sources = record.media;
 		const result: MediaAttachment[] = [];
-		// Video bytes are opened only when the player is selected
+		// Views open attachments on demand and own the lifetime of their decrypted bytes
 		for (const item of dayAttachments(document)) {
 			signal.throwIfAborted();
-			const open = async (request: AbortSignal) => {
-				let url = mediaURLs.get(item.id);
-				if (url) return url;
-				const source = record.media.find((value) => value.id === item.id);
-				if (!source?.url) throw new Error('An encrypted attachment is unavailable.');
-				const response = await fetch(source.url, {
-					signal: AbortSignal.any([request, session.signal]),
-					credentials: 'omit',
-					cache: 'no-store'
-				});
-				if (!response.ok) throw new Error('An encrypted attachment could not load.');
-				const encrypted = await readResponseBytes(response, item.size + 16);
-				const bytes = await c.openBytes(encrypted.buffer, item.nonce, item.context);
-				try {
-					request.throwIfAborted();
-					if (disposed) throw new DOMException('Disposed', 'AbortError');
-					url = decryptedObjectURL(new Blob([bytes], { type: item.mimeType }));
-					mediaURLs.set(item.id, url);
-					return url;
-				} finally {
-					new Uint8Array(bytes).fill(0);
-				}
-			};
+			const open = (request: AbortSignal) =>
+				mediaCache.open(
+					item.id,
+					async (load) => {
+						let source = sources.find((value) => value.id === item.id);
+						if (!source?.url) throw new Error('An encrypted attachment is unavailable.');
+						const expiry = new URL(source.url).searchParams.get('exp');
+						if (expiry && Number(expiry) * 1000 <= Date.now() + 30_000) {
+							const fresh = await shared(
+								queries.query({
+									...memoroDayOptions(api, record.dayTag),
+									staleTime: 0,
+									queryFn: ({ signal: request }) =>
+										api.day(record.dayTag, AbortSignal.any([request, session.signal]))
+								}),
+								load
+							);
+							sources = fresh?.media ?? [];
+							source = sources.find((value) => value.id === item.id);
+							if (!source?.url) throw new Error('An encrypted attachment is unavailable.');
+						}
+						const response = await fetch(source.url, {
+							signal: load,
+							credentials: 'omit',
+							cache: 'no-store'
+						});
+						if (!response.ok) throw new Error('An encrypted attachment could not load.');
+						const encrypted = await readResponseBytes(response, item.size + 16);
+						const bytes = await c.openBytes(encrypted.buffer, item.nonce, item.context);
+						try {
+							load.throwIfAborted();
+							return new Blob([bytes], { type: item.mimeType });
+						} finally {
+							new Uint8Array(bytes).fill(0);
+						}
+					},
+					request
+				);
 			result.push({
 				...item,
-				url: item.kind === 'video' ? '' : await open(signal),
-				...(item.kind === 'video' ? { loadURL: open } : {})
+				url: '',
+				loadURL: open
 			});
 		}
 		return result;
 	}
 	function clearMedia() {
-		for (const url of mediaURLs.values()) releaseDecryptedURL(url);
-		mediaURLs.clear();
+		mediaCache.clear();
 	}
 	return {
 		month,
@@ -221,7 +235,7 @@ export function createMemoroRepository(apiBaseUrl: string, nodoBaseUrl: string) 
 		media,
 		clearMedia,
 		dispose() {
-			disposed = true;
+			lifetime.abort();
 			void queries.cancelQueries();
 			queries.clear();
 			clearMedia();

@@ -51,7 +51,16 @@ export const audienceKey = (ownerId, version) =>
 	hkdf(syntheticAccount(ownerId).root, ownerId, `kaordo/v1/fluo-audience/${version}`);
 
 // Encrypts bytes exactly like a browser attachment and returns the opaque wire item plus its private descriptor
-export function encryptedImage({ id, altText = '', width = 960, height = 640 }) {
+function encryptedAttachment({
+	id,
+	altText = '',
+	width = 960,
+	height = 640,
+	kind = 'image',
+	mimeType = 'image/png',
+	filename = `${id}.png`,
+	data = png
+}) {
 	const key = randomBytes(32);
 	const nonce = randomBytes(12);
 	const context = id;
@@ -60,7 +69,7 @@ export function encryptedImage({ id, altText = '', width = 960, height = 640 }) 
 	const bytes = Buffer.concat([
 		Buffer.from('Kaordo01'),
 		nonce,
-		cipher.update(png),
+		cipher.update(data),
 		cipher.final(),
 		cipher.getAuthTag()
 	]);
@@ -77,12 +86,12 @@ export function encryptedImage({ id, altText = '', width = 960, height = 640 }) 
 		},
 		descriptor: {
 			id,
-			kind: 'image',
-			mimeType: 'image/png',
-			filename: `${id}.png`,
+			kind,
+			mimeType,
+			filename,
 			width,
 			height,
-			size: png.length,
+			size: data.length,
 			altText,
 			key: key.toString('base64'),
 			context
@@ -207,7 +216,7 @@ export function openPublishedPost(value, signingPublicKey, publishedKeys) {
 
 /** Converts a readable fixture post into the opaque wire form a server would return */
 export function encryptedPost(post, { keyring, images = [] } = {}) {
-	const media = images.map(encryptedImage);
+	const media = images.map(encryptedAttachment);
 	const body = {
 		content: post.content,
 		text: post.text,
@@ -311,7 +320,7 @@ export function openShared(value) {
 
 /** Converts a readable chat message into the member-sealed wire form */
 export function encryptedMessage(message, memberIds, images = []) {
-	const media = images.map(encryptedImage);
+	const media = images.map(encryptedAttachment);
 	const envelope = sealShared(
 		message.sender.id,
 		`ligo:${message.conversationId}:${message.clientId}`,
@@ -353,11 +362,19 @@ export function encryptedCommunity(server, channels, memberIds) {
 export function privateRecords(ownerId, module) {
 	const { root } = syntheticAccount(ownerId);
 	const dataKey = hkdf(root, ownerId, `kaordo/v1/${module}/data`);
+	const mediaKey = hkdf(root, ownerId, `kaordo/v1/${module}/media`);
 	const indexKey = hkdf(root, ownerId, `kaordo/v1/${module}/index`);
 	const aad = (id) => Buffer.from(`kaordo/v1/${module}/${ownerId}/${id}`);
 	const tag = (id) => createHmac('sha256', indexKey).update(id).digest('hex');
 	return {
 		tag,
+		sealBytes(data, context) {
+			const nonce = randomBytes(12);
+			const cipher = createCipheriv('aes-256-gcm', mediaKey, nonce);
+			cipher.setAAD(aad(context));
+			const bytes = Buffer.concat([cipher.update(data), cipher.final(), cipher.getAuthTag()]);
+			return { nonce: nonce.toString('base64'), bytes };
+		},
 		seal(id, value, revision = 1) {
 			const nonce = randomBytes(12);
 			const cipher = createCipheriv('aes-256-gcm', dataKey, nonce);

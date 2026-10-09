@@ -50,7 +50,7 @@ export function createLigoContent(codec: ContentCodec) {
 		return {
 			...value,
 			text: body.text,
-			media: await codec.media(value.media, body.media, signal)
+			media: codec.media(value.media, body.media, signal)
 		};
 	}
 	async function conversation(value: LigoConversation): Promise<LigoConversation> {

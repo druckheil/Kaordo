@@ -16,8 +16,163 @@ import {
 	restoreRecovery
 } from '../packages/crypto/src/recovery.ts';
 import { readResponseBytes } from '../packages/crypto/src/bytes.ts';
+import { createDecryptedMediaCache } from '../packages/crypto/src/media-cache.ts';
+import { installEncryptionSession } from '../packages/crypto/src/session.ts';
+import {
+	decryptMedia,
+	encryptMedia,
+	clearMediaSecrets,
+	hasMediaKey
+} from '../packages/crypto/src/media.ts';
+import { createContentCodec } from '../packages/api-client/src/content-codec.ts';
 
 const ownerId = '01999abc-1234-7000-8000-000000000001';
+
+async function mediaSession(t) {
+	const lifetime = new AbortController();
+	const release = installEncryptionSession(ownerId, await createAccountKeys(), lifetime.signal);
+	t.after(release);
+	return { lifetime, cache: createDecryptedMediaCache(lifetime.signal) };
+}
+
+test('media consumers share bytes until the last view leaves and reopen after release', async (t) => {
+	const { cache } = await mediaSession(t);
+	const first = new AbortController();
+	const second = new AbortController();
+	let calls = 0;
+	const load = async () => {
+		calls++;
+		return new Blob(['shared media']);
+	};
+	const [one, two] = await Promise.all([
+		cache.open('media', load, first.signal),
+		cache.open('media', load, second.signal)
+	]);
+	assert.equal(one, two);
+	assert.equal(calls, 1);
+	first.abort();
+	assert.equal(await (await fetch(two)).text(), 'shared media');
+	second.abort();
+	await assert.rejects(fetch(two));
+	const next = new AbortController();
+	const reopened = await cache.open('media', load, next.signal);
+	assert.notEqual(reopened, one);
+	assert.equal(calls, 2);
+	next.abort();
+	await assert.rejects(fetch(reopened));
+});
+
+test('one cancelled reader preserves the shared download for another reader', async (t) => {
+	const { cache } = await mediaSession(t);
+	const first = new AbortController();
+	const second = new AbortController();
+	const data = Promise.withResolvers();
+	let request;
+	const load = (signal) => {
+		request = signal;
+		return data.promise;
+	};
+	const cancelled = cache.open('media', load, first.signal);
+	const cancelledResult = assert.rejects(cancelled, { name: 'AbortError' });
+	const retained = cache.open('media', load, second.signal);
+	await Promise.resolve();
+	first.abort();
+	await cancelledResult;
+	assert.equal(request.aborted, false);
+	data.resolve(new Blob(['retained']));
+	const url = await retained;
+	assert.equal(await (await fetch(url)).text(), 'retained');
+	second.abort();
+	assert.equal(request.aborted, true);
+});
+
+test('abandoned media loads never retain a URL even if the loader ignores cancellation', async (t) => {
+	const { cache } = await mediaSession(t);
+	const reader = new AbortController();
+	const data = Promise.withResolvers();
+	const create = t.mock.method(URL, 'createObjectURL');
+	const result = cache.open('media', () => data.promise, reader.signal);
+	const rejected = assert.rejects(result, { name: 'AbortError' });
+	await Promise.resolve();
+	reader.abort();
+	await rejected;
+	data.resolve(new Blob(['late']));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(create.mock.callCount(), 0);
+});
+
+test('failed media loads can retry and ending the owner lifetime revokes active URLs', async (t) => {
+	const { lifetime, cache } = await mediaSession(t);
+	const reader = new AbortController();
+	await assert.rejects(
+		cache.open(
+			'media',
+			async () => {
+				throw new Error('Unavailable');
+			},
+			reader.signal
+		),
+		/Unavailable/
+	);
+	const url = await cache.open('media', async () => new Blob(['retried']), reader.signal);
+	assert.equal(await (await fetch(url)).text(), 'retried');
+	lifetime.abort();
+	await assert.rejects(fetch(url));
+	assert.throws(() => cache.open('media', async () => new Blob([]), reader.signal), {
+		name: 'AbortError'
+	});
+	reader.abort();
+});
+
+test('encrypted media opens only on demand and releases the decrypted file with its reader', async (t) => {
+	await mediaSession(t);
+	t.after(clearMediaSecrets);
+	const file = new File(['private attachment'], 'private.txt', { type: 'text/plain' });
+	const encrypted = await encryptMedia(file, { width: 0, height: 0 });
+	const item = { ...encrypted.descriptor, id: '01999abc-1234-7000-8000-000000000002' };
+	const source = URL.createObjectURL(encrypted.file);
+	t.after(() => URL.revokeObjectURL(source));
+	const reader = new AbortController();
+	const url = await decryptMedia(item, source, reader.signal);
+	assert.equal(await (await fetch(url)).text(), 'private attachment');
+	reader.abort();
+	await assert.rejects(fetch(url));
+});
+
+test('deferred attachments cannot migrate into a later account session', async (t) => {
+	const { lifetime } = await mediaSession(t);
+	t.after(clearMediaSecrets);
+	const encrypted = await encryptMedia(new File(['private'], 'private.txt'), {
+		width: 0,
+		height: 0
+	});
+	const item = { ...encrypted.descriptor, id: '01999abc-1234-7000-8000-000000000003' };
+	const codec = createContentCodec('https://api.example.test');
+	const [attachment] = codec.media(
+		[{ id: item.id, url: 'https://media.example.test/private' }],
+		[item]
+	);
+	lifetime.abort();
+	t.after(
+		installEncryptionSession(
+			'01999abc-1234-7000-8000-000000000002',
+			await createAccountKeys(),
+			new AbortController().signal
+		)
+	);
+	const network = t.mock.method(globalThis, 'fetch', async () => {
+		throw new Error('A previous account reached the network.');
+	});
+	await assert.rejects(attachment.loadURL(new AbortController().signal), { name: 'AbortError' });
+	assert.throws(
+		() => codec.media([{ id: item.id, url: 'https://media.example.test/private' }], [item]),
+		{
+			name: 'AbortError'
+		}
+	);
+	assert.equal(network.mock.callCount(), 0);
+	assert.equal(hasMediaKey(item.id), false);
+});
 
 function assertKeysEqual(actual, expected) {
 	assert.deepEqual(actual.root, expected.root);

@@ -58,3 +58,4 @@ export { createRecovery, restoreRecovery, parseRecoveryFile } from './recovery.t
 export type { RecoveryFile } from './recovery.ts';
 export { readResponseBytes } from './bytes.ts';
 export { encryptedMediaSchema } from './validation.ts';
+export { createDecryptedMediaCache } from './media-cache.ts';

@@ -1,6 +1,7 @@
 <script lang="ts">
 	// Shows medium photos and static video placeholders inside a parent post link
 	import { PlayIcon } from '@kaordo/ui';
+	import MediaImage from './MediaImage.svelte';
 	import { mediaFrameRatio, type MediaAttachment } from './media-layout';
 
 	let { media }: { media: MediaAttachment[] } = $props();
@@ -20,15 +21,10 @@
 				style:aspect-ratio={media.length === 1 ? mediaFrameRatio(item) : 4 / 3}
 			>
 				{#if item.kind === 'image'}
-					<img
-						src={item.url}
+					<MediaImage
+						media={item}
 						alt={item.altText || `Image ${index + 1} attached to this post`}
-						width={item.width}
-						height={item.height}
-						loading="lazy"
-						decoding="async"
-						draggable="false"
-						class="block h-full w-full object-contain"
+						contain
 					/>
 				{:else}
 					<span

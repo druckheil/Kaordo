@@ -4,7 +4,7 @@
 	import { tick } from 'svelte';
 	import type { LigoMedia, LigoMessage, LigoReaction } from '@kaordo/contracts';
 	import { UserAvatar } from '@kaordo/account-ui';
-	import { MessageMediaGrid, type MediaAttachment } from '@kaordo/media-ui';
+	import { DownloadAttachment, MessageMediaGrid, type MediaAttachment } from '@kaordo/media-ui';
 	import {
 		AlertDialog,
 		Attachment,
@@ -196,14 +196,7 @@
 												<Attachment.Title class="truncate">{file.filename}</Attachment.Title>
 												<Attachment.Description>{formatFileSize(file.size)}</Attachment.Description>
 											</Attachment.Content>
-											<Attachment.Actions
-												><Attachment.Action
-													href={file.url}
-													target="_blank"
-													rel="noreferrer"
-													aria-label={`Download ${file.filename}`}>Download</Attachment.Action
-												></Attachment.Actions
-											>
+											<Attachment.Actions><DownloadAttachment {file} /></Attachment.Actions>
 										</Attachment.Root>
 										{#if file.altText}<p class="px-2 text-xs text-foreground/75">
 												{file.altText}

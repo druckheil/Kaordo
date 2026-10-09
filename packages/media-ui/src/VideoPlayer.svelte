@@ -51,7 +51,9 @@
 		loading = true;
 		error = '';
 		try {
-			loadedURL = await media.loadURL(lifetime.signal);
+			const url = await media.loadURL(lifetime.signal);
+			lifetime.signal.throwIfAborted();
+			loadedURL = url;
 		} catch (cause) {
 			if (!lifetime.signal.aborted)
 				error = cause instanceof Error ? cause.message : 'The video could not load.';

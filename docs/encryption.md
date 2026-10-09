@@ -106,6 +106,13 @@ client. None of this is a ratchet, MLS deployment or forward-secrecy guarantee.
 Clients never display unencrypted or unverifiable post/message content; it renders
 as unavailable. Administrator system notices are the only plaintext messages.
 
+Images open as their views approach the viewport; videos and files open on
+request. Mounted thumbnails, viewers and download actions share decrypted bytes;
+the last consumer releases the object URL and cancels unfinished work. Query
+caches retain attachment descriptors, not decrypted media bytes. Fluo search
+checks at most three encrypted feed pages per step; **Search older posts** continues
+from the returned cursor without sending search text to Kerno.
+
 ## What the server can still observe
 
 User/account identifiers, usernames, profiles, authentication, access policies,

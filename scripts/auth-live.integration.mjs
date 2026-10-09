@@ -1847,6 +1847,11 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
 			0,
 			'The carousel must not render a next arrow at its last item'
 		);
+		const openedImages = carousel.locator('[data-pswp-item] img');
+		for (let index = 0; index < mediaCount; index++) {
+			await expect(openedImages.nth(index)).toHaveAttribute('src', /^blob:/);
+			media[index].url = await openedImages.nth(index).getAttribute('src');
+		}
 		assert.ok(
 			(await firstSlide.boundingBox()).x < nextSlideLeft,
 			'The carousel must advance through its remaining media'
@@ -1992,13 +1997,21 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
 		await card.waitFor();
 		await fluoNav.getByRole('button', { name: 'Feed', exact: true }).click();
 		await card.waitFor();
-		await page.waitForFunction((text) => {
-			const article = [...document.querySelectorAll('article')].find((item) =>
-				item.textContent.includes(text)
-			);
-			const image = article?.querySelector('img');
-			return image?.complete && image.naturalWidth === 8;
-		}, postText);
+		await card.scrollIntoViewIfNeeded();
+		const previousImage = carousel.getByRole('button', {
+			name: 'Previous attachment',
+			exact: true
+		});
+		for (let step = 0; step < mediaCount; step++) {
+			if (!(await previousImage.count())) break;
+			await previousImage.click();
+		}
+		await expect(previousImage).toHaveCount(0);
+		const reopenedImage = card.getByRole('img', { name: 'A solid black test image', exact: true });
+		await reopenedImage.scrollIntoViewIfNeeded();
+		await expect(reopenedImage).toHaveAttribute('src', /^blob:/);
+		await expect(reopenedImage).toHaveJSProperty('naturalWidth', 8);
+		await expect(reopenedImage).toHaveJSProperty('naturalHeight', 6);
 		const likeResponsePromise = page.waitForResponse((response) =>
 			isApiResponse(response, `/v1/fluo/posts/${postId}/reaction`, 'PUT')
 		);

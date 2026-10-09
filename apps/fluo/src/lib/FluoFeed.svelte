@@ -101,7 +101,7 @@
 
 	$effect(() => {
 		const lastRow = $virtualizer.getVirtualItems().at(-1);
-		if (!canQueryPosts || !lastRow || lastRow.index < posts.length - 3) return;
+		if (!canQueryPosts || view === 'search' || !lastRow || lastRow.index < posts.length - 3) return;
 		if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
 	});
 
@@ -193,12 +193,18 @@
 			<BookmarkIcon class="size-6 text-accent-foreground" />
 		</div>
 		<p class="mt-5 text-xl font-bold tracking-tight">
-			{otherProfile ? 'No posts yet.' : feedEmptyTitle(view, feed)}
+			{view === 'search' && query.hasNextPage
+				? 'No matches in these posts.'
+				: otherProfile
+					? 'No posts yet.'
+					: feedEmptyTitle(view, feed)}
 		</p>
 		<p class="mt-2 text-sm text-muted-foreground">
-			{otherProfile
-				? 'Posts shared by this account will appear here.'
-				: feedEmptyDescription(view, feed)}
+			{view === 'search' && query.hasNextPage
+				? 'Continue searching older posts, or try another phrase or username.'
+				: otherProfile
+					? 'Posts shared by this account will appear here.'
+					: feedEmptyDescription(view, feed)}
 		</p>
 	</div>
 {:else}
@@ -249,9 +255,23 @@
 	{#if query.isFetchingNextPage}
 		<p class="mt-3 text-center text-sm text-muted-foreground" role="status">Loading more…</p>
 	{/if}
-	{#if query.isFetchNextPageError}
+	{#if query.isFetchNextPageError && view !== 'search'}
 		<Button class="mt-3 w-full" variant="outline" onclick={() => void query.fetchNextPage()}>
 			Try loading more
 		</Button>
+	{/if}
+{/if}
+
+{#if view === 'search' && searchTerm.length >= 2 && query.hasNextPage}
+	<Button
+		class="mt-4 w-full"
+		variant="outline"
+		disabled={query.isFetchingNextPage}
+		onclick={() => void query.fetchNextPage()}
+	>
+		{query.isFetchingNextPage ? 'Searching older posts…' : 'Search older posts'}
+	</Button>
+	{#if query.isFetchNextPageError}
+		<p class="mt-2 text-sm text-destructive" role="alert">{query.error.message}</p>
 	{/if}
 {/if}

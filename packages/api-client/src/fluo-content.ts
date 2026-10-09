@@ -132,7 +132,7 @@ export function createFluoContent(
 		return {
 			...value,
 			text: body.text,
-			media: (await codec.media(value.media, body.media, signal)) as FluoMedia[]
+			media: codec.media(value.media, body.media, signal) as FluoMedia[]
 		};
 	}
 	async function post(
@@ -159,7 +159,7 @@ export function createFluoContent(
 			...value,
 			content: body.content,
 			text: body.text,
-			media: preview ? [] : ((await codec.media(value.media, body.media, signal)) as FluoMedia[]),
+			media: preview ? [] : (codec.media(value.media, body.media, signal) as FluoMedia[]),
 			quote: quoted
 		};
 	}
@@ -175,7 +175,7 @@ export function createFluoContent(
 			post: {
 				...value.post,
 				text: body.text,
-				media: (await codec.media(value.post.media, body.media, signal, true)) as FluoMedia[]
+				media: codec.media(value.post.media, body.media, signal, true) as FluoMedia[]
 			}
 		};
 	}

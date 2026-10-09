@@ -142,6 +142,7 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
 			const query = filter.search?.toLocaleLowerCase().trim();
 			const items: FluoPost[] = [];
 			let nextCursor = cursor;
+			let pagesScanned = 0;
 			do {
 				signal?.throwIfAborted();
 				const { data, error, response } = await client.GET('/v1/fluo/posts', {
@@ -151,6 +152,7 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
 					signal
 				});
 				const page = requireResponseData(data, error, response.status);
+				pagesScanned++;
 				for (const wire of page.items) {
 					const preview = await content.post(wire, signal, !!query);
 					if (
@@ -162,7 +164,8 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
 						items.push(query ? await content.post(wire, signal) : preview);
 				}
 				nextCursor = page.nextCursor ?? undefined;
-			} while (query && nextCursor && items.length < 20);
+				// A rare or missing term must not download the entire encrypted feed in one request.
+			} while (query && nextCursor && items.length < 20 && pagesScanned < 3);
 			return { items, nextCursor: nextCursor ?? null };
 		},
 		async comments(id: string, cursor?: string, signal?: AbortSignal): Promise<FluoPage> {
