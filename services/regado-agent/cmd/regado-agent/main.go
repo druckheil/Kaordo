@@ -124,6 +124,10 @@ func openService(ctx context.Context, directory string) (*api.Service, func(), e
 		Integrity: integrity.Checker{Run: command.Run, Mount: described.PoolMount, Poll: 30 * time.Second, ScrubLimit: scrubLimit},
 		Journal:   journal.Policy{Link: journal.DefaultLink, Path: filepath.Join(directory, "journald-retention.conf")},
 	}
+	// Hosts with the system in the pool give every new member the bootloader
+	if storage.RootOnPool(ctx, command.Run, described.PoolMount) && !service.Executor.EFI {
+		service.Executor.Boot = storage.GRUB{Run: command.Run, Directory: "/boot"}
+	}
 	if err := service.Adopt(ctx); err != nil {
 		// The API still serves facts and operations; Regado shows the adoption error from /host
 		slog.Error("could not adopt the current pool", "err", err)

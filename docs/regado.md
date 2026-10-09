@@ -157,6 +157,6 @@ Done: the operation journal, the desired state store, host addressing in Kerno a
 1. **Foundation.** The operation journal and API, the desired state store with revisions and export, host addressing in Kerno and the contract, alert evaluation and delivery (Ligo and ntfy), and the Regado operations activity view.
 2. **Storage.** Device classification and lifecycle operations, the boot reconciler, integrity schedules, space and quota reporting, cleanup. Replaces the partition planner, file-copy checker and layout dialog.
 3. **Snapshots and backups.** Through btrbk, plus backup-target disks, restore drills and restore.
-4. **Host migration.** Reinstall production onto the uniform template with nixos-anywhere and disko, after a verified copy of the databases. Needs the operator's explicit confirmation.
+4. **Host migration.** Move production's system into the pool in place with `deploy/nixos/migrate-to-pool.sh`, then rebuild each disk to the template through Regado's pool changes. Needs the operator's explicit confirmation.
 5. **Console.** The Overview health summary, Logs (time range, filters, cursor pagination, live tail), Users, Audit and System.
 6. **Fleet.** Remote agents over WireGuard, Garage for media, PostgreSQL replication. Done when a second host exists.

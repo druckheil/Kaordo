@@ -9,7 +9,9 @@ let
   '';
 in
 {
-  fileSystems.${dataRoot} = {
+  # Hosts that still run the system outside the pool mount its top level here; storage.nix,
+  # imported once the system moved into the pool, mounts the @kaordo subvolume instead
+  fileSystems.${dataRoot} = lib.mkDefault {
     device = "/dev/disk/by-label/Data1";
     fsType = "btrfs";
     options = [ "compress=zstd:3" "noatime" ];
@@ -74,7 +76,7 @@ in
     wantedBy = [ "multi-user.target" ];
     after = [ "local-fs.target" ];
     unitConfig.RequiresMountsFor = dataRoot;
-    path = [ pkgs.util-linux pkgs.btrfs-progs pkgs.gptfdisk pkgs.dosfstools pkgs.systemd pkgs.smartmontools ];
+    path = [ pkgs.util-linux pkgs.btrfs-progs pkgs.gptfdisk pkgs.dosfstools pkgs.systemd pkgs.smartmontools pkgs.grub2 ];
     serviceConfig = {
       User = "root";
       Group = "regado-agent";
@@ -90,7 +92,7 @@ in
       PrivateTmp = true;
       ProtectHome = true;
       ProtectSystem = "strict";
-      ReadWritePaths = [ dataRoot "/run/regado-agent" "/var/lib/btrfs" "/var/lib/regado-agent" "-/var/log/journal" "-/run/log/journal" ];
+      ReadWritePaths = [ dataRoot "/run/regado-agent" "/var/lib/btrfs" "/var/lib/regado-agent" "-/boot" "-/var/log/journal" "-/run/log/journal" ];
       RestrictAddressFamilies = [ "AF_UNIX" ];
     };
   };
@@ -254,10 +256,4 @@ in
     extraConfig = "min-interval=1m";
   };
   systemd.services.ddclient.unitConfig.RequiresMountsFor = dataRoot;
-
-  services.btrfs.autoScrub = {
-    enable = true;
-    fileSystems = [ dataRoot ];
-    interval = "monthly";
-  };
 }

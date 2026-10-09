@@ -24,7 +24,7 @@ type Bootloader interface {
 type Executor struct {
 	Run   command.Runner
 	Mount string
-	// Boot is nil on hosts whose boot layout predates the uniform template.
+	// Boot is nil while the system lives outside the pool, or on EFI hosts until they are supported.
 	Boot Bootloader
 	// EFI selects an EFI system partition instead of a BIOS boot partition.
 	EFI bool

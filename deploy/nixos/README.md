@@ -1,6 +1,6 @@
 # Production (NixOS)
 
-`kaordo.nix` is imported by `/etc/nixos/configuration.nix`. It runs PostgreSQL, Keycloak, LiveKit, Kerno, Nodo, Caddy (HTTPS for `kaordo.link`), ddclient (Namecheap DDNS, every minute), Prometheus, Node Exporter and regado-agent as systemd services. Prometheus and Node Exporter listen on loopback only, and Kerno is the only way to reach them. Databases, media, static releases (`/srv/kaordo/www/current`), metrics and secrets live on `Data1`, a Btrfs pool with two copies (RAID1) across both disks, mounted at `/srv/kaordo`. The NixOS root is a separate ext4 partition on one disk and is not mirrored; [Regado](../../docs/regado.md) manages the pool's devices.
+`kaordo.nix` is imported by `/etc/nixos/configuration.nix`. It runs PostgreSQL, Keycloak, LiveKit, Kerno, Nodo, Caddy (HTTPS for `kaordo.link`), ddclient (Namecheap DDNS, every minute), Prometheus, Node Exporter and regado-agent as systemd services. Prometheus and Node Exporter listen on loopback only, and Kerno is the only way to reach them. Databases, media, static releases (`/srv/kaordo/www/current`), metrics and secrets live on `Data1`, a Btrfs pool with two copies (RAID1) across both disks, mounted at `/srv/kaordo`. Until the system moves into the pool (below), the NixOS root is a separate ext4 partition on one disk and is not mirrored. [Regado](../../docs/regado.md) manages the pool's devices.
 
 ## Network
 
@@ -42,6 +42,18 @@ KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:pages:production
 ## Secrets
 
 Secrets never enter Git or the Nix store. `provision-secrets.sh` idempotently creates root-only files under `/srv/kaordo/secrets`. Provide the Namecheap password in `/srv/kaordo/secrets/namecheap-ddns` (mode 0600). A protected ntfy topic for Regado alerts needs `KAORDO_NTFY_TOKEN=<token>` in `/srv/kaordo/secrets/kerno.env`; public topics need none.
+
+## Moving the system into the pool
+
+`storage.nix` mounts the system and data from Btrfs subvolumes of `Data1` (`@root`, `@nix`, `@log`, `@kaordo` with nested `postgresql`, `media`, `prometheus` and `releases`). It installs GRUB on every pool disk named in the agent's desired state, and its `degraded` boot entry mounts the remaining copy after a disk failed. A host that still boots from its ext4 root moves in place with `migrate-to-pool.sh`, run as root from `/etc/nixos/deploy/nixos`:
+
+1. `check` verifies two healthy RAID1 members and free space.
+2. `prepare` copies the running system into `@root`, `@nix` and `@log`, imports `storage.nix` into the copy's configuration and builds it. Services keep running.
+3. `cutover` stops the services, syncs the system again, and reflinks the data into `@kaordo`; the copy shares every block and is verified file by file. It then arms one trial boot of the new system from the old menu, and the operator reboots.
+4. `finalize`, on the trial system, makes it the default and installs GRUB on every pool disk. If the trial boot hangs instead, power-cycling starts the old system with its data untouched.
+5. `cleanup` removes the pre-migration data from the pool's top level.
+
+Afterwards the old ext4 partition only backs older boot entries. Rebuilding each disk to the template (BIOS boot plus one pool partition) runs through Regado: drop the disk from the pool, then add it back.
 
 ## Manual recovery
 
