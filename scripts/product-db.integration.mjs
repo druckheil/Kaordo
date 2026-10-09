@@ -58,16 +58,7 @@ try {
 	const dsn = `postgres://kaordo:${encodeURIComponent(config.KAORDO_DB_PASSWORD)}@127.0.0.1:5432/${database}?sslmode=disable`;
 	const { stdout } = await run(
 		'go',
-		[
-			'test',
-			'./services/kerno/internal/postgres',
-			'-race',
-			'-cover',
-			'-run',
-			'Test(Fluo|Ligo|Rondo|Lingvo|Admin)',
-			'-count=1',
-			'-v'
-		],
+		['test', './services/kerno/internal/postgres', '-race', '-cover', '-count=1', '-v'],
 		{
 			env: { ...process.env, KAORDO_TEST_DATABASE_URL: dsn }
 		}

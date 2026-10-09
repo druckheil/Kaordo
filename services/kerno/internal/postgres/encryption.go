@@ -184,5 +184,5 @@ func (s *Encryption) ForgetDevice(ctx context.Context, actorID, deviceID string,
 		}
 		return *result, tx.Commit(ctx)
 	}
-	return encryption.Identity{}, encryption.ErrConflict
+	return encryption.Identity{}, encryption.ErrNotFound
 }
