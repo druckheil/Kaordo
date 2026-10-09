@@ -1,29 +1,17 @@
 package postgres
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestLigoConversationFlow(t *testing.T) {
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	ctx, pool := testDatabase(t)
 	users := NewUsers(pool)
 	alice, err := users.Upsert(ctx, "ligo-alice", "ligoalice", "Alice")
 	if err != nil {

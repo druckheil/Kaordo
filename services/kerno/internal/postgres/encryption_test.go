@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 
@@ -27,21 +26,6 @@ type testAccount struct {
 func (account testAccount) sign(t *testing.T, parts ...string) string {
 	t.Helper()
 	return base64.StdEncoding.EncodeToString(ed25519.Sign(account.signer, []byte(strings.Join(parts, "\n"))))
-}
-
-func testDatabase(t *testing.T) (context.Context, *pgxpool.Pool) {
-	t.Helper()
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	return ctx, pool
 }
 
 func registerTestAccount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, subject string) (testAccount, string) {

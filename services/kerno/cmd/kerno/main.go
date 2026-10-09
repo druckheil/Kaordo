@@ -40,7 +40,7 @@ func run() error {
 	}
 	defer pool.Close()
 
-	if err := postgres.VerifySchema(ctx, pool); err != nil {
+	if err := postgres.Migrate(ctx, pool); err != nil {
 		return err
 	}
 

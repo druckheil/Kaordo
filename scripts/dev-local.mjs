@@ -1,11 +1,10 @@
 // Starts the local Kaordo services and prepares their development configuration
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmod, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { parseEnv } from 'node:util';
+import { parseEnv, promisify } from 'node:util';
 import { assertAvailablePorts } from './local-ports.mjs';
-import { productMigrations } from './product-migrations.mjs';
 import { startLocalSession } from './local-session.mjs';
 import { localDevelopmentPorts, localFrontendServers } from './local-vite.mjs';
 import { syncKeycloak } from './sync-keycloak.mjs';
@@ -202,29 +201,39 @@ async function ensureDockerAvailable() {
 	}
 }
 
-async function applyProductMigrations(environment) {
-	for (const migration of productMigrations) {
-		await run(
-			'docker',
-			[
-				...compose,
-				'exec',
-				'-T',
-				'app-db',
-				'psql',
-				'-X',
-				'-v',
-				'ON_ERROR_STOP=1',
-				'-U',
-				'kaordo',
-				'-d',
-				'kaordo',
-				'-f',
-				`/migrations/${migration}`
-			],
-			environment
-		);
-	}
+// Kerno applies its migrations on start. A database created by the pre-Goose SQL files cannot be
+// upgraded in place, so its disposable local schema is recreated once.
+async function resetPreGooseSchema(environment) {
+	const psql = [
+		...compose,
+		'exec',
+		'-T',
+		'app-db',
+		'psql',
+		'-X',
+		'-q',
+		'-At',
+		'-U',
+		'kaordo',
+		'-d',
+		'kaordo'
+	];
+	const { stdout } = await promisify(execFile)(
+		'docker',
+		[
+			...psql,
+			'-c',
+			"SELECT to_regclass('public.users') IS NOT NULL AND to_regclass('public.goose_db_version') IS NULL"
+		],
+		{ cwd: root, env: environment }
+	);
+	if (stdout.trim() !== 't') return;
+	console.log('Recreating the local application schema for versioned migrations…');
+	await run(
+		'docker',
+		[...psql, '-v', 'ON_ERROR_STOP=1', '-c', 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'],
+		environment
+	);
 }
 
 async function buildAndStartKerno(privateConfig) {
@@ -342,7 +351,7 @@ async function startLocalDevelopment() {
 	const localEnv = { ...process.env, ...privateConfig, KAORDO_SITE_ORIGIN: siteOrigin };
 	console.log('Starting PostgreSQL, Keycloak and LiveKit…');
 	await run('docker', [...compose, 'up', '-d', '--wait'], localEnv);
-	await applyProductMigrations(localEnv);
+	await resetPreGooseSchema(localEnv);
 	await waitFor('http://127.0.0.1:8080/realms/kaordo/.well-known/openid-configuration', 180_000);
 	await syncKeycloak(privateConfig);
 	await startApplicationServices(privateConfig);

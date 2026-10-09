@@ -23,6 +23,7 @@ linters:
         - (github.com/jackc/pgx/v5.Tx).Rollback
         - (io.ReadCloser).Close
         - (net.Listener).Close
+        - (*database/sql.DB).Close
         - os.Remove
         - os.RemoveAll
     gocognit:

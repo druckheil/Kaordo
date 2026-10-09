@@ -4,8 +4,8 @@
 
 1. creates the ignored `deploy/local/.env` and root `.env` from their examples with random secrets when they are missing;
 2. starts `compose.yaml`: application PostgreSQL, Keycloak with its own PostgreSQL, and LiveKit;
-3. reconciles Keycloak policy (`pnpm auth:configure`) and applies every migration;
-4. builds and runs Kerno and Nodo;
+3. reconciles Keycloak policy (`pnpm auth:configure`);
+4. builds and runs Kerno, which applies pending migrations, and Nodo;
 5. serves each app's Vite server behind one origin.
 
 Frontend edits reload through HMR. Restart after Go changes or after adding an app. Only one instance may run per checkout; a second launch exits if a port is taken. `pnpm dev:stop` stops the processes this checkout started and the containers. It never kills unrelated port owners.

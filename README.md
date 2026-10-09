@@ -23,7 +23,6 @@ User content is encrypted on the user's devices. The server stores ciphertext an
 | `services/regado-agent` | Fixed Linux operations behind a protected Unix socket          |
 | `deploy/local`          | Docker Compose development stack                               |
 | `deploy/nixos`          | Production NixOS module and release scripts                    |
-| `deploy/postgres`       | Application schema migrations                                  |
 
 ## Run locally
 
@@ -34,7 +33,7 @@ pnpm install
 pnpm dev
 ```
 
-Open http://localhost:8765/register/. `pnpm dev` creates ignored local configuration, starts PostgreSQL, Keycloak and LiveKit, applies migrations, runs Kerno and Nodo, and serves every app with HMR behind one origin. Stop it with Ctrl+C, or with `pnpm dev:stop`, which also stops the containers. Details: [local stack](deploy/local/README.md).
+Open http://localhost:8765/register/. `pnpm dev` creates ignored local configuration, starts PostgreSQL, Keycloak and LiveKit, runs Kerno (which applies migrations) and Nodo, and serves every app with HMR behind one origin. Stop it with Ctrl+C, or with `pnpm dev:stop`, which also stops the containers. Details: [local stack](deploy/local/README.md).
 
 ## Checks
 
@@ -54,4 +53,4 @@ pnpm test:go
 - [CI](docs/ci.md): test layers, local reproduction and test rules
 - [Releases](docs/releases.md): public release notes and release procedure
 - [Production](deploy/nixos/README.md): NixOS host, deployment, rollback and operations
-- [Migrations](deploy/postgres/README.md), [Keycloak](deploy/keycloak/README.md), [storage](deploy/storage/README.md)
+- [Keycloak](deploy/keycloak/README.md) and [storage](deploy/storage/README.md)

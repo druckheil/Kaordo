@@ -107,7 +107,7 @@ restore_release() {
           mv -f "$data_root/bin/.$binary-rollback" "$data_root/bin/$binary" || rollback_failed=1
       done
     fi
-    for path in deploy/nixos deploy/postgres deploy/keycloak scripts/sync-keycloak.mjs; do
+    for path in deploy/nixos deploy/keycloak scripts/sync-keycloak.mjs; do
       restore_source "/etc/nixos/$path" "$backup_root/etc-nixos/$path" || rollback_failed=1
     done
     if [[ "$system_switch_started" -eq 1 || "$(readlink -f /run/current-system)" != "$previous_system" ]]; then
@@ -171,12 +171,12 @@ mkdir "$backup_root/bin"
 for binary in kerno nodo regado-agent; do cp -a "$data_root/bin/$binary" "$backup_root/bin/$binary"; done
 printf '%s\n' "$previous_system" > "$backup_root/nixos-system"
 printf '%s\n' "$previous_site" > "$backup_root/site-target"
-for path in deploy/nixos deploy/postgres deploy/keycloak scripts/sync-keycloak.mjs; do
+for path in deploy/nixos deploy/keycloak scripts/sync-keycloak.mjs; do
   backup_source "/etc/nixos/$path" "$backup_root/etc-nixos/$path"
 done
 
 source_mutated=1
-for path in deploy/nixos deploy/postgres deploy/keycloak; do
+for path in deploy/nixos deploy/keycloak; do
   rm -rf "/etc/nixos/$path"
   mkdir -p "$(dirname "/etc/nixos/$path")"
   cp -a "$release_root/etc/nixos/$path" "/etc/nixos/$path"
@@ -190,7 +190,6 @@ node_runtime="$release_root/nixos-system/sw/bin/node"
 [[ -x "$node_runtime" ]]
 "$node_runtime" "$release_root/etc/nixos/deploy/nixos/verify-release.mjs" payload "$release_root" "$release_id" "$origin" "$auth_realm"
 "$node_runtime" "$release_root/etc/nixos/deploy/nixos/sync-keycloak-production.mjs" --snapshot "$backup_root/keycloak.json"
-bash /etc/nixos/deploy/nixos/apply-migrations.sh /etc/nixos/deploy/postgres
 
 for binary in kerno nodo regado-agent; do
   install -o root -g root -m 0755 "$release_root/bin/$binary" "$data_root/bin/.$binary-new"

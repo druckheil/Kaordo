@@ -1,29 +1,17 @@
 package postgres
 
 import (
-	"context"
 	"errors"
-	"os"
 	"sync"
 	"testing"
 
 	adminmodel "github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestAdminAccountActions(t *testing.T) {
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	ctx, pool := testDatabase(t)
 	users := NewUsers(pool)
 	admin, err := users.Upsert(ctx, "regado-admin", "regadoadmin", "Regado Admin")
 	if err != nil {
@@ -90,16 +78,7 @@ func TestAdminAccountActions(t *testing.T) {
 }
 
 func TestAdminMutualRevocationPreservesAdministrator(t *testing.T) {
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	ctx, pool := testDatabase(t)
 	users := NewUsers(pool)
 	a, err := users.Upsert(ctx, "regado-race-a", "regadoracea", "Race A")
 	if err != nil {

@@ -35,15 +35,15 @@ async function put(path, content) {
 test('payload preparation gives services access to configuration regardless of builder umask', async () => {
 	const directory = await mkdtemp('/tmp/kd-permissions-');
 	try {
-		for (const path of ['bin/kerno', 'etc/nixos/deploy/postgres/001.sql', 'site/index.html']) {
+		for (const path of ['bin/kerno', 'etc/nixos/deploy/keycloak/realm.json', 'site/index.html']) {
 			await put(join(directory, path), path);
 			await chmod(join(directory, path), 0o600);
 		}
-		await chmod(join(directory, 'etc/nixos/deploy/postgres'), 0o700);
+		await chmod(join(directory, 'etc/nixos/deploy/keycloak'), 0o700);
 		const hashes = await prepareReleasePayload(directory);
-		assert.equal((await stat(join(directory, 'etc/nixos/deploy/postgres'))).mode & 0o777, 0o755);
+		assert.equal((await stat(join(directory, 'etc/nixos/deploy/keycloak'))).mode & 0o777, 0o755);
 		assert.equal(
-			(await stat(join(directory, 'etc/nixos/deploy/postgres/001.sql'))).mode & 0o777,
+			(await stat(join(directory, 'etc/nixos/deploy/keycloak/realm.json'))).mode & 0o777,
 			0o644
 		);
 		assert.equal((await stat(join(directory, 'bin/kerno'))).mode & 0o777, 0o755);
@@ -211,7 +211,6 @@ async function hostFixture(failure = '') {
 		await put(join(bundle, 'bin', binary), `new-${binary}`);
 	}
 	await put(join(configuration, 'deploy/nixos/kaordo.nix'), 'old-nix');
-	await put(join(configuration, 'deploy/postgres/001.sql'), 'old-sql');
 	await put(join(configuration, 'deploy/keycloak/theme'), 'old-theme');
 	await put(join(configuration, 'scripts/sync-keycloak.mjs'), 'old-sync');
 	await put(join(data, 'www/releases/old/index.html'), 'old-portal');
@@ -219,7 +218,6 @@ async function hostFixture(failure = '') {
 	await put(join(bundle, 'site/index.html'), 'new-portal');
 	await put(join(bundle, 'manifest.json'), '{}');
 	await put(join(bundle, 'etc/nixos/deploy/nixos/kaordo.nix'), 'new-nix');
-	await put(join(bundle, 'etc/nixos/deploy/postgres/001.sql'), 'new-sql');
 	await put(join(bundle, 'etc/nixos/deploy/keycloak/theme'), 'new-theme');
 	await put(join(bundle, 'etc/nixos/scripts/sync-keycloak.mjs'), 'new-sync');
 	await put(join(bundle, 'RELEASE.txt'), `Source commit: ${revision}\n`);
@@ -233,10 +231,6 @@ else writeFileSync(base+'/identity.json','{"rememberMe":true,"ssoSessionIdleTime
 	await put(
 		join(bundle, 'etc/nixos/deploy/nixos/verify-release.mjs'),
 		`import{appendFileSync}from'node:fs';appendFileSync(process.env.FIXTURE_ROOT+'/events','verify:'+process.argv[2]+'\\n');if(process.env.FIXTURE_FAIL===process.argv[2])process.exit(1);`
-	);
-	await put(
-		join(bundle, 'etc/nixos/deploy/nixos/apply-migrations.sh'),
-		`#!/usr/bin/env bash\nprintf 'migrations\\n' >> '${events}'\n`
 	);
 	const stub = `#!${process.execPath}
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
@@ -335,7 +329,6 @@ test('full deployment activates one snapshot and verifies every declared service
 		const phases = [
 			'verify:payload',
 			'identity:--snapshot',
-			'migrations',
 			'nixos-rebuild:switch',
 			'identity:apply',
 			'verify:live'

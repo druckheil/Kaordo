@@ -23,11 +23,11 @@ Deployments are operator actions for an explicitly authorized release ([releases
 KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:production
 ```
 
-`deploy:production` runs the frontend, deployment and Go checks, cross-builds Kerno, Nodo and regado-agent for Linux amd64, and uploads one checksummed bundle. The bundle holds the apps, NixOS configuration, Keycloak policy and theme, and migrations. A source change during the build aborts. On the host, `deploy-release.sh`:
+`deploy:production` runs the frontend, deployment and Go checks, cross-builds Kerno, Nodo and regado-agent for Linux amd64, and uploads one checksummed bundle. The bundle holds the apps, NixOS configuration, and Keycloak policy and theme; migrations are embedded in Kerno. A source change during the build aborts. On the host, `deploy-release.sh`:
 
 1. builds the NixOS closure and verifies the manifest;
 2. snapshots the current Keycloak policy for rollback;
-3. applies migrations as `kaordo`, installs the binaries and switches NixOS;
+3. installs the binaries and switches NixOS; Kerno applies pending migrations as it starts;
 4. reconciles Keycloak and activates the frontend;
 5. runs `verify-release.mjs`. This checks active services and timers, running binaries against installed ones, every app against the manifest, OIDC discovery, the login form and theme, and the LiveKit and Prometheus endpoints.
 
@@ -46,13 +46,29 @@ Secrets never enter Git or the Nix store. `provision-secrets.sh` idempotently cr
 ## Manual recovery
 
 1. Build the apps with `pnpm build:pages:production`, and cross-build the Go services with `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`.
-2. Copy them to the host and run `apply-migrations.sh`, which applies every migration as `kaordo`. Kerno will not start without its tables.
-3. Run `nixos-rebuild switch`.
-4. Run `node sync-keycloak-production.mjs`, which reads the bootstrap admin credential from the secrets directory.
+2. Copy them to the host and run `nixos-rebuild switch`. Kerno applies pending migrations as it starts.
+3. Run `node sync-keycloak-production.mjs`, which reads the bootstrap admin credential from the secrets directory.
+
+## Upgrading from 0.0.3
+
+The release with device-held encryption replaces the old SQL files with versioned migrations and starts from an empty application database. Keycloak accounts, passwords and TOTP remain. Kaordo account rows are recreated at the next sign-in; profiles, follows, settings, roles and all content are discarded. Run this once on the host, immediately before that release's `deploy:production`:
+
+```sh
+sudo -u kaordo psql -d kaordo -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+```
+
+The running Kerno fails requests until the deployment replaces it. Afterwards sign in once, grant `admin` and the verification badge again (below), and let Nodo garbage collection remove the orphaned media within a day.
 
 ## Operations
 
-- **Administrators.** Roles are never inferred from usernames. To grant `admin`, verify the exact account ID and Keycloak subject in PostgreSQL, then insert the ID into `user_roles`. Administrative actions are recorded in `admin_audit`.
+- **Administrators.** Roles are never inferred from usernames. Find the account by its exact Keycloak subject, then grant the role. Administrative actions are recorded in `admin_audit`.
+
+  ```sh
+  sudo -u kaordo psql -d kaordo -c "SELECT id, keycloak_sub, username FROM users WHERE username = 'DruckHeil'"
+  sudo -u kaordo psql -d kaordo -c "INSERT INTO user_roles (user_id, role) VALUES ('<id>', 'admin')"
+  ```
+
+- **Verification badge.** Set it the same way: `INSERT INTO fluo_profiles (user_id, verified) VALUES ('<id>', true) ON CONFLICT (user_id) DO UPDATE SET verified = true`.
 - **Journal.** Persistent journald is capped at 256 MiB, and the age limit starts at 14 days. Regado can change it to 1, 7, 14, 30 or 90 days, or remove the age limit. The choice is stored in `/var/lib/regado-agent/journald-retention.conf` and survives rebuilds.
 - **DNS.** `ddclient.service` is a oneshot, so between runs it is normally `inactive (dead)`. Check `ddclient.timer` and the last result before treating that as a failure.
 - **Health.** Check `systemctl --failed`, `ddclient.timer`, `btrfs-scrub-srv-kaordo.timer`, `127.0.0.1:8081/healthz` (Kerno) and `127.0.0.1:8082/healthz` (Nodo).

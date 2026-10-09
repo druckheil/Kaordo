@@ -1,9 +1,7 @@
 package postgres
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"sort"
 	"testing"
 	"time"
@@ -11,22 +9,12 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // This measures the actual List path in a disposable database. Timings are
 // evidence for a particular machine, not a portable pass/fail threshold.
 func TestFluoReadCapacity(t *testing.T) {
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	ctx, pool := testDatabase(t)
 	defer func() {
 		users := table.Users
 		if _, err := jetExec(ctx, pool, users.DELETE().WHERE(users.KeycloakSub.LIKE(jetpg.String("capacity-user-%")))); err != nil {

@@ -47,15 +47,7 @@ function releaseId(version, source) {
 async function copyReleaseSources(bundle) {
 	const trackedSources = await run(
 		'git',
-		[
-			'ls-files',
-			'-z',
-			'--',
-			'deploy/nixos',
-			'deploy/postgres',
-			'deploy/keycloak',
-			'scripts/sync-keycloak.mjs'
-		],
+		['ls-files', '-z', '--', 'deploy/nixos', 'deploy/keycloak', 'scripts/sync-keycloak.mjs'],
 		{ capture: true }
 	);
 
@@ -118,7 +110,7 @@ async function buildReleaseBundle(source, target) {
 				`Source commit: ${source.revision}`,
 				`Working tree dirty: ${source.dirty}`,
 				`Built at: ${new Date().toISOString()}`,
-				'Includes static applications, NixOS configuration, Keycloak, migrations and Linux amd64 backend binaries.',
+				'Includes static applications, NixOS configuration, Keycloak and Linux amd64 backend binaries with embedded migrations.',
 				'Runtime credentials are read from the production host and are not part of this artifact.',
 				''
 			].join('\n')

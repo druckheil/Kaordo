@@ -80,7 +80,8 @@ Access tokens carry `aud=kerno-api`, `sub` and `preferred_username`. Kerno verif
 ## Data and contracts
 
 - `packages/contracts/openapi.yaml` is the wire contract. Run `pnpm --filter @kaordo/contracts generate` after editing it.
-- `deploy/postgres/*.sql` is the schema; see [migrations](../deploy/postgres/README.md). Jet models under `services/kerno/internal/postgres/jetdb` are generated from the migrated schema and never edited by hand.
+- `services/kerno/internal/postgres/migrations` holds the schema as [Goose](https://github.com/pressly/goose) migrations. Kerno applies pending ones at startup under an advisory lock. Migrations are forward-only and must stay compatible with the previous release, because a failed deployment restores the old binary but not the schema. Add a new numbered file; never edit an applied one.
+- Jet tables in `services/kerno/internal/postgres/jetdb` are generated from the migrated schema. After a schema change run `KAORDO_UPDATE_JET=1 pnpm test:product:db`; CI fails when they drift.
 - Production PostgreSQL, media, releases, metrics and secrets live on `Data1`, a two-disk Btrfs RAID1. RAID1 is not a backup.
 
 Matrix/Synapse and Cloudflare are not part of the system. Adding either needs an explicit decision on identity, encryption and data ownership.

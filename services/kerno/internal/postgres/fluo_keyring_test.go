@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -80,16 +79,7 @@ func (author fluoAuthor) newPost(t *testing.T, visibility string, parent, quote 
 func postText(input fluo.NewPost) string { return encryption.KeyringTextPrefix + string(input.Content) }
 
 func TestFluoKeyrings(t *testing.T) {
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	ctx, pool := testDatabase(t)
 	users := NewUsers(pool)
 	ownerAccount, err := users.Upsert(ctx, "fluo-keyring-owner", "keyowner", "Key Owner")
 	if err != nil {

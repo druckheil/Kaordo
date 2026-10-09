@@ -40,7 +40,7 @@
 		"test:ui:browsers": "playwright test --config=playwright.audit.config.mjs",
 		"test:integration": "KAORDO_START_SERVICES=1 playwright test --project=live --workers=1 --reporter=line",
 		"lint": "eslint .",
-		"lint:go": "for module in kerno nodo mediaauth regado-agent; do (cd services/$module && golangci-lint run --config ../../.golangci.yml ./...) || exit 1; done",
+		"lint:go": "for module in kerno nodo mediaauth regado-agent; do (cd services/$module && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run --config ../../.golangci.yml ./...) || exit 1; done",
 		"test:go": "go test -race ./services/kerno/... ./services/nodo/... ./services/mediaauth/... ./services/regado-agent/...",
 		"knip": "knip"
 	},

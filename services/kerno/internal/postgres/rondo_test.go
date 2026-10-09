@@ -3,26 +3,15 @@ package postgres
 // Verifies Rondo membership, channel access, and message visibility against PostgreSQL
 import (
 	"errors"
-	"os"
 	"slices"
 	"testing"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestRondoServerAndChannelFlow(t *testing.T) {
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := t.Context()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	ctx, pool := testDatabase(t)
 	users := NewUsers(pool)
 	owner, err := users.Upsert(ctx, "rondo-owner", "rondoowner", "Owner")
 	if err != nil {

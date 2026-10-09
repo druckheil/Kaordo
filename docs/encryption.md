@@ -15,11 +15,10 @@ usernames. Content made public — public posts of a public account and public
 communities — is readable by anyone who can see it, including the server
 operator.
 
-Migration 020 starts this model by discarding all earlier plaintext posts,
-notifications, conversations, communities and Lingvo tables once. Accounts,
-follows, settings and profiles remain. Nodo garbage collection removes the
-discarded bytes after their claims disappear. Older database backups can still
-contain plaintext and are an operator responsibility.
+Deploying this model recreates the application database once (see
+[production](../deploy/nixos/README.md#upgrading-from-003)); Keycloak accounts remain.
+Nodo garbage collection removes media whose claims disappeared. Older database
+backups can still contain plaintext and are an operator responsibility.
 
 This is an implementation description, not a security certification.
 
