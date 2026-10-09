@@ -1,3 +1,4 @@
+# Runs the production Kaordo services and mounts their persistent data
 { config, lib, pkgs, ... }:
 
 let
@@ -97,7 +98,7 @@ in
     };
   };
 
-  environment.systemPackages = with pkgs; [ btrfs-progs e2fsprogs nodejs restic smartmontools ];
+  environment.systemPackages = with pkgs; [ btrfs-progs e2fsprogs gptfdisk nodejs restic rsync smartmontools ];
 
   services.postgresql = {
     enable = true;

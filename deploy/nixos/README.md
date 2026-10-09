@@ -55,7 +55,14 @@ Secrets never enter Git or the Nix store. `provision-secrets.sh` idempotently cr
 
 The stages share the production deployment lock. Do not deploy another release between preparation and finalization. Keep an encrypted recovery copy on an independent device before retiring the old root or reshaping partitions; the pool copy is not a backup.
 
-Afterwards the old ext4 partition only backs older boot entries. A two-device RAID1 cannot remove one member while preserving two copies. Completing the uniform template therefore needs a separately rehearsed partition migration or a third temporary device; do not drop and re-add a disk from this two-device pool. The in-place system migration itself leaves partition boundaries unchanged.
+Afterwards the old ext4 partition only backs older boot entries. The in-place system migration itself leaves partition boundaries unchanged. A two-device RAID1 cannot remove one member while preserving two copies; do not drop and re-add a disk from this pool.
+
+`reshape-pool.sh` completes the uniform BIOS template (2 MiB BIOS boot plus one full-sized pool partition) for the legacy disks. It requires the successful finalization marker, a whole-disk stable ID and its exact serial. Keep the independently verified recovery copy before this step: the old ext4 fallback is overwritten.
+
+- On the disk with the old ext4 partition 2 and pool partition 3, run `move <disk-by-id> <serial>`. It shrinks the Btrfs member to fit partition 2, replaces partition 3 into partition 2 on the same physical disk, then retires partition 3 and expands partition 2. The other physical mirror stays present throughout.
+- On the disk whose pool is partition 2 after an unused front gap, run `renumber <disk-by-id> <serial>`. This changes only the GPT entry number to 3, preserving its offsets and unique GUID. Reboot so the kernel reads the new number, then run `move <disk-by-id> <serial>` as above.
+
+The operator script pauses the agent while it changes partitions, preserves the replacement's partition GUID, checks RAID1 profiles and device errors at each step and reinstalls GRUB. Run scrub and verify the system and application health after each disk. GPT checkpoints are kept under `/var/lib/kaordo-pool-reshape`; they are diagnostics, not a promise that restoring an old table reverses a completed replacement.
 
 ## Manual recovery
 

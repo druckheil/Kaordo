@@ -317,6 +317,36 @@ cutover`
 	}
 });
 
+test('successful migration cutover does not carry a stale deployment lock into the new system', async () => {
+	const directory = await migrationFixture('prepared');
+	try {
+		await mkdir(join(directory, 'lock'));
+		const result = runMigration(
+			directory,
+			`root_on_pool() { return 1; }
+check() { :; }
+findmnt() { printf 'original-root\\n'; }
+systemctl() { [[ "$1" != is-active ]]; }
+sync_system() { :; }
+patch_configuration() { :; }
+move_data() { mkdir -p "$top/@kaordo/tmp/production-deploy.lock"; }
+arm_trial() { :; }
+sync() { :; }
+lock="$MIGRATION_FIXTURE/lock"
+trap finish EXIT
+cutover`
+		);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(await readFile(join(directory, 'pool/@migration/phase'), 'utf8'), 'trial\n');
+		await assert.rejects(stat(join(directory, 'pool/@kaordo/tmp/production-deploy.lock')), {
+			code: 'ENOENT'
+		});
+		await assert.rejects(stat(join(directory, 'lock')), { code: 'ENOENT' });
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 async function hostFixture(failure = '') {
 	const directory = await mkdtemp('/tmp/kd-host-');
 	const data = join(directory, 'data');

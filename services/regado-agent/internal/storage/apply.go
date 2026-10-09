@@ -185,7 +185,7 @@ func (executor Executor) prepare(ctx context.Context, job *operation.Job, device
 	if _, err := executor.Run(quiet, "sgdisk", "--zap-all", device.Path); err != nil {
 		return "", err
 	}
-	boot := []string{"--new=1:0:+1M", "--typecode=1:EF02", "--change-name=1:kaordo-boot"}
+	boot := []string{"--new=1:0:+2M", "--typecode=1:EF02", "--change-name=1:kaordo-boot"}
 	if executor.EFI {
 		boot = []string{"--new=1:0:+1G", "--typecode=1:EF00", "--change-name=1:kaordo-efi"}
 	}

@@ -60,7 +60,7 @@ Every disk uses the same template. There are no OS or storage partitions.
 
 | GPT partition                               | Size              | Purpose                                  |
 | ------------------------------------------- | ----------------- | ---------------------------------------- |
-| 1 `BIOS boot` (or EFI system on UEFI hosts) | 1 MiB (1 GiB EFI) | Bootloader, installed on every pool disk |
+| 1 `BIOS boot` (or EFI system on UEFI hosts) | 2 MiB (1 GiB EFI) | Bootloader, installed on every pool disk |
 | 2 `kaordo-pool`                             | rest              | Member of the host's Btrfs pool          |
 
 The pool holds everything: `@root`, `@nix`, `@log`, `@kaordo/postgresql`, `@kaordo/media`, `@kaordo/prometheus`, `@kaordo/releases` and `@snapshots`. Usage is tracked with Btrfs simple quotas. The boot reconciler keeps GRUB installed on every pool disk and reinstalls it when the system's GRUB changes. Any disk can therefore boot the host. A `degraded` boot entry mounts the pool when a member is missing.

@@ -73,7 +73,7 @@ ensure_subvolume() {
 # Copies the system while it runs; a second pass during cutover catches what changed
 sync_system() {
   rsync -aHAX --numeric-ids --delete --one-file-system \
-    --exclude=/nix --exclude=/var/log --exclude=/srv --exclude=/tmp --exclude=/mnt --exclude=/root/kaordo-pool-system \
+    --exclude=/nix --exclude=/var/log --exclude=/srv --exclude=/tmp --exclude=/mnt \
     / "$top/@root/"
   mkdir -p "$top/@root/nix" "$top/@root/var/log" "$top/@root/srv/kaordo" "$top/@root/tmp" "$top/@root/mnt"
   chmod 1777 "$top/@root/tmp"
@@ -128,7 +128,7 @@ prepare() {
   patch_configuration
   step 'building the system for the pool'
   (cd /root && nixos-rebuild build -I nixos-config="$top/@root/etc/nixos/configuration.nix")
-  ln -sfn "$(readlink -f /root/result)" "$built"
+  nix-store --add-root "$built" --indirect --realise "$(readlink -f /root/result)" >/dev/null
   rm -f /root/result
   grep -q 'subvol=@root' "$built/etc/fstab" || die 'the built system does not mount @root'
   readlink -f "$built" > "$top/@migration/system"
@@ -220,6 +220,8 @@ cutover() {
   patch_configuration
   step 'moving data into @kaordo'
   move_data
+  # The deployment lock is process-owned; its reflink copy must not block finalization
+  if [[ -n "$lock" ]]; then rmdir "$top/@kaordo/tmp/production-deploy.lock"; fi
   sync
   arm_trial
   record_phase trial
@@ -249,6 +251,8 @@ finalize() {
   nix-env -p /nix/var/nix/profiles/system --set "$system"
   NIXOS_INSTALL_BOOTLOADER=1 "$system/bin/switch-to-configuration" boot
   record_phase finalized
+  touch /var/lib/kaordo-pool-migration-finalized
+  rm -f "$built"
   step "the pool system is the default and every pool disk carries GRUB"
 }
 

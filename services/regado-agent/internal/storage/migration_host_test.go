@@ -71,3 +71,57 @@ func TestHostMigrationPreservesDataAndRetiresOnlyRecordedEntries(t *testing.T) {
 		t.Fatal("cleanup removed data outside the migration manifest")
 	}
 }
+
+func TestHostLegacyPartitionsBecomeUniformWithoutLosingMirrors(t *testing.T) {
+	first := hosttest.Disk(t, "reshape-a.img", 8*gib)
+	second := hosttest.Disk(t, "reshape-b.img", 8*gib)
+	for _, device := range []string{first, second} {
+		hosttest.MustRun(t, "sgdisk", "--new=1:2048:+2M", "--typecode=1:EF02", device)
+	}
+	hosttest.MustRun(t, "sgdisk", "--new=2:4200448:0", "--typecode=2:8300", first)
+	hosttest.MustRun(t, "sgdisk", "--new=2:6144:4200447", "--typecode=2:8300", "--new=3:4200448:0", "--typecode=3:8300", second)
+	hosttest.MustRun(t, "mkfs.ext4", "-q", "-L", "NixOS", second+"p2")
+	hosttest.MustRun(t, "mkfs.btrfs", "-q", "-f", "-d", "raid1", "-m", "raid1", first+"p2", second+"p3")
+	mount := hosttest.Mount(t, second+"p3")
+	sum := writeData(t, mount)
+	script, err := filepath.Abs("../../../../deploy/nixos/reshape-pool.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := t.TempDir()
+	run := func(stage, device string) {
+		t.Helper()
+		hosttest.MustRun(t, "bash", "-c", `source "$1"; pool="$2"; records="$3"; partition_separator=p; boot_directory=; "$4" "$5"`, "reshape", script, mount, records, stage, device)
+	}
+	run("move", second)
+	if checksum(t, mount) != sum {
+		t.Fatal("moving the old root disk changed data")
+	}
+	hosttest.MustRun(t, "btrfs", "scrub", "start", "-B", mount)
+	run("renumber", first)
+	// A real root needs a reboot; unmounting releases the old kernel partition entries here
+	hosttest.MustRun(t, "umount", mount)
+	hosttest.MustRun(t, "partx", "--delete", "--nr", "2", first)
+	hosttest.MustRun(t, "partx", "--add", "--nr", "3", first)
+	// NixOS's initrd scans Btrfs devices after a reboot, before mounting the root
+	hosttest.MustRun(t, "btrfs", "device", "scan", first+"p3", second+"p2")
+	hosttest.MustRun(t, "mount", second+"p2", mount)
+	run("move", first)
+	if checksum(t, mount) != sum {
+		t.Fatal("moving the other disk changed data")
+	}
+	hosttest.MustRun(t, "btrfs", "scrub", "start", "-B", mount)
+	for _, device := range []string{first, second} {
+		info := hosttest.MustRun(t, "sgdisk", "--info=2", device)
+		if !strings.Contains(info, "First sector: 6144") || !strings.Contains(info, "Partition name: 'kaordo-pool'") {
+			t.Fatalf("final partition layout: %s", info)
+		}
+		if info := hosttest.MustRun(t, "sgdisk", "--info=3", device); strings.Contains(info, "First sector:") {
+			t.Fatalf("legacy partition 3 remains: %s", info)
+		}
+	}
+	_, pool := facts(t, mount)
+	if len(pool.Members) != 2 || len(pool.DataProfiles) != 1 || pool.DataProfiles[0] != "raid1" {
+		t.Fatalf("final pool = %+v", pool)
+	}
+}
