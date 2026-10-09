@@ -144,7 +144,9 @@ export async function verifyLiveRelease(
 		`${manifest.origin}/v1/fluo/posts/01a10fd2-692b-7966-be35-037f86108801/thread`,
 		401
 	);
-	await response(`${manifest.origin}/v1/lingvo/dictionaries`, 401);
+	// Device-encrypted stores and Lingvo are routed and require a session
+	for (const path of ['/v1/crypto/identity', '/v1/memoro/month', '/v1/lingvo/catalog'])
+		await response(`${manifest.origin}${path}`, 401);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

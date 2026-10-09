@@ -116,6 +116,8 @@ test('live verification checks all applications and rejects an old Keycloak them
 	const fixture = await payloadFixture();
 	const requests = [];
 	let staleTheme = false;
+	// Routes the live verifier must find protected by a session
+	const protectedPaths = ['/v1/crypto/identity', '/v1/memoro/month', '/v1/lingvo/catalog'];
 	const fetcher = async (input) => {
 		const url = new URL(input);
 		requests.push(url.pathname);
@@ -131,7 +133,7 @@ test('live verification checks all applications and rejects an old Keycloak them
 			);
 		if (url.pathname.endsWith('/js/session.js'))
 			return new Response(staleTheme ? 'old-session-script' : 'new-session-script');
-		if (url.pathname.endsWith('/thread') || url.pathname === '/v1/lingvo/dictionaries')
+		if (url.pathname.endsWith('/thread') || protectedPaths.includes(url.pathname))
 			return new Response(null, { status: 401 });
 		if (url.pathname === '/healthz') return new Response(null, { status: 204 });
 		return new Response('healthy');
@@ -140,6 +142,7 @@ test('live verification checks all applications and rejects an old Keycloak them
 		await verifyLiveRelease(fixture.directory, fixture.manifest, { ...fixture, fetcher });
 		for (const path of ['/', '/fluo/', '/ligo/', '/rondo/', '/lingvo/', '/memoro/', '/regado/'])
 			assert.ok(requests.includes(path));
+		for (const path of protectedPaths) assert.ok(requests.includes(path), path);
 		staleTheme = true;
 		await assert.rejects(
 			verifyLiveRelease(fixture.directory, fixture.manifest, { ...fixture, fetcher }),
