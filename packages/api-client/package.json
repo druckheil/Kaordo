@@ -22,5 +22,8 @@
 		"@tanstack/query-core": "^5.104.0",
 		"openapi-fetch": "^0.17.0",
 		"zod": "4.6.5"
+	},
+	"scripts": {
+		"check": "tsc -p ."
 	}
 }

@@ -42,7 +42,8 @@
 		"test:unit": "node --test scripts/account-preview.test.mjs scripts/account-session.test.mjs scripts/api-client.test.mjs scripts/auth-config.test.mjs scripts/backup-config.test.mjs scripts/build-pages-config.test.mjs scripts/dependencies.test.mjs scripts/deploy-production.test.mjs scripts/dev-local.test.mjs scripts/ligo-message-layout.test.mjs scripts/lingvo-client.test.mjs scripts/media-layout.test.mjs scripts/media-upload-storage.test.mjs scripts/media-clipboard.test.mjs scripts/ci-config.test.mjs",
 		"test:ui": "playwright test --project=browser",
 		"test:ui:browsers": "playwright test --config=playwright.audit.config.mjs",
-		"test:integration": "KAORDO_START_SERVICES=1 playwright test --project=live --workers=1 --reporter=line"
+		"test:integration": "KAORDO_START_SERVICES=1 playwright test --project=live --workers=1 --reporter=line",
+		"lint": "eslint ."
 	},
 	"devDependencies": {
 		"@axe-core/playwright": "^4.13.0",
@@ -60,7 +61,9 @@
 		"prettier-plugin-tailwindcss": "^0.8.1",
 		"sirv": "3.0.2",
 		"svelte": "^5.57.1",
+		"svelte-check": "^4.7.6",
 		"typescript": "^6.0.3",
-		"typescript-eslint": "^8.71.1"
+		"typescript-eslint": "^8.71.1",
+		"vite": "^8.3.1"
 	}
 }

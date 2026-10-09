@@ -4,7 +4,8 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"generate": "openapi-typescript openapi.yaml -o src/openapi.d.ts"
+		"generate": "openapi-typescript openapi.yaml -o src/openapi.d.ts",
+		"check": "tsc -p ."
 	},
 	"exports": {
 		".": {

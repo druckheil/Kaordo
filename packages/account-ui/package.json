@@ -20,5 +20,8 @@
 		"@kaordo/contracts": "workspace:*",
 		"@kaordo/ui": "workspace:*",
 		"@tanstack/svelte-query": "^6.3.0"
+	},
+	"scripts": {
+		"check": "svelte-check --tsconfig ./tsconfig.json"
 	}
 }

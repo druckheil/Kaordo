@@ -19,5 +19,8 @@
 	},
 	"peerDependencies": {
 		"svelte": "^5.0.0"
+	},
+	"scripts": {
+		"check": "svelte-check --tsconfig ./tsconfig.json"
 	}
 }

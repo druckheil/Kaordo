@@ -32,5 +32,8 @@
 	},
 	"devDependencies": {
 		"@types/papaparse": "^5.3.16"
+	},
+	"scripts": {
+		"check": "tsc -p ."
 	}
 }
