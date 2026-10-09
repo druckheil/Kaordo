@@ -79,7 +79,10 @@
 	const selectedThread = createQuery(
 		() => ({
 			queryKey: ['fluo', 'thread', postId],
-			queryFn: ({ signal }) => api.thread(postId!, signal),
+			queryFn: ({ signal }) => {
+				if (!postId) throw new Error('Choose a post to open.');
+				return api.thread(postId, signal);
+			},
 			enabled: !!postId,
 			staleTime: 15_000
 		}),
@@ -119,7 +122,9 @@
 
 	onMount(() => {
 		// Deliver audience keys to accounts followed elsewhere before they open this author's private posts.
-		void api.syncKeys().catch(() => {});
+		void api.syncKeys().catch((cause: unknown) => {
+			if (!disposed) actionError = errorMessage(cause, 'Audience keys could not synchronize.');
+		});
 		historySession = window.crypto.randomUUID();
 		syncLocation();
 		window.addEventListener('hashchange', syncLocation);
@@ -202,7 +207,9 @@
 				kaordoFluoProfileHash: view === 'profile' ? viewHash(view) : undefined
 			});
 		} else if (!postId) {
-			const { kaordoFluoPost: _postEntry, ...rest } = page.state;
+			const rest = Object.fromEntries(
+				Object.entries(page.state).filter(([key]) => key !== 'kaordoFluoPost')
+			);
 			replaceState(hash, {
 				...rest,
 				kaordoFluoReturnView: view,
@@ -400,7 +407,7 @@
 						{view}
 						{feed}
 						bind:searchTerm
-						onFeedChange={(nextFeed) => (feed = nextFeed)}
+						onFeedChange={(nextFeed: Feed) => (feed = nextFeed)}
 					/>{/if}
 
 				{#if view === 'notifications'}
@@ -424,7 +431,7 @@
 							{api}
 							{queryClient}
 						>
-							{#snippet posts(profile)}
+							{#snippet posts(profile: import('@kaordo/contracts').FluoProfile)}
 								<FluoFeed
 									{view}
 									{feed}
@@ -478,7 +485,7 @@
 			{deleteTarget}
 			{deleteError}
 			{deleting}
-			onComposerOpenChange={(open) => {
+			onComposerOpenChange={(open: boolean) => {
 				composerOpen = open;
 				if (!open) {
 					replyTo = null;

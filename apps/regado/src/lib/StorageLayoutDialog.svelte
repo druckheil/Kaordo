@@ -153,7 +153,7 @@
 >
 	<Dialog.Content
 		class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl"
-		onEscapeKeydown={(event) => {
+		onEscapeKeydown={(event: KeyboardEvent) => {
 			if (applying) event.preventDefault();
 		}}
 	>
@@ -250,14 +250,18 @@
 						>
 					</div>
 					<ul class="space-y-1 text-xs text-muted-foreground">
-						{#each plan.steps as step}<li class="capitalize">
+						{#each plan.steps as step, index (index)}<li class="capitalize">
 								{step.kind === 'boot'
 									? 'Preserve boot support'
 									: `${step.kind} ${step.role} · ${bytes(step.size)}`}
 							</li>{/each}
 					</ul>
-					{#each plan.issues as issue}<p class="text-sm text-destructive">{issue}</p>{/each}
-					{#each plan.warnings as warning}<p class="text-xs leading-5 text-muted-foreground">
+					{#each plan.issues as issue, index (index)}<p class="text-sm text-destructive">
+							{issue}
+						</p>{/each}
+					{#each plan.warnings as warning, index (index)}<p
+							class="text-xs leading-5 text-muted-foreground"
+						>
 							{warning}
 						</p>{/each}
 				</div>

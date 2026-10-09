@@ -29,7 +29,9 @@ export function createFluoKeys(baseUrl: string) {
 			for (const pending of keys.values())
 				void pending.then(
 					(key) => key?.fill(0),
-					() => {}
+					() => {
+						// Failed loads contain no key material to wipe
+					}
 				);
 			keys.clear();
 			current = undefined;
@@ -111,7 +113,7 @@ export function createFluoKeys(baseUrl: string) {
 		return current;
 	}
 
-	async function fetchMissing(refs: KeyRef[]) {
+	function fetchMissing(refs: KeyRef[]) {
 		for (let offset = 0; offset < refs.length; offset += 100) {
 			const chunk = refs.slice(offset, offset + 100);
 			const pending = Promise.resolve(
@@ -148,12 +150,12 @@ export function createFluoKeys(baseUrl: string) {
 			const missing = refs.filter(
 				(ref) => ref.ownerId !== session.ownerId && !keys.has(`${ref.ownerId}:${ref.version}`)
 			);
-			if (missing.length) await fetchMissing(missing);
+			if (missing.length) fetchMissing(missing);
 			const resolved = await Promise.all(
 				refs.map((ref) =>
 					ref.ownerId === session.ownerId
 						? own(ref.version)
-						: keys.get(`${ref.ownerId}:${ref.version}`)!
+						: (keys.get(`${ref.ownerId}:${ref.version}`) ?? Promise.resolve(null))
 				)
 			);
 			if (resolved.some((key) => !key)) {

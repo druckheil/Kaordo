@@ -57,7 +57,7 @@ pnpm lint:go
 pnpm test:go
 ```
 
-New ESLint findings fail CI. Existing ones are recorded in `eslint-suppressions.json`; fix them rather than adding suppressions, then run `pnpm lint --prune-suppressions`. Temporary golangci-lint exclusions in `.golangci.yml` follow the same rule.
+ESLint and golangci-lint run without a bulk suppression baseline or temporary module exclusions. Fix findings at their source. Keep scoped ESLint directives only for documented Svelte/compiler limitations, including teardown checks after asynchronous work; never use them to hide an application defect.
 
 ## CI changes
 

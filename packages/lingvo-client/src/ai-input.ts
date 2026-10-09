@@ -58,7 +58,7 @@ export function cardPrompt(
 		'- status: ' + card.status + '.',
 		'- Text limits: ' +
 			Object.entries(cardTextLimits)
-				.map(([key, limit]) => (key === 'term' ? 'german' : key) + ' ' + limit)
+				.map(([key, limit]) => `${key === 'term' ? 'german' : key} ${limit}`)
 				.join(', ') +
 			' characters.',
 		'Fill the useful fields accurately; leave inapplicable fields empty.'
@@ -82,9 +82,7 @@ export function parseAIInput(source: string, folders: readonly LingvoFolder[]): 
 		rows.shift();
 	if (rows.length !== 1 || rows[0].length !== columns.length) {
 		throw new Error(
-			'Use one card with all ' +
-				columns.length +
-				' fields separated by ||. Copy the prompt for the correct format.'
+			`Use one card with all ${columns.length} fields separated by ||. Copy the prompt for the correct format.`
 		);
 	}
 	const values = Object.fromEntries(

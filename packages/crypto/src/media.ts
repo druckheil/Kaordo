@@ -164,7 +164,9 @@ export async function decryptMedia(
 				current.finished = true;
 				if (loading.get(item.id) === current) loading.delete(item.id);
 			})
-			.catch(() => {});
+			.catch(() => {
+				// Readers receive the load failure through the original promise
+			});
 	}
 	const current = load;
 	current.readers++;
@@ -178,7 +180,8 @@ export async function decryptMedia(
 		};
 		const cancel = () => {
 			release();
-			reject(signal!.reason);
+			const cause: unknown = signal?.reason;
+			reject(cause instanceof Error ? cause : new DOMException('Aborted', 'AbortError'));
 		};
 		signal?.addEventListener('abort', cancel, { once: true });
 		current.promise.then(
@@ -186,9 +189,13 @@ export async function decryptMedia(
 				release();
 				resolve(value);
 			},
-			(cause) => {
+			(cause: unknown) => {
 				release();
-				reject(cause);
+				reject(
+					cause instanceof Error
+						? cause
+						: new Error('The encrypted attachment could not load.', { cause })
+				);
 			}
 		);
 		if (signal?.aborted) cancel();

@@ -39,7 +39,6 @@ export function createStudyState({
 	let error = $state('');
 	let pending = $state<{ cardId: string; review: LingvoReview } | null>(null);
 	let undoId = $state<string | null>(null);
-	let disposed = false;
 	const lifetime = new AbortController();
 	const ready = $derived(
 		(query.data?.items ?? []).filter((card) => card.revision > (reviewed[card.id] ?? 0))
@@ -55,14 +54,15 @@ export function createStudyState({
 	});
 
 	async function perform(action: () => Promise<void>): Promise<void> {
-		if (disposed || busy) return;
+		if (busy) return;
 		busy = true;
 		try {
+			lifetime.signal.throwIfAborted();
 			await action();
 		} catch (cause) {
-			if (!disposed) error = errorMessage(cause);
+			if (!lifetime.signal.aborted) error = errorMessage(cause);
 		} finally {
-			if (!disposed) busy = false;
+			if (!lifetime.signal.aborted) busy = false;
 		}
 	}
 
@@ -70,7 +70,7 @@ export function createStudyState({
 		direction: LingvoReview['direction'],
 		rating?: LingvoReview['rating']
 	): Promise<void> {
-		if (disposed || busy || !active) return;
+		if (lifetime.signal.aborted || busy || !active) return;
 		if (!pending && rating) {
 			pending = {
 				cardId: active.id,
@@ -87,7 +87,7 @@ export function createStudyState({
 				attempt.review,
 				lifetime.signal
 			);
-			if (disposed) return;
+			if (lifetime.signal.aborted) return;
 			reviewed = { ...reviewed, [attempt.cardId]: attempt.review.revision };
 			undoId = result.id;
 			completed += 1;
@@ -101,7 +101,7 @@ export function createStudyState({
 	async function refresh(): Promise<void> {
 		await perform(async () => {
 			const result = await query.refetch();
-			if (disposed) return;
+			if (lifetime.signal.aborted) return;
 			if (result.error) throw result.error;
 			// Resolve an uncertain save before allowing a different answer
 			const current = result.data?.items.find(
@@ -118,12 +118,12 @@ export function createStudyState({
 	}
 
 	async function undo(): Promise<void> {
-		if (disposed || busy || !undoId || pending) return;
+		if (lifetime.signal.aborted || busy || !undoId || pending) return;
 		const reviewId = undoId;
 		await perform(async () => {
 			error = '';
 			const restored = await api.undo(dictionaryId(), reviewId, lifetime.signal);
-			if (disposed) return;
+			if (lifetime.signal.aborted) return;
 			reviewed = { ...reviewed, [restored.id]: 0 };
 			active = restored;
 			undoId = null;
@@ -160,7 +160,6 @@ export function createStudyState({
 		refresh,
 		undo,
 		dispose() {
-			disposed = true;
 			lifetime.abort();
 		}
 	};

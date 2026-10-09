@@ -124,7 +124,8 @@
 					class="pl-10"
 					placeholder="Search by username"
 					value={form.searchInput}
-					oninput={(event) => state.changeSearch(event.currentTarget.value)}
+					oninput={(event: Event & { currentTarget: HTMLInputElement }) =>
+						state.changeSearch(event.currentTarget.value)}
 				/>
 			</div>
 

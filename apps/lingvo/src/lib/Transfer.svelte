@@ -19,7 +19,8 @@
 		dictionary,
 		folders,
 		onClose
-	}: { dictionary: LingvoDictionary; folders: LingvoFolder[]; onClose(): void } = $props();
+	}: { dictionary: LingvoDictionary; folders: LingvoFolder[]; onClose(this: void): void } =
+		$props();
 	const { api, changed, notify } = getLingvoContext();
 	const id = $props.id();
 	let mode = $state('import');
@@ -70,9 +71,8 @@
 			if (disposed) return;
 			void changed(dictionary.id);
 			notify(
-				result.added +
-					' cards imported.' +
-					(result.skipped ? ' ' + result.skipped + ' duplicates skipped.' : '')
+				`${result.added} cards imported.` +
+					(result.skipped ? ` ${result.skipped} duplicates skipped.` : '')
 			);
 			onClose();
 		} catch (cause) {
@@ -87,6 +87,7 @@
 		busy = true;
 		error = '';
 		try {
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Export bookkeeping publishes progress, rather than the temporary map
 			const content = new Map<string, LingvoCardContent>();
 			let total = 0;
 			for (let offset = 0; offset === 0 || offset < total; offset += 200) {
@@ -96,7 +97,7 @@
 					throw new Error('Your dictionary changed during export. Please try again.');
 				total = page.total;
 				for (const card of page.items) content.set(card.id, cardContent(card));
-				progress = content.size + ' / ' + total + ' cards';
+				progress = `${content.size} / ${total} cards`;
 			}
 			if (!content.size) throw new Error('Add a few cards before exporting your dictionary.');
 			if (content.size !== total)
@@ -158,7 +159,7 @@
 		<ToggleGroup.Root
 			type="single"
 			value={mode}
-			onValueChange={(value) => {
+			onValueChange={(value: string) => {
 				if (value && !busy) {
 					mode = value;
 					error = '';
@@ -181,7 +182,7 @@
 						type="file"
 						accept=".csv,text/csv"
 						disabled={busy}
-						onchange={(event) => void selectFile(event)}
+						onchange={(event: Event) => void selectFile(event)}
 					/>
 					<p class="mt-2 text-xs leading-5 text-muted-foreground">
 						Up to 500 cards and 1 MiB. Required columns: term, translation. Optional: kind,
@@ -203,7 +204,7 @@
 							{rows.length} cards · {filename}
 						</p>
 						<ul class="divide-y divide-border">
-							{#each rows.slice(0, 5) as card}<li class="px-4 py-3 text-sm">
+							{#each rows.slice(0, 5) as card, index (index)}<li class="px-4 py-3 text-sm">
 									<p class="font-semibold" lang="de">
 										{card.article ? card.article + ' ' : ''}{card.term}
 									</p>

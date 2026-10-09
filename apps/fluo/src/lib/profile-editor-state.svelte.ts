@@ -61,10 +61,11 @@ export function createFluoProfileEditor(
 	});
 
 	async function chooseImage(slot: ProfileImageSlot, file: File) {
-		if (preparing || saving || lifetime.signal.aborted) return;
+		if (preparing || saving) return;
 		preparing = true;
 		error = '';
 		try {
+			lifetime.signal.throwIfAborted();
 			if (!isSupportedImageType(file.type) || file.size > MAX_IMAGE_SIZE || file.size === 0) {
 				throw new Error('Choose a JPEG, PNG or WebP image up to 20 MiB.');
 			}
@@ -111,11 +112,12 @@ export function createFluoProfileEditor(
 	}
 
 	async function save() {
-		if (saving || preparing || crop || lifetime.signal.aborted) return;
+		if (saving || preparing || crop) return;
 		saving = true;
 		progress = 0;
 		error = '';
 		try {
+			lifetime.signal.throwIfAborted();
 			await uploadImages();
 			const input: FluoProfileUpdate = {
 				...draft,
@@ -147,7 +149,7 @@ export function createFluoProfileEditor(
 		applyCrop,
 		removeImage,
 		save,
-		cancelCrop() {
+		cancelCrop(this: void) {
 			crop = null;
 		},
 		get crop() {

@@ -26,7 +26,7 @@ export function getInitials(name: string): string {
 export function parseRondoRoute(hash: string): RondoRoute | null {
 	const match = /^#s\/([0-9a-f-]{36})(?:\/c\/([0-9a-f-]{36}))?$/i.exec(hash);
 	if (!match) return null;
-	return { serverId: match[1], channelId: match[2] ?? null };
+	return { serverId: match[1], channelId: match.at(2) ?? null };
 }
 
 export function formatRondoRoute(serverId: string, channelId: string | null): string {

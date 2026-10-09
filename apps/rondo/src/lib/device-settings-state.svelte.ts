@@ -33,7 +33,7 @@ export function createDeviceSettingsState({
 	let outputSupported = $state(false);
 	let mediaSupported = $state(true);
 	let busyKind = $state<MediaDeviceKind | null>(null);
-	let errors = $state<Partial<Record<MediaDeviceKind | 'defaults' | 'devices', string>>>({});
+	const errors = $state<Partial<Record<MediaDeviceKind | 'defaults' | 'devices', string>>>({});
 	let saved = $state<VoicePreferences>(loadVoicePreferences());
 	let microphoneState = $state<'idle' | 'starting' | 'testing'>('idle');
 	let microphoneLevel = $state(0);
@@ -45,16 +45,18 @@ export function createDeviceSettingsState({
 
 	onMount(() => {
 		active = true;
-		mediaSupported = !!navigator.mediaDevices;
+		const capabilities: Partial<Pick<Navigator, 'mediaDevices'>> = navigator;
+		const mediaDevices = capabilities.mediaDevices;
+		mediaSupported = !!mediaDevices;
 		outputSupported = supportsAudioOutputSelection();
-		if (mediaSupported) {
+		if (mediaDevices) {
 			void refreshDevices();
-			navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+			mediaDevices.addEventListener('devicechange', handleDeviceChange);
 		}
 		return () => {
 			active = false;
 			deviceRevision++;
-			navigator.mediaDevices?.removeEventListener('devicechange', handleDeviceChange);
+			mediaDevices?.removeEventListener('devicechange', handleDeviceChange);
 			stopMicrophone();
 			stopSpeakers();
 		};
@@ -88,10 +90,13 @@ export function createDeviceSettingsState({
 		if (kind === 'audiooutput') stopSpeakers();
 		try {
 			await action();
+			// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The view can unmount while the device action awaits
 			if (active) await refreshDevices();
 		} catch (cause) {
+			// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The view can unmount while the device action awaits
 			if (active) errors[kind] = voiceDeviceError(cause);
 		} finally {
+			// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The view can unmount while the device action awaits
 			if (active) busyKind = null;
 		}
 	}
@@ -172,6 +177,7 @@ export function createDeviceSettingsState({
 			await sounds.setOutput(outputSupported ? preferences().speakerId : 'default');
 			if (!active || speakerSounds !== sounds) return;
 			await sounds.testOutput();
+			// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The view can unmount while the speaker check awaits
 			if (active && speakerSounds === sounds) stopSpeakers();
 		} catch (cause) {
 			if (active && speakerSounds === sounds) {

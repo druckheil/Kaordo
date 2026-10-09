@@ -2,6 +2,8 @@
 	// Coordinates language-pair navigation, personal dictionaries and shared learning views
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import type { ResolvedPathname } from '$app/types';
 	import { page } from '$app/state';
 	import { createQuery, QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
 	import {
@@ -78,7 +80,6 @@
 	let viewAttempt = $state(0);
 	let dialogAttempt = $state(0);
 	let messageTimer: ReturnType<typeof setTimeout> | undefined;
-	let disposed = false;
 	const abort = new AbortController();
 	const formId = $props.id();
 
@@ -87,7 +88,7 @@
 		queryClient,
 		notify,
 		changed: async (id) => {
-			if (disposed) return;
+			if (abort.signal.aborted) return;
 			await queryClient.invalidateQueries({ queryKey: ['lingvo', id] });
 		}
 	});
@@ -97,8 +98,9 @@
 			void navigate('learn', dictionaries[0].id, 'word', '', true);
 	});
 	$effect(() => {
-		dictionaryId;
-		view;
+		// Close overlays when the selected dictionary or view changes
+		// eslint-disable-next-line @typescript-eslint/no-unused-expressions -- Explicit dependency reads limit this Svelte effect to the selected identity
+		[dictionaryId, view];
 		untrack(() => {
 			editor = null;
 			panel = null;
@@ -111,7 +113,6 @@
 		timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 	});
 	onDestroy(() => {
-		disposed = true;
 		abort.abort();
 		void queryClient.cancelQueries();
 		queryClient.clear();
@@ -123,11 +124,12 @@
 		id = dictionaryId,
 		nextKind: CardKind = kind,
 		nextFolder = ''
-	): string {
+	): ResolvedPathname {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Navigation constructs a temporary serialized URL
 		const params = new URLSearchParams({ dictionary: id, view: nextView });
 		if (nextView === 'study' || nextView === 'dictionary') params.set('kind', nextKind);
 		if (nextFolder) params.set('folder', nextFolder);
-		return appPaths.lingvo + '?' + params.toString();
+		return resolve(`/?${params.toString()}`);
 	}
 
 	async function navigate(
@@ -145,7 +147,7 @@
 	}
 
 	function notify(value: string): void {
-		if (disposed) return;
+		if (abort.signal.aborted) return;
 		message = value;
 		if (messageTimer) clearTimeout(messageTimer);
 		messageTimer = setTimeout(() => {
@@ -162,15 +164,15 @@
 				{ learningLanguage: 'de', nativeLanguage, timeZone },
 				abort.signal
 			);
-			if (disposed) return;
+			abort.signal.throwIfAborted();
 			await queryClient.invalidateQueries({ queryKey: ['lingvo', 'dictionaries'] });
-			if (disposed) return;
+			abort.signal.throwIfAborted();
 			panel = null;
 			await navigate('library', result.id);
 		} catch (cause) {
-			if (!disposed) createError = errorMessage(cause);
+			if (!abort.signal.aborted) createError = errorMessage(cause);
 		} finally {
-			if (!disposed) creating = false;
+			if (!abort.signal.aborted) creating = false;
 		}
 	}
 </script>
@@ -198,12 +200,12 @@
 			<RadioGroup.Root
 				aria-labelledby={`${formId}-native`}
 				value={nativeLanguage}
-				onValueChange={(value) => {
+				onValueChange={(value: string) => {
 					nativeLanguage = value as 'ru' | 'en';
 				}}
 				class="grid grid-cols-2 gap-3"
 			>
-				{#each nativeLanguages as language}
+				{#each nativeLanguages as language (language.code)}
 					<label
 						for={`${formId}-${language.code}`}
 						class="flex cursor-pointer items-center gap-3 rounded-2xl border border-border bg-card p-4 transition-[background-color,border-color,box-shadow] has-focus-visible:ring-2 has-focus-visible:ring-ring/40 has-data-[state=checked]:border-primary/40 has-data-[state=checked]:bg-primary/5 has-data-[state=checked]:shadow-sm motion-reduce:transition-none"
@@ -305,11 +307,11 @@
 							<DropdownMenu.Label>{user.displayName}'s dictionaries</DropdownMenu.Label>
 							<DropdownMenu.RadioGroup
 								value={dictionaryId}
-								onValueChange={(value) => {
+								onValueChange={(value: string) => {
 									if (value) void navigate('learn', value);
 								}}
 							>
-								{#each dictionaries as item}<DropdownMenu.RadioItem value={item.id}
+								{#each dictionaries as item (item.id)}<DropdownMenu.RadioItem value={item.id}
 										>German · {item.nativeLanguage === 'ru'
 											? 'Russian'
 											: 'English'}</DropdownMenu.RadioItem
@@ -361,7 +363,7 @@
 					class="my-5 grid grid-cols-2 gap-1 rounded-2xl border border-border bg-muted/35 p-1.5 sm:flex"
 					aria-label="Lingvo"
 				>
-					{#each nav as item}
+					{#each nav as item (item.view)}
 						{@const Icon = item.icon}
 						{@const active =
 							view === item.view ||
@@ -386,7 +388,7 @@
 						Loading your progress…
 					</p>
 				{:else}
-					{#key dictionaryId + ':' + view + ':' + viewAttempt + ':' + (view === 'study' ? kind + ':' + folder : '')}
+					{#key `${dictionaryId}:${view}:${viewAttempt}:${view === 'study' ? `${kind}:${folder}` : ''}`}
 						<div class="lingvo-enter">
 							{#if view === 'study'}
 								{#await import('./Study.svelte')}{@render loadingView()}{:then { default: Study }}
@@ -409,10 +411,10 @@
 										folders={overview.folders}
 										{kind}
 										{folder}
-										onEdit={(card) => {
+										onEdit={(card: LingvoCard) => {
 											editor = card;
 										}}
-										onFilter={(nextKind, nextFolder) =>
+										onFilter={(nextKind: CardKind, nextFolder: string) =>
 											void navigate('dictionary', dictionaryId, nextKind, nextFolder, true)}
 										onStudy={() => void navigate('study', dictionaryId, kind, folder)}
 									/>
@@ -424,7 +426,7 @@
 									<Library
 										{dictionary}
 										folders={overview.folders}
-										onStudy={(nextKind) => void navigate('study', dictionaryId, nextKind)}
+										onStudy={(nextKind: CardKind) => void navigate('study', dictionaryId, nextKind)}
 									/>
 								{:catch cause}{@render loadFailure(cause, () => {
 										viewAttempt += 1;
@@ -434,7 +436,7 @@
 									<Dashboard
 										{overview}
 										kind={view === 'phrases' ? 'phrase' : 'word'}
-										onStudy={(nextKind) => void navigate('study', dictionaryId, nextKind)}
+										onStudy={(nextKind: CardKind) => void navigate('study', dictionaryId, nextKind)}
 										onLibrary={() => void navigate('library')}
 										onPreferences={() => {
 											panel = 'settings';

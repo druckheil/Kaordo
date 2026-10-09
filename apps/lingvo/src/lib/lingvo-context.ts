@@ -6,8 +6,8 @@ import type { LingvoApi } from '@kaordo/api-client';
 export const [getLingvoContext, setLingvoContext] = createContext<{
 	api: LingvoApi;
 	queryClient: QueryClient;
-	notify(message: string): void;
-	changed(dictionaryId: string): Promise<void>;
+	notify(this: void, message: string): void;
+	changed(this: void, dictionaryId: string): Promise<void>;
 }>();
 
 export type LingvoView = 'learn' | 'phrases' | 'dictionary' | 'library' | 'study';

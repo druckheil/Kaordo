@@ -24,7 +24,7 @@
 		label: string;
 		placeholder: string;
 		pending?: boolean;
-		onChange: () => void;
+		onChange?: () => void;
 	} = $props();
 	let input: HTMLInputElement;
 	let error = $state('');
@@ -46,11 +46,11 @@
 			...files,
 			...incoming.map((file) => ({ file, preview: URL.createObjectURL(file), altText: '' }))
 		];
-		onChange();
+		onChange?.();
 	}
 	function remove(id: string) {
 		entry = { ...entry, media: entry.media.filter((item) => item.id !== id) };
-		onChange();
+		onChange?.();
 	}
 </script>
 

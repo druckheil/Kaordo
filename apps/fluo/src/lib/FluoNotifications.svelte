@@ -137,6 +137,7 @@
 			<li
 				class={`relative overflow-hidden border-b border-border transition-colors duration-300 last:border-b-0 ${notification.readAt ? '' : 'bg-muted/35'}`}
 			>
+				<!-- eslint-disable svelte/no-navigation-without-resolve -- Notification hashes stay on the current route -->
 				<a
 					href={notification.post
 						? postHashForId(notification.post.id)
@@ -151,6 +152,7 @@
 				>
 					{@render content(notification)}
 				</a>
+				<!-- eslint-enable svelte/no-navigation-without-resolve -->
 				{#if !notification.readAt}
 					<div
 						class="absolute inset-y-0 right-0 w-11 sm:w-12"
@@ -165,7 +167,7 @@
 							disabled={reading}
 							aria-label={`Mark as read: ${notification.actor.displayName} ${activity[notification.kind].description}`}
 							title="Mark as read"
-							onclick={(event) => readBookmark(event, notification)}
+							onclick={(event: MouseEvent) => readBookmark(event, notification)}
 						>
 							<span
 								class="notification-bookmark pointer-events-none absolute inset-0 border-l border-primary/20 bg-primary/15 transition-colors group-hover/button:bg-primary/25"

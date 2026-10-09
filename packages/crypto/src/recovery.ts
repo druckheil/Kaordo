@@ -7,6 +7,7 @@ import {
 	unwrapAccountKeys,
 	type AccountKeys
 } from './keys.ts';
+import { recoveryFileSchema } from './validation.ts';
 export interface RecoveryFile {
 	format: 'kaordo-recovery';
 	version: 1;
@@ -71,10 +72,16 @@ export function parseRecoveryFile(
 	signingPublicKey: string
 ): string {
 	if (text.length > 2048) throw new Error('Choose a Kaordo recovery file.');
-	const value = JSON.parse(text) as RecoveryFile;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		throw new Error('Choose a valid Kaordo recovery file.');
+	}
+	const result = recoveryFileSchema.safeParse(parsed);
+	if (!result.success) throw new Error('Choose a valid Kaordo recovery file.');
+	const value = result.data;
 	if (
-		value.format !== 'kaordo-recovery' ||
-		value.version !== 1 ||
 		value.ownerId !== ownerId ||
 		value.encryptionPublicKey !== encryptionPublicKey ||
 		value.signingPublicKey !== signingPublicKey

@@ -492,7 +492,7 @@ lingvoTest(
 
 lingvoTest(
 	'Lingvo preferences support keyboard goal adjustment and explicit saving',
-	async ({ lingvo: { page, state } }, testInfo) => {
+	async ({ lingvo: { page } }, testInfo) => {
 		await page.getByRole('button', { name: 'Dictionary settings' }).click();
 		await page.getByRole('menuitem', { name: 'Learning preferences', exact: true }).click();
 		const dialog = page.getByRole('dialog');

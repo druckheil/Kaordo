@@ -127,7 +127,7 @@
 
 	function choiceFor(settings: FluoSettings, field: FluoSettingChange['field']) {
 		if (field === 'presenceVisibility') {
-			const value = settings.privacy.presenceVisibility ?? 'all';
+			const value = settings.privacy.presenceVisibility;
 			return { value, options: presenceOptions, tone: value === 'off' ? 'muted' : 'primary' };
 		}
 		if (field === 'accountVisibility') {
@@ -298,7 +298,7 @@
 	{:else if state.query.isError}
 		<div class="rounded-[1.5rem] border border-destructive/35 bg-card p-5">
 			<p class="text-sm text-destructive" role="alert">
-				{state.query.error?.message ?? 'Could not load your settings.'}
+				{state.query.error.message}
 			</p>
 			<Button class="mt-3" variant="outline" size="sm" onclick={() => void state.query.refetch()}
 				>Try again</Button

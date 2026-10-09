@@ -22,9 +22,9 @@
 	}: {
 		overview: LingvoOverview;
 		kind: CardKind;
-		onStudy(kind: CardKind): void;
-		onLibrary(): void;
-		onPreferences(): void;
+		onStudy(this: void, kind: CardKind): void;
+		onLibrary(this: void): void;
+		onPreferences(this: void): void;
 	} = $props();
 	const counts = $derived(overview.counts.find((item) => item.kind === kind));
 	const percentage = $derived(
@@ -32,10 +32,9 @@
 	);
 	const isPhrase = $derived(kind === 'phrase');
 	const activity = $derived.by(() => {
-		const today = new Date(overview.today + 'T12:00:00Z');
+		const today = Date.parse(overview.today + 'T12:00:00Z');
 		return Array.from({ length: 14 }, (_, index) => {
-			const day = new Date(today);
-			day.setUTCDate(day.getUTCDate() - 13 + index);
+			const day = new Date(today + (index - 13) * 86_400_000);
 			const key = day.toISOString().slice(0, 10);
 			return {
 				key,
@@ -149,7 +148,7 @@
 </section>
 
 <section class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Dictionary progress">
-	{#each [{ label: 'Ready to review', value: counts?.due ?? 0, help: 'Due and new cards' }, { label: 'Learning', value: counts?.learning ?? 0, help: 'Building familiarity' }, { label: 'In review', value: counts?.review ?? 0, help: 'Ready again later' }, { label: 'Already known', value: counts?.known ?? 0, help: 'Outside the review queue' }] as stat}
+	{#each [{ label: 'Ready to review', value: counts?.due ?? 0, help: 'Due and new cards' }, { label: 'Learning', value: counts?.learning ?? 0, help: 'Building familiarity' }, { label: 'In review', value: counts?.review ?? 0, help: 'Ready again later' }, { label: 'Already known', value: counts?.known ?? 0, help: 'Outside the review queue' }] as stat (stat.label)}
 		<div class="lingvo-surface rounded-2xl p-4 sm:p-5">
 			<p class="text-xs font-medium text-muted-foreground">{stat.label}</p>
 			<p class="mt-2 text-3xl font-bold tracking-tight">{stat.value}</p>
@@ -174,17 +173,17 @@
 		<div
 			class="mt-6 flex h-24 items-end gap-1.5"
 			role="img"
-			aria-label={activity.map((day) => day.label + ': ' + day.reviews + ' reviews').join('; ')}
+			aria-label={activity.map((day) => `${day.label}: ${day.reviews} reviews`).join('; ')}
 		>
-			{#each activity as day}
+			{#each activity as day (day.key)}
 				<div
 					class="flex h-full min-w-0 flex-1 items-end"
-					title={day.label + ' · ' + day.reviews + ' reviews'}
+					title={`${day.label} · ${day.reviews} reviews`}
 				>
 					<div
 						class="activity-bar w-full rounded-t-lg bg-primary/70"
 						class:empty={!day.reviews}
-						style:height={Math.max(7, (day.reviews / activityMax) * 100) + '%'}
+						style:height={`${Math.max(7, (day.reviews / activityMax) * 100)}%`}
 					></div>
 				</div>
 			{/each}

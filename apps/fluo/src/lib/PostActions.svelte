@@ -64,8 +64,9 @@
 		sharing = true;
 		shareUrl = new URL(postHashForId(post.id), window.location.href).href;
 		try {
-			if (navigator.share)
-				await navigator.share({ title: `${post.author.displayName}'s post`, url: shareUrl });
+			const sharing: Partial<Pick<Navigator, 'share'>> = navigator;
+			if (sharing.share)
+				await sharing.share({ title: `${post.author.displayName}'s post`, url: shareUrl });
 			else {
 				await navigator.clipboard.writeText(shareUrl);
 				if (disposed) return;
@@ -152,7 +153,7 @@
 <Dialog.Root bind:open={shareOpen}>
 	<Dialog.Content
 		class="sm:max-w-md"
-		onCloseAutoFocus={(event) => {
+		onCloseAutoFocus={(event: Event) => {
 			event.preventDefault();
 			shareButton?.focus({ preventScroll: true });
 		}}
@@ -166,7 +167,8 @@
 			aria-label="Post link"
 			value={shareUrl}
 			readonly
-			onfocus={(event) => event.currentTarget.select()}
+			onfocus={(event: FocusEvent & { currentTarget: HTMLInputElement }) =>
+				event.currentTarget.select()}
 		/>
 		<Dialog.Footer
 			><Button

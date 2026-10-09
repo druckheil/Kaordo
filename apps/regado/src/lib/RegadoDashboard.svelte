@@ -146,6 +146,7 @@
 		commands.clearOperationError();
 		const url = new URL(page.url);
 		url.searchParams.set('view', next.toLowerCase());
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- The URL clones the resolved current page and changes only its query
 		void goto(url, { noScroll: true, keepFocus: true });
 	}
 
@@ -204,10 +205,10 @@
 				class="mt-7 grid grid-cols-3 gap-1 border-b border-border sm:flex"
 				aria-label="Regado sections"
 			>
-				{#each tabs as item}
+				{#each tabs as item (item)}
 					<button
 						type="button"
-						onclick={() => void openTab(item)}
+						onclick={() => openTab(item)}
 						aria-current={tab === item ? 'page' : undefined}
 						class={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring ${tab === item ? 'border-primary text-link' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
 						>{item}</button
@@ -235,7 +236,7 @@
 					{metrics}
 					{loading}
 					bind:timeWindow
-					onWindowChange={(window) => (timeWindow = window)}
+					onWindowChange={(window: MetricsWindow) => (timeWindow = window)}
 				/>
 			{:else if tab === 'Storage'}
 				<StoragePanel
@@ -243,9 +244,12 @@
 					{summary}
 					{metrics}
 					actionBusy={busy}
-					onCheckCopies={(path) => void commands.requestCopyCheck(path)}
+					onCheckCopies={(path: string) => void commands.requestCopyCheck(path)}
 					onRepairCopies={commands.requestCopyRepair}
-					onPreviewLayout={(body, signal) => api.previewStorageLayout(body, signal)}
+					onPreviewLayout={(
+						body: import('@kaordo/contracts').AdminLayoutRequest,
+						signal: AbortSignal
+					) => api.previewStorageLayout(body, signal)}
 					onApplyLayout={commands.applyStorageLayout}
 				/>
 			{:else if tab === 'Logs'}
@@ -257,7 +261,7 @@
 					bind:search={logSearch}
 					onRefresh={loadLogs}
 					{busy}
-					onRetentionChange={(days) =>
+					onRetentionChange={(days: import('@kaordo/contracts').AdminLogRetentionDays) =>
 						commands.openIntent({ type: 'log-retention', days, name: 'Change journal retention' })}
 				/>
 			{:else if tab === 'Users'}

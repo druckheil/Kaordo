@@ -23,8 +23,11 @@
 		dictionary,
 		folders,
 		onStudy
-	}: { dictionary: LingvoDictionary; folders: LingvoFolder[]; onStudy(kind: CardKind): void } =
-		$props();
+	}: {
+		dictionary: LingvoDictionary;
+		folders: LingvoFolder[];
+		onStudy(this: void, kind: CardKind): void;
+	} = $props();
 	const { api, queryClient, changed, notify } = getLingvoContext();
 	const catalog = createQuery(
 		() => lingvoCatalogOptions(api, dictionary.nativeLanguage),
@@ -69,9 +72,8 @@
 			if (disposed) return;
 			void changed(dictionary.id);
 			notify(
-				result.added +
-					(result.added === 1 ? ' card added.' : ' cards added.') +
-					(result.skipped ? ' ' + result.skipped + ' already in your dictionary.' : '')
+				`${result.added}${result.added === 1 ? ' card added.' : ' cards added.'}` +
+					(result.skipped ? ` ${result.skipped} already in your dictionary.` : '')
 			);
 			selected = null;
 		} catch (cause) {
@@ -93,7 +95,7 @@
 	<ToggleGroup.Root
 		type="single"
 		value={filter}
-		onValueChange={(value) => {
+		onValueChange={(value: string) => {
 			if (value) filter = value;
 		}}
 		variant="outline"

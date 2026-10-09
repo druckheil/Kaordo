@@ -20,7 +20,7 @@ export function splitMessageText(text: string): MessageTextPart[] {
 	for (const match of text.matchAll(fluoPostLinkPattern)) {
 		if (!isInternalFluoPostLink(match[0])) continue;
 
-		const start = match.index ?? 0;
+		const start = match.index;
 		if (start > cursor) parts.push({ text: text.slice(cursor, start) });
 
 		parts.push({

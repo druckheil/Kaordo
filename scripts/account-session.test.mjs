@@ -172,7 +172,7 @@ test('unauthenticated session has no account', async () => {
 });
 
 test('missing API configuration produces a retryable error without an account', async () => {
-	const { VITE_KAORDO_API_URL: _unused, ...missingApi } = environment;
+	const missingApi = { ...environment, VITE_KAORDO_API_URL: undefined };
 	const controller = createAccountSessionController(missingApi, {
 		initializeAuth: async () => ({ authenticated: true }),
 		bootstrapIdentity: async () => {

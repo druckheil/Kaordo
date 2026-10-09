@@ -19,12 +19,12 @@ export const initialAccountSnapshot: AccountSnapshot = {
 	error: null
 };
 
-type Dependencies = {
+interface Dependencies {
 	initializeAuth: typeof initializeAuth;
 	bootstrapIdentity: typeof bootstrapIdentity;
 	rememberPreview?: typeof rememberAccountPreview;
 	clearPreview?: typeof clearAccountPreview;
-};
+}
 
 const defaultDependencies: Dependencies = { initializeAuth, bootstrapIdentity };
 

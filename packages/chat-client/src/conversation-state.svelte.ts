@@ -42,7 +42,6 @@ export function createConversationState({
 	let liveUnavailable = $state(false);
 	let pending = $state<PendingMessage[]>([]);
 	let controller: AbortController | null = null;
-	let disposed = false;
 	const lifetime = new AbortController();
 	const query = createInfiniteQuery(
 		() => ({
@@ -62,7 +61,7 @@ export function createConversationState({
 	);
 
 	function connect(): void {
-		if (disposed) return;
+		if (lifetime.signal.aborted) return;
 		controller?.abort();
 		const attempt = new AbortController();
 		controller = attempt;
@@ -88,13 +87,13 @@ export function createConversationState({
 	}
 
 	function updatePending(item: PendingMessage, changes: Partial<PendingMessage>): void {
-		if (disposed) return;
+		if (lifetime.signal.aborted) return;
 		Object.assign(item, changes);
 		pending = pending.map((entry) => (entry.clientId === item.clientId ? { ...item } : entry));
 	}
 
 	async function deliver(item: PendingMessage): Promise<void> {
-		if (disposed) return;
+		if (lifetime.signal.aborted) return;
 		updatePending(item, {
 			status: item.files.length && !item.attachmentIds ? 'uploading' : 'sending',
 			error: undefined
@@ -109,7 +108,7 @@ export function createConversationState({
 					{ allowFiles: true, maxFiles: 8, signal: lifetime.signal }
 				);
 			}
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			updatePending(item, { status: 'sending' });
 			const message = await api.send(
 				item.conversationId,
@@ -120,7 +119,7 @@ export function createConversationState({
 				},
 				lifetime.signal
 			);
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			queryClient.setQueryData<InfiniteData<LigoMessagePage>>(
 				['ligo', 'messages', item.conversationId],
 				(previous) => appendSentMessage(previous, message)
@@ -136,7 +135,7 @@ export function createConversationState({
 	}
 
 	function send(conversationId: string, text: string, files: File[]): void {
-		if (disposed || (!text.trim() && !files.length)) return;
+		if (lifetime.signal.aborted || (!text.trim() && !files.length)) return;
 		const item: PendingMessage = {
 			clientId: crypto.randomUUID(),
 			conversationId,
@@ -144,6 +143,7 @@ export function createConversationState({
 			files: [...files],
 			progress: 0,
 			status: files.length ? 'uploading' : 'sending',
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- The outbox stores a timestamp string, not a mutable date
 			createdAt: new Date().toISOString()
 		};
 		pending = [...pending, item];
@@ -151,7 +151,7 @@ export function createConversationState({
 	}
 
 	function replaceMessage(message: LigoMessage): void {
-		if (disposed) return;
+		if (lifetime.signal.aborted) return;
 		queryClient.setQueryData<InfiniteData<LigoMessagePage>>(
 			['ligo', 'messages', message.conversationId],
 			(previous) => replaceCachedMessage(previous, message)
@@ -175,12 +175,12 @@ export function createConversationState({
 		replaceMessage(
 			await api.editMessage(message.conversationId, message.id, text, lifetime.signal)
 		);
-		if (!disposed) void onChanged?.();
+		if (!lifetime.signal.aborted) void onChanged?.();
 	}
 
 	async function remove(message: LigoMessage): Promise<void> {
 		await api.deleteMessage(message.conversationId, message.id, lifetime.signal);
-		if (disposed) return;
+		lifetime.signal.throwIfAborted();
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: ['ligo', 'messages', message.conversationId] }),
 			onChanged?.()
@@ -208,7 +208,6 @@ export function createConversationState({
 		edit,
 		remove,
 		dispose() {
-			disposed = true;
 			lifetime.abort();
 			controller?.abort();
 			pending = [];

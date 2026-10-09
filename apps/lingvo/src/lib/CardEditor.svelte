@@ -32,7 +32,7 @@
 		dictionary: LingvoDictionary;
 		initial: LingvoCardContent | LingvoCard;
 		folders: LingvoFolder[];
-		onClose(): void;
+		onClose(this: void): void;
 	} = $props();
 	const { api, changed, notify } = getLingvoContext();
 	const id = $props.id();
@@ -194,8 +194,9 @@
 								</DropdownMenu.Trigger>
 								<DropdownMenu.Content>
 									<DropdownMenu.RadioGroup bind:value={() => draft.partOfSpeech, changePart}>
-										{#each parts as part}<DropdownMenu.RadioItem value={part.value} closeOnSelect
-												>{part.label}</DropdownMenu.RadioItem
+										{#each parts as part (part.value)}<DropdownMenu.RadioItem
+												value={part.value}
+												closeOnSelect>{part.label}</DropdownMenu.RadioItem
 											>{/each}
 									</DropdownMenu.RadioGroup>
 								</DropdownMenu.Content>
@@ -217,7 +218,7 @@
 							aria-labelledby={`${id}-article`}
 							class="grid grid-cols-2 gap-2 sm:grid-cols-4"
 						>
-							{#each ['none', 'der', 'die', 'das'] as article}
+							{#each ['none', 'der', 'die', 'das'] as article (article)}
 								<label
 									for={`${id}-article-${article}`}
 									class="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-card px-2 py-2 transition-[background-color,border-color,box-shadow] has-focus-visible:ring-2 has-focus-visible:ring-ring/40 has-data-[state=checked]:border-primary/50 has-data-[state=checked]:bg-primary/5 has-data-[state=checked]:shadow-sm motion-reduce:transition-none"

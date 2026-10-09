@@ -27,7 +27,8 @@ export async function mediaDimensions(
 			};
 			const abort = () => {
 				cleanup();
-				reject(lifetime.reason);
+				const cause: unknown = lifetime.reason;
+				reject(cause instanceof Error ? cause : new DOMException('Aborted', 'AbortError'));
 			};
 			video.onloadedmetadata = () => {
 				cleanup();

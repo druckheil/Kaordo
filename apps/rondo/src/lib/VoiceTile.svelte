@@ -53,7 +53,6 @@
 	data-voice-video-id={video.id}
 	class={`voice-tile group relative min-w-0 overflow-hidden rounded-xl border border-border/50 bg-[#101916] shadow-sm ${large ? 'h-full w-full' : 'w-[min(9rem,48%)] sm:w-40'}`}
 >
-	<!-- svelte-ignore a11y_media_has_caption -->
 	<video
 		bind:this={element}
 		autoplay

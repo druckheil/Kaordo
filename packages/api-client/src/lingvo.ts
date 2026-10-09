@@ -4,7 +4,7 @@ import { createPrivateLingvoClient } from '@kaordo/lingvo-client/private-diction
 import { encryptionSession } from '@kaordo/crypto';
 import { createPrivateRecords } from './private-records.ts';
 import createClient from 'openapi-fetch';
-import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
+import { requireResponseData, sessionFetch } from './http.ts';
 
 export interface LingvoCardFilter {
 	kind?: 'word' | 'phrase';

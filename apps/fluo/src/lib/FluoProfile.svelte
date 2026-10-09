@@ -82,6 +82,7 @@
 				{#if profile.banner}
 					<a
 						href={profile.banner.url}
+						rel="external"
 						data-pswp-item
 						data-pswp-width={profile.banner.width}
 						data-pswp-height={profile.banner.height}
@@ -105,6 +106,7 @@
 						{#if profile.avatar}
 							<a
 								href={profile.avatar.url}
+								rel="external"
 								data-pswp-item
 								data-pswp-width={profile.avatar.width}
 								data-pswp-height={profile.avatar.height}
@@ -182,7 +184,8 @@
 						<ProfilePresence
 							status={profile.status}
 							busy={profileState.setStatus.isPending}
-							onChange={(status) => profileState.setStatus.mutate(status)}
+							onChange={(status: import('@kaordo/contracts').FluoStatus) =>
+								profileState.setStatus.mutate(status)}
 						/>
 					{/if}
 				</div>
@@ -202,7 +205,7 @@
 					{#if profile.website}<a
 							href={profile.website}
 							target="_blank"
-							rel="noopener noreferrer"
+							rel="external noopener noreferrer"
 							class="inline-flex max-w-full min-w-0 items-center gap-1.5 rounded text-link hover:underline focus-visible:outline-2 focus-visible:outline-ring"
 							><GlobeIcon class="size-3.5 shrink-0" /><span class="truncate"
 								>{websiteLabel(profile.website)}</span

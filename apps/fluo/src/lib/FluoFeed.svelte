@@ -5,7 +5,7 @@
 	import { createInfiniteQuery, type QueryClient } from '@tanstack/svelte-query';
 	import { createWindowVirtualizer } from '@tanstack/svelte-virtual';
 	import { feedOptions, type Feed, type FluoApi } from '@kaordo/api-client';
-	import type { FluoPage, FluoPost, UserIdentity } from '@kaordo/contracts';
+	import type { FluoPost, UserIdentity } from '@kaordo/contracts';
 	import { BookmarkIcon, Button } from '@kaordo/ui';
 	import {
 		estimatePostHeight,
@@ -205,7 +205,7 @@
 	<div
 		use:trackList
 		class="relative w-full"
-		style:height={$virtualizer.getTotalSize() + 'px'}
+		style:height={`${$virtualizer.getTotalSize()}px`}
 		role="list"
 		aria-label={view === 'saved'
 			? 'Saved posts'

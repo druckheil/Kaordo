@@ -15,13 +15,14 @@ export class MicrophoneVolume implements TrackProcessor<Track.Kind.Audio, AudioP
 		if (this.gain) this.gain.gain.setTargetAtTime(this.volume, this.gain.context.currentTime, 0.02);
 	}
 
-	async init({ track, audioContext }: AudioProcessorOptions): Promise<void> {
+	init({ track, audioContext }: AudioProcessorOptions): Promise<void> {
 		this.source = audioContext.createMediaStreamSource(new MediaStream([track]));
 		this.gain = audioContext.createGain();
 		this.gain.gain.value = this.volume;
 		const destination = audioContext.createMediaStreamDestination();
 		this.source.connect(this.gain).connect(destination);
 		this.processedTrack = destination.stream.getAudioTracks()[0];
+		return Promise.resolve();
 	}
 
 	async restart(options: AudioProcessorOptions): Promise<void> {
@@ -29,12 +30,13 @@ export class MicrophoneVolume implements TrackProcessor<Track.Kind.Audio, AudioP
 		await this.init(options);
 	}
 
-	async destroy(): Promise<void> {
+	destroy(): Promise<void> {
 		this.source?.disconnect();
 		this.gain?.disconnect();
 		this.processedTrack?.stop();
 		this.source = undefined;
 		this.gain = undefined;
 		this.processedTrack = undefined;
+		return Promise.resolve();
 	}
 }

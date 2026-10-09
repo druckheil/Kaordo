@@ -12,7 +12,7 @@ export function createRondoContent(codec: ContentCodec) {
 			`rondo:${value.id}`
 		);
 		validateName(body.name, 100);
-		if (typeof body.description !== 'string' || [...body.description].length > 500)
+		if (typeof body.description !== 'string' || Array.from(body.description).length > 500)
 			throw new Error('Invalid encrypted server description.');
 		return { ...value, ...body };
 	}
@@ -62,8 +62,8 @@ export function validateName(name: string, limit: number) {
 	if (
 		typeof name !== 'string' ||
 		!name.trim() ||
-		[...name].length > limit ||
-		/[\x00-\x1f\x7f]/.test(name)
+		Array.from(name).length > limit ||
+		/\p{Cc}/u.test(name)
 	)
 		throw new Error(`Use a name with 1–${limit} characters.`);
 }

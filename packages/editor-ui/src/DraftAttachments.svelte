@@ -15,7 +15,7 @@
 	const inputId = $props.id();
 
 	function removeFile(index: number): void {
-		const attachment = files[index];
+		const attachment = files.at(index);
 		if (!attachment) return;
 		URL.revokeObjectURL(attachment.preview);
 		files = files.filter((_, fileIndex) => fileIndex !== index);

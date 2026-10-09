@@ -41,7 +41,7 @@
 		animation = prefersReducedMotion.current ? null : value;
 		try {
 			const confirmed = await onReact(value);
-			if (!confirmed || confirmed.myReaction !== value) animation = null;
+			if (confirmed?.myReaction !== value) animation = null;
 		} finally {
 			reacting = false;
 		}

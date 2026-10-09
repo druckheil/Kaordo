@@ -11,7 +11,7 @@
 </script>
 
 <span class="relative block h-5 w-6" aria-hidden="true">
-	{#each visible as color, index}<span
+	{#each visible as color, index (index)}<span
 			class="absolute size-[5px] -translate-x-1/2 -translate-y-1/2 rounded-full shadow-[0_0_0_1px_var(--background)]"
 			style={`${position(index, visible.length)};background:${color}`}
 		></span>{/each}

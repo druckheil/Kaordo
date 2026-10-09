@@ -1,4 +1,6 @@
 <script lang="ts">
+	// Renders an accessible context-menu radio item and its selection indicator
+
 	import { ContextMenu as ContextMenuPrimitive } from 'bits-ui';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import { cn, type WithoutChild } from '../../../utils.js';
@@ -26,7 +28,7 @@
 	)}
 	{...restProps}
 >
-	{#snippet children({ checked })}
+	{#snippet children({ checked }: { checked: boolean })}
 		<span class="pointer-events-none absolute right-2">
 			{#if checked}
 				<CheckIcon />

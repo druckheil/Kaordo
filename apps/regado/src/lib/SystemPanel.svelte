@@ -25,8 +25,8 @@
 		onRestartService: (service: RestartableService) => void;
 		onOpenStorage: () => void;
 	} = $props();
-	const latestCpu = $derived(metrics?.series.cpuPercent?.at(-1)?.value);
-	const latestMemory = $derived(metrics?.series.memoryPercent?.at(-1)?.value);
+	const latestCpu = $derived(metrics?.series.cpuPercent.at(-1)?.value);
+	const latestMemory = $derived(metrics?.series.memoryPercent.at(-1)?.value);
 	const dns = $derived(system?.services.find((service) => service.id === 'ddclient'));
 	const pools = $derived(system?.mounts.filter((mount) => mount.integrity) ?? []);
 	const uptimeHours = $derived(
@@ -126,8 +126,7 @@
 					size="xs"
 					variant="outline"
 					onclick={onRestartDns}
-					disabled={!dns || dns.loaded !== 'loaded' || dns.active === 'activating'}
-					>Update now</Button
+					disabled={dns?.loaded !== 'loaded' || dns.active === 'activating'}>Update now</Button
 				>
 			</section>
 			<section class="rounded-xl border border-border p-3" aria-label="Storage maintenance">

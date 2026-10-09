@@ -37,15 +37,15 @@
 	let hasSelection = $state(false);
 	let exporting = $state(false);
 	let error = $state('');
-	let active = true;
+	const lifetime = new AbortController();
 	let resetSelection: (() => void) | undefined;
 	onDestroy(() => {
-		active = false;
+		lifetime.abort();
 	});
 
 	function mountCropper(node: HTMLDivElement) {
 		const url = URL.createObjectURL(file);
-		let mounted = true;
+		const mountLifetime = new AbortController();
 		let observer: ResizeObserver | undefined;
 		let selection: CropperSelection | null = null;
 		const change = (event: Event) => {
@@ -61,7 +61,7 @@
 
 		void import('cropperjs')
 			.then(async ({ default: Cropper }) => {
-				if (!mounted) return;
+				if (mountLifetime.signal.aborted) return;
 				const source = new Image();
 				source.src = url;
 				source.alt = 'Image to crop';
@@ -86,7 +86,8 @@
 				selection = cropper.getCropperSelection();
 				if (!image || !canvas || !selection) throw new Error('Could not open the image cropper.');
 				await image.$ready();
-				if (!mounted) return;
+				// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The cropper can unmount while its image loads
+				if (mountLifetime.signal.aborted) return;
 				const frame = selection;
 				resetSelection = () => {
 					hasSelection = fitCropperSelection(image, canvas, frame, aspectRatio);
@@ -106,12 +107,13 @@
 				ready = true;
 			})
 			.catch((cause: unknown) => {
-				if (mounted) error = cause instanceof Error ? cause.message : 'Could not load this image.';
+				if (!mountLifetime.signal.aborted)
+					error = cause instanceof Error ? cause.message : 'Could not load this image.';
 			});
 
 		return {
 			destroy() {
-				mounted = false;
+				mountLifetime.abort();
 				observer?.disconnect();
 				selection?.removeEventListener('change', change);
 				selection?.removeEventListener('focus', focus);
@@ -131,11 +133,12 @@
 		error = '';
 		try {
 			const image = await exportCroppedImage(selection, outputWidth, outputHeight);
-			if (active) onApply(image);
+			if (!lifetime.signal.aborted) onApply(image);
 		} catch (cause) {
-			if (active) error = cause instanceof Error ? cause.message : 'Could not crop this image.';
+			if (!lifetime.signal.aborted)
+				error = cause instanceof Error ? cause.message : 'Could not crop this image.';
 		} finally {
-			if (active) exporting = false;
+			if (!lifetime.signal.aborted) exporting = false;
 		}
 	}
 </script>
@@ -148,10 +151,10 @@
 >
 	<Dialog.Content
 		class="gap-4 sm:max-w-xl"
-		onInteractOutside={(event) => {
+		onInteractOutside={(event: Event) => {
 			if (exporting) event.preventDefault();
 		}}
-		onEscapeKeydown={(event) => {
+		onEscapeKeydown={(event: KeyboardEvent) => {
 			if (exporting) event.preventDefault();
 		}}
 		showCloseButton={!exporting}

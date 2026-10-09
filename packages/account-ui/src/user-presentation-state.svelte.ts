@@ -1,6 +1,7 @@
 // Batches rendered account avatars and refreshes privacy-filtered availability
 
 import { onDestroy } from 'svelte';
+import { SvelteMap } from 'svelte/reactivity';
 import { createQuery, type QueryClient } from '@tanstack/svelte-query';
 import { createUserPresentationApi, userPresentationOptions } from '@kaordo/api-client';
 
@@ -11,6 +12,7 @@ export function createUserPresentationState(
 ) {
 	const api = createUserPresentationApi(apiBaseUrl);
 	const lifetime = new AbortController();
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Subscription bookkeeping publishes a batched userIds snapshot
 	const subscribers = new Map<string, number>();
 	let userIds = $state([userId]);
 	let pending: ReturnType<typeof setTimeout> | undefined;
@@ -18,13 +20,13 @@ export function createUserPresentationState(
 		() => userPresentationOptions(api, userId, userIds, lifetime.signal),
 		() => queryClient
 	);
-	const presentations = $derived(new Map(query.data?.map((item) => [item.id, item])));
+	const presentations = $derived(new SvelteMap(query.data?.map((item) => [item.id, item])));
 
 	function updateSubscription() {
 		if (lifetime.signal.aborted || pending !== undefined) return;
 		pending = setTimeout(() => {
 			pending = undefined;
-			const next = [...new Set([userId, ...subscribers.keys()])].sort();
+			const next = [userId, ...Array.from(subscribers.keys()).filter((id) => id !== userId)].sort();
 			if (next.length !== userIds.length || next.some((id, index) => id !== userIds[index]))
 				userIds = next;
 		}, 50);

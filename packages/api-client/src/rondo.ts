@@ -5,7 +5,6 @@ import type {
 	RondoNewServer,
 	RondoServerPage,
 	RondoChannel,
-	RondoVoiceTicket,
 	paths
 } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
@@ -73,7 +72,8 @@ export function createRondoApi(apiBaseUrl: string) {
 		for (const server of requireResponseData(data, error, response.status).items) {
 			const detail = await wireDetail(server.id, signal);
 			for (const channel of detail.channels) channelServers.set(channel.id, channel);
-			if (channelServers.has(id)) return channelServers.get(id)!;
+			const channel = channelServers.get(id);
+			if (channel) return channel;
 		}
 		throw new Error('Voice channel is unavailable.');
 	}
@@ -111,7 +111,7 @@ export function createRondoApi(apiBaseUrl: string) {
 		},
 		async create(input: RondoNewServer, signal?: AbortSignal): Promise<RondoDetail> {
 			validateName(input.name, 100);
-			if ([...input.description].length > 500)
+			if (Array.from(input.description).length > 500)
 				throw new Error('Use up to 500 characters for the description.');
 			const id = crypto.randomUUID();
 			const generalId = crypto.randomUUID();

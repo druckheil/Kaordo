@@ -114,12 +114,14 @@ export function createRondoVoiceState(
 		const request = new AbortController();
 		keyUpdates = request;
 		let refreshing = false;
-		keyTimer = setInterval(async () => {
-			if (refreshing || request.signal.aborted) return;
+		async function refreshKeys(): Promise<void> {
+			if (refreshing) return;
 			refreshing = true;
 			try {
+				request.signal.throwIfAborted();
 				const next = await api.voiceKey(id, request.signal);
 				try {
+					request.signal.throwIfAborted();
 					if (next.revision !== revision && connection === active) {
 						await active.setEncryptionKey(next.key);
 						revision = next.revision;
@@ -127,7 +129,7 @@ export function createRondoVoiceState(
 				} finally {
 					new Uint8Array(next.key).fill(0);
 				}
-			} catch (cause) {
+			} catch {
 				if (!request.signal.aborted) {
 					error = 'The encrypted call membership could not be verified. Join again to reconnect.';
 					await stop();
@@ -135,7 +137,8 @@ export function createRondoVoiceState(
 			} finally {
 				refreshing = false;
 			}
-		}, 5000);
+		}
+		keyTimer = setInterval(() => void refreshKeys(), 5000);
 	}
 
 	async function changeDevice(kind: MediaDeviceKind, deviceId: string): Promise<void> {

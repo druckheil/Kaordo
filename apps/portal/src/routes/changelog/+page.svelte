@@ -14,9 +14,9 @@
 		dateStyle: 'long',
 		timeZone: 'UTC'
 	});
-	let loadedReleases = $state<Record<string, ReleaseNotes>>({});
-	let loadingReleases = $state<Record<string, boolean>>({});
-	let failedReleases = $state<Record<string, boolean>>({});
+	const loadedReleases = $state<Partial<Record<string, ReleaseNotes>>>({});
+	const loadingReleases = $state<Record<string, boolean>>({});
+	const failedReleases = $state<Record<string, boolean>>({});
 
 	function onReleaseToggle(version: string, event: Event): void {
 		if ((event.currentTarget as HTMLDetailsElement).open) void loadRelease(version);
@@ -93,7 +93,7 @@
 								Release notes could not be loaded. Close and reopen this version to try again.
 							</p>
 						{:else if loadedReleases[version]}
-							{@const release = loadedReleases[version] as ReleaseNotes}
+							{@const release = loadedReleases[version]}
 							<div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
 								<p class="max-w-2xl text-base leading-7 text-muted-foreground">
 									{release.summary}

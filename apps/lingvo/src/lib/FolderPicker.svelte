@@ -14,7 +14,7 @@
 		value?: string;
 		emptyLabel?: string;
 		includeUnfiled?: boolean;
-		onValueChange?(value: string): void;
+		onValueChange?(this: void, value: string): void;
 	} = $props();
 	const label = $derived(
 		value === 'none'

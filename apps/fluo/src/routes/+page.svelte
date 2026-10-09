@@ -19,7 +19,7 @@
 	<AppHeader name="Fluo" homeHref={appPaths.portal} sticky {backAction} />
 	<main id="main-content" tabindex="-1" class="mx-auto max-w-6xl px-4 pt-7 sm:px-6 lg:pt-9">
 		<AccountGate appName="Fluo" returnPath={appPaths.fluo} environment={import.meta.env} embedded>
-			{#snippet preview(account)}
+			{#snippet preview(account: import('@kaordo/account-ui').AccountPreview)}
 				<p class="text-sm text-muted-foreground">
 					Welcome back, {account.displayName}. Loading your feed…
 				</p>
@@ -28,7 +28,7 @@
 					aria-hidden="true"
 				></div>
 			{/snippet}
-			{#snippet children(user)}
+			{#snippet children(user: import('@kaordo/contracts').UserIdentity)}
 				<DeferredFluoApp {user} onBackActionChange={updateBackAction} />
 			{/snippet}
 		</AccountGate>

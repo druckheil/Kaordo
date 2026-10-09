@@ -45,11 +45,13 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 	}
 
 	async function refresh(force = false) {
-		if (refreshing || lifetime.signal.aborted || (busy && !force)) return;
+		if (refreshing || (busy && !force)) return;
 		refreshing = true;
 		error = '';
 		try {
+			lifetime.signal.throwIfAborted();
 			device ??= await localDevice(ownerId);
+			const currentDevice = device;
 			fingerprint = await deviceFingerprint(toBase64(device.keys.publicKey));
 			identity = await api.identity(lifetime.signal);
 			if (!identity) {
@@ -74,7 +76,7 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 				} finally {
 					destroyAccountKeys(fresh);
 				}
-			} else if (!identity.devices.some((item) => item.id === device!.id)) {
+			} else if (!identity.devices.some((item) => item.id === currentDevice.id)) {
 				if (keys) lock();
 				identity = await api.register(
 					{ id: device.id, publicKey: toBase64(device.keys.publicKey) },
@@ -82,8 +84,8 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 				);
 			}
 			lifetime.signal.throwIfAborted();
-			const own = identity.devices.find((item) => item.id === device!.id);
-			if (!own || own.publicKey !== toBase64(device.keys.publicKey)) {
+			const own = identity.devices.find((item) => item.id === currentDevice.id);
+			if (own?.publicKey !== toBase64(device.keys.publicKey)) {
 				lock();
 				throw new Error('This device identity has changed.');
 			}
@@ -125,7 +127,7 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 		} catch (cause) {
 			if (!lifetime.signal.aborted) {
 				error = cause instanceof Error ? cause.message : 'Device encryption could not open.';
-				if (!keys) phase = 'error';
+				phase = keys ? 'ready' : 'error';
 			}
 		} finally {
 			refreshing = false;
@@ -164,6 +166,7 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 	}
 	async function recover(secretOrFile: string, replaceDeviceId?: string) {
 		if (!device || !identity || busy) return;
+		const currentDevice = device;
 		busy = true;
 		error = '';
 		let restored: AccountKeys | undefined;
@@ -185,7 +188,7 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 				identity.encryptionPublicKey,
 				identity.signingPublicKey
 			);
-			if (!identity.devices.some((item) => item.id === device!.id)) {
+			if (!identity.devices.some((item) => item.id === currentDevice.id)) {
 				if (identity.devices.length >= 20) {
 					const lost = identity.devices.find((item) => item.id === replaceDeviceId);
 					if (!lost) throw new Error('Choose a lost device to make room for this one.');

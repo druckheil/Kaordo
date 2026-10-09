@@ -3,7 +3,9 @@
 import type { AdminApi } from './admin.ts';
 
 const readPolicy = { staleTime: 15_000, retry: false } as const;
-type ReadContext = { signal: AbortSignal };
+interface ReadContext {
+	signal: AbortSignal;
+}
 
 export function adminSummaryOptions(api: AdminApi) {
 	return {

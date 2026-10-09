@@ -8,5 +8,5 @@ export function startsSenderRun(
 	previous: MessageIdentity | null,
 	current: MessageIdentity
 ): boolean {
-	return !previous || previous.sender.id !== current.sender.id;
+	return previous?.sender.id !== current.sender.id;
 }

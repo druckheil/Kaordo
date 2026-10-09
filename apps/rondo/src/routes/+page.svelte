@@ -11,10 +11,10 @@
 </svelte:head>
 
 <AccountGate appName="Rondo" returnPath={appPaths.rondo} environment={import.meta.env}>
-	{#snippet preview(account)}
+	{#snippet preview(account: import('@kaordo/account-ui').AccountPreview)}
 		<p>Welcome back, {account.displayName}. Loading your communities…</p>
 	{/snippet}
-	{#snippet children(user)}
+	{#snippet children(user: import('@kaordo/contracts').UserIdentity)}
 		<RondoApp {user} />
 	{/snippet}
 </AccountGate>

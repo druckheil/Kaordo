@@ -104,7 +104,7 @@ export function createFluoContent(
 		documentSchema.parse(input.content);
 		const text = documentPlainText(input.content);
 		const limit = input.parentId ? 2000 : 5000;
-		if ([...text].length > limit)
+		if (Array.from(text).length > limit)
 			throw new Error(`Use at most ${limit.toLocaleString('en')} characters.`);
 		if (!text && !input.attachmentIds?.length && !input.quoteId)
 			throw new Error('Write something or attach media before publishing.');

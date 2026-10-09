@@ -296,7 +296,7 @@ async function checkCredentialErrorStyles(page) {
 async function checkInvalidInputAppearance(input) {
 	await input.blur();
 	const unfocusedShadow = await input.evaluate(async (element) => {
-		getComputedStyle(element).boxShadow;
+		getComputedStyle(element).getPropertyValue('box-shadow');
 		await Promise.allSettled(element.getAnimations().map((animation) => animation.finished));
 		return getComputedStyle(element).boxShadow;
 	});

@@ -120,12 +120,14 @@ export class VoiceConnection {
 
 	private onParticipantConnected = (participant: RemoteParticipant): void => {
 		this.applyParticipantVolume(participant);
-		if (this.room.state === 'connected' && this.connected) this.sounds.play('connect');
+		if (this.room.state === ConnectionState.Connected && this.connected)
+			this.sounds.play('connect');
 		this.emit();
 	};
 
 	private onParticipantDisconnected = (): void => {
-		if (this.room.state === 'connected' && this.connected) this.sounds.play('disconnect');
+		if (this.room.state === ConnectionState.Connected && this.connected)
+			this.sounds.play('disconnect');
 		this.emit();
 	};
 
@@ -174,6 +176,7 @@ export class VoiceConnection {
 			if (!switched && deviceId !== 'default')
 				throw new Error('This device is unavailable. Connect it or choose another device.');
 		}
+		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Disconnect can dispose the connection while device switching awaits
 		if (this.disposed) return;
 		this.preferences[devicePreferenceKeys[kind]] = deviceId;
 		if (kind === 'audiooutput') await this.routeSounds();
@@ -199,6 +202,7 @@ export class VoiceConnection {
 		}
 		const captureDeviceId = this.preferences.microphoneId;
 		const tracks = await local.createTracks({ audio: true });
+		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Disconnect can dispose the connection while media permission awaits
 		if (this.disposed) {
 			for (const track of tracks) track.stop();
 			return;
@@ -212,6 +216,7 @@ export class VoiceConnection {
 					}
 					await track.setProcessor(this.microphoneVolume);
 				}
+				// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Disconnect can dispose the connection while a track is prepared
 				if (this.disposed) {
 					track.stop();
 					continue;
@@ -297,7 +302,10 @@ export class VoiceConnection {
 		const trackSource = video.source === 'camera' ? Track.Source.Camera : Track.Source.ScreenShare;
 		const publication = participant?.getTrackPublication(trackSource);
 		const track = publication?.trackSid === video.trackSid ? publication.videoTrack : undefined;
-		if (!track) return () => {};
+		if (!track)
+			return () => {
+				// No subscribed track means there is nothing to detach
+			};
 
 		element.autoplay = true;
 		element.playsInline = true;
@@ -313,6 +321,7 @@ export class VoiceConnection {
 		this.sounds.unlock();
 		await this.room.connect(serverUrl, token);
 		if (this.encryptionFailure) throw this.encryptionFailure;
+		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Disconnect can dispose the connection while LiveKit connects
 		if (this.disposed) {
 			await this.room.disconnect();
 			return;

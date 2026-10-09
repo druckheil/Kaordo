@@ -66,7 +66,7 @@
 		<DropdownMenu.Label>Your status</DropdownMenu.Label>
 		<DropdownMenu.RadioGroup
 			value={status}
-			onValueChange={(value) => {
+			onValueChange={(value: string) => {
 				if (value === 'online' || value === 'busy' || value === 'invisible') onChange(value);
 			}}
 		>

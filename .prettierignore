@@ -4,4 +4,3 @@ packages/contracts/src/openapi.d.ts
 services/kerno/internal/lingvo/catalog/
 scripts/fixtures/
 deploy/keycloak/
-eslint-suppressions.json

@@ -13,7 +13,7 @@
 </svelte:head>
 
 <AccountGate appName="Regado" returnPath={appPaths.regado} environment={import.meta.env}>
-	{#snippet children(user)}
+	{#snippet children(user: import('@kaordo/contracts').UserIdentity)}
 		{#if user.isAdmin}
 			<RegadoDashboard {user} />
 		{:else}

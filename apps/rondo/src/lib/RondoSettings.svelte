@@ -117,7 +117,7 @@
 						disabled={!state.mediaSupported ||
 							!!state.busyKind ||
 							(output && !state.outputSupported)}
-						onChange={(value) => void state.changeDevice(kind, value)}
+						onChange={(value: string) => void state.changeDevice(kind, value)}
 					/>
 					{#if output && !state.outputSupported}
 						<p class="mt-3 text-xs leading-5 text-muted-foreground">
@@ -151,7 +151,7 @@
 								step={1}
 								class="h-6"
 								thumbLabel={`${section.label} volume`}
-								onValueChange={(value) => state.changeVolume(volumeKey, value)}
+								onValueChange={(value: number) => state.changeVolume(volumeKey, value)}
 							/>
 							<div class="mt-4 flex flex-wrap items-center gap-3">
 								{#if output}

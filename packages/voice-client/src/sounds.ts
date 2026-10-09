@@ -100,7 +100,9 @@ export class VoiceSounds {
 		try {
 			if (!this.context) this.initializeAudio();
 			if (this.context?.state === 'suspended') void this.resumeContext(this.context);
-			void this.output?.play().catch(() => {});
+			void this.output?.play().catch(() => {
+				// Interface sounds are optional; closed or unavailable audio must not interrupt calls
+			});
 		} catch {
 			/* Voice remains available when interface audio cannot start. */
 		}
@@ -117,7 +119,9 @@ export class VoiceSounds {
 			this.destination = destination;
 			this.output = output;
 		} catch (cause) {
-			void context.close().catch(() => {});
+			void context.close().catch(() => {
+				// Interface sounds are optional; closed or unavailable audio must not interrupt calls
+			});
 			throw cause;
 		}
 	}
@@ -144,8 +148,10 @@ export class VoiceSounds {
 		if (!context || !output || !destination)
 			throw new Error('Audio playback is unavailable in this browser.');
 		await context.resume();
+		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The owner can dispose audio while the context resumes
 		if (this.disposed) return;
 		await output.play();
+		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The owner can dispose audio while playback starts
 		if (this.disposed) return;
 		if (context.state !== 'running') throw new Error('Audio playback could not start. Try again.');
 		const startAt = context.currentTime;
@@ -207,6 +213,9 @@ export class VoiceSounds {
 		this.output?.pause();
 		if (this.output) this.output.srcObject = null;
 		this.output = null;
-		if (context) void context.close().catch(() => {});
+		if (context)
+			void context.close().catch(() => {
+				// Interface sounds are optional; closed or unavailable audio must not interrupt calls
+			});
 	}
 }

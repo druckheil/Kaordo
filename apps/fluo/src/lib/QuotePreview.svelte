@@ -51,7 +51,7 @@
 							loading="lazy"
 							decoding="async"
 							alt={item.altText ||
-								(context === 'reply' ? 'Original post image ' : 'Quoted image ') + (index + 1)}
+								`${context === 'reply' ? 'Original post image' : 'Quoted image'} ${index + 1}`}
 							class="h-full w-full object-cover"
 						/>
 					{:else}
@@ -84,7 +84,7 @@
 		type="button"
 		class="mt-4 block w-full overflow-hidden rounded-2xl border border-border bg-muted/30 text-left transition-colors hover:border-primary/45 hover:bg-muted/50 focus-visible:outline-3 focus-visible:outline-ring"
 		aria-label={'Open quoted post by ' + quote.author.username}
-		onclick={() => onOpen?.(quote.id)}
+		onclick={() => onOpen(quote.id)}
 	>
 		{@render preview()}
 	</button>

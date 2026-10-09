@@ -2,14 +2,16 @@
 	// Renders conversation history and preserves the reader's position while it changes
 
 	import { onMount, tick } from 'svelte';
-	import type { LigoMessage, LigoReaction } from '@kaordo/contracts';
+	import type { MessageListProps } from './message-list-types.js';
 	import { Button, ChevronLeftIcon, MessageCircleIcon, ShieldCheckIcon } from '@kaordo/ui';
 	import MessageBubble from './MessageBubble.svelte';
 	import PendingMessageBubble from './PendingMessageBubble.svelte';
 	import { startsSenderRun } from './message-grouping';
-	import type { PendingMessage } from '@kaordo/chat-client';
 
-	type ScrollSize = { viewport: number; content: number };
+	interface ScrollSize {
+		viewport: number;
+		content: number;
+	}
 
 	let {
 		messages,
@@ -25,24 +27,10 @@
 		edit,
 		remove,
 		showReceipt = true
-	}: {
-		messages: LigoMessage[];
-		pending: PendingMessage[];
-		viewerId: string;
-		personal: boolean;
-		group: boolean;
-		showReceipt?: boolean;
-		hasMore: boolean;
-		loadingMore: boolean;
-		loadOlder: () => Promise<void>;
-		retry: (item: PendingMessage) => void;
-		react: (message: LigoMessage, emoji: LigoReaction['emoji']) => Promise<void>;
-		edit: (message: LigoMessage, text: string) => Promise<void>;
-		remove: (message: LigoMessage) => Promise<void>;
-	} = $props();
+	}: MessageListProps = $props();
 
-	let scroller = $state<HTMLDivElement>();
-	let content = $state<HTMLDivElement>();
+	let scroller = $state<HTMLDivElement | null>(null);
+	let content = $state<HTMLDivElement | null>(null);
 	let ready = $state(false);
 	let loadingPrevious = $state(false);
 	let atBottom = true;
@@ -101,13 +89,14 @@
 		if (loadingPrevious || loadingMore || !hasMore || !scroller) return;
 		loadingPrevious = true;
 		// Keep the first loaded message in place as older messages are inserted above it.
-		const anchor = scroller.querySelector<HTMLElement>('[data-index]');
+		const viewport = scroller;
+		const anchor = viewport.querySelector<HTMLElement>('[data-index]');
 		const anchorTop = anchor?.getBoundingClientRect().top;
 		try {
 			await loadOlder();
 			await tick();
-			if (anchor?.isConnected && anchorTop !== undefined && scroller) {
-				scroller.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+			if (anchor?.isConnected && anchorTop !== undefined && viewport.isConnected) {
+				viewport.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
 			}
 		} catch {
 			// The parent query displays its load error and keeps the existing messages.
@@ -166,7 +155,7 @@
 			</div>
 		{:else}
 			{#each items as item, index (item.key)}
-				{@const previous = items[index - 1]}
+				{@const previous = index > 0 ? items.at(index - 1) : undefined}
 				{@const previousMessage = previous?.kind === 'sent' ? previous.message : null}
 				{@const isSentMessage = item.kind === 'sent'}
 				{@const continuesRun =

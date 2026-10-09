@@ -2,7 +2,9 @@
 
 import type { LigoMessage, LigoMessagePage } from '@kaordo/contracts';
 
-type MessagePages = { pages: LigoMessagePage[] };
+interface MessagePages {
+	pages: LigoMessagePage[];
+}
 
 export function appendSentMessage<T extends MessagePages>(
 	existing: T | undefined,

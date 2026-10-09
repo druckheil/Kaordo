@@ -96,7 +96,8 @@
 						placeholder="Search public servers"
 						class="pl-10"
 						value={state.discoverInput}
-						oninput={(event) => state.search(event.currentTarget.value, 'discover')}
+						oninput={(event: Event & { currentTarget: HTMLInputElement }) =>
+							state.search(event.currentTarget.value, 'discover')}
 					/></label
 				>
 				{#if state.discoverQuery.isPending}<p
@@ -153,7 +154,8 @@
 					id="rondo-invite"
 					placeholder="Search by username"
 					value={state.inviteInput}
-					oninput={(event) => state.search(event.currentTarget.value, 'invite')}
+					oninput={(event: Event & { currentTarget: HTMLInputElement }) =>
+						state.search(event.currentTarget.value, 'invite')}
 				/>
 				{#if state.inviteTerm.length < 2}<p class="text-sm text-muted-foreground">
 						Type at least two characters.

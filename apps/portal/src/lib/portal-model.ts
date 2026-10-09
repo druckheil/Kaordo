@@ -5,7 +5,7 @@ import type { UserIdentity } from '@kaordo/contracts';
 
 export type AuthMode = 'login' | 'register';
 
-type AuthModeCopy = {
+interface AuthModeCopy {
 	pageTitle: string;
 	accessibleName: string;
 	actionLabel: string;
@@ -14,7 +14,7 @@ type AuthModeCopy = {
 	otherModePrompt: string;
 	otherModeLabel: string;
 	otherModePath: string;
-};
+}
 
 export const authModeCopy = {
 	login: {

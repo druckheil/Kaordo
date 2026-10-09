@@ -28,7 +28,8 @@
 		PlusIcon,
 		UserPlusIcon
 	} from '@kaordo/ui';
-	import type MessageListComponent from '@kaordo/chat-ui/message-list';
+	import type { Component } from 'svelte';
+	import type { MessageListProps } from '@kaordo/chat-ui';
 	import ConversationDialog from './ConversationDialog.svelte';
 	import MessageComposer from '@kaordo/chat-ui/message-composer';
 	import ConversationSidebar from './ConversationSidebar.svelte';
@@ -61,10 +62,9 @@
 	let actionError = $state('');
 	let draft = $state('');
 	let files = $state<File[]>([]);
-	let LoadedMessageList = $state<typeof MessageListComponent | null>(null);
+	let LoadedMessageList = $state<Component<MessageListProps> | null>(null);
 	let messageViewError = $state(false);
 	let pageVisible = $state(true);
-	let disposed = false;
 	const lifetime = new AbortController();
 
 	const selectedQuery = createQuery(
@@ -82,7 +82,6 @@
 	const receipts = createReceiptState(api, () => user.id, invalidateConversations);
 	const messagesQuery = chat.query;
 	onDestroy(() => {
-		disposed = true;
 		lifetime.abort();
 		receipts.dispose();
 		chat.dispose();
@@ -119,10 +118,10 @@
 		if (!selectedId || LoadedMessageList || messageViewError) return;
 		void import('@kaordo/chat-ui/message-list')
 			.then(({ default: component }) => {
-				if (!disposed) LoadedMessageList = component;
+				if (!lifetime.signal.aborted) LoadedMessageList = component as Component<MessageListProps>;
 			})
 			.catch(() => {
-				if (!disposed) messageViewError = true;
+				if (!lifetime.signal.aborted) messageViewError = true;
 			});
 	});
 
@@ -209,18 +208,18 @@
 				{ kind: 'self', participantIds: [] },
 				lifetime.signal
 			);
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			await invalidateConversations();
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			dialogMode = null;
 			selectConversation(conversation.id);
 		} catch (cause) {
-			if (disposed) return;
+			if (lifetime.signal.aborted) return;
 			const message = cause instanceof Error ? cause.message : 'Could not open Saved messages.';
 			sidebarError = message;
 			dialogError = message;
 		} finally {
-			if (!disposed) selfBusy = false;
+			if (!lifetime.signal.aborted) selfBusy = false;
 		}
 	}
 
@@ -255,7 +254,7 @@
 				loading={conversationsQuery.isPending}
 				loadError={!!conversationsQuery.error}
 				loadingMore={conversationsQuery.isFetchingNextPage}
-				hasMore={!!conversationsQuery.hasNextPage}
+				hasMore={conversationsQuery.hasNextPage}
 				savedBusy={selfBusy}
 				savedError={sidebarError}
 				bind:filter={searchFilter}
@@ -379,7 +378,7 @@
 								viewerId={user.id}
 								personal={selected?.kind === 'self'}
 								group={selected?.kind === 'group'}
-								hasMore={!!messagesQuery.hasNextPage}
+								hasMore={messagesQuery.hasNextPage}
 								loadingMore={messagesQuery.isFetchingNextPage}
 								loadOlder={async () => {
 									await messagesQuery.fetchNextPage();

@@ -109,7 +109,7 @@
 					? 'System default'
 					: currentDays === 0
 						? 'Size limit only'
-						: currentDays + ' days'}
+						: `${currentDays} days`}
 			</p>
 		</div>
 	</div>
@@ -185,7 +185,7 @@
 	<div
 		class="kaordo-scrollbar mt-5 max-h-[60dvh] space-y-1 overflow-auto rounded-xl bg-muted p-3 font-mono text-xs"
 	>
-		{#each visibleLogs as entry}
+		{#each visibleLogs as entry, index (index)}
 			<div class="grid gap-1 border-b border-border/70 px-2 py-2 sm:grid-cols-[10rem_1fr]">
 				<time class="text-muted-foreground">{formatLogTime(entry.time)}</time>
 				<p class="break-all whitespace-pre-wrap">{entry.message}</p>

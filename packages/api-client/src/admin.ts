@@ -14,7 +14,7 @@ import type {
 	paths
 } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
-import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
+import { requireResponseData, sessionFetch } from './http.ts';
 
 export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessionFetch) {
 	const client = createClient<paths>({ baseUrl: apiBaseUrl, fetch: fetcher });

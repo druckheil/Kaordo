@@ -1,5 +1,6 @@
 // Creates device-held account keys and authenticates encrypted key transfers with libsodium
 import type Sodium from 'libsodium-wrappers';
+import { accountKeyBundleSchema } from './validation.ts';
 
 export interface KeyPair {
 	publicKey: Uint8Array;
@@ -85,9 +86,16 @@ export async function unwrapAccountKeys(
 		device.privateKey
 	);
 	try {
-		const data = JSON.parse(new TextDecoder().decode(decoded));
+		let value: unknown;
+		try {
+			value = JSON.parse(new TextDecoder().decode(decoded));
+		} catch {
+			throw new Error('Invalid account key bundle.');
+		}
+		const result = accountKeyBundleSchema.safeParse(value);
+		if (!result.success) throw new Error('Invalid account key bundle.');
+		const data = result.data;
 		if (
-			data.version !== 1 ||
 			data.ownerId !== ownerId ||
 			data.encryptionPublicKey !== encryptionPublicKey ||
 			data.signingPublicKey !== signingPublicKey
@@ -107,7 +115,9 @@ export async function unwrapAccountKeys(
 		const derivedSigning = library.crypto_sign_seed_keypair(
 			keys.signing.privateKey.subarray(0, 32)
 		);
-		const validSigning = library.memcmp(derivedSigning.privateKey, keys.signing.privateKey);
+		const validSigning =
+			library.memcmp(derivedSigning.privateKey, keys.signing.privateKey) &&
+			library.memcmp(derivedSigning.publicKey, keys.signing.publicKey);
 		library.memzero(derivedSigning.privateKey);
 		if (
 			!library.memcmp(
@@ -172,9 +182,8 @@ export function destroyAccountKeys(keys: AccountKeys): void {
 
 export async function deviceFingerprint(publicKey: string): Promise<string> {
 	const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', fromBase64(publicKey, 32)));
-	return Array.from(digest.subarray(0, 12), (byte) => byte.toString(16).padStart(2, '0'))
-		.join('')
-		.match(/.{8}/g)!
+	return [digest.subarray(0, 4), digest.subarray(4, 8), digest.subarray(8, 12)]
+		.map((group) => Array.from(group, (byte) => byte.toString(16).padStart(2, '0')).join(''))
 		.join(' ')
 		.toUpperCase();
 }

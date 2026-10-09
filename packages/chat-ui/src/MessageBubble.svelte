@@ -116,7 +116,7 @@
 </script>
 
 {#snippet linkedText(text: string)}
-	{#each splitMessageText(text) as part}
+	{#each splitMessageText(text) as part, index (index)}
 		{#if part.href}<a
 				href={part.href}
 				rel="external"
@@ -280,7 +280,7 @@
 						<ContextMenu.Item disabled>Message deleted</ContextMenu.Item>
 					{:else}
 						<ContextMenu.Label>React to message</ContextMenu.Label>
-						{#each choices as choice}
+						{#each choices as choice (choice.emoji)}
 							<ContextMenu.Item onSelect={() => void toggleReaction(choice.emoji)}
 								><choice.icon class="size-4" />{choice.label}</ContextMenu.Item
 							>
@@ -312,7 +312,7 @@
 				</DropdownMenu.Trigger>
 				<DropdownMenu.Content align={own ? 'start' : 'end'}>
 					<DropdownMenu.Label>React</DropdownMenu.Label>
-					{#each choices as choice}
+					{#each choices as choice (choice.emoji)}
 						<DropdownMenu.Item onSelect={() => void toggleReaction(choice.emoji)}
 							><choice.icon class="size-4" />{choice.label}</DropdownMenu.Item
 						>

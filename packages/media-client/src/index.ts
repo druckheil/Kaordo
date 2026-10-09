@@ -163,12 +163,12 @@ function getUploadMimeType(type: string): string {
 }
 
 function getUploadIds(
-	result: { failed?: unknown[]; successful?: Array<{ uploadURL?: string }> } | undefined,
+	result: { failed?: unknown[]; successful?: { uploadURL?: string }[] } | undefined,
 	expectedCount: number,
 	baseUrl: string
 ): string[] {
 	const successful = result?.successful;
-	if (!successful || result?.failed?.length || successful.length !== expectedCount) {
+	if (!successful || result.failed?.length || successful.length !== expectedCount) {
 		throw new Error('One or more files could not be uploaded.');
 	}
 
@@ -200,7 +200,7 @@ async function waitForUpload(
 	deadline: number,
 	signal?: AbortSignal
 ): Promise<void> {
-	while (true) {
+	for (;;) {
 		signal?.throwIfAborted();
 		const metadata = await api.uploadMetadata(id, signal);
 		signal?.throwIfAborted();
@@ -220,7 +220,8 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
 		function cancel() {
 			clearTimeout(timer);
 			signal?.removeEventListener('abort', cancel);
-			reject(signal?.reason);
+			const cause: unknown = signal?.reason;
+			reject(cause instanceof Error ? cause : new DOMException('Aborted', 'AbortError'));
 		}
 		signal?.addEventListener('abort', cancel, { once: true });
 	});

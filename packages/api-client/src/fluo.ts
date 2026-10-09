@@ -98,7 +98,10 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
 			});
 			const settings = requireResponseData(data, error, response.status);
 			// Rotation is retried by the next post if this device cannot finish it now.
-			if (patch.privacy?.accountVisibility) await keys.refresh().catch(() => {});
+			if (patch.privacy?.accountVisibility)
+				await keys.refresh().catch(() => {
+					// The active post operation reports key errors; background synchronization is best effort
+				});
 			return settings;
 		},
 		async notifications(cursor?: string, signal?: AbortSignal): Promise<FluoNotificationPage> {
@@ -268,7 +271,10 @@ export function createFluoApi(apiBaseUrl: string, nodoBaseUrl: string) {
 				: await client.DELETE('/v1/fluo/users/{id}/follow', { params: { path: { id } }, signal });
 			requireResponseOk(result.response, result.error);
 			// A private author shares audience keys with newly followed accounts immediately.
-			if (following) await keys.refresh().catch(() => {});
+			if (following)
+				await keys.refresh().catch(() => {
+					// The active post operation reports key errors; background synchronization is best effort
+				});
 		},
 		async uploadMetadata(id: string, signal?: AbortSignal): Promise<NodoUpload | null> {
 			const { data, error, response } = await nodoClient.GET('/v1/uploads/{id}/meta', {

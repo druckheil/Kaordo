@@ -1,6 +1,12 @@
 <script lang="ts">
+	// Styles the accessible alert confirmation action with shared button variants
+
 	import { AlertDialog as AlertDialogPrimitive } from 'bits-ui';
-	import { buttonVariants, type ButtonVariant, type ButtonSize } from '../button/index.js';
+	import {
+		buttonVariants,
+		type ButtonVariant,
+		type ButtonSize
+	} from '../button/button-variants.js';
 	import { cn } from '../../../utils.js';
 
 	let {

@@ -12,7 +12,8 @@
 	import { createConversationState } from '@kaordo/chat-client';
 	import { createRondoVoiceState } from './voice-state.svelte.ts';
 	import MessageComposer from '@kaordo/chat-ui/message-composer';
-	import type MessageListComponent from '@kaordo/chat-ui/message-list';
+	import type { Component } from 'svelte';
+	import type { MessageListProps } from '@kaordo/chat-ui';
 	import { appPaths } from '@kaordo/links';
 	import {
 		formatRondoRoute,
@@ -33,8 +34,7 @@
 		PanelRightIcon,
 		PlusIcon,
 		SettingsIcon,
-		UsersIcon,
-		UserPlusIcon
+		UsersIcon
 	} from '@kaordo/ui';
 	import MemberPanel from './MemberPanel.svelte';
 	import VoiceStage from './VoiceStage.svelte';
@@ -54,7 +54,7 @@
 	let actionError = $state('');
 	let draft = $state('');
 	let files = $state<File[]>([]);
-	let LoadedMessageList = $state<typeof MessageListComponent | null>(null);
+	let LoadedMessageList = $state<Component<MessageListProps> | null>(null);
 	let messageViewError = $state(false);
 	let disposed = false;
 	let settingsOpen = $state(false);
@@ -131,7 +131,7 @@
 		if (!channel || LoadedMessageList || messageViewError) return;
 		void import('@kaordo/chat-ui/message-list')
 			.then(({ default: MessageList }) => {
-				if (!disposed) LoadedMessageList = MessageList;
+				if (!disposed) LoadedMessageList = MessageList as Component<MessageListProps>;
 			})
 			.catch(() => {
 				if (!disposed) messageViewError = true;
@@ -591,7 +591,7 @@
 								voiceState.error = '';
 								void voiceState.stop();
 							}}
-							onError={(message) => {
+							onError={(message: string) => {
 								voiceState.error = message;
 							}}
 						/>
@@ -709,7 +709,7 @@
 									personal={false}
 									group={true}
 									showReceipt={false}
-									hasMore={!!messagesQuery.hasNextPage}
+									hasMore={messagesQuery.hasNextPage}
 									loadingMore={messagesQuery.isFetchingNextPage}
 									loadOlder={async () => {
 										await messagesQuery.fetchNextPage();

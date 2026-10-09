@@ -17,7 +17,7 @@
 		nativeLanguage: LingvoDictionary['nativeLanguage'];
 		folders: LingvoFolder[];
 		saveLabel: string;
-		onApply(card: LingvoCardContent): void;
+		onApply(this: void, card: LingvoCardContent): void;
 	} = $props();
 	const id = $props.id();
 	const prompt = $derived(cardPrompt(card, nativeLanguage, folders));
@@ -130,7 +130,8 @@
 			value={manualPrompt}
 			readonly
 			rows={4}
-			onfocus={(event) => event.currentTarget.select()}
+			onfocus={(event: FocusEvent & { currentTarget: HTMLTextAreaElement }) =>
+				event.currentTarget.select()}
 			class="max-h-36 text-xs"
 		/>
 	{/if}

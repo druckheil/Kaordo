@@ -43,14 +43,20 @@
 		fixedWeeks
 		preventDeselect
 		locale="en-GB"
-		onValueChange={(value) => {
+		onValueChange={(value: DateValue | undefined) => {
 			if (value) {
 				onDate(value.toString());
 			}
 		}}
-		onPlaceholderChange={(value) => onMonth(value.toString().slice(0, 7))}
+		onPlaceholderChange={(value: DateValue) => onMonth(value.toString().slice(0, 7))}
 	>
-		{#snippet children({ months, weekdays })}
+		{#snippet children({
+			months,
+			weekdays
+		}: {
+			months: { value: DateValue; weeks: DateValue[][] }[];
+			weekdays: string[];
+		})}
 			<Calendar.Header class="mb-5 flex items-center justify-between gap-2">
 				<Calendar.Heading class="text-xl font-semibold tracking-tight" />
 				<div class="flex items-center gap-1">
@@ -64,19 +70,21 @@
 					>
 				</div>
 			</Calendar.Header>
-			{#each months as month}
+			{#each months as month (month.value.toString())}
 				<Calendar.Grid class="w-full table-fixed border-separate border-spacing-1">
 					<Calendar.GridHead
 						><Calendar.GridRow
-							>{#each weekdays as weekday}<Calendar.HeadCell
+							>{#each weekdays as weekday, index (index)}<Calendar.HeadCell
 									class="pb-3 text-center text-xs font-medium text-muted-foreground"
 									>{weekday}</Calendar.HeadCell
 								>{/each}</Calendar.GridRow
 						></Calendar.GridHead
 					>
 					<Calendar.GridBody
-						>{#each month.weeks as weekDates}<Calendar.GridRow>
-								{#each weekDates as date}
+						>{#each month.weeks as weekDates (weekDates
+							.map((day) => day.toString())
+							.join(','))}<Calendar.GridRow>
+								{#each weekDates as date (date.toString())}
 									{@const summary = summaryMap.get(date.toString())}
 									<Calendar.Cell {date} month={month.value} class="p-0 text-center">
 										<Calendar.Day
@@ -104,7 +112,7 @@
 	<div
 		class="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/60 pt-4 text-xs text-muted-foreground"
 	>
-		{#each categories as category}<span class="inline-flex items-center gap-1.5"
+		{#each categories as category (category.id)}<span class="inline-flex items-center gap-1.5"
 				><span class="size-2 rounded-full" style={`background:${category.color}`}
 				></span>{category.name}</span
 			>{/each}

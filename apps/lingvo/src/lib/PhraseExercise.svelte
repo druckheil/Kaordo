@@ -6,19 +6,25 @@
 	import { normalizeAnswer, phraseTokens } from '@kaordo/lingvo-client';
 	import { Button, CheckIcon, LightbulbIcon, Textarea, ToggleGroup } from '@kaordo/ui';
 
-	let { card, onReveal }: { card: LingvoCard; onReveal(correct: boolean, hinted: boolean): void } =
-		$props();
+	let {
+		card,
+		onReveal
+	}: { card: LingvoCard; onReveal(this: void, correct: boolean, hinted: boolean): void } = $props();
 	let mode = $state('arrange');
 	let chosen = $state<number[]>([]);
 	let written = $state('');
 	let hinted = $state(false);
 	let reducedMotion = $state(true);
-	const tiles = $derived(phraseTokens(card.term, card.id + ':' + card.revision));
+	const tiles = $derived(phraseTokens(card.term, `${card.id}:${card.revision}`));
 	const remaining = $derived(tiles.filter((tile) => !chosen.includes(tile.id)));
+	const chosenTiles = $derived(
+		chosen.flatMap((id) => {
+			const tile = tiles.find((item) => item.id === id);
+			return tile ? [tile] : [];
+		})
+	);
 	const answer = $derived(
-		mode === 'arrange'
-			? chosen.map((id) => tiles.find((tile) => tile.id === id)?.text).join(' ')
-			: written
+		mode === 'arrange' ? chosenTiles.map((tile) => tile.text).join(' ') : written
 	);
 	onMount(() => {
 		reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -44,7 +50,7 @@
 	<ToggleGroup.Root
 		type="single"
 		value={mode}
-		onValueChange={(value) => {
+		onValueChange={(value: string) => {
 			if (value) mode = value;
 		}}
 		aria-label="Phrase exercise"
@@ -64,15 +70,14 @@
 					Tap the words in the right order.
 				</p>{/if}
 			<div class="flex flex-wrap gap-2">
-				{#each chosen as id (id)}
-					{@const tile = tiles.find((item) => item.id === id)!}
+				{#each chosenTiles as tile (tile.id)}
 					<div animate:flip={{ duration: reducedMotion ? 0 : 180 }}>
 						<Button
 							variant="outline"
 							lang="de"
 							aria-label={'Remove ' + tile.text}
 							onclick={() => {
-								chosen = chosen.filter((item) => item !== id);
+								chosen = chosen.filter((item) => item !== tile.id);
 							}}>{tile.text}</Button
 						>
 					</div>
@@ -107,7 +112,7 @@
 			placeholder="Write the phrase in German…"
 		/>
 		<div class="flex justify-center gap-1.5" aria-label="German characters">
-			{#each ['ä', 'ö', 'ü', 'ß'] as character}<Button
+			{#each ['ä', 'ö', 'ü', 'ß'] as character (character)}<Button
 					variant="outline"
 					size="xs"
 					aria-label={'Insert ' + character}

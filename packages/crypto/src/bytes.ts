@@ -19,18 +19,21 @@ export async function readResponseBytes(
 	const bytes = new Uint8Array(expectedSize);
 	let offset = 0;
 	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
+		let chunk = await reader.read();
+		while (!chunk.done) {
+			const { value } = chunk;
 			if (offset + value.byteLength > expectedSize)
 				throw new Error('The attachment exceeds its expected size.');
 			bytes.set(value, offset);
 			offset += value.byteLength;
+			chunk = await reader.read();
 		}
 		if (offset !== expectedSize) throw new Error('The attachment is incomplete.');
 		return bytes;
 	} catch (cause) {
-		await reader.cancel().catch(() => {});
+		await reader.cancel().catch(() => {
+			// Preserve the download failure if cancellation also fails
+		});
 		throw cause;
 	} finally {
 		reader.releaseLock();

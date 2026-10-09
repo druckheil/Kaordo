@@ -13,6 +13,23 @@ const base64Bytes = (size: number) =>
 				return false;
 			}
 		});
+export const accountKeyBundleSchema = z.object({
+	version: z.literal(1),
+	ownerId: z.string(),
+	root: base64Bytes(32),
+	encryptionPublicKey: base64Bytes(32),
+	encryptionPrivateKey: base64Bytes(32),
+	signingPublicKey: base64Bytes(32),
+	signingPrivateKey: base64Bytes(64)
+});
+export const recoveryFileSchema = z.object({
+	format: z.literal('kaordo-recovery'),
+	version: z.literal(1),
+	ownerId: z.string(),
+	encryptionPublicKey: base64Bytes(32),
+	signingPublicKey: base64Bytes(32),
+	secret: base64Bytes(32)
+});
 export const contentEnvelopeSchema = z
 	.strictObject({
 		version: z.literal(1),

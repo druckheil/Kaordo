@@ -9,10 +9,10 @@
 <svelte:head><title>Ligo | Kaordo</title></svelte:head>
 
 <AccountGate appName="Ligo" returnPath={appPaths.ligo} environment={import.meta.env}>
-	{#snippet preview(account)}
+	{#snippet preview(account: import('@kaordo/account-ui').AccountPreview)}
 		<p>Welcome back, {account.displayName}. Loading your conversations…</p>
 	{/snippet}
-	{#snippet children(user)}
+	{#snippet children(user: import('@kaordo/contracts').UserIdentity)}
 		<LigoApp {user} />
 	{/snippet}
 </AccountGate>

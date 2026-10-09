@@ -82,6 +82,7 @@ export function createFluoSettingsState(
 		}, confirmed);
 	});
 	const failures = $derived.by(() => {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- The derived snapshot is built once and is never mutated by views
 		const latest = new Map<FluoSettingChange['field'], (typeof changes)[number]>();
 		for (const mutation of changes) {
 			if (mutation.change) latest.set(mutation.change.field, mutation);

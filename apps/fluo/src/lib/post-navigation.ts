@@ -40,9 +40,11 @@ export function postBackDestination(
 	const hash = isValidReturnHash(storedHash) ? storedHash : fallbackHash;
 	const returnThroughHistory =
 		Boolean(historySession) && historyState.kaordoFluoPost === historySession;
-	const cleanState = { ...historyState };
-
-	for (const key of postHistoryKeys) delete cleanState[key];
+	const cleanState = Object.fromEntries(
+		Object.entries(historyState).filter(
+			([key]) => !postHistoryKeys.some((historyKey) => historyKey === key)
+		)
+	);
 
 	return { view, hash, returnThroughHistory, cleanState };
 }

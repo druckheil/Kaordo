@@ -13,5 +13,5 @@
 >
 
 <AccountGate appName="Memoro" returnPath={appPaths.memoro} environment={import.meta.env}>
-	{#snippet children(user)}<MemoroApp {user} />{/snippet}
+	<MemoroApp />
 </AccountGate>

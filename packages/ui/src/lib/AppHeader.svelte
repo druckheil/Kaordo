@@ -29,7 +29,7 @@
 		actions,
 		showAllApps = true
 	}: Props = $props();
-	const contextualActions = getContext<HeaderActions>(headerActionsContext);
+	const contextualActions = getContext<HeaderActions | undefined>(headerActionsContext);
 	const accountActions = $derived(contextualActions?.());
 
 	const headerClass = $derived(

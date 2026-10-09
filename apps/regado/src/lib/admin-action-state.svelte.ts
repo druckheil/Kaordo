@@ -27,7 +27,6 @@ export function createAdminActionState({
 }: ActionDependencies) {
 	const form = $state({ intent: null as AdminIntent | null, reason: '', confirmation: '' });
 	const status = $state({ busy: false, operationError: '', actionError: '', notice: '' });
-	let disposed = false;
 	const lifetime = new AbortController();
 
 	function openIntent(next: AdminIntent): void {
@@ -39,23 +38,24 @@ export function createAdminActionState({
 	}
 
 	async function requestCopyCheck(path: string): Promise<void> {
-		if (disposed || status.busy) return;
+		if (status.busy) return;
 		status.busy = true;
 		status.operationError = '';
 		try {
+			lifetime.signal.throwIfAborted();
 			const result = await api.action(
 				'check-storage',
 				'Verify file copies, checksums and expired upload references',
 				{ target: path },
 				lifetime.signal
 			);
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			status.notice = result.output;
 			await refreshOverview();
 		} catch (cause) {
-			if (!disposed) status.operationError = errorMessage(cause);
+			if (!lifetime.signal.aborted) status.operationError = errorMessage(cause);
 		} finally {
-			if (!disposed) status.busy = false;
+			if (!lifetime.signal.aborted) status.busy = false;
 		}
 	}
 
@@ -63,7 +63,7 @@ export function createAdminActionState({
 		body: AdminLayoutRequest & { fingerprint: string; confirmation: string; reason: string }
 	): Promise<void> {
 		const result = await api.applyStorageLayout(body, lifetime.signal);
-		if (disposed) return;
+		lifetime.signal.throwIfAborted();
 		status.notice = result.output;
 		await refreshOverview();
 	}
@@ -96,24 +96,25 @@ export function createAdminActionState({
 
 	async function confirmIntent(): Promise<void> {
 		const selectedIntent = form.intent;
-		if (disposed || !selectedIntent || status.busy) return;
+		if (!selectedIntent || status.busy) return;
 
 		status.busy = true;
 		status.actionError = '';
 		status.operationError = '';
 		status.notice = '';
 		try {
+			lifetime.signal.throwIfAborted();
 			await performIntent(selectedIntent);
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			await Promise.all([
 				queryClient.invalidateQueries({ queryKey: ['regado', 'summary'] }),
 				queryClient.invalidateQueries({ queryKey: ['regado', 'audit'] })
 			]);
-			if (!disposed) form.intent = null;
+			if (!lifetime.signal.aborted) form.intent = null;
 		} catch (cause) {
-			if (!disposed) status.actionError = errorMessage(cause);
+			if (!lifetime.signal.aborted) status.actionError = errorMessage(cause);
 		} finally {
-			if (!disposed) status.busy = false;
+			if (!lifetime.signal.aborted) status.busy = false;
 		}
 	}
 
@@ -121,24 +122,24 @@ export function createAdminActionState({
 		switch (selected.type) {
 			case 'log-retention': {
 				const result = await api.setLogRetention(selected.days, form.reason, lifetime.signal);
-				if (disposed) return;
+				lifetime.signal.throwIfAborted();
 				status.notice = result.warning || 'Journal retention updated.';
 				await queryClient.invalidateQueries({ queryKey: ['regado', 'logs'] });
 				return;
 			}
 			case 'status':
 				await api.setStatus(selected.id, selected.disabled, form.reason, lifetime.signal);
-				if (disposed) return;
+				lifetime.signal.throwIfAborted();
 				status.notice = `${selected.name} ${selected.disabled ? 'disabled' : 'enabled'}.`;
 				await loadUsers();
 				return;
 			case 'role':
 				await api.setRole(selected.id, selected.isAdmin, form.reason, lifetime.signal);
-				if (disposed) return;
+				lifetime.signal.throwIfAborted();
 				status.notice = `Administrator role ${selected.isAdmin ? 'granted to' : 'revoked from'} @${selected.name}.`;
 				await loadUsers();
 				return;
-			case 'action':
+			case 'action': {
 				const result = await api.action(
 					selected.id,
 					form.reason,
@@ -149,9 +150,10 @@ export function createAdminActionState({
 					},
 					lifetime.signal
 				);
-				if (disposed) return;
+				lifetime.signal.throwIfAborted();
 				status.notice = result.output || `${selected.name} requested.`;
 				await refreshOverview();
+			}
 		}
 	}
 	return {
@@ -170,7 +172,6 @@ export function createAdminActionState({
 			status.operationError = '';
 		},
 		dispose() {
-			disposed = true;
 			lifetime.abort();
 		}
 	};

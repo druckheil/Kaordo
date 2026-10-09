@@ -2,10 +2,10 @@
 
 import 'photoswipe/style.css';
 
-type PhotoSwipeInstance = {
+interface PhotoSwipeInstance {
 	init: () => void;
 	destroy: () => void;
-};
+}
 
 export function mountPhotoSwipe(gallery: HTMLElement | undefined): () => void {
 	let active = true;

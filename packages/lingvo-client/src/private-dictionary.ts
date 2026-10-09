@@ -16,7 +16,6 @@ import type {
 	LingvoSchedule,
 	LingvoCatalog
 } from '@kaordo/contracts';
-import type { Grade } from 'ts-fsrs';
 
 interface Record<T> {
 	id: string;
@@ -33,7 +32,7 @@ interface RecordRepository {
 	): Promise<Record<unknown>[]>;
 }
 interface DictionaryState {
-	version: 1;
+	version: number;
 	dictionary: LingvoDictionary;
 	folders: LingvoFolder[];
 	cards: { id: string; revision: number }[];
@@ -75,7 +74,7 @@ export function createPrivateLingvoClient(
 	const cached = new Map<string, Record<LingvoCard>>();
 	lifetime?.addEventListener('abort', () => cached.clear(), { once: true });
 	async function readOne<T>(id: string, signal?: AbortSignal) {
-		return (await records.read<T>([id], signal))[0] ?? null;
+		return (await records.read<T>([id], signal)).at(0) ?? null;
 	}
 	async function index(signal?: AbortSignal): Promise<Record<LingvoDictionary[]>> {
 		return (
@@ -91,7 +90,7 @@ export function createPrivateLingvoClient(
 		signal?: AbortSignal
 	): Promise<{ meta: Record<DictionaryState>; cards: Record<LingvoCard>[] }> {
 		const meta = await readOne<DictionaryState>(metaId(id), signal);
-		if (!meta || meta.value.version !== 1 || meta.value.dictionary.id !== id)
+		if (meta?.value.version !== 1 || meta.value.dictionary.id !== id)
 			throw new Error('Dictionary not found.');
 		const missing = meta.value.cards.filter(
 			(item) => cached.get(cardId(id, item.id))?.revision !== item.revision
@@ -167,15 +166,12 @@ export function createPrivateLingvoClient(
 		input: LingvoNewDictionary,
 		signal?: AbortSignal
 	): Promise<LingvoDictionary> {
-		if (input.learningLanguage !== 'de' || !['en', 'ru'].includes(input.nativeLanguage))
+		const language: string = input.learningLanguage;
+		if (language !== 'de' || !['en', 'ru'].includes(input.nativeLanguage))
 			throw new Error('Choose German and a supported native language.');
 		new Intl.DateTimeFormat('en', { timeZone: input.timeZone });
 		const current = await index(signal);
-		const existing = current.value.find(
-			(item) =>
-				item.learningLanguage === input.learningLanguage &&
-				item.nativeLanguage === input.nativeLanguage
-		);
+		const existing = current.value.find((item) => item.nativeLanguage === input.nativeLanguage);
 		if (existing) return existing;
 		if (current.value.length >= 10)
 			throw new Error('An account can have up to ten language pairs.');
@@ -320,7 +316,7 @@ export function createPrivateLingvoClient(
 	): Promise<LingvoCard> {
 		const data = await load(id, signal);
 		const previous = data.cards.find((item) => item.value.id === itemId);
-		if (!previous || previous.value.revision !== input.revision) throw failure();
+		if (previous?.value.revision !== input.revision) throw failure();
 		const body = normalizeCard(input);
 		validateFolder(data.meta.value, body.folderId);
 		const card = { ...previous.value, ...body, revision: input.revision + 1 };
@@ -344,7 +340,7 @@ export function createPrivateLingvoClient(
 	): Promise<void> {
 		const data = await load(id, signal);
 		const previous = data.cards.find((item) => item.value.id === itemId);
-		if (!previous || previous.value.revision !== revision) throw failure();
+		if (previous?.value.revision !== revision) throw failure();
 		data.meta.value.cards = data.meta.value.cards.filter((item) => item.id !== itemId);
 		await commit(data.meta, [], [previous], signal);
 	}
@@ -354,7 +350,8 @@ export function createPrivateLingvoClient(
 		signal?: AbortSignal
 	): Promise<LingvoFolder> {
 		name = name.normalize('NFC').trim();
-		if (!name || [...name].length > 80) throw new Error('Use a folder name with 1–80 characters.');
+		if (!name || Array.from(name).length > 80)
+			throw new Error('Use a folder name with 1–80 characters.');
 		const meta = await readOne<DictionaryState>(metaId(id), signal);
 		if (!meta) throw new Error('Dictionary not found.');
 		if (meta.value.folders.some((folder) => folder.name.toLowerCase() === name.toLowerCase()))
@@ -392,7 +389,7 @@ export function createPrivateLingvoClient(
 		let skipped = 0;
 		const { initialSchedule } = await import('./scheduler.ts');
 		cards.forEach((content, index) => {
-			const sourceKey = input.setId + '/' + keys[index];
+			const sourceKey = `${String(input.setId)}/${keys[index]}`;
 			if (sourceKeys.has(sourceKey)) {
 				skipped++;
 				return;
@@ -465,7 +462,7 @@ export function createPrivateLingvoClient(
 			...card.value,
 			schedule: (await import('./scheduler.ts')).nextSchedule(
 				card.value.schedule,
-				input.rating as Grade,
+				input.rating,
 				now
 			),
 			revision: card.value.revision + 1
@@ -560,9 +557,9 @@ function normalizeCard(input: LingvoCardContent): LingvoCardContent {
 	if (
 		fields.some(
 			([value, min, max]) =>
-				[...value].length < min ||
-				[...value].length > max ||
-				/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)
+				Array.from(value).length < min ||
+				Array.from(value).length > max ||
+				/(?![\t\n\r])\p{Cc}/u.test(value)
 		)
 	)
 		throw new Error('Card text is empty, too long or contains unsupported control characters.');

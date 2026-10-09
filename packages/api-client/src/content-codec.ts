@@ -91,13 +91,14 @@ export function createContentCodec(baseUrl: string) {
 		for (const item of encrypted) {
 			const source = items.find((value) => value.id === item.id);
 			if (!source?.url) throw new Error('An encrypted media reference is unavailable.');
+			const url = source.url;
 			rememberMedia(item);
 			result.push({
 				...source,
 				...item,
-				url: item.kind === 'video' ? '' : await decryptMedia(item, source.url, signal),
+				url: item.kind === 'video' ? '' : await decryptMedia(item, url, signal),
 				...(item.kind === 'video' && !preview
-					? { loadURL: (signal: AbortSignal) => decryptMedia(item, source.url!, signal) }
+					? { loadURL: (signal: AbortSignal) => decryptMedia(item, url, signal) }
 					: {})
 			});
 		}

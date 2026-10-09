@@ -1,7 +1,7 @@
 // Persists opaque owner-only records through atomic ciphertext transactions
 import createClient from 'openapi-fetch';
 import type { paths } from '@kaordo/contracts';
-import { encryptionSession, privateCipher, type Ciphertext } from '@kaordo/crypto';
+import { encryptionSession, privateCipher } from '@kaordo/crypto';
 import { requireResponseData, sessionFetch } from './http.ts';
 
 export interface PrivateRecord<T> {
@@ -17,7 +17,9 @@ interface Change {
 export function createPrivateRecords(baseUrl: string, module: string) {
 	const session = encryptionSession();
 	const cipher = privateCipher(session.keys, session.ownerId, module, session.signal);
-	void cipher.catch(() => {});
+	void cipher.catch(() => {
+		// Reads and commits report initialization errors through the original promise
+	});
 	const client = createClient<paths>({ baseUrl, fetch: sessionFetch });
 	const tag = async (id: string) => (await cipher).index(id);
 	async function read<T>(ids: string[], signal?: AbortSignal): Promise<PrivateRecord<T>[]> {
@@ -58,11 +60,12 @@ export function createPrivateRecords(baseUrl: string, module: string) {
 			signal: signal ? AbortSignal.any([signal, session.signal]) : session.signal
 		});
 		const result = requireResponseData(data, error, response.status);
-		return writes.map((item, index) => ({
-			id: item.id,
-			revision: result.items.find((record) => record.tag === envelopes[index].tag)!.revision,
-			value: item.value
-		}));
+		const revisions = new Map(result.items.map((record) => [record.tag, record.revision]));
+		return writes.map((item, index) => {
+			const revision = revisions.get(envelopes[index].tag);
+			if (revision === undefined) throw new Error('The encrypted record commit is incomplete.');
+			return { id: item.id, revision, value: item.value };
+		});
 	}
 	return { read, commit, tag };
 }

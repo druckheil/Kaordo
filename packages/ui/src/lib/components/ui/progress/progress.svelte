@@ -26,6 +26,6 @@
 	<div
 		data-slot="progress-indicator"
 		class="size-full flex-1 bg-link transition-transform motion-reduce:transition-none"
-		style="transform: translateX(-{100 - (100 * (value ?? 0)) / (max ?? 1)}%)"
+		style="transform: translateX(-{100 - (100 * (value ?? 0)) / (max > 0 ? max : 1)}%)"
 	></div>
 </ProgressPrimitive.Root>

@@ -78,20 +78,21 @@ export function createConversationDialogState({
 	}
 
 	async function execute(command: ConversationCommand, fallback: string): Promise<void> {
-		if (lifetime.signal.aborted || busy) return;
+		if (busy) return;
 		busy = true;
 		error = '';
 		try {
+			lifetime.signal.throwIfAborted();
 			const conversation =
 				command.type === 'add'
 					? await api.addMembers(command.id, command.participantIds, lifetime.signal)
 					: await api.createConversation(command.input, lifetime.signal);
-			if (lifetime.signal.aborted) return;
+			lifetime.signal.throwIfAborted();
 			await Promise.all([
 				queryClient.invalidateQueries({ queryKey: ['ligo', 'conversations'] }),
 				queryClient.invalidateQueries({ queryKey: ['ligo', 'conversation', conversation.id] })
 			]);
-			if (lifetime.signal.aborted) return;
+			lifetime.signal.throwIfAborted();
 			onClose();
 			onSelect(conversation.id);
 		} catch (cause) {
@@ -141,10 +142,10 @@ export function createConversationDialogState({
 		toggleUser,
 		startDirectChat,
 		confirmGroupChange,
-		close() {
+		close(this: void) {
 			if (!busy) onClose();
 		},
-		dispose() {
+		dispose(this: void) {
 			lifetime.abort();
 			if (searchTimer) clearTimeout(searchTimer);
 		}

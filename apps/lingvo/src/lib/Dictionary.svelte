@@ -40,9 +40,9 @@
 		folders: LingvoFolder[];
 		kind: CardKind;
 		folder: string;
-		onEdit(card: LingvoCard): void;
-		onFilter(kind: CardKind, folder: string): void;
-		onStudy(): void;
+		onEdit(this: void, card: LingvoCard): void;
+		onFilter(this: void, kind: CardKind, folder: string): void;
+		onStudy(this: void): void;
 	} = $props();
 	const { api, queryClient, changed, notify } = getLingvoContext();
 	let searchInput = $state('');
@@ -90,9 +90,9 @@
 		return () => clearTimeout(timer);
 	});
 	$effect(() => {
-		kind;
-		folder;
-		status;
+		// Track filter changes independently of the current page offset
+		// eslint-disable-next-line @typescript-eslint/no-unused-expressions -- Explicit dependency reads limit this Svelte effect to the selected identity
+		[kind, folder, status];
 		offset = 0;
 	});
 	$effect(() => {
@@ -214,7 +214,7 @@
 		<ToggleGroup.Root
 			type="single"
 			value={kind}
-			onValueChange={(value) => {
+			onValueChange={(value: string) => {
 				if (value === 'word' || value === 'phrase') onFilter(value, folder);
 			}}
 			variant="outline"
@@ -228,7 +228,7 @@
 		<FolderPicker
 			{folders}
 			value={folder}
-			onValueChange={(value) => onFilter(kind, value)}
+			onValueChange={(value: string) => onFilter(kind, value)}
 			emptyLabel="All folders"
 			includeUnfiled
 		/>
@@ -242,7 +242,7 @@
 			>
 			<DropdownMenu.Content
 				><DropdownMenu.RadioGroup bind:value={status}
-					>{#each statuses as item}<DropdownMenu.RadioItem value={item.value}
+					>{#each statuses as item (item.value)}<DropdownMenu.RadioItem value={item.value}
 							>{item.label}</DropdownMenu.RadioItem
 						>{/each}</DropdownMenu.RadioGroup
 				></DropdownMenu.Content

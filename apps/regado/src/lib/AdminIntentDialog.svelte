@@ -22,7 +22,7 @@
 		onClose: () => void;
 	} = $props();
 
-	const requiredReasonLength = $derived(minimumReasonLength(intent));
+	const requiredReasonLength = minimumReasonLength;
 	const reasonLength = $derived(reason.trim().length);
 	const confirmationTarget = $derived(
 		intent?.type === 'action' && intent.id === 'configure-storage' ? (intent.target ?? '') : ''

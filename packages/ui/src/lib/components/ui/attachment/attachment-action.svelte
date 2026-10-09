@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { Button, type ButtonProps } from '../button/index.js';
+	// Renders attachment actions with the shared button variants
+	import Button from '../button/button.svelte';
+	import type { ButtonProps } from '../button/button-variants.js';
 	import { cn } from '../../../utils.js';
 
 	let {

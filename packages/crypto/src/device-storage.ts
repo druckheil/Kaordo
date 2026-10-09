@@ -1,5 +1,5 @@
 // Persists each device's private key under a nonextractable browser encryption key
-import { openDB } from 'idb';
+import { openDB, type DBSchema } from 'idb';
 import { createDeviceKeys, fromBase64, toBase64, type KeyPair } from './keys.ts';
 
 interface StoredDevice {
@@ -10,6 +10,14 @@ interface StoredDevice {
 	storageKey: CryptoKey;
 	accountPublicKey?: string;
 }
+interface PeerIdentity {
+	publicKey: string;
+	signingKey: string;
+}
+interface DeviceKeysSchema extends DBSchema {
+	devices: { key: string; value: StoredDevice };
+	peers: { key: string; value: PeerIdentity };
+}
 export interface LocalDevice {
 	id: string;
 	keys: KeyPair;
@@ -17,7 +25,7 @@ export interface LocalDevice {
 }
 
 async function database() {
-	return openDB('kaordo-device-keys', 2, {
+	return openDB<DeviceKeysSchema>('kaordo-device-keys', 2, {
 		upgrade(db) {
 			if (!db.objectStoreNames.contains('devices')) db.createObjectStore('devices');
 			if (!db.objectStoreNames.contains('peers')) db.createObjectStore('peers');
@@ -26,10 +34,11 @@ async function database() {
 }
 
 export async function localDevice(ownerId: string): Promise<LocalDevice> {
-	if (!globalThis.crypto?.subtle) throw new Error('Encryption requires HTTPS or localhost.');
+	// Browsers expose SubtleCrypto only in secure contexts
+	if (!globalThis.isSecureContext) throw new Error('Encryption requires HTTPS or localhost.');
 	const db = await database();
 	try {
-		let device: StoredDevice | undefined = await db.get('devices', ownerId);
+		let device = await db.get('devices', ownerId);
 		if (!device) {
 			const pair = await createDeviceKeys();
 			const storageKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
@@ -57,7 +66,6 @@ export async function localDevice(ownerId: string): Promise<LocalDevice> {
 			else await transaction.store.put(device, ownerId);
 			await transaction.done;
 		}
-		if (!device) throw new Error('Device storage could not be initialized.');
 		const privateKey = await crypto.subtle.decrypt(
 			{ name: 'AES-GCM', iv: device.nonce, additionalData: new TextEncoder().encode(ownerId) },
 			device.storageKey,
@@ -77,7 +85,7 @@ export async function pinAccountKey(ownerId: string, publicKey: string): Promise
 	const db = await database();
 	try {
 		const transaction = db.transaction('devices', 'readwrite');
-		const device = (await transaction.store.get(ownerId)) as StoredDevice;
+		const device = await transaction.store.get(ownerId);
 		if (!device || (device.accountPublicKey && device.accountPublicKey !== publicKey))
 			throw new Error('The account encryption identity changed.');
 		await transaction.store.put({ ...device, accountPublicKey: publicKey }, ownerId);
@@ -97,8 +105,7 @@ export async function pinPeerIdentity(
 	try {
 		const transaction = db.transaction('peers', 'readwrite');
 		const id = `${ownerId}:${peerId}`;
-		const previous = (await transaction.store.get(id)) as
-			{ publicKey: string; signingKey: string } | undefined;
+		const previous = await transaction.store.get(id);
 		if (previous && (previous.publicKey !== publicKey || previous.signingKey !== signingKey)) {
 			transaction.abort();
 			throw new Error(

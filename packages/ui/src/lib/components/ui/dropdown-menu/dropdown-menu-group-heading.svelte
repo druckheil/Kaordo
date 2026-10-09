@@ -1,14 +1,15 @@
 <script lang="ts">
+	// Styles the accessible dropdown-menu group heading
+
 	import { DropdownMenu as DropdownMenuPrimitive } from 'bits-ui';
 	import { cn } from '../../../utils.js';
-	import type { ComponentProps } from 'svelte';
 
 	let {
 		ref = $bindable(null),
 		class: className,
 		inset,
 		...restProps
-	}: ComponentProps<typeof DropdownMenuPrimitive.GroupHeading> & {
+	}: DropdownMenuPrimitive.GroupHeadingProps & {
 		inset?: boolean;
 	} = $props();
 </script>

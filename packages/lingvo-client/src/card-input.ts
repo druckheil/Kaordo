@@ -45,7 +45,7 @@ export function parseCardInput(
 
 	const card = emptyCard(kind, folderId);
 	for (const key of cardInputColumns)
-		if (row[key] !== undefined) Object.assign(card, { [key]: row[key]!.normalize('NFC').trim() });
+		if (row[key] !== undefined) Object.assign(card, { [key]: row[key].normalize('NFC').trim() });
 	card.kind = kind;
 	card.status = status as LingvoCardContent['status'];
 	card.partOfSpeech = part as LingvoCardContent['partOfSpeech'];
@@ -54,12 +54,9 @@ export function parseCardInput(
 		throw new Error('A German word or phrase and its translation are required.');
 	for (const key of Object.keys(cardTextLimits) as (keyof typeof cardTextLimits)[]) {
 		const text = card[key];
-		if (
-			[...text].length > cardTextLimits[key] ||
-			/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(text)
-		) {
+		if (Array.from(text).length > cardTextLimits[key] || /(?![\t\n])\p{Cc}/u.test(text)) {
 			throw new Error(
-				key + ' must contain valid text of at most ' + cardTextLimits[key] + ' characters.'
+				`${key} must contain valid text of at most ${cardTextLimits[key]} characters.`
 			);
 		}
 	}

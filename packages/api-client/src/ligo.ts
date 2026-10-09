@@ -69,7 +69,7 @@ export function createLigoApi(apiBaseUrl: string, nodoBaseUrl: string) {
 					id,
 					title:
 						input.kind === 'group'
-							? await content.title(input.title ?? '', input.participantIds ?? [], id)
+							? await content.title(input.title ?? '', input.participantIds, id)
 							: ''
 				},
 				signal
@@ -190,10 +190,11 @@ export function createLigoApi(apiBaseUrl: string, nodoBaseUrl: string) {
 				signal,
 				fetch: sessionFetch,
 				openWhenHidden: false,
-				async onopen(response) {
+				onopen(response) {
 					assertEventStreamResponse(response);
 					onConnection?.(true);
 					onHint(null); // catch writes between the initial list and subscription
+					return Promise.resolve();
 				},
 				onmessage(event) {
 					handleStreamEvent(event.event, event.data, onHint);

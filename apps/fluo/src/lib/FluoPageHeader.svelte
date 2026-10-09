@@ -54,7 +54,7 @@
 			role="group"
 			aria-label="Feed order"
 		>
-			{#each ['latest', 'following'] as tab}
+			{#each ['latest', 'following'] as tab (tab)}
 				{@const selectedFeed = tab as Feed}
 				<Button
 					variant={feed === selectedFeed ? 'secondary' : 'ghost'}

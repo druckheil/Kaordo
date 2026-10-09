@@ -10,7 +10,7 @@ const releaseModules = import.meta.glob<ReleaseNotes>('./changelog/releases/*.ts
 
 const releases = Object.entries(releaseModules)
 	.flatMap(([path, load]) => {
-		const version = path.match(/\/(v\d+\.\d+\.\d+)\.ts$/)?.[1];
+		const version = /\/(v\d+\.\d+\.\d+)\.ts$/.exec(path)?.[1];
 		return version ? [{ version, load }] : [];
 	})
 	.sort((left, right) => compareVersions(right.version, left.version));

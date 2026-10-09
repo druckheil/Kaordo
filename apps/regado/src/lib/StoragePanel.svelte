@@ -51,6 +51,7 @@
 			system?.mediaMaintenance?.state === 'repairing'
 	);
 	const pools = $derived.by(() => {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Grouping builds a fresh snapshot from query data
 		const grouped = new Map<string, AdminMount>();
 		for (const mount of system?.mounts ?? []) {
 			if (mount.fsType === 'btrfs' && mount.path !== '/') {
@@ -100,8 +101,8 @@
 				{device}
 				{pools}
 				report={system?.layoutReports?.find((report) => report.device === device.path)}
-				busy={Boolean(operationsBusy)}
-				onManage={(disk) => (selected = disk)}
+				busy={operationsBusy}
+				onManage={(disk: AdminDisk) => (selected = disk)}
 			/>{:else}<p class="text-sm text-muted-foreground">
 				{system ? 'No physical devices detected.' : 'Discovering devices…'}
 			</p>{/each}
@@ -167,7 +168,7 @@
 		<FileCopiesPanel
 			{system}
 			{pool}
-			actionBusy={Boolean(operationsBusy)}
+			actionBusy={operationsBusy}
 			onCheck={onCheckCopies}
 			onRepair={onRepairCopies}
 		/>

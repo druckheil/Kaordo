@@ -3,11 +3,13 @@ import {
 	createEmptyCard,
 	date_scheduler,
 	fsrs,
+	Rating,
+	State,
 	type Card,
 	type Grade,
 	type IPreview
 } from 'ts-fsrs';
-import type { LingvoSchedule } from '@kaordo/contracts';
+import type { LingvoSchedule, LingvoReview } from '@kaordo/contracts';
 
 const maximumInterval = 36500;
 const scheduler = fsrs({
@@ -28,7 +30,7 @@ export function reviewPreviews(schedule: LingvoSchedule, now = new Date()): IPre
 		scheduled_days: schedule.scheduledDays,
 		reps: schedule.reps,
 		lapses: schedule.lapses,
-		state: schedule.state,
+		state: [State.New, State.Learning, State.Review, State.Relearning][schedule.state],
 		learning_steps: schedule.learningSteps,
 		last_review: schedule.lastReview ? new Date(schedule.lastReview) : undefined
 	};
@@ -55,12 +57,12 @@ export function reviewIntervals(schedule: LingvoSchedule, now = new Date()): Rec
 
 function intervalLabel(due: Date, now: Date): string {
 	const minutes = Math.max(1, Math.round((due.getTime() - now.getTime()) / 60_000));
-	if (minutes < 60) return minutes + 'm';
-	if (minutes < 1440) return Math.round(minutes / 60) + 'h';
+	if (minutes < 60) return `${minutes}m`;
+	if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
 	const days = Math.max(1, Math.round(minutes / 1440));
-	if (days < 30) return days + 'd';
-	if (days < 365) return Math.round(days / 30) + 'mo';
-	return Math.round(days / 365) + 'y';
+	if (days < 30) return `${days}d`;
+	if (days < 365) return `${Math.round(days / 30)}mo`;
+	return `${Math.round(days / 365)}y`;
 }
 
 export function initialSchedule(now = new Date()): LingvoSchedule {
@@ -68,10 +70,12 @@ export function initialSchedule(now = new Date()): LingvoSchedule {
 }
 export function nextSchedule(
 	schedule: LingvoSchedule,
-	rating: Grade,
+	rating: LingvoReview['rating'],
 	now = new Date()
 ): LingvoSchedule {
-	return savedSchedule(reviewPreviews(schedule, now)[rating].card);
+	const grades = { 1: Rating.Again, 2: Rating.Hard, 3: Rating.Good, 4: Rating.Easy } as const;
+	const grade = grades[rating];
+	return savedSchedule(reviewPreviews(schedule, now)[grade].card);
 }
 function savedSchedule(card: Card): LingvoSchedule {
 	return {

@@ -29,6 +29,7 @@
 	}
 </script>
 
+<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- Profile hashes stay on the current route -->
 <a href={profileHashForUsername(username)} class={className} aria-label={label} onclick={open}
 	>{@render children()}</a
 >

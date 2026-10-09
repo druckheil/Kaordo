@@ -47,7 +47,6 @@ export function createRondoCommunityState({
 	let discoverTerm = $state('');
 	let inviteInput = $state('');
 	let inviteTerm = $state('');
-	let disposed = false;
 	const lifetime = new AbortController();
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 	let leaveOpen = $state(false);
@@ -101,10 +100,10 @@ export function createRondoCommunityState({
 
 		await runDialogAction(async () => {
 			const created = await rondo.create(input, lifetime.signal);
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			queryClient.setQueryData(['rondo', 'server', created.server.id], created);
 			await queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] });
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			dialog = null;
 			serverName = '';
 			serverDescription = '';
@@ -116,13 +115,13 @@ export function createRondoCommunityState({
 	async function joinServer(item: RondoServer) {
 		await runDialogAction(async () => {
 			const joined = await rondo.join(item.id, lifetime.signal);
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			queryClient.setQueryData(['rondo', 'server', item.id], joined);
 			await Promise.all([
 				queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] }),
 				queryClient.invalidateQueries({ queryKey: ['rondo', 'discover'] })
 			]);
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			dialog = null;
 			selectServer(item.id);
 			selectChannel(joined.channels[0]?.id ?? null);
@@ -136,9 +135,9 @@ export function createRondoCommunityState({
 
 		await runDialogAction(async () => {
 			const created = await rondo.createChannel(selectedServerId, name, lifetime.signal);
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			await queryClient.invalidateQueries({ queryKey: ['rondo', 'server', selectedServerId] });
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			dialog = null;
 			channelName = '';
 			selectChannel(created.id);
@@ -151,44 +150,46 @@ export function createRondoCommunityState({
 
 		await runDialogAction(async () => {
 			const updated = await rondo.invite(selectedServerId, userId, lifetime.signal);
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			queryClient.setQueryData(['rondo', 'server', selectedServerId], updated);
 			dialog = null;
 		});
 	}
 
 	async function runDialogAction(action: () => Promise<void>): Promise<void> {
-		if (disposed || dialogBusy) return;
+		if (dialogBusy) return;
 
 		dialogBusy = true;
 		dialogError = '';
 		try {
+			lifetime.signal.throwIfAborted();
 			await action();
 		} catch (error) {
-			if (!disposed) dialogError = errorMessage(error);
+			if (!lifetime.signal.aborted) dialogError = errorMessage(error);
 		} finally {
-			if (!disposed) dialogBusy = false;
+			if (!lifetime.signal.aborted) dialogBusy = false;
 		}
 	}
 
 	async function leaveServer() {
 		const serverToLeave = selectedServerIdValue();
-		if (disposed || !serverToLeave || dialogBusy) return;
+		if (!serverToLeave || dialogBusy) return;
 
 		dialogBusy = true;
 		try {
+			lifetime.signal.throwIfAborted();
 			await beforeLeave(serverToLeave);
 			await rondo.leave(serverToLeave, lifetime.signal);
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			queryClient.removeQueries({ queryKey: ['rondo', 'server', serverToLeave] });
 			await queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] });
-			if (disposed) return;
+			lifetime.signal.throwIfAborted();
 			onLeft();
 			leaveOpen = false;
 		} catch (error) {
-			if (!disposed) onActionError(errorMessage(error));
+			if (!lifetime.signal.aborted) onActionError(errorMessage(error));
 		} finally {
-			if (!disposed) dialogBusy = false;
+			if (!lifetime.signal.aborted) dialogBusy = false;
 		}
 	}
 
@@ -275,7 +276,6 @@ export function createRondoCommunityState({
 		leaveServer,
 		handleDialogOpenChange,
 		dispose() {
-			disposed = true;
 			lifetime.abort();
 			if (searchTimer) clearTimeout(searchTimer);
 		}

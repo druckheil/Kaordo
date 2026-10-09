@@ -9,7 +9,9 @@
 		type UserPresentationState
 	} from './user-presentation-context.ts';
 
-	type Image = { url: string };
+	interface Image {
+		url: string;
+	}
 	let {
 		user,
 		image,

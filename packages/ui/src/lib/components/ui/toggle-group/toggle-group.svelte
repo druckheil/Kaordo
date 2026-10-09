@@ -1,19 +1,7 @@
-<script lang="ts" module>
-	// Shares Rhea toggle-group variants through reactive context
-
-	import { createContext } from 'svelte';
-	import type { ToggleVariants } from '../toggle/index.js';
-
-	type ToggleGroupContext = Required<ToggleVariants> & {
-		spacing: number;
-	};
-
-	export const [getToggleGroupContext, setToggleGroupContext] = createContext<ToggleGroupContext>();
-</script>
-
 <script lang="ts">
 	// Composes native selection with shared Rhea styling
-
+	import type { ToggleGroupVariants } from './toggle-group-variants.js';
+	import { setToggleGroupContext } from './toggle-group-context.js';
 	import { ToggleGroup as ToggleGroupPrimitive } from 'bits-ui';
 	import { cn } from '../../../utils.js';
 
@@ -27,7 +15,7 @@
 		variant = 'default',
 		...restProps
 	}: ToggleGroupPrimitive.RootProps &
-		ToggleVariants & {
+		ToggleGroupVariants & {
 			spacing?: number;
 		} = $props();
 

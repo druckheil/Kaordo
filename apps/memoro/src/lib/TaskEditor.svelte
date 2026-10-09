@@ -45,12 +45,11 @@
 		label="Task text"
 		placeholder="What would you like to do?"
 		{pending}
-		onChange={() => {}}
 	/>
 	<fieldset>
 		<legend class="mb-2 text-sm font-medium">Category</legend>
 		<RadioGroup.Root bind:value={task.category} class="flex flex-wrap gap-2" disabled={pending}>
-			{#each categories as category}<label
+			{#each categories as category (category.id)}<label
 					class="flex cursor-pointer items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm transition-colors has-[[data-state=checked]]:border-primary/50 has-[[data-state=checked]]:bg-primary/5"
 					><RadioGroup.Item value={category.id} /><span
 						class="size-2.5 rounded-full"
@@ -74,7 +73,7 @@
 					/></DropdownMenu.Trigger
 				><DropdownMenu.Content class="w-(--bits-dropdown-menu-anchor-width)"
 					><DropdownMenu.RadioGroup bind:value={task.status}
-						>{#each statuses as status}<DropdownMenu.RadioItem value={status.value}
+						>{#each statuses as status (status.value)}<DropdownMenu.RadioItem value={status.value}
 								>{status.label}</DropdownMenu.RadioItem
 							>{/each}</DropdownMenu.RadioGroup
 					></DropdownMenu.Content

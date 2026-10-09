@@ -13,7 +13,8 @@
 	} from '@kaordo/ui';
 	import { errorMessage, getLingvoContext } from './lingvo-context';
 
-	let { dictionary, onClose }: { dictionary: LingvoDictionary; onClose(): void } = $props();
+	let { dictionary, onClose }: { dictionary: LingvoDictionary; onClose(this: void): void } =
+		$props();
 	const { api, queryClient, changed, notify } = getLingvoContext();
 	const id = $props.id();
 	let goal = $state(untrack(() => dictionary.dailyGoal));
@@ -93,7 +94,7 @@
 						}}
 						aria-label="Suggested daily goals"
 					>
-						{#each [5, 10, 20, 30, 50] as value}
+						{#each [5, 10, 20, 30, 50] as value (value)}
 							<label
 								for={`${id}-goal-${value}`}
 								class="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-border bg-card py-2.5 text-xs font-semibold transition-[background-color,border-color,box-shadow] has-focus-visible:ring-2 has-focus-visible:ring-ring/35 has-data-[state=checked]:border-primary/35 has-data-[state=checked]:bg-primary/10 has-data-[state=checked]:shadow-sm motion-reduce:transition-none"

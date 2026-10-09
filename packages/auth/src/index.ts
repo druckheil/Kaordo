@@ -112,9 +112,9 @@ async function createInitializedClient(config: AuthConfig, checkSession = true):
 }
 
 function toAuthSession(client: Keycloak): AuthSession {
-	const username = client.tokenParsed?.preferred_username;
+	const username: unknown = client.tokenParsed?.preferred_username;
 	return {
-		authenticated: Boolean(client.authenticated),
+		authenticated: client.authenticated,
 		subject: client.tokenParsed?.sub,
 		username: typeof username === 'string' ? username : undefined
 	};

@@ -43,6 +43,7 @@ export async function updateFluoProfileCache(
 	if (signal.aborted) return;
 	const key = fluoProfileKeys.profile(profile.username);
 	await queryClient.cancelQueries({ queryKey: key });
+	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The signal can abort while awaiting query cancellation
 	if (!signal.aborted) queryClient.setQueryData(key, profile);
 }
 

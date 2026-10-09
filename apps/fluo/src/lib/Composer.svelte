@@ -32,10 +32,10 @@
 		onCancel: () => void;
 	} = $props();
 
-	let element: HTMLDivElement;
-	let draftViewport: HTMLDivElement;
+	let element = $state<HTMLDivElement | null>(null);
+	let draftViewport = $state<HTMLDivElement | null>(null);
 	let viewportHeight = 0;
-	let fileInput: HTMLInputElement;
+	let fileInput = $state<HTMLInputElement | null>(null);
 	let optionsButton = $state<HTMLElement | null>(null);
 	let editor = $state.raw<Editor | null>(null);
 	let textLength = $state(0);
@@ -61,6 +61,7 @@
 	});
 
 	onMount(() => {
+		if (!element) return;
 		let active = true;
 		let instance: Editor | undefined;
 		void createComposerEditor(element, replyTo, (length) => (textLength = length), addFiles)

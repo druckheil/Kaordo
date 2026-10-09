@@ -105,7 +105,7 @@
 	<ContextMenu.Trigger
 		class="block w-full rounded-[1.5rem] select-text"
 		aria-label={`Post by @${post.author.username}`}
-		oncontextmenu={(event) => event.stopPropagation()}
+		oncontextmenu={(event: MouseEvent) => event.stopPropagation()}
 	>
 		<article
 			data-post-id={post.id}
@@ -113,12 +113,14 @@
 			class:fluo-reply={compact}
 			aria-label={'Post by ' + post.author.username}
 		>
+			<!-- eslint-disable svelte/no-navigation-without-resolve -- Post hashes stay on the current route -->
 			<a
 				href={postHashForId(post.id)}
 				class="absolute inset-0 z-0 cursor-pointer rounded-[inherit] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
 				aria-label={`Open post by @${post.author.username}`}
 				onclick={openPostFromCard}
 			></a>
+			<!-- eslint-enable svelte/no-navigation-without-resolve -->
 			{@render threadContext?.()}
 			<header
 				id={focusTarget ? `fluo-focused-post-${post.id}` : undefined}
@@ -177,7 +179,7 @@
 							<DropdownMenu.Separator />
 							<DropdownMenu.Label>Change visibility</DropdownMenu.Label>
 							<DropdownMenu.RadioGroup
-								bind:value={() => post.visibility, (value) => void changeVisibility(value)}
+								bind:value={() => post.visibility, (value: string) => void changeVisibility(value)}
 							>
 								<DropdownMenu.RadioItem value="public" disabled={visibilityChanging}>
 									Public
@@ -220,7 +222,7 @@
 				{post}
 				onReply={() => onReply(post)}
 				onQuote={() => onQuote(post)}
-				onReact={(value) => onReact(post, value)}
+				onReact={(value: FluoPost['myReaction']) => onReact(post, value)}
 				onSave={() => onSave(post)}
 				{showReplyAction}
 			/>
@@ -238,7 +240,7 @@
 			<ContextMenu.Separator />
 			<ContextMenu.Label>Change visibility</ContextMenu.Label>
 			<ContextMenu.RadioGroup
-				bind:value={() => post.visibility, (value) => void changeVisibility(value)}
+				bind:value={() => post.visibility, (value: string) => void changeVisibility(value)}
 			>
 				<ContextMenu.RadioItem value="public" disabled={visibilityChanging}>
 					Public

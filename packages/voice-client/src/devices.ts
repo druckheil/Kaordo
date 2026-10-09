@@ -18,7 +18,8 @@ export function listVoiceDevices(
 }
 
 export async function chooseSpeaker(): Promise<MediaDeviceInfo | null> {
-	const devices = navigator.mediaDevices;
+	const devices: MediaDevices & { selectAudioOutput?: () => Promise<MediaDeviceInfo> } =
+		navigator.mediaDevices;
 	if ('selectAudioOutput' in devices && typeof devices.selectAudioOutput === 'function') {
 		return devices.selectAudioOutput();
 	}
@@ -108,7 +109,10 @@ export class MicrophoneCheck {
 		this.track?.stop();
 		this.source?.disconnect();
 		this.analyser?.disconnect();
-		if (this.context) void this.context.close().catch(() => {});
+		if (this.context)
+			void this.context.close().catch(() => {
+				// Device tracks are already stopped; a closed audio context needs no further cleanup
+			});
 		this.track = null;
 		this.context = null;
 		this.source = null;

@@ -24,10 +24,8 @@ export async function importCSV(file: File, folderId: string | null): Promise<Li
 			return parseCardInput(row, folderId);
 		} catch (cause) {
 			throw new Error(
-				'Row ' +
-					(index + 2) +
-					': ' +
-					(cause instanceof Error ? cause.message : 'Invalid card content.')
+				`Row ${index + 2}: ${cause instanceof Error ? cause.message : 'Invalid card content.'}`,
+				{ cause }
 			);
 		}
 	});

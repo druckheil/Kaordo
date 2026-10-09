@@ -30,7 +30,9 @@ import {
 export function createMemoroRepository(apiBaseUrl: string, nodoBaseUrl: string) {
 	const session = encryptionSession();
 	const cipher = privateCipher(session.keys, session.ownerId, 'memoro', session.signal);
-	void cipher.catch(() => {});
+	void cipher.catch(() => {
+		// Repository operations surface the initialization error when they await the cipher
+	});
 	const api = createMemoroApi(apiBaseUrl, nodoBaseUrl);
 	const queries = new QueryClient({ defaultOptions: { queries: { gcTime: 60_000 } } });
 	const mediaURLs = new Map<string, string>();
@@ -49,7 +51,7 @@ export function createMemoroRepository(apiBaseUrl: string, nodoBaseUrl: string) 
 		const c = await cipher;
 		const index = await monthTag(month);
 		const summaries = await shared(
-			queries.fetchQuery({
+			queries.query({
 				...memoroMonthOptions(api, index),
 				queryFn: ({ signal: request }) =>
 					api.month(index, AbortSignal.any([request, session.signal]))
@@ -62,7 +64,7 @@ export function createMemoroRepository(apiBaseUrl: string, nodoBaseUrl: string) 
 					await c.openJSON<unknown>(value, `summary:${value.dayTag}`)
 				);
 				if (
-					!summary.date?.startsWith(month + '-') ||
+					!summary.date.startsWith(month + '-') ||
 					!Array.isArray(summary.colors) ||
 					value.dayTag !== (await tag(summary.date))
 				)
@@ -79,7 +81,7 @@ export function createMemoroRepository(apiBaseUrl: string, nodoBaseUrl: string) 
 		const dayTag = await tag(date);
 		if (reload) await queries.invalidateQueries({ queryKey: memoroKeys.day(dayTag) });
 		const record = await shared(
-			queries.fetchQuery({
+			queries.query({
 				...memoroDayOptions(api, dayTag),
 				queryFn: ({ signal: request }) =>
 					api.day(dayTag, AbortSignal.any([request, session.signal]))

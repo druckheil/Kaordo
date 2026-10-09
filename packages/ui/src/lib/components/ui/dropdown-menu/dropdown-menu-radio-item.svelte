@@ -1,4 +1,6 @@
 <script lang="ts">
+	// Renders an accessible dropdown-menu radio item and its selection indicator
+
 	import { DropdownMenu as DropdownMenuPrimitive } from 'bits-ui';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import { cn, type WithoutChild } from '../../../utils.js';
@@ -22,7 +24,7 @@
 	)}
 	{...restProps}
 >
-	{#snippet children({ checked })}
+	{#snippet children({ checked }: { checked: boolean })}
 		<span
 			class="pointer-events-none absolute right-2 flex items-center justify-center"
 			data-slot="dropdown-menu-radio-item-indicator"

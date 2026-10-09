@@ -33,7 +33,6 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
 	let monthRequest: AbortController | undefined;
 	let monthVersion = 0;
 	let visibleMonth = initialDate.slice(0, 7);
-	let disposed = false;
 	const lifetime = new AbortController();
 	const serialized = $derived(JSON.stringify(document));
 	const dirty = $derived(!loading && (serialized !== snapshot || journalFiles.length > 0));
@@ -46,7 +45,7 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
 			!dirty ||
 			!available ||
 			saving ||
-			disposed ||
+			lifetime.signal.aborted ||
 			`${serialized}:${journalFiles.length}` === failed
 		)
 			return;
@@ -66,18 +65,20 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
 				month,
 				AbortSignal.any([request.signal, lifetime.signal])
 			);
-			if (!disposed && version === monthVersion) summaries = result;
+			if (!lifetime.signal.aborted && version === monthVersion) summaries = result;
 		} catch (cause) {
-			if (!disposed && !request.signal.aborted && version === monthVersion) error = message(cause);
+			if (!lifetime.signal.aborted && !request.signal.aborted && version === monthVersion)
+				error = message(cause);
 		} finally {
-			if (!disposed && version === monthVersion) monthLoading = false;
+			if (!lifetime.signal.aborted && version === monthVersion) monthLoading = false;
 		}
 	}
 	async function loadDate(date: string, reload = false) {
-		if (saving || disposed) return;
+		if (saving || lifetime.signal.aborted) return;
 		dateRequest?.abort();
 		const request = new AbortController();
 		dateRequest = request;
+		const signal = AbortSignal.any([request.signal, lifetime.signal]);
 		clearDrafts(journalFiles);
 		journalFiles = [];
 		repository.clearMedia();
@@ -92,12 +93,8 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
 		feedback = '';
 		mediaError = '';
 		try {
-			const result = await repository.day(
-				date,
-				reload,
-				AbortSignal.any([request.signal, lifetime.signal])
-			);
-			request.signal.throwIfAborted();
+			const result = await repository.day(date, reload, signal);
+			signal.throwIfAborted();
 			clearDrafts(journalFiles);
 			journalFiles = [];
 			repository.clearMedia();
@@ -108,9 +105,9 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
 			record = result.record;
 			loading = false;
 			available = true;
-			void loadMedia(request.signal);
+			void loadMedia(signal);
 		} catch (cause) {
-			if (!request.signal.aborted && !disposed) {
+			if (!signal.aborted) {
 				error = message(cause);
 				loading = false;
 			}
@@ -119,13 +116,13 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
 	async function loadMedia(signal: AbortSignal) {
 		try {
 			const result = await repository.media(document, record, signal);
-			if (!disposed && !signal.aborted) attachments = result;
+			if (!lifetime.signal.aborted && !signal.aborted) attachments = result;
 		} catch (cause) {
-			if (!disposed && !signal.aborted) mediaError = message(cause);
+			if (!lifetime.signal.aborted && !signal.aborted) mediaError = message(cause);
 		}
 	}
 	function save(task?: Task, files: DraftAttachment[] = []): Promise<boolean> {
-		if (saving || loading || !available || disposed) return Promise.resolve(false);
+		if (saving || loading || !available || lifetime.signal.aborted) return Promise.resolve(false);
 		current = persist(task, files);
 		return current;
 	}
@@ -197,13 +194,13 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
 			void loadMedia(dateRequest?.signal ?? lifetime.signal);
 			return true;
 		} catch (cause) {
-			if (!disposed) {
+			if (!lifetime.signal.aborted) {
 				error = message(cause);
 				failed = `${serialized}:${journalFiles.length}`;
 			}
 			return false;
 		} finally {
-			if (!disposed) saving = false;
+			if (!lifetime.signal.aborted) saving = false;
 		}
 	}
 	async function removeTask(id: string) {
@@ -217,7 +214,6 @@ export function createMemoroState(apiBaseUrl: string, nodoBaseUrl: string, initi
 		await save();
 	}
 	onDestroy(() => {
-		disposed = true;
 		lifetime.abort();
 		dateRequest?.abort();
 		monthRequest?.abort();

@@ -37,8 +37,8 @@
 		kind: CardKind;
 		folder: string;
 		paused?: boolean;
-		onExit(): void;
-		onLibrary(): void;
+		onExit(this: void): void;
+		onLibrary(this: void): void;
 	} = $props();
 	const { api, queryClient, changed, notify } = getLingvoContext();
 	const pronunciation = new Pronunciation();
@@ -91,8 +91,9 @@
 	const nextDue = $derived(counts?.nextDue);
 
 	$effect(() => {
-		active?.id;
-		active?.revision;
+		// Restore question focus only when the active card changes
+		// eslint-disable-next-line @typescript-eslint/no-unused-expressions -- Explicit dependency reads limit this Svelte effect to the selected identity
+		[active?.id, active?.revision];
 		untrack(() => {
 			if (active)
 				void tick().then(() => {
@@ -256,13 +257,13 @@
 					<DropdownMenu.Content align="end"
 						><DropdownMenu.Label>Practice direction</DropdownMenu.Label><DropdownMenu.RadioGroup
 							value={mode}
-							onValueChange={(value) => {
+							onValueChange={(value: string) => {
 								if (!busy && !pending) {
 									mode = value;
 									resetAnswer();
 								}
 							}}
-							>{#each modes as item}<DropdownMenu.RadioItem value={item.value}
+							>{#each modes as item (item.value)}<DropdownMenu.RadioItem value={item.value}
 									>{item.label}</DropdownMenu.RadioItem
 								>{/each}</DropdownMenu.RadioGroup
 						></DropdownMenu.Content
@@ -272,7 +273,7 @@
 		</div>
 	</div>
 	{#if active}
-		{#key active.id + ':' + active.revision}
+		{#key `${active.id}:${active.revision}`}
 			<div in:fly={{ y: reducedMotion ? 0 : 12, duration: reducedMotion ? 0 : 200 }}>
 				<div
 					class="card-scene"
@@ -307,7 +308,7 @@
 								</p>
 								<PhraseExercise
 									card={active}
-									onReveal={(answerCorrect, usedHint) => {
+									onReveal={(answerCorrect: boolean, usedHint: boolean) => {
 										correct = answerCorrect;
 										hinted = usedHint;
 										revealed = true;
@@ -327,7 +328,7 @@
 											class="size-20 rounded-full shadow-md"
 											size="icon-lg"
 											aria-label="Play German word"
-											onclick={() => speak(germanTerm(active!))}
+											onclick={() => speak(germanTerm(active))}
 											><HeadphonesIcon class="size-8" /></Button
 										>
 										<p class="text-sm text-muted-foreground">Listen, then think of the meaning.</p>
@@ -346,7 +347,7 @@
 											class="mx-auto"
 											variant="ghost"
 											aria-label="Play German pronunciation"
-											onclick={() => speak(germanTerm(active!))}
+											onclick={() => speak(germanTerm(active))}
 											><Volume2Icon class="size-5" />Listen</Button
 										>{/if}
 								{/if}
@@ -373,7 +374,7 @@
 									variant="ghost"
 									size="icon-sm"
 									aria-label="Play German pronunciation"
-									onclick={() => speak(germanTerm(active!))}><Volume2Icon class="size-5" /></Button
+									onclick={() => speak(germanTerm(active))}><Volume2Icon class="size-5" /></Button
 								>
 							</div>
 							<CardDefinition card={active} nativeLanguage={dictionary.nativeLanguage} />
@@ -399,7 +400,7 @@
 					role="group"
 					aria-label="Rate your recall"
 				>
-					{#each ratings as rating}
+					{#each ratings as rating (rating.value)}
 						<Button
 							variant={rating.value === 3 ? 'default' : 'outline'}
 							class={`h-auto min-h-16 flex-col gap-1 py-3 ${rating.value === 1 ? 'border-destructive/25 text-destructive' : ''}`}
@@ -452,9 +453,7 @@
 			</h2>
 			<p class="mt-3 max-w-sm text-sm leading-6 text-muted-foreground">
 				{completed
-					? 'You completed ' +
-						completed +
-						(completed === 1 ? ' review.' : ' reviews.') +
+					? `You completed ${completed}${completed === 1 ? ' review.' : ' reviews.'}` +
 						' Your next cards will appear when they are due.'
 					: counts?.total
 						? 'Add a few new cards from the library or return when your next review is ready.'

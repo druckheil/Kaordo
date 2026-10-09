@@ -2,9 +2,9 @@
 	// Presents the calendar, selected-day tasks and private journal without retaining plaintext in storage
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { beforeNavigate, goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { getLocalTimeZone, today, parseDate } from '@internationalized/date';
-	import type { UserIdentity } from '@kaordo/contracts';
 	import { categories, emptyTask, type Task } from '@kaordo/memoro-client';
 	import { RichText, type DraftAttachment } from '@kaordo/editor-ui';
 	import { MediaGallery } from '@kaordo/media-ui';
@@ -28,7 +28,6 @@
 	import TaskEditor from './TaskEditor.svelte';
 	import { createMemoroState, clearDrafts } from './memoro-state.svelte';
 
-	let { user }: { user: UserIdentity } = $props();
 	const todayDate = today(getLocalTimeZone()).toString();
 	function validDate(raw: string | null) {
 		try {
@@ -99,7 +98,7 @@
 
 	async function navigate(next: string) {
 		if (next === date || !(await diary.flush())) return;
-		await goto(`${appPaths.memoro}?date=${next}`, { noScroll: true, keepFocus: true });
+		await goto(resolve(`/?date=${next}`), { noScroll: true, keepFocus: true });
 	}
 	async function continueNavigation() {
 		if (!pendingNavigation) return;
@@ -109,7 +108,10 @@
 		confirmedNavigation = true;
 		try {
 			if (target.external) window.location.assign(target.url);
-			else await goto(target.url, { noScroll: true });
+			else {
+				// eslint-disable-next-line svelte/no-navigation-without-resolve -- beforeNavigate supplies the fully resolved destination URL
+				await goto(target.url, { noScroll: true });
+			}
 		} finally {
 			if (!target.external) confirmedNavigation = false;
 		}
@@ -223,7 +225,8 @@
 					class="kaordo-scrollbar max-h-[38rem] space-y-3 overflow-y-auto overscroll-contain pr-1"
 				>
 					{#each tasks as task (task.id)}
-						{@const category = categories.find((category) => category.id === task.category)!}
+						{@const category =
+							categories.find((category) => category.id === task.category) ?? categories[4]}
 						<li class="memoro-enter rounded-2xl border border-border/70 bg-background p-4">
 							<div class="flex items-start gap-3">
 								<Button
@@ -305,7 +308,6 @@
 					label="Daily journal text"
 					placeholder="What would you like to remember about today?"
 					pending={diary.saving}
-					onChange={() => {}}
 				/>{/key}{/if}
 		{#if diary.mediaError}<p role="alert" class="mt-3 text-sm text-destructive">
 				{diary.mediaError}

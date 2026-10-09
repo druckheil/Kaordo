@@ -15,7 +15,8 @@ export async function assertAvailablePorts(services) {
 		} catch (cause) {
 			if (cause?.code === 'EADDRINUSE') {
 				throw new Error(
-					`${name} cannot start: 127.0.0.1:${port} is already in use. Stop the existing server before running pnpm dev again.`
+					`${name} cannot start: 127.0.0.1:${port} is already in use. Stop the existing server before running pnpm dev again.`,
+					{ cause }
 				);
 			}
 			throw cause;

@@ -60,7 +60,8 @@
 
 	function observeReplyEnd(node: HTMLDivElement) {
 		const observer = new IntersectionObserver(
-			([entry]) => {
+			(entries) => {
+				const entry = entries.at(0);
 				if (entry?.isIntersecting) void fetchNextReplies();
 			},
 			{ rootMargin: '320px 0px' }

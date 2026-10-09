@@ -1,5 +1,5 @@
 // Encrypts chat messages and group titles while preserving Ligo's delivery and pagination models
-import type { LigoConversation, LigoMessage, LigoNewMessage, LigoMedia } from '@kaordo/contracts';
+import type { LigoConversation, LigoMessage, LigoNewMessage } from '@kaordo/contracts';
 import { z } from 'zod';
 import {
 	envelopeText,
@@ -18,7 +18,7 @@ const bodySchema = z.strictObject({
 	text: z
 		.string()
 		.max(8000)
-		.refine((value) => [...value].length <= 4000),
+		.refine((value) => Array.from(value).length <= 4000),
 	media: z.array(encryptedMediaSchema).max(8)
 });
 const unavailableMessage = 'This message is unavailable on this device.';
@@ -50,7 +50,7 @@ export function createLigoContent(codec: ContentCodec) {
 		return {
 			...value,
 			text: body.text,
-			media: (await codec.media(value.media, body.media, signal)) as LigoMedia[]
+			media: await codec.media(value.media, body.media, signal)
 		};
 	}
 	async function conversation(value: LigoConversation): Promise<LigoConversation> {
@@ -71,7 +71,7 @@ export function createLigoContent(codec: ContentCodec) {
 				context
 			);
 			title = body.title ?? body.name ?? '';
-			if (typeof title !== 'string' || !title.trim() || [...title].length > 100)
+			if (typeof title !== 'string' || !title.trim() || Array.from(title).length > 100)
 				throw new Error('The encrypted conversation title is damaged.');
 		}
 		const last = value.lastMessage;
@@ -91,7 +91,7 @@ export function createLigoContent(codec: ContentCodec) {
 		return { ...value, title, lastMessage: { ...last, text } };
 	}
 	async function encode(id: string, input: LigoNewMessage) {
-		if ([...input.text].length > 4000)
+		if (Array.from(input.text).length > 4000)
 			throw new Error('A message can contain up to 4,000 characters.');
 		const body = {
 			text: input.text,
@@ -104,7 +104,8 @@ export function createLigoContent(codec: ContentCodec) {
 		};
 	}
 	async function edit(id: string, messageId: string, text: string) {
-		if ([...text].length > 4000) throw new Error('A message can contain up to 4,000 characters.');
+		if (Array.from(text).length > 4000)
+			throw new Error('A message can contain up to 4,000 characters.');
 		const previous = decoded.get(messageId);
 		if (!previous) throw new Error('Reload this message before editing it.');
 		return envelopeText(
@@ -117,7 +118,8 @@ export function createLigoContent(codec: ContentCodec) {
 		);
 	}
 	async function title(title: string, participantIds: string[], id: string) {
-		if ([...title].length > 100) throw new Error('Use up to 100 characters for a group title.');
+		if (Array.from(title).length > 100)
+			throw new Error('Use up to 100 characters for a group title.');
 		const users = await Promise.all(
 			[...new Set([encryptionSession().ownerId, ...participantIds])].map((id) => codec.identity(id))
 		);
