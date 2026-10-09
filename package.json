@@ -31,7 +31,7 @@
 		"deploy:pages:production": "node scripts/deploy-pages.mjs",
 		"deploy:production": "node scripts/deploy-production.mjs",
 		"test:deploy": "node --test scripts/deploy-production.test.mjs",
-		"check:front": "pnpm -r --filter \"@kaordo/*\" check",
+		"check:front": "pnpm -r --filter \"@kaordo/*\" run check",
 		"test:pages": "pnpm build:pages && node --test scripts/pages.test.mjs scripts/build-pages-config.test.mjs",
 		"test:ui-layout": "node --test scripts/media-layout.test.mjs scripts/ligo-message-layout.test.mjs",
 		"test:ui-public": "pnpm build:pages && playwright test --project=browser ui-public.test.mjs",
@@ -44,7 +44,8 @@
 		"test:ui:browsers": "playwright test --config=playwright.audit.config.mjs",
 		"test:integration": "KAORDO_START_SERVICES=1 playwright test --project=live --workers=1 --reporter=line",
 		"lint": "eslint .",
-		"lint:go": "for module in kerno nodo mediaauth regado-agent; do (cd services/$module && golangci-lint run --config ../../.golangci.yml ./...) || exit 1; done"
+		"lint:go": "for module in kerno nodo mediaauth regado-agent; do (cd services/$module && golangci-lint run --config ../../.golangci.yml ./...) || exit 1; done",
+		"knip": "knip"
 	},
 	"devDependencies": {
 		"@axe-core/playwright": "^4.13.0",

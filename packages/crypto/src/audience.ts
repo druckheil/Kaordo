@@ -16,7 +16,7 @@ export interface FluoEnvelope {
 	keyring: KeyRef[];
 	signature: string;
 }
-export const fluoTextPrefix = 'kaordo:fluo:v1:';
+const fluoTextPrefix = 'kaordo:fluo:v1:';
 
 export function isFluoEnvelope(value: unknown): value is FluoEnvelope {
 	return fluoEnvelopeSchema.safeParse(value).success;

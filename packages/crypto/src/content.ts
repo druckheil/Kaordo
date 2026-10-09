@@ -8,7 +8,7 @@ export interface PublicIdentity {
 	encryptionPublicKey: string;
 	signingPublicKey: string;
 }
-export interface RecipientKey {
+interface RecipientKey {
 	userId: string;
 	key: string;
 }
@@ -26,7 +26,7 @@ export interface Audience {
 	public: boolean;
 	users: PublicIdentity[];
 }
-export const encryptedTextPrefix = 'kaordo:e2ee:v1:';
+const encryptedTextPrefix = 'kaordo:e2ee:v1:';
 export function isContentEnvelope(value: unknown): value is ContentEnvelope {
 	return contentEnvelopeSchema.safeParse(value).success;
 }

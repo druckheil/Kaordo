@@ -1,6 +1,6 @@
 // Defines the data contract shared by each versioned release note module
 
-export interface ReleaseNoteSection {
+interface ReleaseNoteSection {
 	heading: string;
 	changes: readonly string[];
 }

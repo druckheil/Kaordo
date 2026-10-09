@@ -139,7 +139,7 @@ export async function signDeviceTransfer(
 		)
 	);
 }
-export function deviceTransferMessage(
+function deviceTransferMessage(
 	ownerId: string,
 	deviceId: string,
 	publicKey: string,

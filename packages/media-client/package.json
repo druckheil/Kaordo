@@ -14,16 +14,15 @@
 		}
 	},
 	"dependencies": {
-		"@kaordo/crypto": "workspace:*",
 		"@kaordo/auth": "workspace:*",
 		"@kaordo/contracts": "workspace:*",
+		"@kaordo/crypto": "workspace:*",
 		"@uppy/core": "^6.1.0",
 		"@uppy/tus": "^6.0.0",
 		"pica": "^10.0.3",
 		"tus-js-client": "4.3.1"
 	},
 	"devDependencies": {
-		"@types/pica": "^9.0.5",
 		"typescript": "^6.0.3"
 	},
 	"scripts": {

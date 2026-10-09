@@ -1,7 +1,7 @@
 // Validates cryptographic envelopes and attachment descriptors before allocating or opening data
 import { z } from 'zod';
 const id = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-export const base64Bytes = (size: number) =>
+const base64Bytes = (size: number) =>
 	z
 		.base64()
 		.length(Math.ceil(size / 3) * 4)

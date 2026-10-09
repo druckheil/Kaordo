@@ -14,14 +14,17 @@
 		"svelte": "^5.0.0"
 	},
 	"dependencies": {
-		"@kaordo/crypto": "workspace:*",
-		"@kaordo/auth": "workspace:*",
 		"@kaordo/api-client": "workspace:*",
+		"@kaordo/auth": "workspace:*",
 		"@kaordo/contracts": "workspace:*",
+		"@kaordo/crypto": "workspace:*",
 		"@kaordo/ui": "workspace:*",
 		"@tanstack/svelte-query": "^6.3.0"
 	},
 	"scripts": {
 		"check": "svelte-check --tsconfig ./tsconfig.json"
+	},
+	"devDependencies": {
+		"svelte": "^5.57.1"
 	}
 }

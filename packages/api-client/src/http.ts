@@ -16,7 +16,7 @@ export async function sessionFetch(
 	return authorizedFetch(request.clone());
 }
 
-export function apiError(error: unknown, status: number): Error {
+function apiError(error: unknown, status: number): Error {
 	return new Error(apiErrorDetail(error) ?? `Request failed (${status}).`);
 }
 

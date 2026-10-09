@@ -21,7 +21,7 @@ export const logPriorities = [
 	{ value: '6', label: 'Info' }
 ] as const;
 export type LogPriority = (typeof logPriorities)[number]['value'];
-export type AdminSystemAction = Parameters<AdminApi['action']>[0];
+type AdminSystemAction = Parameters<AdminApi['action']>[0];
 export const restartActions = {
 	nodo: 'restart-nodo',
 	livekit: 'restart-livekit',

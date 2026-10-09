@@ -472,8 +472,9 @@ importers:
       '@tanstack/svelte-query':
         specifier: ^6.3.0
         version: 6.3.0(svelte@5.57.1(@typescript-eslint/types@8.71.1))
+    devDependencies:
       svelte:
-        specifier: ^5.0.0
+        specifier: ^5.57.1
         version: 5.57.1(@typescript-eslint/types@8.71.1)
 
   packages/api-client:
@@ -550,8 +551,9 @@ importers:
       '@kaordo/ui':
         specifier: workspace:*
         version: link:../ui
+    devDependencies:
       svelte:
-        specifier: ^5.0.0
+        specifier: ^5.57.1
         version: 5.57.1(@typescript-eslint/types@8.71.1)
 
   packages/contracts:
@@ -602,8 +604,9 @@ importers:
       '@tiptap/starter-kit':
         specifier: ^3.31.3
         version: 3.31.3
+    devDependencies:
       svelte:
-        specifier: ^5.0.0
+        specifier: ^5.57.1
         version: 5.57.1(@typescript-eslint/types@8.71.1)
 
   packages/lingvo-client:
@@ -648,9 +651,6 @@ importers:
         specifier: 4.3.1
         version: 4.3.1
     devDependencies:
-      '@types/pica':
-        specifier: ^9.0.5
-        version: 9.0.5
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -672,12 +672,13 @@ importers:
       photoswipe:
         specifier: ^5.4.4
         version: 5.4.4
-      svelte:
-        specifier: ^5.0.0
-        version: 5.57.1(@typescript-eslint/types@8.71.1)
       vidstack:
         specifier: ^1.15.6
         version: 1.15.6
+    devDependencies:
+      svelte:
+        specifier: ^5.57.1
+        version: 5.57.1(@typescript-eslint/types@8.71.1)
 
   packages/memoro-client:
     dependencies:
@@ -1689,9 +1690,6 @@ packages:
 
   '@types/papaparse@5.5.2':
     resolution: {integrity: sha512-gFnFp/JMzLHCwRf7tQHrNnfhN4eYBVYYI897CGX4MY1tzY9l2aLkVyx2IlKZ/SAqDbB3I1AOZW5gTMGGsqWliA==}
-
-  '@types/pica@9.0.5':
-    resolution: {integrity: sha512-OSd4905yxFNtRanHuyyQAfC9AkxiYcbhlzP606Gl6rFcYRgq4vdLCZuYKokLQBihgrkNzyPkoeykvJDWcPjaCw==}
 
   '@types/retry@0.12.2':
     resolution: {integrity: sha512-XISRgDJ2Tc5q4TRqvgJtzsRkFYNJzZrhTdtMoGVBttwzzQJkPnS3WWTFc7kuDRoPtPakl+T+OfdEUjYJj7Jbow==}
@@ -3875,8 +3873,6 @@ snapshots:
   '@types/papaparse@5.5.2':
     dependencies:
       '@types/node': 26.6.4
-
-  '@types/pica@9.0.5': {}
 
   '@types/retry@0.12.2': {}
 
