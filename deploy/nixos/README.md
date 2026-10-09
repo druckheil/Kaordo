@@ -55,9 +55,12 @@ The release with device-held encryption replaces the old SQL files with versione
 
 ```sh
 sudo -u kaordo psql -d kaordo -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+sudo systemctl stop nodo
+sudo find /srv/kaordo/media -mindepth 1 -delete
+sudo systemctl start nodo
 ```
 
-The running Kerno fails requests until the deployment replaces it. Afterwards sign in once, grant `admin` and the verification badge again (below), and let Nodo garbage collection remove the orphaned media within a day.
+Every uploaded file loses its database reference, so the media directory is cleared too. The running Kerno fails requests until the deployment replaces it. Afterwards sign in once and grant `admin` and the verification badge again (below).
 
 ## Operations
 

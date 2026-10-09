@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -15,7 +15,7 @@ import (
 
 type uploadQuota struct {
 	mu         sync.Mutex
-	directory  string
+	root       *os.Root
 	maxUploads int
 	maxBytes   int64
 	pending    map[string]usage
@@ -23,12 +23,12 @@ type uploadQuota struct {
 	indexed    map[string]indexedUpload
 }
 
-func newUploadQuota(config Config) (*uploadQuota, error) {
-	used, indexed, err := loadQuotaUsage(config.Directory)
+func newUploadQuota(root *os.Root, config Config) (*uploadQuota, error) {
+	used, indexed, err := loadQuotaUsage(root)
 	if err != nil {
 		return nil, err
 	}
-	return &uploadQuota{directory: config.Directory, maxUploads: config.MaxOwnerUploads,
+	return &uploadQuota{root: root, maxUploads: config.MaxOwnerUploads,
 		maxBytes: config.MaxOwnerBytes, pending: make(map[string]usage), used: used, indexed: indexed}, nil
 }
 
@@ -49,8 +49,8 @@ type indexedUpload struct {
 	size  int64
 }
 
-func loadQuotaUsage(directory string) (map[string]usage, map[string]indexedUpload, error) {
-	files, err := os.ReadDir(directory)
+func loadQuotaUsage(root *os.Root) (map[string]usage, map[string]indexedUpload, error) {
+	files, err := fs.ReadDir(root.FS(), ".")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -61,16 +61,15 @@ func loadQuotaUsage(directory string) (map[string]usage, map[string]indexedUploa
 		if !strings.HasSuffix(file.Name(), ".info") {
 			continue
 		}
-		if err := indexUploadMetadata(directory, file.Name(), used, indexed); err != nil {
+		if err := indexUploadMetadata(root, file.Name(), used, indexed); err != nil {
 			return nil, nil, err
 		}
 	}
 	return used, indexed, nil
 }
 
-func indexUploadMetadata(directory, name string, used map[string]usage, indexed map[string]indexedUpload) error {
-	path := filepath.Join(directory, name)
-	data, err := os.ReadFile(path)
+func indexUploadMetadata(root *os.Root, name string, used map[string]usage, indexed map[string]indexedUpload) error {
+	data, err := root.ReadFile(name)
 	if err != nil {
 		return fmt.Errorf("read upload metadata %s: %w", name, err)
 	}
@@ -130,7 +129,7 @@ func (quota *uploadQuota) indexCompletedUpload(entry *reservation) {
 		return
 	}
 
-	_, err := os.Stat(filepath.Join(quota.directory, entry.id+".info"))
+	_, err := quota.root.Stat(entry.id + ".info")
 	_, indexed := quota.indexed[entry.id]
 	// An unreadable .info file may still occupy quota. Count it until startup reconciliation.
 	if indexed || (err != nil && errors.Is(err, os.ErrNotExist)) {
@@ -159,7 +158,7 @@ func (quota *uploadQuota) removeFiles(id string) error {
 	quota.mu.Lock()
 	defer quota.mu.Unlock()
 
-	if err := removeUploadFiles(quota.directory, id); err != nil {
+	if err := removeUploadFiles(quota.root, id); err != nil {
 		return err
 	}
 	quota.removeFromUsageIndex(id)

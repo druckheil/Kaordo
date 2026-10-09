@@ -92,7 +92,7 @@ func validUploadMetadata(id string, item ligo.Media, complete bool) bool {
 	switch item.Kind {
 	case "file":
 		return item.Width == 0 && item.Height == 0 && item.Filename != "" && item.MimeType == "application/octet-stream"
-	case "image", "video":
+	case "image":
 		return validMediaDimensions(item.Width, item.Height)
 	default:
 		return false
@@ -109,9 +109,6 @@ func (client Client) Validate(ctx context.Context, bearer, id string) (fluo.Medi
 		return fluo.Media{}, err
 	}
 	// Post attachments are opaque encrypted files; profile images remain public photos.
-	if item.Kind != "image" && item.Kind != "video" && item.Kind != "file" {
-		return fluo.Media{}, errors.New("attachment must be a photo, video or encrypted file")
-	}
 	return fluo.Media{ID: item.ID, Kind: item.Kind, MimeType: item.MimeType,
 		Width: item.Width, Height: item.Height, Size: item.Size}, nil
 }

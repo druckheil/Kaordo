@@ -48,7 +48,7 @@ pnpm --filter @kaordo/contracts generate
 pnpm test:unit
 pnpm test:pages
 pnpm test:ui
-pnpm test:integration # static apps built; Docker, ffmpeg and restic available; pnpm dev stopped
+pnpm test:integration # static apps built; Docker and restic available; pnpm dev stopped
 pnpm test:product:db # local application database running
 pnpm test:auth:live # pnpm dev running
 pnpm test:backup:live # both local database containers running

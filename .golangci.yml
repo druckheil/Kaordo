@@ -26,6 +26,7 @@ linters:
         - (*database/sql.DB).Close
         - os.Remove
         - os.RemoveAll
+        - (*os.Root).Remove
     gocognit:
       min-complexity: 20
     revive:
@@ -46,9 +47,6 @@ linters:
       # Kerno and Regado: user-facing messages travel in error text instead of typed errors.
       - path: (admin/operations|fluo/profile|httpapi/attachment_inputs|agent/partition_plan|agent/partition_apply)\.go
         text: (error-strings|ST1005)
-      # Nodo: file access moves to os.Root confined to the data directory.
-      - path: nodo/internal/upload/
-        text: (G304|G703)
       # Functions above the cognitive complexity limit, split during their module pass.
       - linters: [gocognit]
         text: func `(\(SettingsPatch\)\.Validate|encryptionAudience|\(\*Ligo\)\.UpdateEncryptedTitle|\(\*Memoro\)\.SaveDay|readDiskLayouts|assignPartitionRoles|layoutPoolPreflight|activateRoleArea|planExistingDevice|validatedRepartSteps|countPoolFilesMeasured|collectMounts)`

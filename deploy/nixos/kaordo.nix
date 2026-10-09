@@ -112,7 +112,7 @@ in
     };
   };
 
-  environment.systemPackages = with pkgs; [ btrfs-progs disko e2fsprogs ffmpeg-headless nodejs restic smartmontools ];
+  environment.systemPackages = with pkgs; [ btrfs-progs disko e2fsprogs nodejs restic smartmontools ];
 
   services.postgresql = {
     enable = true;
@@ -187,7 +187,6 @@ in
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
     unitConfig.RequiresMountsFor = dataRoot;
-    path = [ pkgs.ffmpeg-headless ];
     serviceConfig = {
       User = "kaordo";
       Group = "kaordo";

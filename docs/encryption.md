@@ -15,10 +15,9 @@ usernames. Content made public — public posts of a public account and public
 communities — is readable by anyone who can see it, including the server
 operator.
 
-Deploying this model recreates the application database once (see
+Deploying this model recreates the application database and media once (see
 [production](../deploy/nixos/README.md#upgrading-from-003)); Keycloak accounts remain.
-Nodo garbage collection removes media whose claims disappeared. Older database
-backups can still contain plaintext and are an operator responsibility.
+Older backups can still contain plaintext and are an operator responsibility.
 
 This is an implementation description, not a security certification.
 

@@ -21,8 +21,10 @@ func maintenanceFixture(t *testing.T, references http.HandlerFunc) *Server {
 	kerno := httptest.NewServer(references)
 	t.Cleanup(kerno.Close)
 	ctx, cancel := context.WithCancel(context.Background())
-	server := &Server{config: Config{Directory: t.TempDir(), KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}, ctx: ctx, cancel: cancel}
-	server.quota = &uploadQuota{directory: server.config.Directory}
+	directory := t.TempDir()
+	root := testRoot(t, directory)
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))},
+		root: root, quota: &uploadQuota{root: root}, ctx: ctx, cancel: cancel}
 	server.handler = server.routes()
 	t.Cleanup(server.Close)
 	return server
@@ -64,19 +66,19 @@ func TestMaintenanceClassifiesOrphansAndPreservesFreshReferencedAndUnknownFiles(
 	if err != nil || check.Files != 13 || check.SurplusFiles != 4 || check.UnverifiedFiles != 1 || check.SurplusBytes != 16 {
 		t.Fatalf("check = %+v / %v", check, err)
 	}
-	if _, err := os.Stat(server.displayPath(orphan)); err != nil {
+	if _, err := os.Stat(filepath.Join(server.config.Directory, displayName(orphan))); err != nil {
 		t.Fatal("read-only check removed files")
 	}
 	repaired, err := server.auditStorage(context.Background(), true)
 	if err != nil || repaired.RemovedFiles != 4 || repaired.RemovedBytes != 16 {
 		t.Fatalf("repair = %+v / %v", repaired, err)
 	}
-	for _, path := range []string{server.displayPath(used), server.displayPath(fresh), unknown} {
+	for _, path := range []string{filepath.Join(server.config.Directory, displayName(used)), filepath.Join(server.config.Directory, displayName(fresh)), unknown} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("protected file removed: %s", path)
 		}
 	}
-	if _, err := os.Stat(server.displayPath(orphan)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(server.config.Directory, displayName(orphan))); !os.IsNotExist(err) {
 		t.Fatal("expired orphan not removed")
 	}
 }
@@ -104,7 +106,7 @@ func TestMaintenanceRetainsFilesOnReferenceFailureOrFreshReference(t *testing.T)
 			if report.RemovedFiles != 0 {
 				t.Fatal("uncertain upload deleted")
 			}
-			if _, err := os.Stat(server.displayPath(id)); err != nil {
+			if _, err := os.Stat(filepath.Join(server.config.Directory, displayName(id))); err != nil {
 				t.Fatal("surviving file removed")
 			}
 		})
@@ -124,7 +126,7 @@ func TestMaintenanceNoticesMissingMediaAndRechecksFreshness(t *testing.T) {
 	if removed, err := server.removeIfUnreferenced(context.Background(), id); err != nil || removed {
 		t.Fatalf("freshness recheck = %t / %v", removed, err)
 	}
-	if err := os.Remove(server.displayPath(id)); err != nil {
+	if err := os.Remove(filepath.Join(server.config.Directory, displayName(id))); err != nil {
 		t.Fatal(err)
 	}
 	report, err := server.auditStorage(context.Background(), false)

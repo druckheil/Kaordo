@@ -26,7 +26,7 @@ pnpm exec playwright install chromium --only-shell
 pnpm test:ui
 pnpm lint:go && pnpm test:go
 pnpm test:product:db  # application PostgreSQL container running
-pnpm test:integration # Docker, ffmpeg and restic installed; ports free; pnpm dev stopped
+pnpm test:integration # Docker and restic installed; ports free; pnpm dev stopped
 ```
 
 `test:integration` starts `dev-local.mjs --static` through Playwright's `webServer` and stops it on exit. CI also removes the Compose volumes. With `pnpm dev` already running, `pnpm test:auth:live` and `pnpm test:backup:live` run the live journeys against it. On one machine, run `test:unit` before `test:integration`, because the launcher tests briefly hold the same ports.

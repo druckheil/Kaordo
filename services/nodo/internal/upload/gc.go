@@ -4,9 +4,9 @@ package upload
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"log"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -14,7 +14,7 @@ const uploadRetention = 24 * time.Hour
 const uploadAcceptance = uploadRetention - time.Hour
 
 func (server *Server) uploadExpired(id string) bool {
-	info, err := os.Stat(filepath.Join(server.config.Directory, id+".info"))
+	info, err := server.root.Stat(id + ".info")
 	// Stop accepting a file before garbage collection can remove unclaimed bytes.
 	// Kerno has time to commit its media claim after validation.
 	return err != nil || time.Since(info.ModTime()) > uploadAcceptance
@@ -35,13 +35,13 @@ func (server *Server) cleanupLoop() {
 }
 
 func (server *Server) garbageCollect(ctx context.Context) {
-	entries, err := os.ReadDir(server.config.Directory)
+	entries, err := fs.ReadDir(server.root.FS(), ".")
 	if err != nil {
 		log.Printf("Nodo cleanup scan failed: %v", err)
 		return
 	}
 
-	for _, id := range expiredUploadIDs(server.config.Directory, entries) {
+	for _, id := range expiredUploadIDs(server.root, entries) {
 		if ctx.Err() != nil {
 			return
 		}
@@ -49,11 +49,11 @@ func (server *Server) garbageCollect(ctx context.Context) {
 	}
 }
 
-func expiredUploadIDs(directory string, entries []os.DirEntry) []string {
+func expiredUploadIDs(root *os.Root, entries []fs.DirEntry) []string {
 	seen := make(map[string]struct{})
 	ids := make([]string, 0)
 	for _, entry := range entries {
-		id, expired := expiredUploadID(directory, entry)
+		id, expired := expiredUploadID(root, entry)
 		if !expired {
 			continue
 		}
@@ -66,13 +66,13 @@ func expiredUploadIDs(directory string, entries []os.DirEntry) []string {
 	return ids
 }
 
-func expiredUploadID(directory string, entry os.DirEntry) (string, bool) {
+func expiredUploadID(root *os.Root, entry fs.DirEntry) (string, bool) {
 	if entry.IsDir() {
 		return "", false
 	}
 	name := entry.Name()
 	id := uploadIDFromFilename(name)
-	if id == "" || !isCanonicalGCEntry(directory, id, name) {
+	if id == "" || !isCanonicalGCEntry(root, id, name) {
 		return "", false
 	}
 
@@ -83,8 +83,8 @@ func expiredUploadID(directory string, entry os.DirEntry) (string, bool) {
 	return id, true
 }
 
-func isCanonicalGCEntry(directory, id, name string) bool {
-	_, err := os.Stat(filepath.Join(directory, id+".info"))
+func isCanonicalGCEntry(root *os.Root, id, name string) bool {
+	_, err := root.Stat(id + ".info")
 	if err == nil {
 		return name == id+".info"
 	}
@@ -98,23 +98,23 @@ func (server *Server) cleanupExpiredUpload(ctx context.Context, id string) {
 }
 
 func (server *Server) gcEligible(id string) (bool, error) {
-	info, err := os.Lstat(filepath.Join(server.config.Directory, id+".info"))
+	info, err := server.root.Lstat(id + ".info")
 	if err == nil {
 		return info.Mode().IsRegular() && time.Since(info.ModTime()) > uploadRetention, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
-	paths, err := filepath.Glob(filepath.Join(server.config.Directory, id+"*"))
+	names, err := fs.Glob(server.root.FS(), id+"*")
 	if err != nil {
 		return false, err
 	}
 	found := false
-	for _, path := range paths {
-		if uploadIDFromFilename(filepath.Base(path)) != id {
+	for _, name := range names {
+		if uploadIDFromFilename(name) != id {
 			continue
 		}
-		info, err := os.Lstat(path)
+		info, err := server.root.Lstat(name)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}

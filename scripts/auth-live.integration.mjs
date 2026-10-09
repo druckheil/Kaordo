@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseEnv, promisify } from 'node:util';
@@ -1906,98 +1906,69 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
 		await twoPhotoComposer.waitFor({ state: 'detached' });
 
 		let videoPostId;
-		const videoDirectory = await mkdtemp(join(tmpdir(), 'kaordo-fluo-video-'));
-		try {
-			const videoPath = join(videoDirectory, 'preview.mp4');
-			await run('ffmpeg', [
-				'-hide_banner',
-				'-loglevel',
-				'error',
-				'-nostdin',
-				'-y',
-				'-f',
-				'lavfi',
-				'-i',
-				'color=c=red:s=320x180:r=12',
-				'-t',
-				'1',
-				'-an',
-				'-c:v',
-				'libx264',
-				'-preset',
-				'ultrafast',
-				'-pix_fmt',
-				'yuv420p',
-				'-movflags',
-				'+faststart',
-				videoPath
-			]);
-			const videoText = `Fluo video preview test ${randomBytes(4).toString('hex')}`;
-			const videoComposer = await openComposer();
-			await videoComposer.locator('[contenteditable=true]').fill(videoText);
-			await videoComposer.getByLabel('Choose photos or videos').setInputFiles({
-				name: 'fluo-test.mp4',
-				mimeType: 'video/mp4',
-				buffer: await readFile(videoPath)
-			});
-			const videoPostResponsePromise = page.waitForResponse((response) =>
-				isApiResponse(response, '/v1/fluo/posts', 'POST')
-			);
-			await videoComposer.getByRole('button', { name: 'Post', exact: true }).click();
-			const videoPostResponse = await videoPostResponsePromise;
-			assert.equal(videoPostResponse.status(), 201, 'Fluo must publish a video attachment');
-			const videoPost = await videoPostResponse.json();
-			await videoComposer.waitFor({ state: 'detached' });
-			videoPostId = videoPost.id;
-			const videoContent = await openPublicPost(videoPost.content);
-			assert.equal(videoContent.media[0].kind, 'video');
-			assert.equal(videoContent.media[0].width, 320);
-			assert.equal(videoContent.media[0].height, 180);
-			assert.equal(videoPost.media[0].kind, 'file', 'The server must retain opaque file metadata');
-			assert.equal(videoPost.media[0].width, 0);
-			const videoCard = page.locator(`article[data-post-id="${videoPost.id}"]`);
-			await videoCard.getByRole('button', { name: 'Load encrypted video', exact: true }).click();
-			const videoPlayer = videoCard.locator('media-player[data-testid="fluo-video-player"]');
-			await videoPlayer.waitFor();
-			const video = videoPlayer.locator('video');
-			await page.waitForFunction(
-				(postId) => {
-					const element = document.querySelector(
-						`article[data-post-id="${postId}"] media-player video`
-					);
-					return (
-						element instanceof HTMLVideoElement &&
-						element.videoWidth === 320 &&
-						element.videoHeight === 180 &&
-						element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-						element.paused
-					);
-				},
-				videoPost.id,
-				{ timeout: 20_000 }
-			);
-			const previewState = await video.evaluate((element) => ({
-				paused: element.paused,
-				readyState: element.readyState,
-				poster: element.poster
-			}));
-			assert.equal(
-				previewState.paused,
-				true,
-				'The first-frame video preview must not start playback'
-			);
-			assert.ok(
-				previewState.readyState >= 2,
-				'The browser must decode a preview frame before playback'
-			);
-			assert.equal(
-				previewState.poster,
-				'',
-				'The preview must use the video frame instead of a generated poster'
-			);
-		} finally {
-			await rm(videoDirectory, { recursive: true, force: true });
-		}
+		const videoText = `Fluo video preview test ${randomBytes(4).toString('hex')}`;
+		const videoComposer = await openComposer();
+		await videoComposer.locator('[contenteditable=true]').fill(videoText);
+		await videoComposer.getByLabel('Choose photos or videos').setInputFiles({
+			name: 'fluo-test.mp4',
+			mimeType: 'video/mp4',
+			buffer: await readFile(new URL('fixtures/fluo-preview.mp4', import.meta.url))
+		});
+		const videoPostResponsePromise = page.waitForResponse((response) =>
+			isApiResponse(response, '/v1/fluo/posts', 'POST')
+		);
+		await videoComposer.getByRole('button', { name: 'Post', exact: true }).click();
+		const videoPostResponse = await videoPostResponsePromise;
+		assert.equal(videoPostResponse.status(), 201, 'Fluo must publish a video attachment');
+		const videoPost = await videoPostResponse.json();
+		await videoComposer.waitFor({ state: 'detached' });
+		videoPostId = videoPost.id;
+		const videoContent = await openPublicPost(videoPost.content);
+		assert.equal(videoContent.media[0].kind, 'video');
+		assert.equal(videoContent.media[0].width, 320);
+		assert.equal(videoContent.media[0].height, 180);
+		assert.equal(videoPost.media[0].kind, 'file', 'The server must retain opaque file metadata');
+		assert.equal(videoPost.media[0].width, 0);
+		const videoCard = page.locator(`article[data-post-id="${videoPost.id}"]`);
+		await videoCard.getByRole('button', { name: 'Load encrypted video', exact: true }).click();
+		const videoPlayer = videoCard.locator('media-player[data-testid="fluo-video-player"]');
+		await videoPlayer.waitFor();
+		const video = videoPlayer.locator('video');
+		await page.waitForFunction(
+			(postId) => {
+				const element = document.querySelector(
+					`article[data-post-id="${postId}"] media-player video`
+				);
+				return (
+					element instanceof HTMLVideoElement &&
+					element.videoWidth === 320 &&
+					element.videoHeight === 180 &&
+					element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+					element.paused
+				);
+			},
+			videoPost.id,
+			{ timeout: 20_000 }
+		);
+		const previewState = await video.evaluate((element) => ({
+			paused: element.paused,
+			readyState: element.readyState,
+			poster: element.poster
+		}));
+		assert.equal(
+			previewState.paused,
+			true,
+			'The first-frame video preview must not start playback'
+		);
+		assert.ok(
+			previewState.readyState >= 2,
+			'The browser must decode a preview frame before playback'
+		);
+		assert.equal(
+			previewState.poster,
+			'',
+			'The preview must use the video frame instead of a generated poster'
+		);
 
 		await card.getByRole('button', { name: 'Save post' }).click();
 		await card.getByRole('button', { name: 'Remove from saved posts' }).waitFor();

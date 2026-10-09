@@ -91,7 +91,7 @@ func (server *Server) beforeCreate(event tusd.HookEvent) (tusd.HTTPResponse, tus
 	}
 	limit, supported := uploadSizeLimit(info.MetaData["filetype"])
 	if !supported {
-		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_UNSUPPORTED_MEDIA", "JPEG, PNG, WebP, MP4, WebM, MOV or file upload required", http.StatusUnsupportedMediaType)
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_UNSUPPORTED_MEDIA", "JPEG, PNG, WebP or encrypted file upload required", http.StatusUnsupportedMediaType)
 	}
 	if info.Size > limit {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.ErrMaxSizeExceeded
@@ -120,7 +120,7 @@ func uploadSizeLimit(mediaType string) (int64, bool) {
 	switch mediaType {
 	case "image/jpeg", "image/png", "image/webp":
 		return maxImageUploadSize, true
-	case "video/mp4", "video/webm", "video/quicktime", "application/octet-stream":
+	case "application/octet-stream":
 		return maxUploadSize, true
 	default:
 		return 0, false

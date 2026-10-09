@@ -1,6 +1,6 @@
 package upload
 
-// Verifies background worker cancellation and video probe validation
+// Verifies that closing the handler stops background processing
 import (
 	"context"
 	"errors"
@@ -30,22 +30,5 @@ func TestHandlerCloseStopsBackgroundWorkers(t *testing.T) {
 	}
 	if err := handler.process(handler.ctx, "01999111-2222-7333-8444-555555555599"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("closed handler accepted processing: %v", err)
-	}
-}
-
-func TestVideoProbeRejectsInvalidInputs(t *testing.T) {
-	valid := videoStream{Width: 1920, Height: 1080}
-	for _, duration := range []string{"", "NaN", "+Inf", "-Inf", "0", "-1", "121"} {
-		if err := validateUploadedVideo(videoProbeReport{Streams: []videoStream{valid}, Format: videoFormat{Duration: duration}}); err == nil {
-			t.Errorf("accepted invalid duration %q", duration)
-		}
-	}
-	for _, streams := range [][]videoStream{nil, {valid, valid}, {{Width: 0, Height: 1}}, {{Width: 3841, Height: 2160}}} {
-		if err := validateUploadedVideo(videoProbeReport{Streams: streams, Format: videoFormat{Duration: "1"}}); err == nil {
-			t.Errorf("accepted invalid streams %+v", streams)
-		}
-	}
-	if err := validateUploadedVideo(videoProbeReport{Streams: []videoStream{valid}, Format: videoFormat{Duration: "120"}}); err != nil {
-		t.Fatalf("rejected boundary duration: %v", err)
 	}
 }

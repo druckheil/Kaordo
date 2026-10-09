@@ -26,7 +26,7 @@ User content is encrypted on the user's devices. The server stores ciphertext an
 
 ## Run locally
 
-Requires Node 24, pnpm, Go, Docker, `ffmpeg` and `ffprobe`.
+Requires Node 24, pnpm, Go and Docker.
 
 ```sh
 pnpm install

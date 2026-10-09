@@ -35,6 +35,7 @@ type Server struct {
 	workers            sync.WaitGroup
 	handler            http.Handler
 	config             Config
+	root               *os.Root
 	store              filestore.FileStore
 	tus                *tusd.Handler
 	origins            map[string]bool
@@ -57,6 +58,7 @@ func NewHandler(config Config) (*Server, error) {
 		return nil, err
 	}
 	if err := server.configureTUS(); err != nil {
+		_ = server.root.Close()
 		return nil, err
 	}
 	server.ctx, server.cancel = context.WithCancel(context.Background())
@@ -65,14 +67,15 @@ func NewHandler(config Config) (*Server, error) {
 	return server, nil
 }
 
-// Close stops background work after the HTTP server has drained active requests.
-// Close stops maintenance and waits for background processing to finish
+// Close stops maintenance and background processing after the HTTP server has
+// drained active requests, then releases the data directory.
 func (server *Server) Close() {
 	server.maintenanceMu.Lock()
 	server.closing = true
 	server.cancel()
 	server.maintenanceMu.Unlock()
 	server.workers.Wait()
+	_ = server.root.Close() // repeated Close calls are harmless
 }
 
 func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -111,12 +114,19 @@ func applyQuotaDefaults(config *Config) {
 }
 
 func newServer(config Config) (*Server, error) {
-	quota, err := newUploadQuota(config)
+	// Every artifact access stays inside the data directory, even through symlinks
+	root, err := os.OpenRoot(config.Directory)
 	if err != nil {
+		return nil, err
+	}
+	quota, err := newUploadQuota(root, config)
+	if err != nil {
+		_ = root.Close()
 		return nil, err
 	}
 	return &Server{
 		config:  config,
+		root:    root,
 		origins: configuredOrigins(config.AllowedOrigins),
 		jobs:    make(chan string, 16),
 		quota:   quota,

@@ -3,10 +3,10 @@ package upload
 // Validates upload state, selects a media processor, and publishes processed results
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 )
 
 type mediaInfo struct {
@@ -18,20 +18,21 @@ type mediaInfo struct {
 	Size     int64  `json:"size"`
 }
 
-func (server *Server) displayPath(id string) string {
-	return filepath.Join(server.config.Directory, id+".display")
-}
+// Artifact names are relative to the data directory root
+func displayName(id string) string { return id + ".display" }
+func readyName(id string) string   { return id + ".ready.json" }
+func errorName(id string) string   { return id + ".error" }
 
-func (server *Server) readyPath(id string) string {
-	return filepath.Join(server.config.Directory, id+".ready.json")
-}
-
-func (server *Server) errorPath(id string) string {
-	return filepath.Join(server.config.Directory, id+".error")
+// createTemp is os.CreateTemp confined to the data directory root. It returns the
+// relative name, because File.Name reports the full path.
+func createTemp(root *os.Root, prefix string) (*os.File, string, error) {
+	name := prefix + rand.Text()
+	file, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
+	return file, name, err
 }
 
 func (server *Server) readReady(id string) (mediaInfo, error) {
-	data, err := os.ReadFile(server.readyPath(id))
+	data, err := server.root.ReadFile(readyName(id))
 	if err != nil {
 		return mediaInfo{}, err
 	}
@@ -56,7 +57,7 @@ func validateMediaInfo(item mediaInfo) error {
 		if item.MimeType != "application/octet-stream" || item.Filename == "" || item.Width != 0 || item.Height != 0 {
 			return errors.New("invalid processed media metadata")
 		}
-	case "image", "video":
+	case "image":
 		if item.Width < 1 || item.Width > 8192 || item.Height < 1 || item.Height > 8192 {
 			return errors.New("invalid processed media metadata")
 		}
@@ -85,36 +86,34 @@ func (server *Server) process(ctx context.Context, id string) error {
 		return errors.New("upload has not finished")
 	}
 
-	source := filepath.Join(server.config.Directory, id)
-	item, output, err := server.processSource(ctx, source, id, info.MetaData["filetype"], info.MetaData["filename"])
+	item, output, err := server.processSource(id, info.MetaData["filetype"], info.MetaData["filename"])
 	if err != nil {
 		return err
 	}
 	return server.publishProcessedMedia(id, item, output)
 }
 
-func (server *Server) processSource(ctx context.Context, source, id, fileType, filename string) (mediaInfo, string, error) {
+// processSource returns the metadata and the temporary name of the display artifact
+func (server *Server) processSource(id, fileType, filename string) (mediaInfo, string, error) {
 	switch fileType {
 	case "image/jpeg", "image/png", "image/webp":
-		return server.processImage(source, id, fileType)
-	case "video/mp4", "video/webm", "video/quicktime":
-		return server.processVideo(ctx, source, id)
+		return server.processImage(id, fileType)
 	case "application/octet-stream":
-		return server.processFile(source, id, filename)
+		return server.processFile(id, filename)
 	default:
 		return mediaInfo{}, "", errors.New("unsupported media type")
 	}
 }
 
 func (server *Server) publishProcessedMedia(id string, item mediaInfo, output string) error {
-	defer os.Remove(output)
-	if err := os.Rename(output, server.displayPath(id)); err != nil {
+	defer server.root.Remove(output)
+	if err := server.root.Rename(output, displayName(id)); err != nil {
 		return err
 	}
 	if err := server.writeReadyMetadata(id, item); err != nil {
 		return err
 	}
-	_ = os.Remove(server.errorPath(id))
+	_ = server.root.Remove(errorName(id))
 	return nil
 }
 
@@ -124,11 +123,11 @@ func (server *Server) writeReadyMetadata(id string, item mediaInfo) error {
 		return err
 	}
 
-	ready, err := os.CreateTemp(server.config.Directory, id+".ready-*")
+	ready, temporary, err := createTemp(server.root, id+".ready-")
 	if err != nil {
 		return err
 	}
-	defer os.Remove(ready.Name())
+	defer server.root.Remove(temporary)
 
 	if _, err := ready.Write(data); err != nil {
 		_ = ready.Close()
@@ -137,8 +136,5 @@ func (server *Server) writeReadyMetadata(id string, item mediaInfo) error {
 	if err := ready.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(ready.Name(), server.readyPath(id)); err != nil {
-		return err
-	}
-	return nil
+	return server.root.Rename(temporary, readyName(id))
 }
