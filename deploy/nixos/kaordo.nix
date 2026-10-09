@@ -76,7 +76,7 @@ in
     after = [ "local-fs.target" "kaordo-system-volumes.service" ];
     wants = [ "kaordo-system-volumes.service" ];
     unitConfig.RequiresMountsFor = dataRoot;
-    path = [ pkgs.util-linux pkgs.btrfs-progs pkgs.parted pkgs.systemd pkgs.smartmontools pkgs.disko pkgs.nix pkgs.e2fsprogs ];
+    path = [ pkgs.util-linux pkgs.btrfs-progs pkgs.gptfdisk pkgs.dosfstools pkgs.parted pkgs.systemd pkgs.smartmontools pkgs.disko pkgs.nix pkgs.e2fsprogs ];
     environment.NIX_PATH = "nixpkgs=${pkgs.path}";
     serviceConfig = {
       User = "root";

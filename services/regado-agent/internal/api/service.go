@@ -1,0 +1,208 @@
+// Package api exposes the host's desired state, facts and operations over the agent socket.
+package api
+
+// Coordinates facts, plans, desired state writes and the operations that converge the host
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"slices"
+	"strings"
+	"sync"
+
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/host"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/storage"
+)
+
+var (
+	ErrBusy        = errors.New("another pool change is still running")
+	ErrNotReady    = errors.New("the desired state cannot be applied")
+	ErrUnconfirmed = errors.New("erasing a device needs its serial number")
+	ErrIncomplete  = errors.New("a reason and the requesting account are required")
+)
+
+// Host describes the machine the agent manages.
+type Host struct {
+	Name      string `json:"name"`
+	MachineID string `json:"machineId"`
+	Firmware  string `json:"firmware"`
+	PoolMount string `json:"poolMount"`
+}
+
+// Facts is what Regado shows: the actual host, the desired state and what it would take to converge.
+type Facts struct {
+	Host    Host           `json:"host"`
+	Devices []host.Device  `json:"devices"`
+	Pool    host.Pool      `json:"pool"`
+	Desired state.Document `json:"desired"`
+	Drift   storage.Plan   `json:"drift"`
+}
+
+type Change struct {
+	Document      state.Document `json:"document"`
+	Confirmations []string       `json:"confirmations"`
+	Reason        string         `json:"reason"`
+	RequestedBy   string         `json:"requestedBy"`
+}
+
+type ChangeResult struct {
+	Document  state.Document       `json:"document"`
+	Previous  *state.Document      `json:"previous"`
+	Operation *operation.Operation `json:"operation"`
+}
+
+type Service struct {
+	Run        command.Runner
+	Host       Host
+	Inventory  host.Options
+	States     *state.Store
+	Operations *operation.Manager
+	Executor   storage.Executor
+
+	// mu serializes plans with the writes that act on them
+	mu sync.Mutex
+}
+
+// Adopt records the current pool as the desired state the first time the agent runs, so a
+// freshly installed agent never plans changes to a working host.
+func (service *Service) Adopt(ctx context.Context) error {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if _, err := service.States.Current(); !errors.Is(err, state.ErrNotFound) {
+		return err
+	}
+	_, pool, err := service.facts(ctx)
+	if err != nil {
+		return err
+	}
+	members := []string{}
+	for _, member := range pool.Members {
+		if member.DeviceID != "" && !member.Missing {
+			members = append(members, member.DeviceID)
+		}
+	}
+	slices.Sort(members)
+	if len(members) == 0 {
+		return fmt.Errorf("no pool device on %s has a stable identity", service.Host.PoolMount)
+	}
+	document := state.Default(members)
+	if len(pool.DataProfiles) == 1 {
+		document.Pool.DataProfile = pool.DataProfiles[0]
+	}
+	if len(pool.MetadataProfiles) == 1 && pool.MetadataProfiles[0] != storage.MetadataProfile("auto", len(members)) {
+		document.Pool.MetadataProfile = pool.MetadataProfiles[0]
+	}
+	_, _, err = service.States.Put(document)
+	return err
+}
+
+func (service *Service) facts(ctx context.Context) ([]host.Device, host.Pool, error) {
+	pool, err := host.ReadPool(ctx, service.Run, service.Host.PoolMount, nil)
+	if err != nil {
+		return nil, host.Pool{}, err
+	}
+	devices, err := host.Inventory(ctx, service.Run, pool.UUID, service.Inventory)
+	if err != nil {
+		return nil, host.Pool{}, err
+	}
+	pool, err = host.ReadPool(ctx, service.Run, service.Host.PoolMount, devices)
+	return devices, pool, err
+}
+
+// Facts reads the host and compares it with the desired state.
+func (service *Service) Facts(ctx context.Context) (Facts, error) {
+	devices, pool, err := service.facts(ctx)
+	if err != nil {
+		return Facts{}, err
+	}
+	desired, err := service.States.Current()
+	if err != nil {
+		return Facts{}, err
+	}
+	return Facts{Host: service.Host, Devices: devices, Pool: pool, Desired: desired, Drift: storage.PlanPool(desired.Pool, devices, pool)}, nil
+}
+
+// Plan previews the steps a document would start without storing it.
+func (service *Service) Plan(ctx context.Context, document state.Document) (storage.Plan, error) {
+	if err := document.Validate(); err != nil {
+		return storage.Plan{}, err
+	}
+	devices, pool, err := service.facts(ctx)
+	if err != nil {
+		return storage.Plan{}, err
+	}
+	return storage.PlanPool(document.Pool, devices, pool), nil
+}
+
+// Apply stores the document and starts one operation for its pool steps.
+func (service *Service) Apply(ctx context.Context, change Change) (ChangeResult, error) {
+	if strings.TrimSpace(change.Reason) == "" || change.RequestedBy == "" {
+		return ChangeResult{}, ErrIncomplete
+	}
+	if err := change.Document.Validate(); err != nil {
+		return ChangeResult{}, err
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	devices, pool, err := service.facts(ctx)
+	if err != nil {
+		return ChangeResult{}, err
+	}
+	plan := storage.PlanPool(change.Document.Pool, devices, pool)
+	if !plan.Ready() {
+		return ChangeResult{}, fmt.Errorf("%w: %s", ErrNotReady, strings.Join(plan.Issues, " "))
+	}
+	for _, step := range plan.Steps {
+		if step.Confirm != "" && !slices.Contains(change.Confirmations, step.Confirm) {
+			return ChangeResult{}, fmt.Errorf("%w: type %s to erase %s", ErrUnconfirmed, step.Confirm, step.Device)
+		}
+	}
+	if len(plan.Steps) > 0 && service.poolChangeActive() {
+		return ChangeResult{}, ErrBusy
+	}
+	stored, previous, err := service.States.Put(change.Document)
+	if err != nil {
+		return ChangeResult{}, err
+	}
+	result := ChangeResult{Document: stored, Previous: previous}
+	if len(plan.Steps) == 0 {
+		return result, nil
+	}
+	started, err := service.Operations.Start(operation.Request{
+		Kind: "pool.apply", Target: fmt.Sprintf("revision %d", stored.Revision), Reason: change.Reason,
+		RequestedBy: change.RequestedBy, Exclusive: true, Cancellable: true, Stages: storage.Stages(plan),
+		Run: func(ctx context.Context, job *operation.Job) error {
+			return service.Executor.Apply(ctx, job, plan, devices)
+		},
+	})
+	if err != nil {
+		return result, err
+	}
+	result.Operation = &started
+	return result, nil
+}
+
+func (service *Service) poolChangeActive() bool {
+	operations, err := service.Operations.List(20)
+	if err != nil {
+		return true
+	}
+	return slices.ContainsFunc(operations, func(item operation.Operation) bool {
+		return item.Kind == "pool.apply" && !item.State.Finished()
+	})
+}
+
+// DescribeHost reads the host identity and firmware mode.
+func DescribeHost(poolMount string) Host {
+	name, _ := os.Hostname()
+	machineID, _ := os.ReadFile("/etc/machine-id")
+	firmware := "bios"
+	if _, err := os.Stat("/sys/firmware/efi"); err == nil {
+		firmware = "efi"
+	}
+	return Host{Name: name, MachineID: strings.TrimSpace(string(machineID)), Firmware: firmware, PoolMount: poolMount}
+}
