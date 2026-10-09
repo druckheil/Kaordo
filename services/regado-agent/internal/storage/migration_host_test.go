@@ -91,7 +91,24 @@ func TestHostLegacyPartitionsBecomeUniformWithoutLosingMirrors(t *testing.T) {
 	records := t.TempDir()
 	run := func(stage, device string) {
 		t.Helper()
-		hosttest.MustRun(t, "bash", "-c", `source "$1"; pool="$2"; records="$3"; partition_separator=p; boot_directory=; "$4" "$5"`, "reshape", script, mount, records, stage, device)
+		rehearsal := `source "$1"; pool="$2"; records="$3"; partition_separator=p; boot_directory=; "$4" "$5"`
+		if stage == "move" && device == first {
+			// Reproduce production's kernel registering the target before an explicit partx add
+			rehearsal = `source "$1"; pool="$2"; records="$3"; partition_separator=p; boot_directory=
+sgdisk() {
+  command sgdisk "$@" || return
+  if [[ "$1" == --new=2:* ]]; then
+    local disk="${@: -1}"
+    if [[ ! -b "${disk}p2" ]]; then command partx --add --nr 2 "$disk"; fi
+  fi
+}
+partx() {
+  if [[ "$1" == --add ]]; then echo 'target partition is already registered' >&2; return 1; fi
+  command partx "$@"
+}
+"$4" "$5"`
+		}
+		hosttest.MustRun(t, "bash", "-c", rehearsal, "reshape", script, mount, records, stage, device)
 	}
 	run("move", second)
 	if checksum(t, mount) != sum {

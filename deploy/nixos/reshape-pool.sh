@@ -69,11 +69,16 @@ move() {
   info=$(partition_info "$disk" 2)
   if ! grep -q 'First sector:' <<<"$info"; then
     sgdisk --new="2:6144:$((start - 1))" --typecode=2:8300 --change-name=2:kaordo-pool "$disk"
-    partx --add --nr 2 "$disk"
+    # Some kernels register the new partition during sgdisk's refresh already
+    if [[ ! -b "$target" ]] && ! partx --add --nr 2 "$disk"; then
+      [[ -b "$target" ]] || die 'the kernel did not register the new target partition'
+    fi
     info=$(partition_info "$disk" 2)
   fi
   [[ "$(awk '/First sector:/ {print $3}' <<<"$info")" == 6144 &&
     "$(awk '/Last sector:/ {print $3}' <<<"$info")" == "$((start - 1))" ]] || die 'partition 2 does not exactly fill the unused front of the disk'
+  [[ "$(cat "/sys/class/block/${target##*/}/start")" == 6144 &&
+    "$(blockdev --getsize64 "$target")" == "$(((start - 6144) * 512))" ]] || die 'the kernel target geometry differs from GPT'
   ! findmnt --noheadings --source "$target" >/dev/null || die 'the target partition is mounted'
   [[ -z "$(member_id "$target")" ]] || die 'the target is already a pool member'
   filesystem=$(blkid -s TYPE -o value "$target" || true)
@@ -113,6 +118,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   disk=$(readlink -f "/dev/disk/by-id/$2")
   [[ -b "$disk" && "$(lsblk -dn -o TYPE "$disk")" == disk ]] || die 'the ID must identify a whole physical disk'
   [[ "$(lsblk -dn -o SERIAL "$disk" | xargs)" == "$3" ]] || die 'the disk serial does not match'
+  [[ "$(blockdev --getss "$disk")" == 512 ]] || die 'the legacy migration template requires 512-byte logical sectors'
   if [[ "$disk" =~ [0-9]$ ]]; then partition_separator=p; fi
   records="$records/$2"
   mkdir -p "$pool/tmp"
