@@ -1142,7 +1142,8 @@ export interface paths {
         };
         get: operations["listRegadoHostOperations"];
         put?: never;
-        post?: never;
+        /** @description Runs an integrity check outside its schedule; one check runs at a time. */
+        post: operations["startRegadoHostCheck"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1400,10 +1401,17 @@ export interface components {
         HostOperationRecord: components["schemas"]["HostOperation"] & {
             log: components["schemas"]["HostOperationLogEntry"][];
         };
+        HostCheckRequest: {
+            /** @enum {string} */
+            kind: "integrity.scrub" | "integrity.smart-short" | "integrity.smart-long";
+            reason: string;
+        };
         HostStateChange: {
             document: components["schemas"]["HostState"];
             confirmations: string[];
             reason: string;
+            /** @description Start pool steps even when the pool section is unchanged; other settings never touch disks */
+            converge?: boolean;
         };
         HostStateChangeResult: {
             document: components["schemas"]["HostState"];
@@ -5194,6 +5202,33 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["HostOperation"][];
                     };
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    startRegadoHostCheck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description The started operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostOperation"];
                 };
             };
             default: components["responses"]["RegadoHostError"];

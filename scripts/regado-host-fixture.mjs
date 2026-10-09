@@ -95,6 +95,7 @@ export function createHostFixture(now) {
 	};
 	const operations = [];
 	const changes = [];
+	const checks = [];
 	const plans = [];
 	// Each read of a running operation advances it, so polling drives it to completion
 	let operationReads = 0;
@@ -130,6 +131,16 @@ export function createHostFixture(now) {
 		const running = operations.find((item) => item.state === 'running');
 		if (!running) return;
 		operationReads++;
+		if (running.kind !== 'pool.apply') {
+			const [stage] = running.stages;
+			stage.progress = { done: 50, total: 100, unit: 'percent' };
+			if (operationReads > 1) {
+				stage.state = running.state = 'succeeded';
+				delete stage.progress;
+				running.finishedAt = new Date().toISOString();
+			}
+			return;
+		}
 		const [prepare, add, convert] = running.stages;
 		if (operationReads === 1) {
 			prepare.state = 'succeeded';
@@ -196,6 +207,9 @@ export function createHostFixture(now) {
 			changes.push(change);
 			const previous = desired;
 			desired = { ...change.document, revision: previous.revision + 1 };
+			// Like the agent, only a changed pool (or an explicit convergence) starts disk work
+			if (JSON.stringify(previous.pool) === JSON.stringify(desired.pool) && !change.converge)
+				return { document: desired, previous, operation: null };
 			const operation = {
 				id: '01999111-2222-7333-8444-000000000001',
 				kind: 'pool.apply',
@@ -216,6 +230,24 @@ export function createHostFixture(now) {
 			operationReads = 0;
 			return { document: desired, previous, operation };
 		}
+		if (path === '/operations' && request.method() === 'POST') {
+			const check = request.postDataJSON();
+			checks.push(check);
+			const operation = {
+				id: `01999111-2222-7333-8444-00000000010${checks.length}`,
+				kind: check.kind,
+				reason: check.reason,
+				requestedBy: '01999111-2222-7333-8444-555555555551',
+				state: 'running',
+				cancellable: true,
+				stages: [{ name: 'Verify every copy', state: 'running' }],
+				createdAt: new Date().toISOString(),
+				startedAt: new Date().toISOString()
+			};
+			operations.unshift(operation);
+			operationReads = 0;
+			return operation;
+		}
 		if (path === '/operations') {
 			advance();
 			return { items: operations };
@@ -231,5 +263,5 @@ export function createHostFixture(now) {
 		return undefined;
 	}
 
-	return { handle, changes, plans };
+	return { handle, changes, plans, checks };
 }

@@ -131,5 +131,6 @@ export type {
 	HostOperationRecord,
 	HostOperationStage,
 	HostStateChange,
+	HostCheckRequest,
 	HostStateChangeResult
 } from './admin.js';

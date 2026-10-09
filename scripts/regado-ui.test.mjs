@@ -260,7 +260,8 @@ test('Regado storage adds a device through a planned, confirmed pool change', as
 				}
 			}),
 			confirmations: ['WD-C'],
-			reason: 'Add the third disk for three copies'
+			reason: 'Add the third disk for three copies',
+			converge: true
 		}
 	]);
 
@@ -304,6 +305,53 @@ test('Regado storage refuses a plan that would leave too few devices', async ({
 	await expect(dialog.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
 	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
 	expect(host.changes).toEqual([]);
+});
+
+test('Regado integrity checks run on request and follow an audited schedule', async ({
+	regado: { page, host }
+}) => {
+	await openSection(page, 'Storage');
+	const integrity = page.getByRole('region', { name: 'Integrity checks', exact: true });
+	const scrub = integrity.getByRole('listitem', { name: 'Verify every copy', exact: true });
+	await expect(scrub.getByText('Monthly · Not run yet', { exact: true })).toBeVisible();
+
+	await scrub.getByRole('button', { name: 'Run now', exact: true }).click();
+	const run = page.getByRole('dialog', { name: 'Verify every copy', exact: true });
+	await expect(run.getByText(/A damaged copy is rewritten from a good one/)).toBeVisible();
+	await run.getByLabel('Reason', { exact: true }).fill('Verify copies after a power cut');
+	await run.getByRole('button', { name: 'Run now', exact: true }).click();
+	await expect(run).toBeHidden();
+	expect(host.checks).toEqual([
+		{ kind: 'integrity.scrub', reason: 'Verify copies after a power cut' }
+	]);
+	await expect(
+		integrity.getByRole('button', { name: 'Run now', exact: true }).first(),
+		'Only one check runs at a time'
+	).toBeDisabled();
+	await expect(scrub.getByText(/^Monthly · Passed /)).toBeVisible({ timeout: maintenanceTimeout });
+
+	await integrity.getByRole('button', { name: 'Change schedule…', exact: true }).click();
+	const schedule = page.getByRole('dialog', { name: 'Integrity schedule', exact: true });
+	await accessibility(page, 'Integrity schedule dialog');
+	const save = schedule.getByRole('button', { name: 'Save', exact: true });
+	await schedule.getByLabel('Reason', { exact: true }).fill('Verify copies every week');
+	await expect(save, 'An unchanged schedule is not saved').toBeDisabled();
+	await schedule
+		.getByRole('group', { name: 'Verify every copy', exact: true })
+		.getByRole('radio', { name: 'Weekly', exact: true })
+		.click();
+	await save.click();
+	await expect(schedule).toBeHidden();
+	expect(host.changes).toEqual([
+		{
+			document: expect.objectContaining({
+				integrity: { scrub: 'weekly', smartShort: 'weekly', smartLong: 'monthly' }
+			}),
+			confirmations: [],
+			reason: 'Verify copies every week'
+		}
+	]);
+	await expect(scrub.getByText(/^Weekly · Passed /)).toBeVisible();
 });
 
 test('Regado media checks and cleanup are confirmed and report progress', async ({

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 const outputLimit = 1 << 20
@@ -55,4 +56,35 @@ func (writer *limitWriter) Write(p []byte) (int, error) {
 	_, _ = writer.writer.Write(part)
 	writer.remaining -= len(part)
 	return length, nil
+}
+
+// Track runs a blocking tool while calling progress every poll. When ctx ends, stop asks the
+// tool to finish early and Track still waits for it, so the tool never outlives its caller.
+func Track(ctx context.Context, run Runner, args []string, poll time.Duration, progress, stop func()) error {
+	result := make(chan error, 1)
+	go func() {
+		_, err := run(context.WithoutCancel(ctx), args...)
+		result <- err
+	}()
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	cancelled := ctx.Done()
+	stopped := false
+	for {
+		select {
+		case err := <-result:
+			if err != nil && stopped {
+				return ctx.Err()
+			}
+			return err
+		case <-ticker.C:
+			progress()
+		case <-cancelled:
+			cancelled = nil
+			if stop != nil {
+				stopped = true
+				stop()
+			}
+		}
+	}
 }

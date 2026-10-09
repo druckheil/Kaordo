@@ -39,6 +39,10 @@ func (client *SystemClient) CancelOperation(ctx context.Context, id string) (jso
 	return client.call(ctx, http.MethodPost, "/operations/"+url.PathEscape(id)+"/cancel", nil)
 }
 
+func (client *SystemClient) StartCheck(ctx context.Context, check json.RawMessage) (json.RawMessage, error) {
+	return client.call(ctx, http.MethodPost, "/operations", check)
+}
+
 // call returns the agent's JSON, or an AgentError carrying the agent's status and message
 func (client *SystemClient) call(ctx context.Context, method, path string, body json.RawMessage) (json.RawMessage, error) {
 	var reader io.Reader

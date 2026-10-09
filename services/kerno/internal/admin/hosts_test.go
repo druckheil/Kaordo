@@ -12,6 +12,7 @@ import (
 
 type agentStub struct {
 	applied json.RawMessage
+	started json.RawMessage
 	result  json.RawMessage
 	err     error
 }
@@ -30,6 +31,10 @@ func (*agentStub) Operation(context.Context, string) (json.RawMessage, error) {
 }
 func (*agentStub) CancelOperation(context.Context, string) (json.RawMessage, error) {
 	return json.RawMessage(`{"state":"cancelled"}`), nil
+}
+func (stub *agentStub) StartCheck(_ context.Context, check json.RawMessage) (json.RawMessage, error) {
+	stub.started = check
+	return json.RawMessage(`{"id":"op-2"}`), nil
 }
 
 type auditEvent struct {
@@ -85,6 +90,25 @@ func TestApplyRecordsRefusalsAndRequiresAReason(t *testing.T) {
 	}
 	if _, err := hosts.Facts(context.Background(), "elsewhere"); !errors.Is(err, ErrUnknownHost) {
 		t.Fatalf("unknown host = %v", err)
+	}
+}
+
+func TestStartCheckAuditsBeforeForwardingTheActor(t *testing.T) {
+	agent := &agentStub{}
+	audit := &auditStub{}
+	hosts := NewHosts(map[string]HostAgent{"local": agent}, audit)
+	if _, err := hosts.StartCheck(context.Background(), "actor-1", "local", CheckRequest{Kind: "integrity.scrub", Reason: "short"}); !errors.Is(err, ErrInvalidOperation) || agent.started != nil {
+		t.Fatalf("short reason = %v, forwarded %s", err, agent.started)
+	}
+	if _, err := hosts.StartCheck(context.Background(), "actor-1", "local", CheckRequest{Kind: "integrity.scrub", Reason: " Verify copies after a power cut "}); err != nil {
+		t.Fatal(err)
+	}
+	var forwarded map[string]string
+	if json.Unmarshal(agent.started, &forwarded) != nil || forwarded["requestedBy"] != "actor-1" || forwarded["reason"] != "Verify copies after a power cut" {
+		t.Fatalf("forwarded check = %s", agent.started)
+	}
+	if len(audit.events) != 1 || audit.events[0].event != "host.operation.start" || audit.events[0].details["kind"] != "integrity.scrub" {
+		t.Fatalf("audit = %+v", audit.events)
 	}
 }
 

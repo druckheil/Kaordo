@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
 )
@@ -45,6 +46,14 @@ func NewHandler(service *Service, system http.Handler) http.Handler {
 		}
 		operations, err := service.Operations.List(limit)
 		respond(w, map[string]any{"items": operations}, err)
+	})
+	mux.HandleFunc("POST /operations", func(w http.ResponseWriter, r *http.Request) {
+		var check CheckRequest
+		if !decode(w, r, &check) {
+			return
+		}
+		started, err := service.StartCheck(r.Context(), check)
+		respond(w, started, err)
 	})
 	mux.HandleFunc("GET /operations/{id}", func(w http.ResponseWriter, r *http.Request) {
 		record, err := service.Operations.Get(r.PathValue("id"))
@@ -88,13 +97,15 @@ func respond(w http.ResponseWriter, value any, err error) {
 
 func statusOf(err error) int {
 	switch {
-	case errors.Is(err, state.ErrInvalid), errors.Is(err, ErrNotReady), errors.Is(err, ErrUnconfirmed):
+	case errors.Is(err, state.ErrInvalid), errors.Is(err, ErrNotReady), errors.Is(err, ErrUnconfirmed),
+		errors.Is(err, integrity.ErrNothingToCheck):
 		return http.StatusUnprocessableEntity
-	case errors.Is(err, state.ErrConflict), errors.Is(err, ErrBusy), errors.Is(err, operation.ErrNotCancellable):
+	case errors.Is(err, state.ErrConflict), errors.Is(err, ErrBusy), errors.Is(err, operation.ErrNotCancellable),
+		errors.Is(err, ErrCheckRunning):
 		return http.StatusConflict
 	case errors.Is(err, operation.ErrNotFound), errors.Is(err, state.ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrIncomplete):
+	case errors.Is(err, ErrIncomplete), errors.Is(err, ErrUnknownCheck):
 		return http.StatusBadRequest
 	default:
 		return http.StatusBadGateway

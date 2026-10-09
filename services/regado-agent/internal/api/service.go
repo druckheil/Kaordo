@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/host"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/storage"
@@ -49,6 +51,8 @@ type Change struct {
 	Confirmations []string       `json:"confirmations"`
 	Reason        string         `json:"reason"`
 	RequestedBy   string         `json:"requestedBy"`
+	// Converge starts pool steps even when the pool section is unchanged, to finish drift
+	Converge bool `json:"converge"`
 }
 
 type ChangeResult struct {
@@ -64,6 +68,7 @@ type Service struct {
 	States     *state.Store
 	Operations *operation.Manager
 	Executor   storage.Executor
+	Integrity  integrity.Checker
 	Health     host.HealthMonitor
 
 	// mu serializes plans with the writes that act on them
@@ -163,7 +168,8 @@ func (service *Service) Plan(ctx context.Context, document state.Document) (stor
 	return storage.PlanPool(document.Pool, devices, pool), nil
 }
 
-// Apply stores the document and starts one operation for its pool steps.
+// Apply stores the document and starts one operation for its pool steps. Settings outside the
+// pool are stored without touching disks, so they never wait on or trigger pool work.
 func (service *Service) Apply(ctx context.Context, change Change) (ChangeResult, error) {
 	if strings.TrimSpace(change.Reason) == "" || change.RequestedBy == "" {
 		return ChangeResult{}, ErrIncomplete
@@ -173,6 +179,14 @@ func (service *Service) Apply(ctx context.Context, change Change) (ChangeResult,
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	current, err := service.States.Current()
+	if err != nil {
+		return ChangeResult{}, err
+	}
+	if !change.Converge && reflect.DeepEqual(current.Pool, change.Document.Pool) {
+		stored, previous, err := service.States.Put(change.Document)
+		return ChangeResult{Document: stored, Previous: previous}, err
+	}
 	devices, pool, err := service.facts(ctx)
 	if err != nil {
 		return ChangeResult{}, err

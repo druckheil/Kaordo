@@ -35,6 +35,9 @@ func (stub hostAgentStub) Operation(context.Context, string) (json.RawMessage, e
 func (stub hostAgentStub) CancelOperation(context.Context, string) (json.RawMessage, error) {
 	return nil, stub.err
 }
+func (stub hostAgentStub) StartCheck(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{"id":"op-1","kind":"integrity.scrub"}`), stub.err
+}
 
 func hostRouter(err error) http.Handler {
 	users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555551", Username: "operator", IsAdmin: true}}
@@ -74,6 +77,13 @@ func TestHostRoutesProxyAgentsAndMapRefusals(t *testing.T) {
 	}
 	if response := hostRequest(hostRouter(nil), http.MethodPut, "/v1/admin/hosts/local/state", `{"document":{},"unexpected":1}`); response.Code != 400 {
 		t.Fatalf("unknown field = %d", response.Code)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodPost, "/v1/admin/hosts/local/operations", `{"kind":"integrity.scrub","reason":"Verify every copy now"}`); response.Code != 200 || !strings.Contains(response.Body.String(), "op-1") {
+		t.Fatalf("start check = %d %s", response.Code, response.Body)
+	}
+	busy := hostRouter(&admin.AgentError{Status: 409, Message: "another integrity check is still running"})
+	if response := hostRequest(busy, http.MethodPost, "/v1/admin/hosts/local/operations", `{"kind":"integrity.scrub","reason":"Verify every copy now"}`); response.Code != 409 {
+		t.Fatalf("busy check = %d %s", response.Code, response.Body)
 	}
 	unavailable := hostRouter(errors.New("dial unix: no such file"))
 	if response := hostRequest(unavailable, http.MethodGet, "/v1/admin/hosts/local/operations", ""); response.Code != 503 || strings.Contains(response.Body.String(), "dial") {

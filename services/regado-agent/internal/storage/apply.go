@@ -100,7 +100,7 @@ func (executor Executor) replace(ctx context.Context, job *operation.Job, device
 	}
 	source := strconv.FormatInt(devid, 10)
 	job.Detail("Copying data onto the replacement")
-	err = executor.tracked(ctx, []string{"btrfs", "replace", "start", "-B", source, member, executor.Mount},
+	err = command.Track(ctx, executor.Run, []string{"btrfs", "replace", "start", "-B", source, member, executor.Mount}, executor.Poll,
 		func() {
 			status, _ := executor.Run(context.WithoutCancel(ctx), "btrfs", "replace", "status", "-1", executor.Mount)
 			if match := replacePercent.FindStringSubmatch(status); match != nil {
@@ -124,7 +124,7 @@ func (executor Executor) replace(ctx context.Context, job *operation.Job, device
 func (executor Executor) convert(ctx context.Context, job *operation.Job, data, metadata string) error {
 	job.Detail("Rewriting block groups that use another profile")
 	// soft skips chunks already in the target profile; -m also converts system chunks
-	return executor.tracked(ctx, []string{"btrfs", "balance", "start", "-dconvert=" + data + ",soft", "-mconvert=" + metadata + ",soft", executor.Mount},
+	return command.Track(ctx, executor.Run, []string{"btrfs", "balance", "start", "-dconvert=" + data + ",soft", "-mconvert=" + metadata + ",soft", executor.Mount}, executor.Poll,
 		func() {
 			status, _ := executor.Run(context.WithoutCancel(ctx), "btrfs", "balance", "status", executor.Mount)
 			if match := balanceChunks.FindStringSubmatch(status); match != nil {
@@ -148,7 +148,7 @@ func (executor Executor) remove(ctx context.Context, job *operation.Job, device 
 	}
 	start, _ := executor.allocatedOn(ctx, devid)
 	job.Detail("Moving data to the remaining devices")
-	err := executor.tracked(ctx, []string{"btrfs", "device", "remove", target, executor.Mount}, func() {
+	err := command.Track(ctx, executor.Run, []string{"btrfs", "device", "remove", target, executor.Mount}, executor.Poll, func() {
 		if left, err := executor.allocatedOn(context.WithoutCancel(ctx), devid); err == nil && start > 0 {
 			job.Progress(start-left, start, "bytes")
 		}
@@ -258,35 +258,6 @@ func (executor Executor) allocatedOn(ctx context.Context, devid int64) (int64, e
 
 // tracked runs a blocking tool while reading its progress. On cancellation it asks the tool to
 // stop through stop (when the tool supports it) and still waits for the tool to exit.
-func (executor Executor) tracked(ctx context.Context, args []string, progress func(), stop func()) error {
-	result := make(chan error, 1)
-	go func() {
-		_, err := executor.Run(context.WithoutCancel(ctx), args...)
-		result <- err
-	}()
-	ticker := time.NewTicker(executor.Poll)
-	defer ticker.Stop()
-	cancelled := ctx.Done()
-	stopped := false
-	for {
-		select {
-		case err := <-result:
-			if err != nil && stopped {
-				return ctx.Err()
-			}
-			return err
-		case <-ticker.C:
-			progress()
-		case <-cancelled:
-			cancelled = nil
-			if stop != nil {
-				stopped = true
-				stop()
-			}
-		}
-	}
-}
-
 // partitionPath names partition n of a disk; names ending in a digit insert a "p"
 func partitionPath(disk string, number int) string {
 	if last := disk[len(disk)-1]; last >= '0' && last <= '9' {

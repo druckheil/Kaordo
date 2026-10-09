@@ -1,6 +1,7 @@
 // Turns host facts into the labels, capacity figures and health that the Storage view presents
 
 import type {
+	HostCheckRequest,
 	HostDevice,
 	HostDeviceHealth,
 	HostFacts,
@@ -150,13 +151,37 @@ export function activeOperation(operations: HostOperation[]): HostOperation | un
 	return operations.find((item) => item.state === 'running' || item.state === 'queued');
 }
 
+export type CheckKind = HostCheckRequest['kind'];
+
+export const checks: { kind: CheckKind; title: string; setting: keyof HostState['integrity'] }[] = [
+	{ kind: 'integrity.scrub', title: 'Verify every copy', setting: 'scrub' },
+	{ kind: 'integrity.smart-short', title: 'Short SMART self-test', setting: 'smartShort' },
+	{ kind: 'integrity.smart-long', title: 'Long SMART self-test', setting: 'smartLong' }
+];
+
 export function operationTitle(operation: HostOperation): string {
-	switch (operation.kind) {
-		case 'pool.apply':
-			return `Apply desired state${operation.target ? ` (${operation.target})` : ''}`;
-		default:
-			return operation.kind;
+	if (operation.kind === 'pool.apply')
+		return `Apply desired state${operation.target ? ` (${operation.target})` : ''}`;
+	return checks.find((check) => check.kind === operation.kind)?.title ?? operation.kind;
+}
+
+// The newest run of each check, and whether any check is still running
+export function checkHistory(operations: HostOperation[]): {
+	last: Partial<Record<CheckKind, HostOperation>>;
+	running: boolean;
+} {
+	const last: Partial<Record<CheckKind, HostOperation>> = {};
+	for (const operation of operations) {
+		const check = checks.find((item) => item.kind === operation.kind);
+		if (check && !last[check.kind]) last[check.kind] = operation;
 	}
+	return {
+		last,
+		running: operations.some(
+			(item) =>
+				item.kind.startsWith('integrity.') && (item.state === 'running' || item.state === 'queued')
+		)
+	};
 }
 
 export function stageProgress(stage: HostOperation['stages'][number]): number | undefined {

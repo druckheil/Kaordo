@@ -312,6 +312,13 @@ components:
           required: [log]
           properties:
             log: { type: array, items: { $ref: '#/components/schemas/HostOperationLogEntry' } }
+    HostCheckRequest:
+      type: object
+      required: [kind, reason]
+      additionalProperties: false
+      properties:
+        kind: { type: string, enum: [integrity.scrub, integrity.smart-short, integrity.smart-long] }
+        reason: { type: string, minLength: 10, maxLength: 500 }
     HostStateChange:
       type: object
       required: [document, confirmations, reason]
@@ -319,6 +326,11 @@ components:
         document: { $ref: '#/components/schemas/HostState' }
         confirmations: { type: array, maxItems: 64, items: { type: string, maxLength: 128 } }
         reason: { type: string, minLength: 10, maxLength: 500 }
+        converge:
+          {
+            type: boolean,
+            description: Start pool steps even when the pool section is unchanged; other settings never touch disks
+          }
     HostStateChangeResult:
       type: object
       required: [document, previous, operation]
@@ -3585,6 +3597,19 @@ paths:
                 required: [items]
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/HostOperation' } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+    post:
+      operationId: startRegadoHostCheck
+      description: Runs an integrity check outside its schedule; one check runs at a time.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RegadoHost' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/HostCheckRequest' } } }
+      responses:
+        '200':
+          description: The started operation
+          content: { application/json: { schema: { $ref: '#/components/schemas/HostOperation' } } }
         default: { $ref: '#/components/responses/RegadoHostError' }
 
   /v1/admin/hosts/{host}/operations/{operation}:

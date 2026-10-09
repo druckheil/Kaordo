@@ -53,9 +53,10 @@ func Mount(t *testing.T, device string, options ...string) string {
 	return target
 }
 
-// Forget detaches a loop device and drops it from the Btrfs device cache to simulate a lost disk.
+// Forget drops a loop device from the Btrfs device cache and detaches it to simulate a lost
+// disk. Only this device is forgotten: a bare --forget would unregister other tests' pools too.
 func Forget(t *testing.T, device string) {
 	t.Helper()
+	MustRun(t, "btrfs", "device", "scan", "--forget", device)
 	MustRun(t, "losetup", "--detach", device)
-	MustRun(t, "btrfs", "device", "scan", "--forget")
 }

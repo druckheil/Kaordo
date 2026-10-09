@@ -28,4 +28,5 @@ export type HostOperation = Schemas['HostOperation'];
 export type HostOperationRecord = Schemas['HostOperationRecord'];
 export type HostOperationStage = Schemas['HostOperationStage'];
 export type HostStateChange = Schemas['HostStateChange'];
+export type HostCheckRequest = Schemas['HostCheckRequest'];
 export type HostStateChangeResult = Schemas['HostStateChangeResult'];

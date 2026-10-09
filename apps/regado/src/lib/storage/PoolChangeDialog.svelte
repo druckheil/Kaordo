@@ -124,7 +124,9 @@
 			await storage.apply.mutateAsync({
 				document: $state.snapshot(document),
 				confirmations,
-				reason: reason.trim()
+				reason: reason.trim(),
+				// The pool dialog also finishes drift when the selection is unchanged
+				converge: true
 			});
 			open = false;
 		} catch (error) {

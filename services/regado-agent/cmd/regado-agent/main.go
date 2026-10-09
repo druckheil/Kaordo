@@ -19,6 +19,7 @@ import (
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/agent"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/api"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/storage"
@@ -30,7 +31,13 @@ const (
 	defaultPoolMount  = "/srv/kaordo"
 	defaultStateDir   = "/var/lib/regado-agent"
 	healthInterval    = 15 * time.Minute
+	scheduleInterval  = 10 * time.Minute
+	// Scrub limit per device keeps services responsive while every copy is read
+	scrubLimit = "64m"
 )
+
+// maintenanceWindow is the local hour range in which scheduled checks may start
+var maintenanceWindow = [2]int{2, 6}
 
 func main() {
 	if err := run(); err != nil {
@@ -61,6 +68,11 @@ func run() error {
 	defer watchers.Wait()
 	defer stopWatching()
 	watchers.Go(func() { service.WatchHealth(watch, healthInterval) })
+	scheduler := &integrity.Scheduler{
+		Operations: service.Operations, States: service.States, Request: service.IntegrityRequest,
+		Now: time.Now, Window: maintenanceWindow,
+	}
+	watchers.Go(func() { scheduler.Run(watch, scheduleInterval) })
 	server := newHTTPServer(api.NewHandler(service, agent.NewHandler(directory)))
 	slog.Info("Regado agent listening", "socket", path)
 	served := make(chan error, 1)
@@ -98,7 +110,8 @@ func openService(ctx context.Context, directory string) (*api.Service, func(), e
 	described := api.DescribeHost(environment("REGADO_POOL_MOUNT", defaultPoolMount))
 	service := &api.Service{
 		Run: command.Run, Host: described, States: states, Operations: operations,
-		Executor: storage.Executor{Run: command.Run, Mount: described.PoolMount, Poll: time.Second, EFI: described.Firmware == "efi"},
+		Executor:  storage.Executor{Run: command.Run, Mount: described.PoolMount, Poll: time.Second, EFI: described.Firmware == "efi"},
+		Integrity: integrity.Checker{Run: command.Run, Mount: described.PoolMount, Poll: 30 * time.Second, ScrubLimit: scrubLimit},
 	}
 	if err := service.Adopt(ctx); err != nil {
 		// The API still serves facts and operations; Regado shows the adoption error from /host

@@ -3,7 +3,7 @@
 import { onDestroy } from 'svelte';
 import { createMutation, createQuery, type QueryClient } from '@tanstack/svelte-query';
 import { adminHostOperationsOptions, adminHostOptions, type AdminApi } from '@kaordo/api-client';
-import type { HostPoolPlan, HostState, HostStateChange } from '@kaordo/contracts';
+import type { HostCheckRequest, HostPoolPlan, HostState, HostStateChange } from '@kaordo/contracts';
 import { activeOperation } from './storage-model';
 
 export function createStorageState(api: AdminApi, queryClient: QueryClient, host: string) {
@@ -30,6 +30,13 @@ export function createStorageState(api: AdminApi, queryClient: QueryClient, host
 	const apply = createMutation(
 		() => ({
 			mutationFn: (change: HostStateChange) => api.applyHostState(host, change),
+			onSuccess: refresh
+		}),
+		() => queryClient
+	);
+	const startCheck = createMutation(
+		() => ({
+			mutationFn: (check: HostCheckRequest) => api.startHostCheck(host, check),
 			onSuccess: refresh
 		}),
 		() => queryClient
@@ -69,6 +76,7 @@ export function createStorageState(api: AdminApi, queryClient: QueryClient, host
 			return running;
 		},
 		apply,
+		startCheck,
 		cancel,
 		plan,
 		refresh

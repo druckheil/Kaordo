@@ -15,6 +15,7 @@ import (
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/host"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/hosttest"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/storage"
@@ -129,5 +130,52 @@ func TestHostAPIAdoptsThenConvergesOnADesiredDisk(t *testing.T) {
 	}
 	if code := call(t, handler, http.MethodPost, "/operations/01999111-2222-7333-8444-000000000000/cancel", nil, nil); code != http.StatusNotFound {
 		t.Fatalf("cancel unknown = %d", code)
+	}
+}
+
+func TestHostAPIRunsChecksOnRequest(t *testing.T) {
+	first, second := hosttest.Disk(t, "check-a.img", 2*gib), hosttest.Disk(t, "check-b.img", 2*gib)
+	hosttest.MustRun(t, "mkfs.btrfs", "-q", "-f", "-d", "raid1", "-m", "raid1", first, second)
+	mount := hosttest.Mount(t, first)
+	service, handler := newService(t, mount)
+	service.Integrity = integrity.Checker{Run: command.Run, Mount: mount, Poll: 50 * time.Millisecond}
+
+	if code := call(t, handler, http.MethodPost, "/operations", CheckRequest{Kind: "integrity.reboot", Reason: "Check", RequestedBy: "admin"}, nil); code != http.StatusBadRequest {
+		t.Fatalf("unknown check = %d", code)
+	}
+	if code := call(t, handler, http.MethodPost, "/operations", CheckRequest{Kind: integrity.KindScrub, RequestedBy: "admin"}, nil); code != http.StatusBadRequest {
+		t.Fatalf("check without a reason = %d", code)
+	}
+	// Loop devices have no SMART, so once read they are excluded from self-tests
+	devices, err := host.Inventory(context.Background(), command.Run, "", service.Inventory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.Health.Refresh(context.Background(), command.Run, devices, time.Now)
+	if code := call(t, handler, http.MethodPost, "/operations", CheckRequest{Kind: integrity.KindSMARTShort, Reason: "Weekly", RequestedBy: "admin"}, nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("self-test without SMART devices = %d", code)
+	}
+
+	var started operation.Operation
+	if code := call(t, handler, http.MethodPost, "/operations", CheckRequest{Kind: integrity.KindScrub, Reason: "Verify copies", RequestedBy: "admin"}, &started); code != http.StatusOK {
+		t.Fatalf("scrub = %d", code)
+	}
+	if started.Kind != integrity.KindScrub || started.RequestedBy != "admin" || started.Target != mount {
+		t.Fatalf("started = %+v", started)
+	}
+	deadline := time.Now().Add(time.Minute)
+	for {
+		var record operation.Record
+		call(t, handler, http.MethodGet, "/operations/"+started.ID, nil, &record)
+		if record.State.Finished() {
+			if record.State != operation.Succeeded {
+				t.Fatalf("scrub %s: %s", record.State, record.Error)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("scrub did not finish")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

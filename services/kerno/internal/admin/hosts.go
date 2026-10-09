@@ -23,6 +23,7 @@ type HostAgent interface {
 	Operations(context.Context, int) (json.RawMessage, error)
 	Operation(context.Context, string) (json.RawMessage, error)
 	CancelOperation(context.Context, string) (json.RawMessage, error)
+	StartCheck(context.Context, json.RawMessage) (json.RawMessage, error)
 }
 
 // AgentError carries an agent's refusal: its HTTP status and operator-facing message.
@@ -42,6 +43,13 @@ type StateChange struct {
 	Document      json.RawMessage `json:"document"`
 	Confirmations []string        `json:"confirmations"`
 	Reason        string          `json:"reason"`
+	Converge      bool            `json:"converge"`
+}
+
+// CheckRequest is an administrator's request to run an integrity check now.
+type CheckRequest struct {
+	Kind   string `json:"kind"`
+	Reason string `json:"reason"`
 }
 
 // DocumentChange is one changed field in the audit trail of a desired state revision.
@@ -117,7 +125,8 @@ func (hosts *Hosts) Apply(ctx context.Context, actorID, id string, change StateC
 		return nil, err
 	}
 	request, err := json.Marshal(map[string]any{
-		"document": change.Document, "confirmations": change.Confirmations, "reason": change.Reason, "requestedBy": actorID,
+		"document": change.Document, "confirmations": change.Confirmations, "reason": change.Reason,
+		"converge": change.Converge, "requestedBy": actorID,
 	})
 	if err != nil {
 		return nil, err
@@ -158,6 +167,27 @@ func (hosts *Hosts) Cancel(ctx context.Context, actorID, id, operation string) (
 		return nil, err
 	}
 	return agent.CancelOperation(ctx, operation)
+}
+
+// StartCheck audits and forwards a check the administrator starts outside its schedule.
+func (hosts *Hosts) StartCheck(ctx context.Context, actorID, id string, check CheckRequest) (json.RawMessage, error) {
+	agent, err := hosts.agent(id)
+	if err != nil {
+		return nil, err
+	}
+	check.Reason = strings.TrimSpace(check.Reason)
+	if !ValidReason(check.Reason, 10, 500) {
+		return nil, invalid.Input(ErrInvalidOperation, "A reason of 10 to 500 characters is required.")
+	}
+	details := map[string]any{"host": id, "kind": check.Kind}
+	if err := hosts.audit.Record(ctx, actorID, "", "host.operation.start", check.Reason, details); err != nil {
+		return nil, err
+	}
+	request, err := json.Marshal(map[string]string{"kind": check.Kind, "reason": check.Reason, "requestedBy": actorID})
+	if err != nil {
+		return nil, err
+	}
+	return agent.StartCheck(ctx, request)
 }
 
 // DiffDocuments lists changed leaves between two JSON documents; arrays compare as whole values.

@@ -26,6 +26,7 @@ func mountAdminHosts(r chi.Router, hosts *admin.Hosts) {
 	r.Post("/hosts/{host}/state/plan", h.plan)
 	r.Put("/hosts/{host}/state", h.apply)
 	r.Get("/hosts/{host}/operations", h.operations)
+	r.Post("/hosts/{host}/operations", h.startCheck)
 	r.Get("/hosts/{host}/operations/{operation}", h.operation)
 	r.Post("/hosts/{host}/operations/{operation}/cancel", h.cancel)
 }
@@ -71,6 +72,15 @@ func (h hostsHandler) operations(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 	result, err := h.hosts.Operations(r.Context(), chi.URLParam(r, "host"), limit)
+	writeHostResult(w, result, err)
+}
+
+func (h hostsHandler) startCheck(w http.ResponseWriter, r *http.Request) {
+	var check admin.CheckRequest
+	if !decodeHostBody(w, r, &check) {
+		return
+	}
+	result, err := h.hosts.StartCheck(r.Context(), adminActor(r).ID, chi.URLParam(r, "host"), check)
 	writeHostResult(w, result, err)
 }
 

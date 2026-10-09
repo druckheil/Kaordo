@@ -16,6 +16,7 @@ import type {
 	HostState,
 	HostStateChange,
 	HostStateChangeResult,
+	HostCheckRequest,
 	paths
 } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
@@ -161,6 +162,18 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
 					signal
 				}
 			);
+			return requireResponseData(data, error, response.status);
+		},
+		async startHostCheck(
+			host: string,
+			check: HostCheckRequest,
+			signal?: AbortSignal
+		): Promise<HostOperation> {
+			const { data, error, response } = await client.POST('/v1/admin/hosts/{host}/operations', {
+				params: { path: { host } },
+				body: check,
+				signal
+			});
 			return requireResponseData(data, error, response.status);
 		},
 		async cancelHostOperation(

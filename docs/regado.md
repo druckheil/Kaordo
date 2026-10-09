@@ -51,6 +51,7 @@ Operations are the only way to change a host. Examples: adding, replacing or rem
 - Mutating operations run one at a time, in order. Read-only ones (SMART reads, inventory) run concurrently.
 - Cancellation is offered only where the underlying tool can stop safely. `btrfs balance` and `scrub` can be cancelled; `btrfs replace` can be cancelled before it finishes. Partitioning cannot be cancelled once started.
 - Destructive steps require the confirmation that Regado collects (the device serial or the host name). The agent validates it again.
+- Storing a document whose pool section is unchanged never reads or changes disks. The pool dialog sets `converge` to finish drift with the same pool.
 - Retention: the newest 500 operations or 180 days.
 
 ## Storage layout
@@ -92,7 +93,9 @@ Progress comes from the tools themselves: `btrfs balance status`, `btrfs replace
 ## Integrity
 
 - **Data integrity.** Btrfs guarantees two copies through the `raid1` profile, and scrub verifies every copy against its checksum, repairing a bad copy from the good one. There is no separate file-copy inventory.
-- **Scheduled checks.** Scrub runs monthly, a SMART short test weekly and a long test monthly. Each is an operation.
+- **Scheduled checks.** Scrub runs monthly, a SMART short test weekly and a long test monthly by default; the desired state sets each to off, weekly or monthly. The agent's scheduler starts a due check between 02:00 and 06:00 host time, one check at a time, in the order scrub, long test, short test. A long test also counts as a short one. Interrupted runs retry; failed runs wait for the next interval and raise an alert.
+- **Scrub.** `btrfs scrub start -B --limit 64m` reads every copy, with progress from `btrfs scrub status`. It queues behind pool changes. Corrected blocks are logged; any uncorrectable block fails the operation. Operators can run any check now, with a reason that Kerno audits.
+- **Self-tests.** `smartctl --test` runs on each pool and backup disk in turn, polled until the drive reports a result (ATA and NVMe). Disks whose SMART cannot be read are skipped.
 - **Error signals.** Device error counters (`btrfs device stats`), SMART health and attributes (reallocated, pending and offline-uncorrectable sectors), temperature and profile drift all feed alerts.
 - **SMART reads.** The agent reads every identified device every 15 minutes with `--nocheck=standby`, so sleeping disks are not woken; a sleeping disk keeps its last report. Facts include the latest report per device.
 
@@ -144,7 +147,7 @@ Every API is addressed by host: `/v1/admin/hosts/{host}/…`. Kerno's host regis
 
 ## Delivery phases
 
-Done: the operation journal, the desired state store, host addressing in Kerno and the contract, device classification, pool planning and the add, replace, convert and remove operations, SMART facts, and the Regado Storage view. The partition planner, file-copy checker and layout dialog are removed. Everything else below is still to be built.
+Done: the operation journal, the desired state store, host addressing in Kerno and the contract, device classification, pool planning and the add, replace, convert and remove operations, SMART facts, scheduled and on-demand integrity checks, and the Regado Storage view. The partition planner, file-copy checker and layout dialog are removed. Everything else below is still to be built.
 
 1. **Foundation.** The operation journal and API, the desired state store with revisions and export, host addressing in Kerno and the contract, alert evaluation and delivery (Ligo and ntfy), and the Regado operations activity view.
 2. **Storage.** Device classification and lifecycle operations, the boot reconciler, integrity schedules, space and quota reporting, cleanup. Replaces the partition planner, file-copy checker and layout dialog.
