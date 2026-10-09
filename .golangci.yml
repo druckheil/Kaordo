@@ -43,13 +43,6 @@ linters:
       # Tests serve no external requests and read as scenarios; their unchecked errors still fail errcheck
       - path: _test\.go
         linters: [gocognit, gosec, noctx]
-      # Pending module refactors; remove each entry when its module is reworked.
-      # Regado agent: user-facing messages travel in error text instead of typed errors.
-      - path: agent/(partition_plan|partition_apply)\.go
-        text: (error-strings|ST1005)
-      # Functions above the cognitive complexity limit, split during their module pass.
-      - linters: [gocognit]
-        text: func `(readDiskLayouts|assignPartitionRoles|layoutPoolPreflight|activateRoleArea|planExistingDevice|validatedRepartSteps|countPoolFilesMeasured|collectMounts)`
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

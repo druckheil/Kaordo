@@ -25,37 +25,39 @@ func readDiskLayouts(ctx context.Context, run commandRunner, disks []disk) {
 		}
 		regions, geometry, available := parseDiskLayout(raw)
 		item.LayoutAvailable = available
-		item.Unallocated = []diskRegion{}
-		for _, region := range regions {
-			// GPT headers and alignment gaps cannot hold a useful aligned partition
-			if region.Size < partitionAlignment {
-				item.OverheadBytes += region.Size
-				continue
-			}
-			start := alignUp(region.Start)
-			end := alignDown(region.Start + region.Size)
-			if end <= start {
-				item.OverheadBytes += region.Size
-				continue
-			}
-			item.Unallocated = append(item.Unallocated, diskRegion{Start: start, Size: end - start})
-			item.OverheadBytes += region.Size - (end - start)
-		}
+		item.Unallocated, item.OverheadBytes = usableRegions(regions)
 		for childIndex := range item.Children {
-			child := &item.Children[childIndex]
-			number := partitionNumber(item.Path, child.Path)
-			for _, part := range geometry {
-				if part.Number != number {
-					continue
-				}
-				child.Number, child.Start = number, part.Start
-				switch {
-				case strings.Contains(part.Flags, "bios_grub"):
-					child.BootKind = "BIOS boot"
-				case strings.Contains(part.Flags, "esp"):
-					child.BootKind = "EFI system"
-				}
-			}
+			applyPartitionGeometry(&item.Children[childIndex], partitionNumber(item.Path, item.Children[childIndex].Path), geometry)
+		}
+	}
+}
+
+// usableRegions aligns free space to whole MiB; GPT headers and alignment gaps count as overhead
+func usableRegions(regions []diskRegion) (usable []diskRegion, overhead int64) {
+	usable = []diskRegion{}
+	for _, region := range regions {
+		start, end := alignUp(region.Start), alignDown(region.Start+region.Size)
+		if region.Size < partitionAlignment || end <= start {
+			overhead += region.Size
+			continue
+		}
+		usable = append(usable, diskRegion{Start: start, Size: end - start})
+		overhead += region.Size - (end - start)
+	}
+	return usable, overhead
+}
+
+func applyPartitionGeometry(child *disk, number int, geometry []partitionGeometry) {
+	for _, part := range geometry {
+		if part.Number != number {
+			continue
+		}
+		child.Number, child.Start = number, part.Start
+		switch {
+		case strings.Contains(part.Flags, "bios_grub"):
+			child.BootKind = "BIOS boot"
+		case strings.Contains(part.Flags, "esp"):
+			child.BootKind = "EFI system"
 		}
 	}
 }
@@ -108,27 +110,28 @@ func assignPartitionRoles(disks []disk, mounts []mount) {
 	for i := range disks {
 		item := &disks[i]
 		if item.Type == "part" || (item.Type == "disk" && len(item.Children) == 0 && valueOrEmpty(item.FSType) != "") {
-			switch {
-			case item.BootKind != "":
-				item.Role = "system"
-			case hasMountpoint(*item, "/") || valueOrEmpty(item.PartitionLabel) == "kaordo-system":
-				item.Role = "system"
-			case valueOrEmpty(item.FSType) == "swap":
-				item.Role = "system"
-			case valueOrEmpty(item.PartitionLabel) == "kaordo-storage" && valueOrEmpty(item.FSType) == "" && len(item.Children) == 0:
-				item.Role = "storage"
-			default:
-				item.Role = "unassigned"
-				for _, mounted := range mounts {
-					if mounted.Integrity != nil && containsPath(mounted.Integrity.Members, item.Path) {
-						item.Role = "storage"
-						break
-					}
-				}
-			}
+			item.Role = partitionRole(*item, mounts)
 		}
 		assignPartitionRoles(item.Children, mounts)
 	}
+}
+
+// partitionRole classifies boot, root, swap and Kaordo-labelled areas; any member of a
+// mounted pool is Storage, and everything else stays unassigned for operator review
+func partitionRole(item disk, mounts []mount) string {
+	label, fsType := valueOrEmpty(item.PartitionLabel), valueOrEmpty(item.FSType)
+	switch {
+	case item.BootKind != "", hasMountpoint(item, "/"), label == "kaordo-system", fsType == "swap":
+		return "system"
+	case label == "kaordo-storage" && fsType == "" && len(item.Children) == 0:
+		return "storage"
+	}
+	for _, mounted := range mounts {
+		if mounted.Integrity != nil && containsPath(mounted.Integrity.Members, item.Path) {
+			return "storage"
+		}
+	}
+	return "unassigned"
 }
 
 func containsPath(paths []string, path string) bool {

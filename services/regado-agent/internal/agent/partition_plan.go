@@ -18,6 +18,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// operatorIssue is a refusal shown to the administrator exactly as written
+type operatorIssue string
+
+func (issue operatorIssue) Error() string { return string(issue) }
+
 type layoutRequest struct {
 	Device       string `json:"device"`
 	Identity     string `json:"identity"`
@@ -237,26 +242,28 @@ func planExistingDevice(device disk, plan *storagePlan) bool {
 	for _, region := range device.Unallocated {
 		plan.AvailableBytes += region.Size
 	}
-	for _, role := range []string{"system", "storage"} {
-		desired := plan.SystemBytes
-		if role == "storage" {
-			desired = plan.StorageBytes
-		}
-		if desired < current[role] {
-			plan.Issues = append(plan.Issues, "Shrinking or removing an existing area requires an offline migration. Disko declarations can be exported; live repartitioning never erases data.")
-		}
-		if current[role] > 0 && desired != current[role] && role == "system" {
-			plan.Issues = append(plan.Issues, "The existing System area is protected; resize it through an offline maintenance workflow.")
-		}
+	plan.Issues = append(plan.Issues, resizeIssues(device, *plan, current)...)
+	return true
+}
+
+// resizeIssues explains requests that live repartitioning refuses: shrinking, resizing the
+// System area, changing nothing, or exceeding usable capacity
+func resizeIssues(device disk, plan storagePlan, current map[string]int64) []string {
+	var issues []string
+	if plan.SystemBytes < current["system"] || plan.StorageBytes < current["storage"] {
+		issues = append(issues, "Shrinking or removing an existing area requires an offline migration. Disko declarations can be exported; live repartitioning never erases data.")
+	}
+	if current["system"] > 0 && plan.SystemBytes != current["system"] {
+		issues = append(issues, "The existing System area is protected; resize it through an offline maintenance workflow.")
 	}
 	pending := slices.ContainsFunc(device.Children, partitionNeedsActivation)
 	if plan.SystemBytes == current["system"] && plan.StorageBytes == current["storage"] && !pending {
-		plan.Issues = append(plan.Issues, "The requested layout already matches this device.")
+		issues = append(issues, "The requested layout already matches this device.")
 	}
 	if plan.SystemBytes > plan.AvailableBytes || plan.StorageBytes > plan.AvailableBytes-plan.SystemBytes {
-		plan.Issues = append(plan.Issues, "Requested areas exceed usable capacity.")
+		issues = append(issues, "Requested areas exceed usable capacity.")
 	}
-	return true
+	return issues
 }
 
 func repartDefinitions(device disk, plan storagePlan) (map[string]string, error) {
@@ -273,7 +280,7 @@ func repartDefinitions(device disk, plan storagePlan) (map[string]string, error)
 	current := map[string]int64{}
 	for _, part := range parts {
 		if part.Number == 0 || part.Start == 0 || valueOrEmpty(part.PartitionType) == "" {
-			return nil, errors.New("Partition type and geometry are required for incremental changes.")
+			return nil, operatorIssue("Partition type and geometry are required for incremental changes.")
 		}
 		if part.BootKind == "" {
 			current[part.Role] += part.Size
@@ -281,7 +288,7 @@ func repartDefinitions(device disk, plan storagePlan) (map[string]string, error)
 		size := part.Size
 		if part.Role == "storage" && plan.StorageBytes > storageTotal {
 			if storageParts > 1 {
-				return nil, errors.New("Manage multiple Storage partitions through a separate migration.")
+				return nil, operatorIssue("Manage multiple Storage partitions through a separate migration.")
 			}
 			size = plan.StorageBytes
 		}
@@ -334,6 +341,8 @@ func repartArgs(work, device string, dry bool) []string {
 	return []string{"systemd-repart", "--dry-run=" + strconv.FormatBool(dry), "--empty=refuse", "--discard=no", "--json=short", "--pretty=no", "--definitions=" + work, device}
 }
 
+// validatedRepartSteps accepts a systemd-repart preview only if it keeps every existing
+// partition in place, creates only Kaordo areas, matches the requested sizes and never overlaps
 func validatedRepartSteps(raw string, device disk, plan storagePlan) ([]layoutStep, error) {
 	start := strings.Index(raw, "[{")
 	if start < 0 {
@@ -343,63 +352,78 @@ func validatedRepartSteps(raw string, device disk, plan storagePlan) ([]layoutSt
 	if err := json.NewDecoder(strings.NewReader(raw[start:])).Decode(&proposed); err != nil {
 		return nil, err
 	}
-	steps := []layoutStep{}
-	seen := map[string]bool{}
-	roles := map[string]int64{}
-	nodes := map[string]bool{}
-	existingParts := make(map[string]disk, len(device.Children))
-	for _, part := range device.Children {
-		existingParts[part.Path] = part
-	}
-	for _, candidate := range proposed {
-		if nodes[candidate.Node] || candidate.Number < 0 || partitionNumber(device.Path, candidate.Node) != candidate.Number+1 || candidate.Offset <= 0 || candidate.Size <= 0 || candidate.Offset > device.Size || candidate.Size > device.Size-candidate.Offset {
-			return nil, errors.New("Invalid partition geometry was refused.")
-		}
-		nodes[candidate.Node] = true
-		if existing, found := existingParts[candidate.Node]; found {
-			seen[existing.Path] = true
-			if existing.BootKind == "" {
-				roles[existing.Role] += candidate.Size
-			}
-			step, err := preservedPartitionStep(existing, candidate)
-			if err != nil {
-				return nil, err
-			}
-			if step != nil {
-				steps = append(steps, *step)
-			}
-			continue
-		}
-		step, err := createdPartitionStep(candidate)
-		if err != nil {
-			return nil, err
-		}
-		steps = append(steps, step)
-		roles[step.Role] += step.Size
-	}
-	if len(seen) != len(device.Children) {
-		return nil, errors.New("The preview did not preserve every existing partition.")
+	steps, roles, err := repartSteps(device, proposed)
+	if err != nil {
+		return nil, err
 	}
 	if roles["system"] != plan.SystemBytes || roles["storage"] != plan.StorageBytes {
-		return nil, errors.New("The native preview does not match the requested role sizes.")
+		return nil, operatorIssue("The native preview does not match the requested role sizes.")
 	}
 	slices.SortFunc(proposed, func(a, b repartPartition) int { return cmp.Compare(a.Offset, b.Offset) })
 	for index := 1; index < len(proposed); index++ {
 		previous := proposed[index-1]
 		if previous.Offset+previous.Size > proposed[index].Offset {
-			return nil, errors.New("Overlapping partition geometry was refused.")
+			return nil, operatorIssue("Overlapping partition geometry was refused.")
 		}
 	}
 	return steps, nil
 }
 
+// repartSteps classifies each proposed partition and totals the resulting size of each role
+func repartSteps(device disk, proposed []repartPartition) ([]layoutStep, map[string]int64, error) {
+	existingParts := make(map[string]disk, len(device.Children))
+	for _, part := range device.Children {
+		existingParts[part.Path] = part
+	}
+	steps := []layoutStep{}
+	roles := map[string]int64{}
+	nodes := map[string]bool{}
+	preserved := 0
+	for _, candidate := range proposed {
+		if nodes[candidate.Node] || !validRepartGeometry(device, candidate) {
+			return nil, nil, operatorIssue("Invalid partition geometry was refused.")
+		}
+		nodes[candidate.Node] = true
+		existing, found := existingParts[candidate.Node]
+		if !found {
+			step, err := createdPartitionStep(candidate)
+			if err != nil {
+				return nil, nil, err
+			}
+			steps = append(steps, step)
+			roles[step.Role] += step.Size
+			continue
+		}
+		preserved++
+		if existing.BootKind == "" {
+			roles[existing.Role] += candidate.Size
+		}
+		step, err := preservedPartitionStep(existing, candidate)
+		if err != nil {
+			return nil, nil, err
+		}
+		if step != nil {
+			steps = append(steps, *step)
+		}
+	}
+	if preserved != len(device.Children) {
+		return nil, nil, operatorIssue("The preview did not preserve every existing partition.")
+	}
+	return steps, roles, nil
+}
+
+func validRepartGeometry(device disk, candidate repartPartition) bool {
+	return candidate.Number >= 0 && partitionNumber(device.Path, candidate.Node) == candidate.Number+1 &&
+		candidate.Offset > 0 && candidate.Size > 0 && candidate.Offset <= device.Size && candidate.Size <= device.Size-candidate.Offset
+}
+
 func preservedPartitionStep(existing disk, candidate repartPartition) (*layoutStep, error) {
 	if candidate.Offset != existing.Start || candidate.OldSize != existing.Size || candidate.Size < existing.Size {
-		return nil, errors.New("The preview would move or shrink existing data.")
+		return nil, operatorIssue("The preview would move or shrink existing data.")
 	}
 	if candidate.Size > existing.Size {
 		if existing.Role != "storage" || valueOrEmpty(existing.FSType) != "btrfs" {
-			return nil, errors.New("Only a Btrfs Storage partition can grow online.")
+			return nil, operatorIssue("Only a Btrfs Storage partition can grow online.")
 		}
 		return &layoutStep{Kind: "resize", Role: "storage", Number: existing.Number, Start: existing.Start,
 			Size: candidate.Size, PreviousSize: existing.Size, Source: existing.Path}, nil
@@ -414,7 +438,7 @@ func preservedPartitionStep(existing disk, candidate repartPartition) (*layoutSt
 func createdPartitionStep(candidate repartPartition) (layoutStep, error) {
 	role := map[string]string{"kaordo-system": "system", "kaordo-storage": "storage"}[candidate.Label]
 	if role == "" || candidate.OldSize != 0 || candidate.Activity != "create" || candidate.Size <= 0 {
-		return layoutStep{}, errors.New("Unexpected partition change was refused.")
+		return layoutStep{}, operatorIssue("Unexpected partition change was refused.")
 	}
 	return layoutStep{Kind: "create", Role: role, Number: candidate.Number + 1, Start: candidate.Offset,
 		Size: candidate.Size, Source: candidate.Node}, nil

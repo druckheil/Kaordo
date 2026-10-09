@@ -143,7 +143,7 @@ func (monitor *replicationMonitor) prepareLayoutWorkspace(ctx context.Context, r
 		return "", err
 	}
 	if strings.TrimSpace(signatures) != "" || len(device.Children) != 0 {
-		return "", errors.New("Disko initialization accepts only an empty physical device")
+		return "", operatorIssue("Disko initialization accepts only an empty physical device")
 	}
 	work, err := writeLayoutWorkspace(nil, plan.Declaration)
 	if err != nil {
@@ -151,7 +151,7 @@ func (monitor *replicationMonitor) prepareLayoutWorkspace(ctx context.Context, r
 	}
 	monitor.layoutProgress(request.Device, "Compiling Disko declaration", 0, 0)
 	if _, err := run(ctx, "disko", "--mode", "format", "--dry-run", filepath.Join(work, "disko.nix")); err != nil {
-		return "", errors.New("Disko declaration could not be compiled; no partition was changed")
+		return "", operatorIssue("Disko declaration could not be compiled; no partition was changed")
 	}
 	return work, nil
 }
@@ -184,7 +184,7 @@ func (monitor *replicationMonitor) applyPartitionDeclaration(ctx context.Context
 	monitor.layoutProgress(request.Device, "Applying "+plan.Backend+" declaration", 0, 0)
 	if plan.Backend == "disko" {
 		if _, err := run(ctx, "disko", "--mode", "format", filepath.Join(work, "disko.nix")); err != nil {
-			return errors.New("Disko initialization stopped; inspect the device before retrying")
+			return operatorIssue("Disko initialization stopped; inspect the device before retrying")
 		}
 	} else {
 		fresh, err := run(ctx, repartArgs(work, request.Device, true)...)
@@ -208,7 +208,7 @@ func (monitor *replicationMonitor) applyPartitionDeclaration(ctx context.Context
 func (monitor *replicationMonitor) restoreLayoutRedundancy(ctx context.Context, run commandRunner, request layoutRequest) error {
 	pool := readFilesystemIntegrity(ctx, run, request.Filesystem)
 	if pool == nil {
-		return errors.New("Storage pool status is unavailable")
+		return operatorIssue("Storage pool status is unavailable")
 	}
 	args := repairConversionArgs(pool, request.Filesystem)
 	if len(args) == 0 {
@@ -230,25 +230,33 @@ func layoutPoolPreflight(ctx context.Context, run commandRunner, request layoutR
 	}
 	pool := readFilesystemIntegrity(ctx, run, request.Filesystem)
 	if pool == nil || pool.BalanceRunning || pool.ScrubState == "running" {
-		return errors.New("Storage pool is unavailable or busy")
+		return operatorIssue("Storage pool is unavailable or busy")
 	}
 	for _, step := range plan.Steps {
 		if step.Role != "storage" {
 			continue
 		}
-		switch step.Kind {
-		case "resize":
-			if !containsPath(pool.Members, step.Source) {
-				return errors.New("the selected pool does not own this Storage partition")
-			}
-			if _, err := repairPreflight(ctx, run, request.Filesystem); err != nil {
-				return err
-			}
-		case "create", "activate":
-			for _, member := range pool.Members {
-				if diskContainsPath(device, member) {
-					return errors.New("the physical device already participates in this pool")
-				}
+		if err := storageStepPreflight(ctx, run, request.Filesystem, pool, device, step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// storageStepPreflight allows growing only the pool's own member and adding only a device
+// that is not already in the pool
+func storageStepPreflight(ctx context.Context, run commandRunner, filesystem string, pool *filesystemIntegrity, device disk, step layoutStep) error {
+	switch step.Kind {
+	case "resize":
+		if !containsPath(pool.Members, step.Source) {
+			return errors.New("the selected pool does not own this Storage partition")
+		}
+		_, err := repairPreflight(ctx, run, filesystem)
+		return err
+	case "create", "activate":
+		for _, member := range pool.Members {
+			if diskContainsPath(device, member) {
+				return errors.New("the physical device already participates in this pool")
 			}
 		}
 	}
@@ -256,60 +264,77 @@ func layoutPoolPreflight(ctx context.Context, run commandRunner, request layoutR
 }
 
 func activateRoleArea(ctx context.Context, run commandRunner, request layoutRequest, step layoutStep) error {
-	if err := verifyPhysicalIdentity(ctx, run, request.Device, request.Identity); err != nil {
-		return err
-	}
-	disks, err := readDisks(ctx, run, nil)
+	part, err := approvedArea(ctx, run, request, step)
 	if err != nil {
 		return err
 	}
-	device, found := findPhysicalDisk(disks, request.Device)
-	if !found {
-		return errors.New("device disappeared after partitioning")
-	}
-	var parts []disk
-	for _, part := range device.Children {
-		if step.Source != "" && part.Path != step.Source {
-			continue
-		}
-		if step.Source == "" && valueOrEmpty(part.PartitionLabel) != "kaordo-"+step.Role {
-			continue
-		}
-		if part.Size != step.Size {
-			return errors.New("partition size does not match the approved declaration")
-		}
-		parts = append(parts, part)
-	}
-	if len(parts) != 1 {
-		return errors.New("declared area could not be identified uniquely")
-	}
-	part := parts[0]
 	if step.Role == "system" {
 		if valueOrEmpty(part.FSType) != "ext4" {
-			return errors.New("System filesystem was not prepared")
+			return operatorIssue("System filesystem was not prepared")
 		}
 		return mountSystemVolume(ctx, run, part.Path)
 	}
 	if step.Kind == "create" || step.Kind == "activate" {
-		signatures, err := run(ctx, "wipefs", "--no-act", "--noheadings", "--output", "TYPE", part.Path)
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(signatures) != "" {
-			return errors.New("new Storage area contains existing signatures and was not added")
-		}
-		_, err = run(ctx, "btrfs", "device", "add", part.Path, request.Filesystem)
-		return err
+		return addStorageMember(ctx, run, request.Filesystem, part.Path)
 	}
-	raw, err := run(ctx, "btrfs", "filesystem", "show", "--raw", request.Filesystem)
+	return growStorageMember(ctx, run, request.Filesystem, part.Path)
+}
+
+// approvedArea re-reads the device and finds the one partition matching the approved step
+func approvedArea(ctx context.Context, run commandRunner, request layoutRequest, step layoutStep) (disk, error) {
+	if err := verifyPhysicalIdentity(ctx, run, request.Device, request.Identity); err != nil {
+		return disk{}, err
+	}
+	disks, err := readDisks(ctx, run, nil)
+	if err != nil {
+		return disk{}, err
+	}
+	device, found := findPhysicalDisk(disks, request.Device)
+	if !found {
+		return disk{}, errors.New("device disappeared after partitioning")
+	}
+	var parts []disk
+	for _, part := range device.Children {
+		matches := part.Path == step.Source
+		if step.Source == "" {
+			matches = valueOrEmpty(part.PartitionLabel) == "kaordo-"+step.Role
+		}
+		if !matches {
+			continue
+		}
+		if part.Size != step.Size {
+			return disk{}, errors.New("partition size does not match the approved declaration")
+		}
+		parts = append(parts, part)
+	}
+	if len(parts) != 1 {
+		return disk{}, errors.New("declared area could not be identified uniquely")
+	}
+	return parts[0], nil
+}
+
+func addStorageMember(ctx context.Context, run commandRunner, filesystem, path string) error {
+	signatures, err := run(ctx, "wipefs", "--no-act", "--noheadings", "--output", "TYPE", path)
 	if err != nil {
 		return err
 	}
-	id := btrfsDeviceID(raw, part.Path)
-	if id == "" {
-		return errors.New("Storage pool member identity changed")
+	if strings.TrimSpace(signatures) != "" {
+		return errors.New("new Storage area contains existing signatures and was not added")
 	}
-	_, err = run(ctx, "btrfs", "filesystem", "resize", id+":max", request.Filesystem)
+	_, err = run(ctx, "btrfs", "device", "add", path, filesystem)
+	return err
+}
+
+func growStorageMember(ctx context.Context, run commandRunner, filesystem, path string) error {
+	raw, err := run(ctx, "btrfs", "filesystem", "show", "--raw", filesystem)
+	if err != nil {
+		return err
+	}
+	id := btrfsDeviceID(raw, path)
+	if id == "" {
+		return operatorIssue("Storage pool member identity changed")
+	}
+	_, err = run(ctx, "btrfs", "filesystem", "resize", id+":max", filesystem)
 	return err
 }
 

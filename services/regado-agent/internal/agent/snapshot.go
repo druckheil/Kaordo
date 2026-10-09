@@ -112,32 +112,30 @@ func collectMounts(
 	integrityBySource map[string]*filesystemIntegrity,
 ) {
 	for _, item := range disks {
-		for _, mountpoint := range item.Mountpoints {
-			if mountpoint == nil || *mountpoint == "" {
-				continue
+		for _, mountpoint := range nonEmptyMountpoints(item.Mountpoints) {
+			if _, exists := byPath[mountpoint]; !exists {
+				byPath[mountpoint] = describeMount(ctx, run, item, mountpoint, integrityBySource)
 			}
-			if _, exists := byPath[*mountpoint]; exists {
-				continue
-			}
-			mounted := mount{Path: *mountpoint, Source: item.Path, FSType: valueOrEmpty(item.FSType)}
-			if usage, err := statMount(*mountpoint); err == nil {
-				mounted.Total = usage.Total
-				mounted.Used = usage.Used
-				mounted.Free = usage.Free
-				mounted.Available = true
-			}
-			if mounted.FSType == "btrfs" {
-				integrity, checked := integrityBySource[mounted.Source]
-				if !checked {
-					integrity = readFilesystemIntegrity(ctx, run, mounted.Path)
-					integrityBySource[mounted.Source] = integrity
-				}
-				mounted.Integrity = integrity
-			}
-			byPath[*mountpoint] = mounted
 		}
 		collectMounts(ctx, run, item.Children, byPath, integrityBySource)
 	}
+}
+
+// describeMount reads usage and, once per Btrfs source device, its redundancy profile
+func describeMount(ctx context.Context, run commandRunner, item disk, mountpoint string, integrityBySource map[string]*filesystemIntegrity) mount {
+	mounted := mount{Path: mountpoint, Source: item.Path, FSType: valueOrEmpty(item.FSType)}
+	if usage, err := statMount(mountpoint); err == nil {
+		mounted.Total, mounted.Used, mounted.Free, mounted.Available = usage.Total, usage.Used, usage.Free, true
+	}
+	if mounted.FSType == "btrfs" {
+		integrity, checked := integrityBySource[mounted.Source]
+		if !checked {
+			integrity = readFilesystemIntegrity(ctx, run, mounted.Path)
+			integrityBySource[mounted.Source] = integrity
+		}
+		mounted.Integrity = integrity
+	}
+	return mounted
 }
 
 func readFilesystemIntegrity(ctx context.Context, run commandRunner, path string) *filesystemIntegrity {

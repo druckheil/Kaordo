@@ -271,40 +271,58 @@ func countPoolFilesMeasured(ctx context.Context, path string, progress func(int6
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	rootDevice := root.Sys().(*syscall.Stat_t).Dev
+	count := poolFileCount{sameFilesystem: sameDeviceAs(root), progress: progress}
 	err = filepath.WalkDir(path, func(_ string, entry fs.DirEntry, walkErr error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if walkErr != nil {
-			unreadable++
-			if entry != nil && entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		info, infoErr := entry.Info()
-		if infoErr != nil {
-			unreadable++
-			return nil //nolint:nilerr // unreadable entries are counted rather than aborting the scan
-		}
-		if info.Sys().(*syscall.Stat_t).Dev != rootDevice {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if info.Mode().IsRegular() {
-			files++
-			bytes += info.Size()
-			if progress != nil && files%64 == 0 {
-				progress(files)
-			}
-		}
-		return nil
+		return count.visit(entry, walkErr)
 	})
-	return
+	return count.files, count.bytes, count.unreadable, err
+}
+
+// poolFileCount tallies regular files on one filesystem, skipping symlinks and nested mounts
+type poolFileCount struct {
+	sameFilesystem           func(fs.FileInfo) bool
+	progress                 func(int64)
+	files, bytes, unreadable int64
+}
+
+func (count *poolFileCount) visit(entry fs.DirEntry, walkErr error) error {
+	if walkErr != nil {
+		count.unreadable++
+		return skipDirectory(entry)
+	}
+	if entry.Type()&os.ModeSymlink != 0 {
+		return nil
+	}
+	info, err := entry.Info()
+	if err != nil {
+		count.unreadable++
+		return nil //nolint:nilerr // unreadable entries are counted rather than aborting the scan
+	}
+	if !count.sameFilesystem(info) {
+		return skipDirectory(entry)
+	}
+	if info.Mode().IsRegular() {
+		count.files++
+		count.bytes += info.Size()
+		if count.progress != nil && count.files%64 == 0 {
+			count.progress(count.files)
+		}
+	}
+	return nil
+}
+
+func skipDirectory(entry fs.DirEntry) error {
+	if entry != nil && entry.IsDir() {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+// sameDeviceAs compares device numbers, whose integer type differs between platforms
+func sameDeviceAs(root fs.FileInfo) func(fs.FileInfo) bool {
+	device := root.Sys().(*syscall.Stat_t).Dev
+	return func(info fs.FileInfo) bool { return info.Sys().(*syscall.Stat_t).Dev == device }
 }
