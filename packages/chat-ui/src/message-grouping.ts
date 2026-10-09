@@ -4,6 +4,9 @@ import type { LigoMessage } from '@kaordo/contracts';
 
 type MessageIdentity = Pick<LigoMessage, 'sender'>;
 
-export function startsSenderRun(previous: MessageIdentity | null, current: MessageIdentity): boolean {
-  return !previous || previous.sender.id !== current.sender.id;
+export function startsSenderRun(
+	previous: MessageIdentity | null,
+	current: MessageIdentity
+): boolean {
+	return !previous || previous.sender.id !== current.sender.id;
 }

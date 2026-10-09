@@ -1,8 +1,8 @@
 <script lang="ts" module>
 	// Shares Rhea toggle-group variants through reactive context
 
-	import { createContext } from "svelte";
-	import type { ToggleVariants } from "../toggle/index.js";
+	import { createContext } from 'svelte';
+	import type { ToggleVariants } from '../toggle/index.js';
 
 	type ToggleGroupContext = Required<ToggleVariants> & {
 		spacing: number;
@@ -14,17 +14,17 @@
 <script lang="ts">
 	// Composes native selection with shared Rhea styling
 
-	import { ToggleGroup as ToggleGroupPrimitive } from "bits-ui";
-	import { cn } from "../../../utils.js";
+	import { ToggleGroup as ToggleGroupPrimitive } from 'bits-ui';
+	import { cn } from '../../../utils.js';
 
 	let {
 		ref = $bindable(null),
 		value = $bindable(),
 		class: className,
-		size = "default",
+		size = 'default',
 		spacing = 0,
-		orientation = "horizontal",
-		variant = "default",
+		orientation = 'horizontal',
+		variant = 'default',
 		...restProps
 	}: ToggleGroupPrimitive.RootProps &
 		ToggleVariants & {
@@ -40,7 +40,7 @@
 		},
 		get spacing() {
 			return spacing;
-		},
+		}
 	});
 </script>
 
@@ -58,7 +58,7 @@ runtime contract across the destructured prop union
 	data-spacing={spacing}
 	style={`--gap: ${spacing}`}
 	class={cn(
-		"data-[spacing=0]:data-[variant=outline]:rounded-2xl group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] data-vertical:flex-col data-vertical:items-stretch",
+		'group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] data-[spacing=0]:data-[variant=outline]:rounded-2xl data-vertical:flex-col data-vertical:items-stretch',
 		className
 	)}
 	{...restProps}

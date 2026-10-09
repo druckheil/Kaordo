@@ -1,20 +1,20 @@
 <script lang="ts">
 	// Loads the current account and composes the Kaordo application portal
 
-	import { onMount } from "svelte";
+	import { onMount } from 'svelte';
 	import {
 		clearAccountPreview,
 		createAccountSessionController,
 		readAccountPreview,
 		type AccountPreview,
-		type AccountSnapshot,
-	} from "@kaordo/account-ui";
-	import { signOut } from "@kaordo/auth";
-	import type { UserIdentity } from "@kaordo/contracts";
-	import { appPaths } from "@kaordo/links";
-	import { AppHeader, Button, LogOutIcon } from "@kaordo/ui";
-	import PortalApps from "$lib/PortalApps.svelte";
-	import PortalWelcome from "$lib/PortalWelcome.svelte";
+		type AccountSnapshot
+	} from '@kaordo/account-ui';
+	import { signOut } from '@kaordo/auth';
+	import type { UserIdentity } from '@kaordo/contracts';
+	import { appPaths } from '@kaordo/links';
+	import { AppHeader, Button, LogOutIcon } from '@kaordo/ui';
+	import PortalApps from '$lib/PortalApps.svelte';
+	import PortalWelcome from '$lib/PortalWelcome.svelte';
 
 	const accountSession = createAccountSessionController(import.meta.env);
 
@@ -51,7 +51,7 @@
 			await signOut(window.location.origin + appPaths.portal);
 		} catch (cause) {
 			await refreshAccount();
-			error = cause instanceof Error ? cause.message : "Could not sign out.";
+			error = cause instanceof Error ? cause.message : 'Could not sign out.';
 		}
 	}
 
@@ -67,7 +67,10 @@
 <AppHeader name="" homeHref={appPaths.portal} showAllApps={false}>
 	{#snippet actions()}
 		{#if authenticated || (authenticated === null && accountPreview)}
-			<Button variant="ghost" size="sm" onclick={logOut} aria-label="Sign out"><LogOutIcon class="size-4" /><span class="hidden min-[390px]:inline">Sign out</span></Button>
+			<Button variant="ghost" size="sm" onclick={logOut} aria-label="Sign out"
+				><LogOutIcon class="size-4" /><span class="hidden min-[390px]:inline">Sign out</span
+				></Button
+			>
 		{:else if authenticated !== null}
 			<Button href="/login/" variant="outline" size="sm">Sign in</Button>
 		{/if}
@@ -75,17 +78,13 @@
 </AppHeader>
 
 <main id="main-content" tabindex="-1" class="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
-
-	<PortalWelcome
-		{loading}
-		{user}
-		{authenticated}
-		{accountPreview}
-		onRetry={retryAccount}
-	/>
+	<PortalWelcome {loading} {user} {authenticated} {accountPreview} onRetry={retryAccount} />
 
 	{#if error}
-		<p class="mt-6 rounded-xl border border-destructive/30 bg-card p-4 text-sm text-destructive" role="alert">
+		<p
+			class="mt-6 rounded-xl border border-destructive/30 bg-card p-4 text-sm text-destructive"
+			role="alert"
+		>
 			{error}
 		</p>
 	{/if}

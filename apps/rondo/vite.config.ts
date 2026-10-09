@@ -11,15 +11,15 @@ export default defineConfig({
 	server: localViteServer('rondo'),
 	ssr: { noExternal: ['@kaordo/media-client'] },
 	optimizeDeps: {
-		include: ['@kaordo/voice-client', '@kaordo/voice-client > livekit-client',
-			...mediaDependencies]
+		include: ['@kaordo/voice-client', '@kaordo/voice-client > livekit-client', ...mediaDependencies]
 	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({
 			compilerOptions: {
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
-				runes: ({ filename }) => filename.split(/[/\\]/).includes('node_modules') ? undefined : true
+				runes: ({ filename }) =>
+					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: adapter(),
 			paths: { base: '/rondo' }

@@ -1,25 +1,30 @@
 <script lang="ts">
 	// Composes Regado query resources, navigation and dashboard panels
 
-	import { onDestroy } from "svelte";
-	import { goto } from "$app/navigation";
-	import { page } from "$app/state";
-	import { createQuery, QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
+	import { onDestroy } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { createQuery, QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
 	import {
-		createAdminApi, adminSummaryOptions, adminSystemOptions, adminMetricsOptions,
-		adminUsersOptions, adminAuditOptions, adminLogsOptions,
-	} from "@kaordo/api-client";
-	import type { UserIdentity } from "@kaordo/contracts";
-	import { appPaths } from "@kaordo/links";
-	import { AppHeader, Button } from "@kaordo/ui";
-	import AdminIntentDialog from "./AdminIntentDialog.svelte";
-	import AuditPanel from "./AuditPanel.svelte";
-	import LogsPanel from "./LogsPanel.svelte";
-	import OverviewPanel from "./OverviewPanel.svelte";
-	import StoragePanel from "./StoragePanel.svelte";
-	import SystemPanel from "./SystemPanel.svelte";
-	import UsersPanel from "./UsersPanel.svelte";
-	import { createAdminActionState } from "./admin-action-state.svelte";
+		createAdminApi,
+		adminSummaryOptions,
+		adminSystemOptions,
+		adminMetricsOptions,
+		adminUsersOptions,
+		adminAuditOptions,
+		adminLogsOptions
+	} from '@kaordo/api-client';
+	import type { UserIdentity } from '@kaordo/contracts';
+	import { appPaths } from '@kaordo/links';
+	import { AppHeader, Button } from '@kaordo/ui';
+	import AdminIntentDialog from './AdminIntentDialog.svelte';
+	import AuditPanel from './AuditPanel.svelte';
+	import LogsPanel from './LogsPanel.svelte';
+	import OverviewPanel from './OverviewPanel.svelte';
+	import StoragePanel from './StoragePanel.svelte';
+	import SystemPanel from './SystemPanel.svelte';
+	import UsersPanel from './UsersPanel.svelte';
+	import { createAdminActionState } from './admin-action-state.svelte';
 	import {
 		dashboardTabs as tabs,
 		errorMessage,
@@ -27,47 +32,84 @@
 		logServices,
 		type DashboardTab as Tab,
 		type LogPriority,
-		type MetricsWindow,
-	} from "./regado-model";
+		type MetricsWindow
+	} from './regado-model';
 
 	let { user }: { user: UserIdentity } = $props();
 	const api = createAdminApi(
 		import.meta.env.VITE_KAORDO_API_URL ||
-			(typeof window !== "undefined" ? window.location.origin : ""),
+			(typeof window !== 'undefined' ? window.location.origin : '')
 	);
 
-	const tab = $derived<Tab>(tabs.find(item => item.toLowerCase() === page.url.searchParams.get('view')) ?? 'Overview');
-	let timeWindow = $state<MetricsWindow>("1h");
-	let search = $state("");
-	let submittedSearch = $state("");
+	const tab = $derived<Tab>(
+		tabs.find((item) => item.toLowerCase() === page.url.searchParams.get('view')) ?? 'Overview'
+	);
+	let timeWindow = $state<MetricsWindow>('1h');
+	let search = $state('');
+	let submittedSearch = $state('');
 	let logService = $state<string>(logServices[0]);
-	let logLevel = $state<LogPriority>("all");
-	let logSearch = $state("");
+	let logLevel = $state<LogPriority>('all');
+	let logSearch = $state('');
 
 	const queryClient = new QueryClient();
 
 	const commands = createAdminActionState({
-		api, queryClient, refreshOverview, loadUsers
+		api,
+		queryClient,
+		refreshOverview,
+		loadUsers
 	});
 	const { form, status } = commands;
 	const busy = $derived(status.busy);
 	const notice = $derived(status.notice);
 	const refreshable = $derived(isRefreshableTab(tab));
-	const overviewPolicy = $derived({ enabled: refreshable, refetchInterval: refreshable ? 30_000 : false as const });
-	const summaryQuery = createQuery(() => ({ ...adminSummaryOptions(api), ...overviewPolicy }), () => queryClient);
-	const systemQuery = createQuery(() => ({
-		...adminSystemOptions(api), enabled: refreshable,
-		refetchInterval: (query) => {
-			if (!refreshable) return false;
-			const data = query.state.data;
-			const running = data?.layoutReports?.some((report) => report.state === "running") || data?.replicationReports?.some((report) => report.state === "checking" || report.state === "repairing") || data?.mediaMaintenance?.state === "checking" || data?.mediaMaintenance?.state === "repairing";
-			return running ? 2_000 : 30_000;
-		},
-	}), () => queryClient);
-	const metricsQuery = createQuery(() => ({ ...adminMetricsOptions(api, timeWindow), ...overviewPolicy }), () => queryClient);
-	const usersQuery = createQuery(() => ({ ...adminUsersOptions(api, submittedSearch), enabled: tab === "Users" }), () => queryClient);
-	const auditQuery = createQuery(() => ({ ...adminAuditOptions(api), enabled: tab === "Audit" }), () => queryClient);
-	const logsQuery = createQuery(() => ({ ...adminLogsOptions(api, logService), enabled: tab === "Logs", refetchInterval: tab === "Logs" ? 30_000 : false }), () => queryClient);
+	const overviewPolicy = $derived({
+		enabled: refreshable,
+		refetchInterval: refreshable ? 30_000 : (false as const)
+	});
+	const summaryQuery = createQuery(
+		() => ({ ...adminSummaryOptions(api), ...overviewPolicy }),
+		() => queryClient
+	);
+	const systemQuery = createQuery(
+		() => ({
+			...adminSystemOptions(api),
+			enabled: refreshable,
+			refetchInterval: (query) => {
+				if (!refreshable) return false;
+				const data = query.state.data;
+				const running =
+					data?.layoutReports?.some((report) => report.state === 'running') ||
+					data?.replicationReports?.some(
+						(report) => report.state === 'checking' || report.state === 'repairing'
+					) ||
+					data?.mediaMaintenance?.state === 'checking' ||
+					data?.mediaMaintenance?.state === 'repairing';
+				return running ? 2_000 : 30_000;
+			}
+		}),
+		() => queryClient
+	);
+	const metricsQuery = createQuery(
+		() => ({ ...adminMetricsOptions(api, timeWindow), ...overviewPolicy }),
+		() => queryClient
+	);
+	const usersQuery = createQuery(
+		() => ({ ...adminUsersOptions(api, submittedSearch), enabled: tab === 'Users' }),
+		() => queryClient
+	);
+	const auditQuery = createQuery(
+		() => ({ ...adminAuditOptions(api), enabled: tab === 'Audit' }),
+		() => queryClient
+	);
+	const logsQuery = createQuery(
+		() => ({
+			...adminLogsOptions(api, logService),
+			enabled: tab === 'Logs',
+			refetchInterval: tab === 'Logs' ? 30_000 : false
+		}),
+		() => queryClient
+	);
 
 	const summary = $derived(summaryQuery.data ?? null);
 	const system = $derived(systemQuery.data ?? null);
@@ -75,18 +117,30 @@
 	const users = $derived(usersQuery.data?.items ?? []);
 	const audit = $derived(auditQuery.data?.items ?? []);
 	const logs = $derived(logsQuery.data ?? null);
-	const loading = $derived(summaryQuery.isPending || systemQuery.isPending || metricsQuery.isPending);
-	const sectionLoading = $derived(tab === "Users" ? usersQuery.isFetching : tab === "Logs" ? logsQuery.isFetching : tab === "Audit" && auditQuery.isFetching);
+	const loading = $derived(
+		summaryQuery.isPending || systemQuery.isPending || metricsQuery.isPending
+	);
+	const sectionLoading = $derived(
+		tab === 'Users'
+			? usersQuery.isFetching
+			: tab === 'Logs'
+				? logsQuery.isFetching
+				: tab === 'Audit' && auditQuery.isFetching
+	);
 	const sectionError = $derived.by(() => {
 		if (refreshable) return summaryQuery.error ?? systemQuery.error ?? metricsQuery.error;
-		if (tab === "Users") return usersQuery.error;
-		if (tab === "Logs") return logsQuery.error;
-		if (tab === "Audit") return auditQuery.error;
+		if (tab === 'Users') return usersQuery.error;
+		if (tab === 'Logs') return logsQuery.error;
+		if (tab === 'Audit') return auditQuery.error;
 		return null;
 	});
-	const error = $derived(status.operationError || (sectionError ? errorMessage(sectionError) : ""));
+	const error = $derived(status.operationError || (sectionError ? errorMessage(sectionError) : ''));
 
-	onDestroy(() => { commands.dispose(); void queryClient.cancelQueries(); queryClient.clear(); });
+	onDestroy(() => {
+		commands.dispose();
+		void queryClient.cancelQueries();
+		queryClient.clear();
+	});
 
 	function openTab(next: Tab): void {
 		commands.clearOperationError();
@@ -112,131 +166,130 @@
 	async function loadLogs(): Promise<void> {
 		await logsQuery.refetch();
 	}
-
-
 </script>
 
 <svelte:head><title>{tab} | Regado | Kaordo</title></svelte:head>
 
 <QueryClientProvider client={queryClient}>
-<div
-	class="min-h-dvh bg-[radial-gradient(circle_at_90%_0%,color-mix(in_oklch,var(--primary)_9%,transparent),transparent_38%)]"
->
-	<AppHeader name="Regado" homeHref={appPaths.portal} sticky wide>
-		{#snippet actions()}<span class="mr-2 hidden max-w-40 truncate text-xs text-muted-foreground md:inline">@{user.username}</span>{/snippet}
-	</AppHeader>
-
-	<main
-		id="main-content" tabindex="-1"
-		class="mx-auto max-w-7xl px-4 pb-16 pt-7 sm:px-8 sm:pt-10"
+	<div
+		class="min-h-dvh bg-[radial-gradient(circle_at_90%_0%,color-mix(in_oklch,var(--primary)_9%,transparent),transparent_38%)]"
 	>
-		<div class="flex flex-wrap items-end justify-between gap-4">
-			<div>
-				<p class="text-xs font-bold uppercase tracking-[0.2em] text-link">
-					Local operations
-				</p>
-				<h1 class="mt-1 text-3xl font-bold tracking-[-0.05em] sm:text-4xl">
-					{tab === 'Overview' ? 'System overview' : tab}
-				</h1>
-				<p class="mt-2 text-sm text-muted-foreground">
-					Live service health, dynamically discovered storage and accountable administration.
-				</p>
-			</div>
-			<Button
-				variant="outline"
-				onclick={() => void refreshOverview()}
-				disabled={loading}>Refresh data</Button
-			>
-		</div>
-		<nav
-			class="mt-7 grid grid-cols-3 gap-1 border-b border-border sm:flex"
-			aria-label="Regado sections"
+		<AppHeader name="Regado" homeHref={appPaths.portal} sticky wide>
+			{#snippet actions()}<span
+					class="mr-2 hidden max-w-40 truncate text-xs text-muted-foreground md:inline"
+					>@{user.username}</span
+				>{/snippet}
+		</AppHeader>
+
+		<main
+			id="main-content"
+			tabindex="-1"
+			class="mx-auto max-w-7xl px-4 pt-7 pb-16 sm:px-8 sm:pt-10"
 		>
-			{#each tabs as item}
-				<button
-					type="button"
-					onclick={() => void openTab(item)}
-					aria-current={tab === item ? "page" : undefined}
-					class={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring ${tab === item ? "border-primary text-link" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-					>{item}</button
+			<div class="flex flex-wrap items-end justify-between gap-4">
+				<div>
+					<p class="text-xs font-bold tracking-[0.2em] text-link uppercase">Local operations</p>
+					<h1 class="mt-1 text-3xl font-bold tracking-[-0.05em] sm:text-4xl">
+						{tab === 'Overview' ? 'System overview' : tab}
+					</h1>
+					<p class="mt-2 text-sm text-muted-foreground">
+						Live service health, dynamically discovered storage and accountable administration.
+					</p>
+				</div>
+				<Button variant="outline" onclick={() => void refreshOverview()} disabled={loading}
+					>Refresh data</Button
 				>
-			{/each}
-		</nav>
-
-		{#if error}<p
-				class="mt-5 rounded-2xl border border-destructive/30 bg-destructive/7 p-4 text-sm text-destructive"
-				role="alert"
+			</div>
+			<nav
+				class="mt-7 grid grid-cols-3 gap-1 border-b border-border sm:flex"
+				aria-label="Regado sections"
 			>
-				{error}
-			</p>{/if}
-		{#if notice}<p
-				class="mt-5 rounded-2xl border border-primary/25 bg-primary/7 p-4 text-sm text-foreground"
-				role="status"
-			>
-				{notice}
-			</p>{/if}
+				{#each tabs as item}
+					<button
+						type="button"
+						onclick={() => void openTab(item)}
+						aria-current={tab === item ? 'page' : undefined}
+						class={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring ${tab === item ? 'border-primary text-link' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+						>{item}</button
+					>
+				{/each}
+			</nav>
 
-		{#if tab === "Overview"}
-			<OverviewPanel
-				{summary}
-				{system}
-				{metrics}
-				{loading}
-				bind:timeWindow
-				onWindowChange={(window) => (timeWindow = window)}
-			/>
-		{:else if tab === "Storage"}
-			<StoragePanel
-				{system}
-				{summary}
-				{metrics}
-				actionBusy={busy}
-				onCheckCopies={(path) => void commands.requestCopyCheck(path)}
-				onRepairCopies={commands.requestCopyRepair}
-    onPreviewLayout={(body, signal) => api.previewStorageLayout(body, signal)}
-    onApplyLayout={commands.applyStorageLayout}
-			/>
-		{:else if tab === "Logs"}
-			<LogsPanel
-				{logs}
-				loading={sectionLoading}
-				bind:service={logService}
-				bind:priority={logLevel}
-				bind:search={logSearch}
-				onRefresh={loadLogs}
-				{busy}
-				onRetentionChange={(days) => commands.openIntent({ type: "log-retention", days, name: "Change journal retention" })}
-			/>
-		{:else if tab === "Users"}
-			<UsersPanel
-				{users}
-				bind:search
-				{sectionLoading}
-				currentUserId={user.id}
-				onSearch={loadUsers}
-				onIntent={commands.openIntent}
-			/>
-		{:else if tab === "Audit"}
-			<AuditPanel entries={audit} loading={sectionLoading} onRefresh={loadAudit} />
-		{:else if tab === "System"}
-			<SystemPanel
-				{system}
-				{metrics}
-				onRestartDns={commands.requestDnsRestart}
-				onRestartService={commands.requestServiceRestart}
-				onOpenStorage={() => openTab("Storage")}
-			/>
-		{/if}
-	</main>
-</div>
+			{#if error}<p
+					class="mt-5 rounded-2xl border border-destructive/30 bg-destructive/7 p-4 text-sm text-destructive"
+					role="alert"
+				>
+					{error}
+				</p>{/if}
+			{#if notice}<p
+					class="mt-5 rounded-2xl border border-primary/25 bg-primary/7 p-4 text-sm text-foreground"
+					role="status"
+				>
+					{notice}
+				</p>{/if}
 
-<AdminIntentDialog
-	intent={form.intent}
-	bind:reason={form.reason}
-	bind:confirmation={form.confirmation}
-	{busy}
-	error={status.actionError}
-	onConfirm={() => void commands.confirmIntent()}
-	onClose={() => (form.intent = null)}
-/>
+			{#if tab === 'Overview'}
+				<OverviewPanel
+					{summary}
+					{system}
+					{metrics}
+					{loading}
+					bind:timeWindow
+					onWindowChange={(window) => (timeWindow = window)}
+				/>
+			{:else if tab === 'Storage'}
+				<StoragePanel
+					{system}
+					{summary}
+					{metrics}
+					actionBusy={busy}
+					onCheckCopies={(path) => void commands.requestCopyCheck(path)}
+					onRepairCopies={commands.requestCopyRepair}
+					onPreviewLayout={(body, signal) => api.previewStorageLayout(body, signal)}
+					onApplyLayout={commands.applyStorageLayout}
+				/>
+			{:else if tab === 'Logs'}
+				<LogsPanel
+					{logs}
+					loading={sectionLoading}
+					bind:service={logService}
+					bind:priority={logLevel}
+					bind:search={logSearch}
+					onRefresh={loadLogs}
+					{busy}
+					onRetentionChange={(days) =>
+						commands.openIntent({ type: 'log-retention', days, name: 'Change journal retention' })}
+				/>
+			{:else if tab === 'Users'}
+				<UsersPanel
+					{users}
+					bind:search
+					{sectionLoading}
+					currentUserId={user.id}
+					onSearch={loadUsers}
+					onIntent={commands.openIntent}
+				/>
+			{:else if tab === 'Audit'}
+				<AuditPanel entries={audit} loading={sectionLoading} onRefresh={loadAudit} />
+			{:else if tab === 'System'}
+				<SystemPanel
+					{system}
+					{metrics}
+					onRestartDns={commands.requestDnsRestart}
+					onRestartService={commands.requestServiceRestart}
+					onOpenStorage={() => openTab('Storage')}
+				/>
+			{/if}
+		</main>
+	</div>
+
+	<AdminIntentDialog
+		intent={form.intent}
+		bind:reason={form.reason}
+		bind:confirmation={form.confirmation}
+		{busy}
+		error={status.actionError}
+		onConfirm={() => void commands.confirmIntent()}
+		onClose={() => (form.intent = null)}
+	/>
 </QueryClientProvider>

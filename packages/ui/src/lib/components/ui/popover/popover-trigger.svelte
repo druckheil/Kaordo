@@ -1,7 +1,7 @@
 <script lang="ts">
- // Composes the popover primitive with the shared Rhea styling
-	import { Popover as PopoverPrimitive } from "bits-ui";
-	import { cn } from "../../../utils.js";
+	// Composes the popover primitive with the shared Rhea styling
+	import { Popover as PopoverPrimitive } from 'bits-ui';
+	import { cn } from '../../../utils.js';
 
 	let {
 		ref = $bindable(null),

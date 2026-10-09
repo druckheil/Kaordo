@@ -1,18 +1,18 @@
 <script lang="ts">
 	// Shows the portal introduction and the current account state
 
-	import type { AccountPreview } from "@kaordo/account-ui";
-	import type { UserIdentity } from "@kaordo/contracts";
-	import { ArrowRightIcon, Button } from "@kaordo/ui";
-	import { latestReleasedVersion } from "./changelog";
-	import { portalWelcomeMessage } from "./portal-model";
+	import type { AccountPreview } from '@kaordo/account-ui';
+	import type { UserIdentity } from '@kaordo/contracts';
+	import { ArrowRightIcon, Button } from '@kaordo/ui';
+	import { latestReleasedVersion } from './changelog';
+	import { portalWelcomeMessage } from './portal-model';
 
 	let {
 		loading,
 		user,
 		authenticated,
 		accountPreview,
-		onRetry,
+		onRetry
 	}: {
 		loading: boolean;
 		user: UserIdentity | null;
@@ -24,10 +24,14 @@
 	const messageState = $derived(portalWelcomeMessage(loading, user, accountPreview));
 </script>
 
-<section class="mt-8 rounded-[2rem] border border-border bg-card bg-radial-[at_top_right] from-primary-soft to-transparent to-70% px-6 py-8 shadow-xl sm:px-10 sm:py-10">
+<section
+	class="mt-8 rounded-[2rem] border border-border bg-card bg-radial-[at_top_right] from-primary-soft to-transparent to-70% px-6 py-8 shadow-xl sm:px-10 sm:py-10"
+>
 	<div class="relative">
 		<div class="flex items-start justify-between gap-4">
-			<p class="text-xs font-semibold uppercase tracking-[0.2em] text-link">One space, many ways to connect</p>
+			<p class="text-xs font-semibold tracking-[0.2em] text-link uppercase">
+				One space, many ways to connect
+			</p>
 			{#if latestReleasedVersion}
 				<Button
 					href="/changelog/"
@@ -43,16 +47,18 @@
 		</div>
 
 		<div class="max-w-2xl">
-			<h1 class="mt-4 text-4xl font-bold leading-[1.08] tracking-[-0.055em] sm:text-5xl">Your connected space.</h1>
+			<h1 class="mt-4 text-4xl leading-[1.08] font-bold tracking-[-0.055em] sm:text-5xl">
+				Your connected space.
+			</h1>
 
-			{#if messageState === "preview"}
+			{#if messageState === 'preview'}
 				<p class="mt-6 text-base text-muted-foreground" data-kaordo-preview aria-busy="true">
 					Welcome, {accountPreview?.displayName}.
 				</p>
-			{:else if messageState === "checking"}
+			{:else if messageState === 'checking'}
 				<div class="mt-6 h-6 w-48 animate-pulse rounded-lg bg-muted" aria-hidden="true"></div>
 				<p class="sr-only" role="status">Checking your session…</p>
-			{:else if messageState === "welcome"}
+			{:else if messageState === 'welcome'}
 				<p class="mt-6 text-base leading-7 text-muted-foreground">
 					Welcome, {user?.displayName}. Your apps are ready when you are.
 				</p>

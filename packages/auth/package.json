@@ -1,15 +1,15 @@
 {
-  "name": "@kaordo/auth",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
-  },
-  "dependencies": {
-    "keycloak-js": "^26.2.4"
-  }
+	"name": "@kaordo/auth",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"dependencies": {
+		"keycloak-js": "^26.2.4"
+	}
 }

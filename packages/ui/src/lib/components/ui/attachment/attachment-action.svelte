@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { Button, type ButtonProps } from "../button/index.js";
-	import { cn } from "../../../utils.js";
+	import { Button, type ButtonProps } from '../button/index.js';
+	import { cn } from '../../../utils.js';
 
 	let {
 		ref = $bindable(null),
 		class: className,
-		variant = "ghost",
-		size = "icon-xs",
+		variant = 'ghost',
+		size = 'icon-xs',
 		...restProps
 	}: ButtonProps = $props();
 </script>

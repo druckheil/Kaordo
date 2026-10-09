@@ -100,16 +100,16 @@ existing independent lifecycle.
 
 ## Retained architecture
 
-| Area | Reason for retaining it |
-| --- | --- |
-| Independent static apps | Keep build/deployment and account-entry boundaries explicit |
-| Rhea/Bits UI and Lucide | Existing mature interaction, focus and accessibility primitives |
-| TanStack Query and generated OpenAPI | Existing server-state ownership, cancellation, pagination and typed wire contracts |
-| Tiptap, Uppy/Tus, Pica, PhotoSwipe and Vidstack | Existing editor, upload, resize and media lifecycle implementations |
-| LiveKit and official Go/TypeScript FSRS | Existing call and scheduling implementations with product-specific policy around them |
-| Feature PostgreSQL stores | Keep authorization-sensitive SQL and multi-operation transactions cohesive |
-| Portal/account controllers | Already separate session ownership from account-entry presentation |
-| Deployment and CI scripts | Existing operator workflows and fixture isolation; no workflow changes were needed |
+| Area                                            | Reason for retaining it                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Independent static apps                         | Keep build/deployment and account-entry boundaries explicit                           |
+| Rhea/Bits UI and Lucide                         | Existing mature interaction, focus and accessibility primitives                       |
+| TanStack Query and generated OpenAPI            | Existing server-state ownership, cancellation, pagination and typed wire contracts    |
+| Tiptap, Uppy/Tus, Pica, PhotoSwipe and Vidstack | Existing editor, upload, resize and media lifecycle implementations                   |
+| LiveKit and official Go/TypeScript FSRS         | Existing call and scheduling implementations with product-specific policy around them |
+| Feature PostgreSQL stores                       | Keep authorization-sensitive SQL and multi-operation transactions cohesive            |
+| Portal/account controllers                      | Already separate session ownership from account-entry presentation                    |
+| Deployment and CI scripts                       | Existing operator workflows and fixture isolation; no workflow changes were needed    |
 
 No additional third-party library or framework is introduced. Workspace changes
 link the new shared chat package to already installed dependencies.
@@ -123,15 +123,15 @@ statically resolvable imports and workspace export maps. It examined 19 app/shar
 scripts: 370 source files. Generated app builds and installed dependencies were
 excluded; type imports were analysed separately from runtime imports.
 
-| Constraint | Result |
-| --- | --- |
-| Workspace dependency cycles | 0 |
-| Runtime module cycles | 0 |
-| Module cycles including types | 0 |
-| Missing direct dependencies or unused runtime dependencies | 0 |
-| Domain imports of HTTP/PostgreSQL/pgx/Jet | 0 across 20 local Go packages |
-| Existing PostgreSQL query-expression changes | 0 |
-| Relocated projection field/JSON-tag mismatches | 0 across 9 account/admin models |
+| Constraint                                                 | Result                          |
+| ---------------------------------------------------------- | ------------------------------- |
+| Workspace dependency cycles                                | 0                               |
+| Runtime module cycles                                      | 0                               |
+| Module cycles including types                              | 0                               |
+| Missing direct dependencies or unused runtime dependencies | 0                               |
+| Domain imports of HTTP/PostgreSQL/pgx/Jet                  | 0 across 20 local Go packages   |
+| Existing PostgreSQL query-expression changes               | 0                               |
+| Relocated projection field/JSON-tag mismatches             | 0 across 9 account/admin models |
 
 Go AST comparison identified 266 relocated function bodies with unchanged
 statements. Changed statements were reviewed for composition, model/error
@@ -146,13 +146,13 @@ Lines measure the size of the composition surface; they are not a quality score.
 Extracted modules have cohesive ownership rather than arbitrary size limits.
 
 | Composition file | Baseline lines | Refactored lines |
-| --- | ---: | ---: |
-| RondoApp | 811 | 448 |
-| LigoApp | 463 | 351 |
-| Lingvo Study | 265 | 209 |
-| RegadoDashboard | 388 | 261 |
-| Kerno main | 312 | 81 |
-| Kerno router | 243 | 40 |
+| ---------------- | -------------: | ---------------: |
+| RondoApp         |            811 |              448 |
+| LigoApp          |            463 |              351 |
+| Lingvo Study     |            265 |              209 |
+| RegadoDashboard  |            388 |              261 |
+| Kerno main       |            312 |               81 |
+| Kerno router     |            243 |               40 |
 
 ### Compilation and static checks
 

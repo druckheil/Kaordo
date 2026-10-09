@@ -4,25 +4,25 @@ Kaordo is being rebuilt as independent applications in one repository. Local acc
 
 ## Layout
 
-| Path | Responsibility |
-| --- | --- |
-| `apps/portal` | Public entry point |
-| `apps/ligo` | Messaging frontend |
-| `apps/fluo` | Social frontend |
-| `apps/rondo` | Community frontend |
-| `apps/lingvo` | Language-learning frontend |
-| `apps/memoro` | Encrypted calendar, tasks and journal |
-| `apps/regado` | Administration frontend |
-| `packages/ui` | Shared STaSBRL components with the Rhea style |
-| `packages/lingvo-client` | Encrypted dictionaries, German practice, speech, CSV and authoritative ts-fsrs scheduling |
-| `packages/crypto` | Device-held keys, signed content, encrypted media and offline recovery |
-| `packages/editor-ui`, `memoro-client` | Shared rich editor and encrypted daily documents |
+| Path                                                                                                                               | Responsibility                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `apps/portal`                                                                                                                      | Public entry point                                                                                        |
+| `apps/ligo`                                                                                                                        | Messaging frontend                                                                                        |
+| `apps/fluo`                                                                                                                        | Social frontend                                                                                           |
+| `apps/rondo`                                                                                                                       | Community frontend                                                                                        |
+| `apps/lingvo`                                                                                                                      | Language-learning frontend                                                                                |
+| `apps/memoro`                                                                                                                      | Encrypted calendar, tasks and journal                                                                     |
+| `apps/regado`                                                                                                                      | Administration frontend                                                                                   |
+| `packages/ui`                                                                                                                      | Shared STaSBRL components with the Rhea style                                                             |
+| `packages/lingvo-client`                                                                                                           | Encrypted dictionaries, German practice, speech, CSV and authoritative ts-fsrs scheduling                 |
+| `packages/crypto`                                                                                                                  | Device-held keys, signed content, encrypted media and offline recovery                                    |
+| `packages/editor-ui`, `memoro-client`                                                                                              | Shared rich editor and encrypted daily documents                                                          |
 | `packages/auth`, `api-client`, `account-ui`, `chat-ui`, `contracts`, `crypto`, `links`, `media-client`, `media-ui`, `voice-client` | Shared authentication, typed API, account and chat UI, contracts, links, media upload, and LiveKit client |
-| `services/kerno` | Go API and metadata coordinator |
-| `services/nodo` | Go file storage and tus uploads |
-| `services/mediaauth` | Shared media URL signing and verification |
-| `services/regado-agent` | Restricted Linux monitoring and maintenance over a Unix socket |
-| `deploy` | Local Compose and production NixOS profiles |
+| `services/kerno`                                                                                                                   | Go API and metadata coordinator                                                                           |
+| `services/nodo`                                                                                                                    | Go file storage and tus uploads                                                                           |
+| `services/mediaauth`                                                                                                               | Shared media URL signing and verification                                                                 |
+| `services/regado-agent`                                                                                                            | Restricted Linux monitoring and maintenance over a Unix socket                                            |
+| `deploy`                                                                                                                           | Local Compose and production NixOS profiles                                                               |
 
 Every frontend is a separate SvelteKit static build. `build:pages` assembles them under one Pages artifact: `/`, `/ligo/`, `/fluo/`, `/rondo/`, `/lingvo/`, `/memoro/`, and `/regado/`. The UI package owns shadcn-svelte components, Bits UI primitives, Lucide icons, and the official Rhea preset. The rightmost header control opens `/agordoj/`, where users select Deep Purple (the default), Discord, Leadgen, Lara, Damon, Party Rock or Japan Blues. The shared theme and independent light/dark mode persist across navigation, reload and tabs; the initial mode follows the operating system.
 

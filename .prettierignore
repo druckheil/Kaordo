@@ -1,0 +1,6 @@
+# Generated, vendored or data files keep their producer's format
+pnpm-lock.yaml
+packages/contracts/src/openapi.d.ts
+services/kerno/internal/lingvo/catalog/
+scripts/fixtures/
+deploy/keycloak/

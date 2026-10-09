@@ -34,6 +34,7 @@ The manual setup below is only needed when customizing addresses or running serv
    ```
 
    Start `./scripts/run-kerno-local.sh` and `./scripts/run-nodo-local.sh` in separate terminals. Both read the ignored signing key; Kerno also reads the LiveKit API credentials. Kerno listens on `127.0.0.1:8081`, Nodo on `127.0.0.1:8082`.
+
 5. Run `pnpm --filter @kaordo/portal dev` and open `/register/`, or run `pnpm build:pages` and serve `dist/pages` at the configured site origin for the combined apps.
 
 Registration and password/TOTP entry take place on Keycloak's hosted forms. After TOTP setup, Keycloak shows one-time recovery codes and asks the user to save them before completing registration. A saved code can replace the authenticator code during login. Keycloak then returns an access token to the browser app. The app calls `POST /v1/session`, which creates the Kaordo UUIDv7 account record. Other modules check the same Keycloak SSO session using a hidden iframe where browser policy permits, then call the same endpoint; `GET /v1/me` returns the current record. During that check, a per-tab `sessionStorage` cache can keep the previously verified account ID, username and display name visible. That preview expires after one hour and never authorizes requests or protected content; the module gate opens only after Kerno verifies the current session. If Kerno fails, the preview is replaced by the account-service error. Access and refresh tokens stay in memory.

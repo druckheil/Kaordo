@@ -88,16 +88,16 @@ never receives unpublished key material in clear.
 
 ## Cryptographic ownership
 
-| Data | Representation and owner |
-| --- | --- |
-| Account encryption/signing keys | libsodium X25519/Ed25519, created on a device |
-| Device/recovery account bundle | libsodium sealed box; account ID and public keys checked after opening |
-| Fluo posts | Signed XChaCha20-Poly1305 envelope; HKDF content key over the thread's audience keys |
-| Fluo audience keys | HKDF from the account root; published, or sealed to followed accounts |
-| Ligo/Rondo content | Signed XChaCha20-Poly1305 envelope; per-record key sealed to current members |
-| Attachments | AES-256-GCM bytes; key, filename, type, dimensions and alt text inside the signed content |
-| Lingvo/Memoro private content | Account-root HKDF-derived AES-GCM keys; HMAC-derived opaque indexes |
-| LiveKit tracks | SDK E2EE key provider and worker; channel-member encrypted room key |
+| Data                            | Representation and owner                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------------------------- |
+| Account encryption/signing keys | libsodium X25519/Ed25519, created on a device                                             |
+| Device/recovery account bundle  | libsodium sealed box; account ID and public keys checked after opening                    |
+| Fluo posts                      | Signed XChaCha20-Poly1305 envelope; HKDF content key over the thread's audience keys      |
+| Fluo audience keys              | HKDF from the account root; published, or sealed to followed accounts                     |
+| Ligo/Rondo content              | Signed XChaCha20-Poly1305 envelope; per-record key sealed to current members              |
+| Attachments                     | AES-256-GCM bytes; key, filename, type, dimensions and alt text inside the signed content |
+| Lingvo/Memoro private content   | Account-root HKDF-derived AES-GCM keys; HMAC-derived opaque indexes                       |
+| LiveKit tracks                  | SDK E2EE key provider and worker; channel-member encrypted room key                       |
 
 Ligo and Rondo messages are sealed to members at send time, so accounts added
 later see earlier messages as unavailable. LiveKit E2EE disables Opus RED and,

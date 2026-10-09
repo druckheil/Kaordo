@@ -126,16 +126,16 @@ The review covered profile state and rendering, account navigation/history,
 shared avatars, presence privacy, image preparation/cropping/upload/retirement,
 notification previews, generated contracts/tables and dependency ownership.
 
-| Simplification | Responsibility after the refactor |
-| --- | --- |
-| Profile/status controllers and manually reset view state | The keyed profile owns its query and follow/status commands; changing username tears down the editor, cropper and commands through Svelte's native lifecycle |
-| Repeated cache cancellation and response publication | `api-client/fluo-profiles.ts` publishes saved profiles only while their action owner is active, cancelling stale reads first |
-| Five positional feed parameters | Named feed/search/author filters preserve query keys and cursor behaviour |
-| Presence transport and polling inside the avatar controller | `api-client/user-presentation.ts` owns query policy and captures each requested ID snapshot; `account-ui` owns reference-counted subscriptions and teardown |
-| Missing or manually mounted QueryClient lifecycles | Native `QueryClientProvider` components connect focus/online subscriptions for all five query-owning apps and the shared presentation cache |
-| Crop calculations and encoding mixed into dialog orchestration | `media-ui/cropper-images.ts` owns bounds and exact-size export; Cropper still owns gestures and the dialog owns loading, controls and disposal |
-| Profile column SQL mixed into the transaction coordinator | A cohesive persistence phase writes editable fields inside the existing transaction; user/claim lock order and retirement remain intact |
-| Duplicate notification anchors and overlapping avatar indicators | One link template handles post/profile destinations; the activity badge leaves the presence corner clear |
+| Simplification                                                   | Responsibility after the refactor                                                                                                                            |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Profile/status controllers and manually reset view state         | The keyed profile owns its query and follow/status commands; changing username tears down the editor, cropper and commands through Svelte's native lifecycle |
+| Repeated cache cancellation and response publication             | `api-client/fluo-profiles.ts` publishes saved profiles only while their action owner is active, cancelling stale reads first                                 |
+| Five positional feed parameters                                  | Named feed/search/author filters preserve query keys and cursor behaviour                                                                                    |
+| Presence transport and polling inside the avatar controller      | `api-client/user-presentation.ts` owns query policy and captures each requested ID snapshot; `account-ui` owns reference-counted subscriptions and teardown  |
+| Missing or manually mounted QueryClient lifecycles               | Native `QueryClientProvider` components connect focus/online subscriptions for all five query-owning apps and the shared presentation cache                  |
+| Crop calculations and encoding mixed into dialog orchestration   | `media-ui/cropper-images.ts` owns bounds and exact-size export; Cropper still owns gestures and the dialog owns loading, controls and disposal               |
+| Profile column SQL mixed into the transaction coordinator        | A cohesive persistence phase writes editable fields inside the existing transaction; user/claim lock order and retirement remain intact                      |
+| Duplicate notification anchors and overlapping avatar indicators | One link template handles post/profile destinations; the activity badge leaves the presence corner clear                                                     |
 
 The existing strict browser fixtures now share contract-shaped profile and
 presence responses. Their scenarios and assertions remain intact; the quality
@@ -227,23 +227,23 @@ This is an engineering review with automated evidence, not a new ISO score or a 
 
 ## Ownership after refactoring
 
-| Layer | Responsibility |
-| --- | --- |
-| Portal | Welcome/app entry/auth presentation; shared account controller handles the session |
-| Fluo | Controller for selection/navigation/post actions; notification/settings/profile query controllers, presence and profile draft/save state; separate feed/header, settings, composer/editor/publishing, replies/detail |
-| Ligo | Conversation selection and SSE/query coordination; separate sidebar and conversation dialog |
-| Rondo | Server/channel coordination, member panel, layout helpers and voice views; shared chat pipeline |
-| Lingvo | Dictionary/view selection and lazy screens; vocabulary, phrase practice, library, folders and CSV transfer |
-| Regado | Independent query resources and mutations; overview/storage/system/users/audit/log panels and action/access dialogs |
-| auth / account-ui | In-memory OIDC tokens; verified account bootstrap and nonauthorizing per-tab preview |
-| api-client / contracts | Typed requests, response/refresh policy, query keys, pagination, cancellation and immutable message/Fluo cache helpers; generated wire schemas |
-| ui / chat-ui | STaSBRL primitives and shared message/composer/native-scroll interaction |
-| media-client / media-ui / voice-client | Upload/resize workflow; metadata-based layout, PhotoSwipe/Vidstack/Cropper.js; LiveKit room/track lifecycle and sounds |
-| lingvo-client | German presentation, pronunciation, answer comparison, CSV and official ts-fsrs interval previews |
-| Kerno | Configuration/wiring, HTTP authorization/orchestration, domain validation, Jet/pgx persistence split by operation |
-| Nodo | HTTP upload/media handlers, owner/quota validation, processing queue, image/video/file processing, purge/GC and worker lifecycle |
-| mediaauth / regado-agent | Media signatures; protected Unix API, fixed commands, host/Btrfs/SMART/journal queries |
-| scripts | Local lifecycle/configuration, independent builds, fixture/live/database tests and isolated backup verification |
+| Layer                                  | Responsibility                                                                                                                                                                                                       |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Portal                                 | Welcome/app entry/auth presentation; shared account controller handles the session                                                                                                                                   |
+| Fluo                                   | Controller for selection/navigation/post actions; notification/settings/profile query controllers, presence and profile draft/save state; separate feed/header, settings, composer/editor/publishing, replies/detail |
+| Ligo                                   | Conversation selection and SSE/query coordination; separate sidebar and conversation dialog                                                                                                                          |
+| Rondo                                  | Server/channel coordination, member panel, layout helpers and voice views; shared chat pipeline                                                                                                                      |
+| Lingvo                                 | Dictionary/view selection and lazy screens; vocabulary, phrase practice, library, folders and CSV transfer                                                                                                           |
+| Regado                                 | Independent query resources and mutations; overview/storage/system/users/audit/log panels and action/access dialogs                                                                                                  |
+| auth / account-ui                      | In-memory OIDC tokens; verified account bootstrap and nonauthorizing per-tab preview                                                                                                                                 |
+| api-client / contracts                 | Typed requests, response/refresh policy, query keys, pagination, cancellation and immutable message/Fluo cache helpers; generated wire schemas                                                                       |
+| ui / chat-ui                           | STaSBRL primitives and shared message/composer/native-scroll interaction                                                                                                                                             |
+| media-client / media-ui / voice-client | Upload/resize workflow; metadata-based layout, PhotoSwipe/Vidstack/Cropper.js; LiveKit room/track lifecycle and sounds                                                                                               |
+| lingvo-client                          | German presentation, pronunciation, answer comparison, CSV and official ts-fsrs interval previews                                                                                                                    |
+| Kerno                                  | Configuration/wiring, HTTP authorization/orchestration, domain validation, Jet/pgx persistence split by operation                                                                                                    |
+| Nodo                                   | HTTP upload/media handlers, owner/quota validation, processing queue, image/video/file processing, purge/GC and worker lifecycle                                                                                     |
+| mediaauth / regado-agent               | Media signatures; protected Unix API, fixed commands, host/Btrfs/SMART/journal queries                                                                                                                               |
+| scripts                                | Local lifecycle/configuration, independent builds, fixture/live/database tests and isolated backup verification                                                                                                      |
 
 Keep transaction and authorization boundaries cohesive. Extra file splits or wrapper functions are useful only when they give a responsibility a clear owner. Shared libraries replace duplicated logic; app-specific views and selection remain in their app.
 
@@ -262,20 +262,20 @@ Keep transaction and authorization boundaries cohesive. Extra file splits or wra
 
 Commands run from the repository root unless specified. Headless browser tests operate through test code; no manual website exploration was used.
 
-| Check | Evidence |
-| --- | --- |
-| `pnpm check:front` | Six Svelte projects: 0 errors, 0 warnings |
-| `pnpm build:pages` / `scripts/pages.test.mjs` | All apps build independently and assemble; static routes/assets and Fluo initial JavaScript budget checked |
-| `pnpm test:pages:production` | Production build overrides local `.env` service URLs and checks every emitted JavaScript bundle |
-| Fast Node suites | Account previews/session races, API retry/error/cancellation/cache, Keycloak policy, backup config, dependency imports, launcher, tus storage and media/chat geometry |
-| `pnpm test:product:db` | Disposable PostgreSQL; Fluo/Ligo/Rondo/Regado, migration replay, shared media claims and authorization; PostgreSQL package statement coverage 80.4% |
-| Go race / vet / build | Kerno, Nodo, mediaauth and regado-agent; no failure |
-| `pnpm --filter @kaordo/contracts generate` | Generated OpenAPI declarations remain unchanged |
-| Fixture Chromium suites | Public screens, Fluo history/reply/quote/search, Ligo native scroll/composer, Regado views/stale requests/access cases and axe/reflow checks |
-| `pnpm test:auth:live` | Real identity, TOTP/recovery, SSO/account, social/media/messages and Rondo calls/camera; temporary account cleanup |
-| `pnpm test:backup:live` | Encrypted temporary restic repository, both database dumps, media restore and disposable cleanup |
-| `pnpm audit --audit-level=low` | No known npm advisories reported |
-| `govulncheck@v1.8.0` in all four Go modules | No reachable vulnerable symbol reported; Kerno's scan also identifies advisories in uncalled imported/required code. This is a reachability result, not absence of every transitive advisory |
+| Check                                         | Evidence                                                                                                                                                                                     |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm check:front`                            | Six Svelte projects: 0 errors, 0 warnings                                                                                                                                                    |
+| `pnpm build:pages` / `scripts/pages.test.mjs` | All apps build independently and assemble; static routes/assets and Fluo initial JavaScript budget checked                                                                                   |
+| `pnpm test:pages:production`                  | Production build overrides local `.env` service URLs and checks every emitted JavaScript bundle                                                                                              |
+| Fast Node suites                              | Account previews/session races, API retry/error/cancellation/cache, Keycloak policy, backup config, dependency imports, launcher, tus storage and media/chat geometry                        |
+| `pnpm test:product:db`                        | Disposable PostgreSQL; Fluo/Ligo/Rondo/Regado, migration replay, shared media claims and authorization; PostgreSQL package statement coverage 80.4%                                          |
+| Go race / vet / build                         | Kerno, Nodo, mediaauth and regado-agent; no failure                                                                                                                                          |
+| `pnpm --filter @kaordo/contracts generate`    | Generated OpenAPI declarations remain unchanged                                                                                                                                              |
+| Fixture Chromium suites                       | Public screens, Fluo history/reply/quote/search, Ligo native scroll/composer, Regado views/stale requests/access cases and axe/reflow checks                                                 |
+| `pnpm test:auth:live`                         | Real identity, TOTP/recovery, SSO/account, social/media/messages and Rondo calls/camera; temporary account cleanup                                                                           |
+| `pnpm test:backup:live`                       | Encrypted temporary restic repository, both database dumps, media restore and disposable cleanup                                                                                             |
+| `pnpm audit --audit-level=low`                | No known npm advisories reported                                                                                                                                                             |
+| `govulncheck@v1.8.0` in all four Go modules   | No reachable vulnerable symbol reported; Kerno's scan also identifies advisories in uncalled imported/required code. This is a reachability result, not absence of every transitive advisory |
 
 Final fast suites: 106/106 passed, with no skips after stopping the development server. Headless suites: 4/4 passed (public, Fluo, Ligo, Regado). The live product journey and isolated backup restore each passed. PostgreSQL capacity fixtures also exercised 20,000 posts/100 authors and 10,000 messages; these local measurements are not production-scale guarantees.
 

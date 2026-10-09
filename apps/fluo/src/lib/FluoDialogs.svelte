@@ -1,10 +1,10 @@
 <script lang="ts">
 	// Connects the post composer and delete confirmation dialog
 
-	import type { FluoApi } from "@kaordo/api-client";
-	import type { FluoPost } from "@kaordo/contracts";
-	import ComposerDialog from "./ComposerDialog.svelte";
-	import DeletePostDialog from "./DeletePostDialog.svelte";
+	import type { FluoApi } from '@kaordo/api-client';
+	import type { FluoPost } from '@kaordo/contracts';
+	import ComposerDialog from './ComposerDialog.svelte';
+	import DeletePostDialog from './DeletePostDialog.svelte';
 
 	let {
 		api,
@@ -18,7 +18,7 @@
 		onRemoveQuote,
 		onPublished,
 		onDeleteOpenChange,
-		onConfirmDelete,
+		onConfirmDelete
 	}: {
 		api: FluoApi;
 		replyTo: FluoPost | null;
@@ -41,8 +41,8 @@
 	{quoteTo}
 	open={composerOpen}
 	onOpenChange={onComposerOpenChange}
-	onRemoveQuote={onRemoveQuote}
-	onPublished={onPublished}
+	{onRemoveQuote}
+	{onPublished}
 />
 
 <DeletePostDialog

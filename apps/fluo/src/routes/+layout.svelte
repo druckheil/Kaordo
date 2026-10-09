@@ -1,10 +1,10 @@
 <script lang="ts">
 	// Loads shared design tokens for every Fluo route
 
-  import './layout.css';
-  import { ThemeProvider } from '@kaordo/ui';
+	import './layout.css';
+	import { ThemeProvider } from '@kaordo/ui';
 
-  let { children } = $props();
+	let { children } = $props();
 </script>
 
 <ThemeProvider />

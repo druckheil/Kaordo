@@ -30,13 +30,13 @@ identity and connection remain separate; there are no System/Storage/Mixed disk
 types. Regado discovers physical devices and real free areas, puts BIOS/EFI/GPT
 metadata in a collapsed detail, and previews desired role allocations.
 
-| Tool | Responsibility and selection |
-| --- | --- |
-| [Disko](https://github.com/nix-community/disko) | Declarative initial GPT/filesystem creation and exportable installation blueprints; pinned through NixOS, explicit format mode on verified blank devices |
-| [systemd-repart](https://github.com/systemd/systemd/blob/v260/man/systemd-repart.xml) | Native incremental dry-run/allocation; preserves partition starts, does not shrink/delete/move, grows only selected Btrfs Storage |
-| [btrfs-progs](https://btrfs.readthedocs.io/en/latest/) | Pool membership, filesystem expansion, checksummed scrub and filtered mirror conversion; existing production pool preserved |
-| [smartmontools](https://www.smartmontools.org/) | Hardware health with standby-aware polling |
-| NixOS + systemd | Service dependencies, protected local agent, tool versions and UUID-based System-volume mounts |
+| Tool                                                                                  | Responsibility and selection                                                                                                                             |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Disko](https://github.com/nix-community/disko)                                       | Declarative initial GPT/filesystem creation and exportable installation blueprints; pinned through NixOS, explicit format mode on verified blank devices |
+| [systemd-repart](https://github.com/systemd/systemd/blob/v260/man/systemd-repart.xml) | Native incremental dry-run/allocation; preserves partition starts, does not shrink/delete/move, grows only selected Btrfs Storage                        |
+| [btrfs-progs](https://btrfs.readthedocs.io/en/latest/)                                | Pool membership, filesystem expansion, checksummed scrub and filtered mirror conversion; existing production pool preserved                              |
+| [smartmontools](https://www.smartmontools.org/)                                       | Hardware health with standby-aware polling                                                                                                               |
+| NixOS + systemd                                                                       | Service dependencies, protected local agent, tool versions and UUID-based System-volume mounts                                                           |
 
 Disko supports LVM, mdadm, ZFS and more; the current Regado adapter implements
 ext4 System areas and membership in an existing Btrfs Storage pool. It does not

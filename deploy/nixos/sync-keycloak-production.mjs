@@ -7,22 +7,27 @@ import { restoreKeycloak, snapshotKeycloak, syncKeycloak } from '../../scripts/s
 const bootstrap = parseEnv(await readFile('/srv/kaordo/secrets/keycloak-admin.env', 'utf8'));
 
 const privateConfig = {
-  KEYCLOAK_ADMIN_USERNAME: bootstrap.KC_BOOTSTRAP_ADMIN_USERNAME,
-  KEYCLOAK_ADMIN_PASSWORD: bootstrap.KC_BOOTSTRAP_ADMIN_PASSWORD
+	KEYCLOAK_ADMIN_USERNAME: bootstrap.KC_BOOTSTRAP_ADMIN_USERNAME,
+	KEYCLOAK_ADMIN_PASSWORD: bootstrap.KC_BOOTSTRAP_ADMIN_PASSWORD
 };
 const [mode, path, ...extra] = process.argv.slice(2);
 if (extra.length || (mode && (!['--snapshot', '--restore'].includes(mode) || !path))) {
-  throw new Error('Use no arguments, --snapshot <private file>, or --restore <private file>.');
+	throw new Error('Use no arguments, --snapshot <private file>, or --restore <private file>.');
 }
 if (mode === '--snapshot') {
-  await writeFile(path, JSON.stringify(await snapshotKeycloak(privateConfig)), { mode: 0o600, flag: 'wx' });
+	await writeFile(path, JSON.stringify(await snapshotKeycloak(privateConfig)), {
+		mode: 0o600,
+		flag: 'wx'
+	});
 } else if (mode === '--restore') {
-  await restoreKeycloak(privateConfig, JSON.parse(await readFile(path, 'utf8')));
+	await restoreKeycloak(privateConfig, JSON.parse(await readFile(path, 'utf8')));
 } else {
-  await syncKeycloak(privateConfig, fetch, 'http://127.0.0.1:8080', {
-    realmPath: resolve(import.meta.dirname, 'kaordo-realm.json'),
-    siteOrigin: 'https://kaordo.link'
-  });
+	await syncKeycloak(privateConfig, fetch, 'http://127.0.0.1:8080', {
+		realmPath: resolve(import.meta.dirname, 'kaordo-realm.json'),
+		siteOrigin: 'https://kaordo.link'
+	});
 }
 
-console.log(`Kaordo production identity ${mode === '--snapshot' ? 'snapshot saved' : mode === '--restore' ? 'settings restored' : 'policy synchronized and verified'}.`);
+console.log(
+	`Kaordo production identity ${mode === '--snapshot' ? 'snapshot saved' : mode === '--restore' ? 'settings restored' : 'policy synchronized and verified'}.`
+);

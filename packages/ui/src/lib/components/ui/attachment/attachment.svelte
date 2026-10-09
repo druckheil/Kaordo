@@ -1,52 +1,52 @@
 <script lang="ts" module>
 	// Defines attachment states, sizes, orientations and visual variants
-	import { tv, type VariantProps } from "tailwind-variants";
+	import { tv, type VariantProps } from 'tailwind-variants';
 
 	const baseAttachmentClasses = [
-		"rounded-2xl w-fit focus-within:ring-1 focus-within:ring-ring/30 group/attachment relative flex",
-		"max-w-full min-w-0 shrink-0 flex-wrap border bg-card text-card-foreground transition-colors",
-		"has-[>a,>button]:hover:bg-muted/50 data-[state=error]:border-destructive/30 data-[state=idle]:border-dashed",
-	].join(" ");
+		'rounded-2xl w-fit focus-within:ring-1 focus-within:ring-ring/30 group/attachment relative flex',
+		'max-w-full min-w-0 shrink-0 flex-wrap border bg-card text-card-foreground transition-colors',
+		'has-[>a,>button]:hover:bg-muted/50 data-[state=error]:border-destructive/30 data-[state=idle]:border-dashed'
+	].join(' ');
 
 	export const attachmentVariants = tv({
 		base: baseAttachmentClasses,
 		variants: {
 			size: {
 				default: [
-					"gap-2 has-data-[slot=attachment-content]:px-2.5 has-data-[slot=attachment-content]:py-2",
-					"has-data-[slot=attachment-media]:p-2 text-sm",
-				].join(" "),
+					'gap-2 has-data-[slot=attachment-content]:px-2.5 has-data-[slot=attachment-content]:py-2',
+					'has-data-[slot=attachment-media]:p-2 text-sm'
+				].join(' '),
 				sm: [
-					"gap-2.5 has-data-[slot=attachment-content]:px-2 has-data-[slot=attachment-content]:py-1.5",
-					"has-data-[slot=attachment-media]:p-1.5 text-xs",
-				].join(" "),
+					'gap-2.5 has-data-[slot=attachment-content]:px-2 has-data-[slot=attachment-content]:py-1.5',
+					'has-data-[slot=attachment-media]:p-1.5 text-xs'
+				].join(' '),
 				xs: [
-					"gap-1.5 has-data-[slot=attachment-content]:px-1.5 has-data-[slot=attachment-content]:py-1",
-					"has-data-[slot=attachment-media]:p-1 text-xs rounded-xl",
-				].join(" "),
+					'gap-1.5 has-data-[slot=attachment-content]:px-1.5 has-data-[slot=attachment-content]:py-1',
+					'has-data-[slot=attachment-media]:p-1 text-xs rounded-xl'
+				].join(' ')
 			},
 			orientation: {
-				horizontal: "min-w-40 items-center",
-				vertical: "w-24 has-data-[slot=attachment-content]:w-30 flex-col",
-			},
-		},
+				horizontal: 'min-w-40 items-center',
+				vertical: 'w-24 has-data-[slot=attachment-content]:w-30 flex-col'
+			}
+		}
 	});
 
-	export type AttachmentSize = VariantProps<typeof attachmentVariants>["size"];
-	export type AttachmentOrientation = VariantProps<typeof attachmentVariants>["orientation"];
-	export type AttachmentState = "idle" | "uploading" | "processing" | "error" | "done";
+	export type AttachmentSize = VariantProps<typeof attachmentVariants>['size'];
+	export type AttachmentOrientation = VariantProps<typeof attachmentVariants>['orientation'];
+	export type AttachmentState = 'idle' | 'uploading' | 'processing' | 'error' | 'done';
 </script>
 
 <script lang="ts">
-	import { cn, type WithElementRef } from "../../../utils.js";
-	import type { HTMLAttributes } from "svelte/elements";
+	import { cn, type WithElementRef } from '../../../utils.js';
+	import type { HTMLAttributes } from 'svelte/elements';
 
 	let {
 		ref = $bindable(null),
 		class: className,
-		state = "done",
-		size = "default",
-		orientation = "horizontal",
+		state = 'done',
+		size = 'default',
+		orientation = 'horizontal',
 		children,
 		...restProps
 	}: WithElementRef<HTMLAttributes<HTMLDivElement>> & {

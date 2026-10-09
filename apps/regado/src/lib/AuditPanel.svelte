@@ -1,14 +1,14 @@
 <script lang="ts">
 	// Shows the latest administrator actions and their recorded reasons
 
-	import type { AdminAuditEntry } from "@kaordo/contracts";
-	import { Button } from "@kaordo/ui";
-	import { formatDateTime } from "./regado-model";
+	import type { AdminAuditEntry } from '@kaordo/contracts';
+	import { Button } from '@kaordo/ui';
+	import { formatDateTime } from './regado-model';
 
 	let {
 		entries,
 		loading,
-		onRefresh,
+		onRefresh
 	}: {
 		entries: AdminAuditEntry[];
 		loading: boolean;
@@ -32,7 +32,9 @@
 				<time class="text-xs text-muted-foreground">{formatDateTime(entry.createdAt)}</time>
 				<div>
 					<p>
-						<strong>@{entry.actor}</strong> · {entry.action}{entry.target ? ` · @${entry.target}` : ""}
+						<strong>@{entry.actor}</strong> · {entry.action}{entry.target
+							? ` · @${entry.target}`
+							: ''}
 					</p>
 					{#if entry.reason}
 						<p class="mt-1 text-xs text-muted-foreground">{entry.reason}</p>

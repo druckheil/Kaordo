@@ -22,12 +22,12 @@ Namecheap Dynamic DNS updates `kaordo.link` once per minute. The DNS
 record's observed authoritative TTL is 180 seconds. Configure persistent
 FRITZ!Box port shares to `192.168.178.81`:
 
-| External | Protocol | Purpose |
-| --- | --- | --- |
-| 443 | TCP | HTTPS, Keycloak, API, LiveKit signalling, ACME TLS challenge |
-| 7881 | TCP | LiveKit RTC fallback |
-| 7882 | UDP | LiveKit RTC media |
-| 3478 | UDP | LiveKit TURN |
+| External | Protocol | Purpose                                                      |
+| -------- | -------- | ------------------------------------------------------------ |
+| 443      | TCP      | HTTPS, Keycloak, API, LiveKit signalling, ACME TLS challenge |
+| 7881     | TCP      | LiveKit RTC fallback                                         |
+| 7882     | UDP      | LiveKit RTC media                                            |
+| 3478     | UDP      | LiveKit TURN                                                 |
 
 TCP 80 is useful for HTTP redirects and an alternate ACME challenge, but was
 already forwarded to another LAN device during installation. Caddy can issue

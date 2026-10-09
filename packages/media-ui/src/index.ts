@@ -6,11 +6,11 @@ export { default as ImageCropDialog } from './ImageCropDialog.svelte';
 export { mountPhotoSwipe } from './photo-swipe.ts';
 
 export {
-  mediaFrameHeightPx,
-  mediaFrameRatio,
-  maxMediaHeightRem,
-  maxMediaRatio,
-  mediaGapPx,
-  minMediaRatio
+	mediaFrameHeightPx,
+	mediaFrameRatio,
+	maxMediaHeightRem,
+	maxMediaRatio,
+	mediaGapPx,
+	minMediaRatio
 } from './media-layout.js';
 export type { MediaAttachment } from './media-layout.js';

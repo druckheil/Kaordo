@@ -16,7 +16,8 @@ export type AdminMetrics = Schemas['RegadoMetrics'];
 export type AdminLogs = Schemas['RegadoLogs'];
 export type AdminJournal = Schemas['RegadoJournal'];
 export type AdminService = Schemas['RegadoService'];
-export type AdminLogRetentionDays = paths['/v1/admin/logs/retention']['patch']['requestBody']['content']['application/json']['retentionDays'];
+export type AdminLogRetentionDays =
+	paths['/v1/admin/logs/retention']['patch']['requestBody']['content']['application/json']['retentionDays'];
 
 export type AdminOperationProgress = Schemas['RegadoOperationProgress'];
 export type AdminLayoutRequest = Schemas['RegadoLayoutRequest'];

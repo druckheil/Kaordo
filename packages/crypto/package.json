@@ -1,17 +1,17 @@
 {
-  "name": "@kaordo/crypto",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
-  },
-  "dependencies": {
-    "idb": "^8.0.3",
-    "libsodium-wrappers": "0.8.4",
-    "zod": "^4.6.5"
-  }
+	"name": "@kaordo/crypto",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"dependencies": {
+		"idb": "^8.0.3",
+		"libsodium-wrappers": "0.8.4",
+		"zod": "^4.6.5"
+	}
 }

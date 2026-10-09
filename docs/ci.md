@@ -4,14 +4,14 @@ The `Checks` workflow validates source, static apps, services, product journeys 
 
 ## Layers and ownership
 
-| Job | Coverage | Dependencies |
-| --- | --- | --- |
-| Frontend and unit tests | Svelte/TypeScript, generated OpenAPI types, account/API cancellation and cache helpers, Lingvo presentation/AI/CSV/speech/FSRS, layout, parsed dependency ownership and deployment/rollback fixtures | None |
-| Static app artifact | All six app builds, prerendered routes, local assets, lazy-loading and initial JavaScript budget | None |
+| Job                                             | Coverage                                                                                                                                                                                                                                                                              | Dependencies                 |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Frontend and unit tests                         | Svelte/TypeScript, generated OpenAPI types, account/API cancellation and cache helpers, Lingvo presentation/AI/CSV/speech/FSRS, layout, parsed dependency ownership and deployment/rollback fixtures                                                                                  | None                         |
+| Static app artifact                             | All six app builds, prerendered routes, local assets, lazy-loading and initial JavaScript budget                                                                                                                                                                                      | None                         |
 | Browser fixtures and accessibility (two shards) | Post navigation/composing/sharing, media paste and cold first uploads in Fluo/Ligo/Rondo, native scrolling, Lingvo practice/forms/error recovery, Regado interactions/history, public reflow, touch targets, enlarged text, forced colors, palette contrast and automated WCAG checks | Frontend and static artifact |
-| Go services and PostgreSQL | All four modules with race detection, vet and build; Fluo/Ligo/Rondo/Admin/Lingvo isolated product/access tests, capacity fixtures, concurrent reviews and migration replay | None |
-| Identity, product and recovery journeys | Real registration, TOTP/recovery, persistent/rotating/revoked sessions, application SSO, uploads and processing, posts, messaging, LiveKit camera/calls, Lingvo dictionary/card/review/undo persistence, encrypted backup and disposable restore | Frontend and static artifact |
-| Dependency advisories | npm advisories and `govulncheck` for every Go module | None |
+| Go services and PostgreSQL                      | All four modules with race detection, vet and build; Fluo/Ligo/Rondo/Admin/Lingvo isolated product/access tests, capacity fixtures, concurrent reviews and migration replay                                                                                                           | None                         |
+| Identity, product and recovery journeys         | Real registration, TOTP/recovery, persistent/rotating/revoked sessions, application SSO, uploads and processing, posts, messaging, LiveKit camera/calls, Lingvo dictionary/card/review/undo persistence, encrypted backup and disposable restore                                      | Frontend and static artifact |
+| Dependency advisories                           | npm advisories and `govulncheck` for every Go module                                                                                                                                                                                                                                  | None                         |
 
 Static apps are built once and passed to both browser and integration jobs as the **same run's artifact**. The artifact uses explicit local endpoints; tests do not contact production. Release-only production-origin checks remain in `pnpm test:pages:production` and the production deployment preflight.
 
@@ -114,10 +114,10 @@ This repair restores that journey, runs it against the single built artifact, ob
 
 Commit `33ae7cfb0a7f79e1fef0b77fdce3549a6ca0e019` passed **all seven jobs twice** on GitHub-hosted Ubuntu 24.04:
 
-| Run | Wall time including setup, artifacts and the aggregate gate | Result |
-| --- | --- | --- |
-| [Attempt 1](https://github.com/druckheil/Kaordo/actions/runs/37440480234/attempts/1) | 5m14s | All layers passed |
-| [Attempt 2, same commit](https://github.com/druckheil/Kaordo/actions/runs/37440480234/attempts/2) | 4m40s | All layers passed |
+| Run                                                                                               | Wall time including setup, artifacts and the aggregate gate | Result            |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ----------------- |
+| [Attempt 1](https://github.com/druckheil/Kaordo/actions/runs/37440480234/attempts/1)              | 5m14s                                                       | All layers passed |
+| [Attempt 2, same commit](https://github.com/druckheil/Kaordo/actions/runs/37440480234/attempts/2) | 4m40s                                                       | All layers passed |
 
 Each attempt ran 124 Node unit/config/deployment tests and 9 artifact checks with zero skips, 12 browser scenarios, all 5 live journeys, PostgreSQL product/capacity/migration tests, Go race/vet/build, actionlint and both dependency scans. Both restored pnpm/Go dependency caches; browser libraries and Compose services were installed on fresh runners. These measurements are **not a fully cold cache benchmark**. The prior 7m48s baseline had a cold Go cache and excluded the full live registration/product journey, so the timings also reflect different coverage and cache state.
 
@@ -177,16 +177,16 @@ passed all eight jobs at `a739666d9b0dd00210c8e82232d3dd9b9f72b5d4`, the
 `v0.0.3` release tag and deployed production revision. Dispatch through the
 completed aggregate gate took **6m46s**, including setup, artifacts and cleanup.
 
-| Job | Complete job duration | Result |
-| --- | --- | --- |
-| Frontend and unit tests | 1m01s | Passed |
-| Static app artifact | 1m20s | Passed |
-| Go services and PostgreSQL | 3m12s | Passed |
-| Dependency advisories | 49s | Passed |
-| Browser fixtures and accessibility (1/2) | 4m16s | 29 scenarios passed |
-| Browser fixtures and accessibility (2/2) | 5m13s | 28 scenarios passed |
-| Identity, product and recovery journeys | 5m10s | All five journeys passed |
-| checks | 4s | Every validation layer required and passed |
+| Job                                      | Complete job duration | Result                                     |
+| ---------------------------------------- | --------------------- | ------------------------------------------ |
+| Frontend and unit tests                  | 1m01s                 | Passed                                     |
+| Static app artifact                      | 1m20s                 | Passed                                     |
+| Go services and PostgreSQL               | 3m12s                 | Passed                                     |
+| Dependency advisories                    | 49s                   | Passed                                     |
+| Browser fixtures and accessibility (1/2) | 4m16s                 | 29 scenarios passed                        |
+| Browser fixtures and accessibility (2/2) | 5m13s                 | 28 scenarios passed                        |
+| Identity, product and recovery journeys  | 5m10s                 | All five journeys passed                   |
+| checks                                   | 4s                    | Every validation layer required and passed |
 
 The run executed 167 Node unit/config/deployment tests, 10 static artifact/build
 checks, all 57 Chromium scenarios without retries or skips, generated-contract

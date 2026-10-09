@@ -14,14 +14,22 @@ export type FluoWirePost = Schemas['FluoPost'];
 export type FluoMedia = Omit<Schemas['FluoMedia'], 'kind'> & { kind: 'image' | 'video' };
 export type FluoWireQuote = Schemas['FluoQuote'];
 export type FluoQuote = Omit<FluoWireQuote, 'media'> & { media: FluoMedia[] };
-export type FluoPost = Omit<FluoWirePost, 'content' | 'media' | 'quote'> & { content: FluoDocument; media: FluoMedia[]; quote: FluoQuote | null };
+export type FluoPost = Omit<FluoWirePost, 'content' | 'media' | 'quote'> & {
+	content: FluoDocument;
+	media: FluoMedia[];
+	quote: FluoQuote | null;
+};
 export type FluoPostThread = Omit<Schemas['FluoPostThread'], 'posts'> & { posts: FluoPost[] };
 export type FluoPage = Omit<Schemas['FluoPage'], 'items'> & { items: FluoPost[] };
 export type FluoNewPost = Omit<Schemas['FluoNewPost'], 'content'> & { content: FluoDocument };
 export type FluoDocument = Schemas['FluoDocument'];
 export type FluoWireNotification = Schemas['FluoNotification'];
-export type FluoNotification = Omit<FluoWireNotification, 'post'> & { post: (Omit<NonNullable<FluoWireNotification['post']>, 'media'> & { media: FluoMedia[] }) | null };
-export type FluoNotificationPage = Omit<Schemas['FluoNotificationPage'], 'items'> & { items: FluoNotification[] };
+export type FluoNotification = Omit<FluoWireNotification, 'post'> & {
+	post: (Omit<NonNullable<FluoWireNotification['post']>, 'media'> & { media: FluoMedia[] }) | null;
+};
+export type FluoNotificationPage = Omit<Schemas['FluoNotificationPage'], 'items'> & {
+	items: FluoNotification[];
+};
 export type FluoNotificationSummary = Schemas['FluoNotificationSummary'];
 export type FluoNotificationReadState = Schemas['FluoNotificationReadState'];
 export type FluoNotificationPolicy = Schemas['FluoNotificationPolicy'];
@@ -100,15 +108,22 @@ export { documentSchema, documentPlainText } from './document.ts';
 
 // Regado administration views
 export type {
-  AdminSummary,
-  AdminUser,
-  AdminAuditEntry,
-  AdminDisk,
-  AdminSwapDevice,
-  AdminMount,
-  AdminOperationProgress, AdminLayoutRequest, AdminStoragePlan, AdminLayoutReport, AdminReplicationReport,
-  AdminMediaMaintenance,
-  AdminSystem,
-  AdminMetrics,
-  AdminLogs, AdminJournal, AdminService, AdminLogRetentionDays
+	AdminSummary,
+	AdminUser,
+	AdminAuditEntry,
+	AdminDisk,
+	AdminSwapDevice,
+	AdminMount,
+	AdminOperationProgress,
+	AdminLayoutRequest,
+	AdminStoragePlan,
+	AdminLayoutReport,
+	AdminReplicationReport,
+	AdminMediaMaintenance,
+	AdminSystem,
+	AdminMetrics,
+	AdminLogs,
+	AdminJournal,
+	AdminService,
+	AdminLogRetentionDays
 } from './admin.js';

@@ -1,22 +1,22 @@
 {
-  "name": "@kaordo/contracts",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "scripts": {
-    "generate": "openapi-typescript openapi.yaml -o src/openapi.d.ts"
-  },
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
-  },
-  "devDependencies": {
-    "openapi-typescript": "^7.13.0",
-    "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "zod": "^4.6.5"
-  }
+	"name": "@kaordo/contracts",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"generate": "openapi-typescript openapi.yaml -o src/openapi.d.ts"
+	},
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"devDependencies": {
+		"openapi-typescript": "^7.13.0",
+		"typescript": "^5.9.3"
+	},
+	"dependencies": {
+		"zod": "^4.6.5"
+	}
 }

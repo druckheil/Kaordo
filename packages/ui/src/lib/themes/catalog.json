@@ -1,9 +1,9 @@
 [
-  { "id": "deep-purple", "name": "Deep Purple" },
-  { "id": "discord", "name": "Discord" },
-  { "id": "leadgen", "name": "Leadgen" },
-  { "id": "lara", "name": "Lara" },
-  { "id": "damon", "name": "Damon" },
-  { "id": "party-rock", "name": "Party Rock" },
-  { "id": "japan-blues", "name": "Japan Blues" }
+	{ "id": "deep-purple", "name": "Deep Purple" },
+	{ "id": "discord", "name": "Discord" },
+	{ "id": "leadgen", "name": "Leadgen" },
+	{ "id": "lara", "name": "Lara" },
+	{ "id": "damon", "name": "Damon" },
+	{ "id": "party-rock", "name": "Party Rock" },
+	{ "id": "japan-blues", "name": "Japan Blues" }
 ]

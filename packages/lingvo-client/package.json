@@ -1,19 +1,36 @@
 {
-  "name": "@kaordo/lingvo-client",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
-    "./private-dictionary": { "types": "./src/private-dictionary.ts", "default": "./src/private-dictionary.ts" },
-    "./scheduler": { "types": "./src/scheduler.ts", "default": "./src/scheduler.ts" },
-    "./csv": { "types": "./src/csv.ts", "default": "./src/csv.ts" },
-    "./ai-input": { "types": "./src/ai-input.ts", "default": "./src/ai-input.ts" }
-  },
-  "dependencies": {
-    "@kaordo/contracts": "workspace:*",
-    "papaparse": "^5.5.3",
-    "ts-fsrs": "5.4.2"
-  },
-  "devDependencies": { "@types/papaparse": "^5.3.16" }
+	"name": "@kaordo/lingvo-client",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./private-dictionary": {
+			"types": "./src/private-dictionary.ts",
+			"default": "./src/private-dictionary.ts"
+		},
+		"./scheduler": {
+			"types": "./src/scheduler.ts",
+			"default": "./src/scheduler.ts"
+		},
+		"./csv": {
+			"types": "./src/csv.ts",
+			"default": "./src/csv.ts"
+		},
+		"./ai-input": {
+			"types": "./src/ai-input.ts",
+			"default": "./src/ai-input.ts"
+		}
+	},
+	"dependencies": {
+		"@kaordo/contracts": "workspace:*",
+		"papaparse": "^5.5.3",
+		"ts-fsrs": "5.4.2"
+	},
+	"devDependencies": {
+		"@types/papaparse": "^5.3.16"
+	}
 }

@@ -8,11 +8,11 @@ declare global {
 		// interface Locals {}
 		// interface PageData {}
 		interface PageState {
-      kaordoFluoPost?: string;
-      kaordoFluoReturnView?: string;
-      kaordoFluoReturnHash?: string;
-      kaordoFluoProfileHash?: string;
-    }
+			kaordoFluoPost?: string;
+			kaordoFluoReturnView?: string;
+			kaordoFluoReturnHash?: string;
+			kaordoFluoProfileHash?: string;
+		}
 		// interface Platform {}
 	}
 }

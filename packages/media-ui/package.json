@@ -1,23 +1,23 @@
 {
-  "name": "@kaordo/media-ui",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
-  },
-  "dependencies": {
-    "@kaordo/ui": "workspace:*",
-    "cropperjs": "^2.3.0",
-    "embla-carousel": "^8.6.0",
-    "embla-carousel-svelte": "^8.6.0",
-    "photoswipe": "^5.4.4",
-    "vidstack": "^1.15.6"
-  },
-  "peerDependencies": {
-    "svelte": "^5.0.0"
-  }
+	"name": "@kaordo/media-ui",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"dependencies": {
+		"@kaordo/ui": "workspace:*",
+		"cropperjs": "^2.3.0",
+		"embla-carousel": "^8.6.0",
+		"embla-carousel-svelte": "^8.6.0",
+		"photoswipe": "^5.4.4",
+		"vidstack": "^1.15.6"
+	},
+	"peerDependencies": {
+		"svelte": "^5.0.0"
+	}
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
- // Composes the popover primitive with the shared Rhea styling
-	import { cn, type WithElementRef } from "../../../utils.js";
-	import type { HTMLAttributes } from "svelte/elements";
+	// Composes the popover primitive with the shared Rhea styling
+	import { cn, type WithElementRef } from '../../../utils.js';
+	import type { HTMLAttributes } from 'svelte/elements';
 
 	let {
 		ref = $bindable(null),
@@ -14,7 +14,7 @@
 <div
 	bind:this={ref}
 	data-slot="popover-header"
-	class={cn("flex flex-col gap-1 text-sm", className)}
+	class={cn('flex flex-col gap-1 text-sm', className)}
 	{...restProps}
 >
 	{@render children?.()}

@@ -1,203 +1,285 @@
 // Owns Rondo community queries and server, channel and invitation workflows
 import { createQuery, type QueryClient } from '@tanstack/svelte-query';
 import {
-  ligoUserSearchOptions, rondoDiscoverOptions, rondoServerOptions, rondoServersOptions,
-  type LigoApi, type RondoApi
+	ligoUserSearchOptions,
+	rondoDiscoverOptions,
+	rondoServerOptions,
+	rondoServersOptions,
+	type LigoApi,
+	type RondoApi
 } from '@kaordo/api-client';
 import type { RondoServer } from '@kaordo/contracts';
 
 export type RondoDialogMode = 'create' | 'discover' | 'channel' | 'invite';
 
 interface CommunityDependencies {
-  rondo: RondoApi;
-  ligo: Pick<LigoApi, 'searchUsers'>;
-  queryClient: QueryClient;
-  selectedServerId: () => string | null;
-  selectServer: (id: string) => void;
-  selectChannel: (id: string | null) => void;
-  beforeLeave: (id: string) => Promise<void>;
-  onLeft: () => void;
-  onActionError: (message: string) => void;
+	rondo: RondoApi;
+	ligo: Pick<LigoApi, 'searchUsers'>;
+	queryClient: QueryClient;
+	selectedServerId: () => string | null;
+	selectServer: (id: string) => void;
+	selectChannel: (id: string | null) => void;
+	beforeLeave: (id: string) => Promise<void>;
+	onLeft: () => void;
+	onActionError: (message: string) => void;
 }
 
 export function createRondoCommunityState({
-  rondo, ligo, queryClient, selectedServerId: selectedServerIdValue,
-  selectServer, selectChannel, beforeLeave, onLeft, onActionError
+	rondo,
+	ligo,
+	queryClient,
+	selectedServerId: selectedServerIdValue,
+	selectServer,
+	selectChannel,
+	beforeLeave,
+	onLeft,
+	onActionError
 }: CommunityDependencies) {
-  let dialog = $state<RondoDialogMode | null>(null);
-  let dialogContentMode = $state<RondoDialogMode>('create');
-  let dialogBusy = $state(false);
-  let dialogError = $state('');
-  let serverName = $state('');
-  let serverDescription = $state('');
-  let serverAccess = $state<'public' | 'private'>('private');
-  let channelName = $state('');
-  let discoverInput = $state('');
-  let discoverTerm = $state('');
-  let inviteInput = $state('');
-  let inviteTerm = $state('');
-  let disposed = false;
-  const lifetime = new AbortController();
-  let searchTimer: ReturnType<typeof setTimeout> | undefined;
-  let leaveOpen = $state(false);
+	let dialog = $state<RondoDialogMode | null>(null);
+	let dialogContentMode = $state<RondoDialogMode>('create');
+	let dialogBusy = $state(false);
+	let dialogError = $state('');
+	let serverName = $state('');
+	let serverDescription = $state('');
+	let serverAccess = $state<'public' | 'private'>('private');
+	let channelName = $state('');
+	let discoverInput = $state('');
+	let discoverTerm = $state('');
+	let inviteInput = $state('');
+	let inviteTerm = $state('');
+	let disposed = false;
+	const lifetime = new AbortController();
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+	let leaveOpen = $state(false);
 
-  const serversQuery = createQuery(() => rondoServersOptions(rondo), () => queryClient);
-  const detailQuery = createQuery(() => rondoServerOptions(rondo, selectedServerIdValue()), () => queryClient);
-  const discoverQuery = createQuery(() => rondoDiscoverOptions(rondo, discoverTerm, dialog === 'discover'), () => queryClient);
-  const inviteQuery = createQuery(() => ligoUserSearchOptions(ligo, inviteTerm, dialog === 'invite'), () => queryClient);
-  const servers = $derived(serversQuery.data?.items ?? []);
-  const detail = $derived(detailQuery.data ?? null);
-  const inviteCandidates = $derived((inviteQuery.data?.items ?? []).filter((candidate) =>
-    !detail?.members.some((member) => member.id === candidate.id)));
+	const serversQuery = createQuery(
+		() => rondoServersOptions(rondo),
+		() => queryClient
+	);
+	const detailQuery = createQuery(
+		() => rondoServerOptions(rondo, selectedServerIdValue()),
+		() => queryClient
+	);
+	const discoverQuery = createQuery(
+		() => rondoDiscoverOptions(rondo, discoverTerm, dialog === 'discover'),
+		() => queryClient
+	);
+	const inviteQuery = createQuery(
+		() => ligoUserSearchOptions(ligo, inviteTerm, dialog === 'invite'),
+		() => queryClient
+	);
+	const servers = $derived(serversQuery.data?.items ?? []);
+	const detail = $derived(detailQuery.data ?? null);
+	const inviteCandidates = $derived(
+		(inviteQuery.data?.items ?? []).filter(
+			(candidate) => !detail?.members.some((member) => member.id === candidate.id)
+		)
+	);
 
-  function openDialog(mode: RondoDialogMode | null) {
-    dialog = mode;
-    if (mode) dialogContentMode = mode;
-    dialogError = '';
-    discoverTerm = '';
-    discoverInput = '';
-    inviteTerm = '';
-    inviteInput = '';
-  }
-  function search(value: string, kind: 'discover' | 'invite') {
-    if (searchTimer) clearTimeout(searchTimer);
-    if (kind === 'discover') discoverInput = value;
-    else inviteInput = value;
-    searchTimer = setTimeout(() => {
-      if (kind === 'discover') discoverTerm = value.trim();
-      else inviteTerm = value.trim();
-    }, 220);
-  }
-  async function createServer() {
-    const name = serverName.trim();
-    if (!name) return;
-    const input = { name, description: serverDescription.trim(), access: serverAccess };
+	function openDialog(mode: RondoDialogMode | null) {
+		dialog = mode;
+		if (mode) dialogContentMode = mode;
+		dialogError = '';
+		discoverTerm = '';
+		discoverInput = '';
+		inviteTerm = '';
+		inviteInput = '';
+	}
+	function search(value: string, kind: 'discover' | 'invite') {
+		if (searchTimer) clearTimeout(searchTimer);
+		if (kind === 'discover') discoverInput = value;
+		else inviteInput = value;
+		searchTimer = setTimeout(() => {
+			if (kind === 'discover') discoverTerm = value.trim();
+			else inviteTerm = value.trim();
+		}, 220);
+	}
+	async function createServer() {
+		const name = serverName.trim();
+		if (!name) return;
+		const input = { name, description: serverDescription.trim(), access: serverAccess };
 
-    await runDialogAction(async () => {
-      const created = await rondo.create(input, lifetime.signal);
-      if (disposed) return;
-      queryClient.setQueryData(['rondo', 'server', created.server.id], created);
-      await queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] });
-      if (disposed) return;
-      dialog = null;
-      serverName = '';
-      serverDescription = '';
-      selectServer(created.server.id);
-      selectChannel(created.channels[0]?.id ?? null);
-    });
-  }
+		await runDialogAction(async () => {
+			const created = await rondo.create(input, lifetime.signal);
+			if (disposed) return;
+			queryClient.setQueryData(['rondo', 'server', created.server.id], created);
+			await queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] });
+			if (disposed) return;
+			dialog = null;
+			serverName = '';
+			serverDescription = '';
+			selectServer(created.server.id);
+			selectChannel(created.channels[0]?.id ?? null);
+		});
+	}
 
-  async function joinServer(item: RondoServer) {
-    await runDialogAction(async () => {
-      const joined = await rondo.join(item.id, lifetime.signal);
-      if (disposed) return;
-      queryClient.setQueryData(['rondo', 'server', item.id], joined);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] }),
-        queryClient.invalidateQueries({ queryKey: ['rondo', 'discover'] })
-      ]);
-      if (disposed) return;
-      dialog = null;
-      selectServer(item.id);
-      selectChannel(joined.channels[0]?.id ?? null);
-    });
-  }
+	async function joinServer(item: RondoServer) {
+		await runDialogAction(async () => {
+			const joined = await rondo.join(item.id, lifetime.signal);
+			if (disposed) return;
+			queryClient.setQueryData(['rondo', 'server', item.id], joined);
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] }),
+				queryClient.invalidateQueries({ queryKey: ['rondo', 'discover'] })
+			]);
+			if (disposed) return;
+			dialog = null;
+			selectServer(item.id);
+			selectChannel(joined.channels[0]?.id ?? null);
+		});
+	}
 
-  async function createChannel() {
-    const selectedServerId = selectedServerIdValue();
-    const name = channelName.trim();
-    if (!selectedServerId || !name) return;
+	async function createChannel() {
+		const selectedServerId = selectedServerIdValue();
+		const name = channelName.trim();
+		if (!selectedServerId || !name) return;
 
-    await runDialogAction(async () => {
-      const created = await rondo.createChannel(selectedServerId, name, lifetime.signal);
-      if (disposed) return;
-      await queryClient.invalidateQueries({ queryKey: ['rondo', 'server', selectedServerId] });
-      if (disposed) return;
-      dialog = null;
-      channelName = '';
-      selectChannel(created.id);
-    });
-  }
+		await runDialogAction(async () => {
+			const created = await rondo.createChannel(selectedServerId, name, lifetime.signal);
+			if (disposed) return;
+			await queryClient.invalidateQueries({ queryKey: ['rondo', 'server', selectedServerId] });
+			if (disposed) return;
+			dialog = null;
+			channelName = '';
+			selectChannel(created.id);
+		});
+	}
 
-  async function invite(userId: string) {
-    const selectedServerId = selectedServerIdValue();
-    if (!selectedServerId) return;
+	async function invite(userId: string) {
+		const selectedServerId = selectedServerIdValue();
+		if (!selectedServerId) return;
 
-    await runDialogAction(async () => {
-      const updated = await rondo.invite(selectedServerId, userId, lifetime.signal);
-      if (disposed) return;
-      queryClient.setQueryData(['rondo', 'server', selectedServerId], updated);
-      dialog = null;
-    });
-  }
+		await runDialogAction(async () => {
+			const updated = await rondo.invite(selectedServerId, userId, lifetime.signal);
+			if (disposed) return;
+			queryClient.setQueryData(['rondo', 'server', selectedServerId], updated);
+			dialog = null;
+		});
+	}
 
-  async function runDialogAction(action: () => Promise<void>): Promise<void> {
-    if (disposed || dialogBusy) return;
+	async function runDialogAction(action: () => Promise<void>): Promise<void> {
+		if (disposed || dialogBusy) return;
 
-    dialogBusy = true;
-    dialogError = '';
-    try {
-      await action();
-    } catch (error) {
-      if (!disposed) dialogError = errorMessage(error);
-    } finally {
-      if (!disposed) dialogBusy = false;
-    }
-  }
+		dialogBusy = true;
+		dialogError = '';
+		try {
+			await action();
+		} catch (error) {
+			if (!disposed) dialogError = errorMessage(error);
+		} finally {
+			if (!disposed) dialogBusy = false;
+		}
+	}
 
-  async function leaveServer() {
-    const serverToLeave = selectedServerIdValue();
-    if (disposed || !serverToLeave || dialogBusy) return;
+	async function leaveServer() {
+		const serverToLeave = selectedServerIdValue();
+		if (disposed || !serverToLeave || dialogBusy) return;
 
-    dialogBusy = true;
-    try {
-      await beforeLeave(serverToLeave);
-      await rondo.leave(serverToLeave, lifetime.signal);
-      if (disposed) return;
-      queryClient.removeQueries({ queryKey: ['rondo', 'server', serverToLeave] });
-      await queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] });
-      if (disposed) return;
-      onLeft();
-      leaveOpen = false;
-    } catch (error) {
-      if (!disposed) onActionError(errorMessage(error));
-    } finally {
-      if (!disposed) dialogBusy = false;
-    }
-  }
+		dialogBusy = true;
+		try {
+			await beforeLeave(serverToLeave);
+			await rondo.leave(serverToLeave, lifetime.signal);
+			if (disposed) return;
+			queryClient.removeQueries({ queryKey: ['rondo', 'server', serverToLeave] });
+			await queryClient.invalidateQueries({ queryKey: ['rondo', 'servers'] });
+			if (disposed) return;
+			onLeft();
+			leaveOpen = false;
+		} catch (error) {
+			if (!disposed) onActionError(errorMessage(error));
+		} finally {
+			if (!disposed) dialogBusy = false;
+		}
+	}
 
-  function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Please try again.';
-  }
-  function handleDialogOpenChange(open: boolean): void {
-    if (!open && !dialogBusy) dialog = null;
-  }
-  return {
-    serversQuery, detailQuery, discoverQuery, inviteQuery,
-    get servers() { return servers; },
-    get detail() { return detail; },
-    get inviteCandidates() { return inviteCandidates; },
-    get dialog() { return dialog; },
-    get dialogContentMode() { return dialogContentMode; },
-    get dialogBusy() { return dialogBusy; },
-    get dialogError() { return dialogError; },
-    get serverName() { return serverName; },
-    set serverName(value: string) { serverName = value; },
-    get serverDescription() { return serverDescription; },
-    set serverDescription(value: string) { serverDescription = value; },
-    get serverAccess() { return serverAccess; },
-    set serverAccess(value: 'public' | 'private') { serverAccess = value; },
-    get channelName() { return channelName; },
-    set channelName(value: string) { channelName = value; },
-    get discoverInput() { return discoverInput; },
-    get discoverTerm() { return discoverTerm; },
-    get inviteInput() { return inviteInput; },
-    get inviteTerm() { return inviteTerm; },
-    get leaveOpen() { return leaveOpen; },
-    set leaveOpen(value: boolean) { leaveOpen = value; },
-    openDialog, search, createServer, joinServer, createChannel, invite, leaveServer, handleDialogOpenChange,
-    dispose() { disposed = true; lifetime.abort(); if (searchTimer) clearTimeout(searchTimer); }
-  };
+	function errorMessage(error: unknown): string {
+		return error instanceof Error ? error.message : 'Please try again.';
+	}
+	function handleDialogOpenChange(open: boolean): void {
+		if (!open && !dialogBusy) dialog = null;
+	}
+	return {
+		serversQuery,
+		detailQuery,
+		discoverQuery,
+		inviteQuery,
+		get servers() {
+			return servers;
+		},
+		get detail() {
+			return detail;
+		},
+		get inviteCandidates() {
+			return inviteCandidates;
+		},
+		get dialog() {
+			return dialog;
+		},
+		get dialogContentMode() {
+			return dialogContentMode;
+		},
+		get dialogBusy() {
+			return dialogBusy;
+		},
+		get dialogError() {
+			return dialogError;
+		},
+		get serverName() {
+			return serverName;
+		},
+		set serverName(value: string) {
+			serverName = value;
+		},
+		get serverDescription() {
+			return serverDescription;
+		},
+		set serverDescription(value: string) {
+			serverDescription = value;
+		},
+		get serverAccess() {
+			return serverAccess;
+		},
+		set serverAccess(value: 'public' | 'private') {
+			serverAccess = value;
+		},
+		get channelName() {
+			return channelName;
+		},
+		set channelName(value: string) {
+			channelName = value;
+		},
+		get discoverInput() {
+			return discoverInput;
+		},
+		get discoverTerm() {
+			return discoverTerm;
+		},
+		get inviteInput() {
+			return inviteInput;
+		},
+		get inviteTerm() {
+			return inviteTerm;
+		},
+		get leaveOpen() {
+			return leaveOpen;
+		},
+		set leaveOpen(value: boolean) {
+			leaveOpen = value;
+		},
+		openDialog,
+		search,
+		createServer,
+		joinServer,
+		createChannel,
+		invite,
+		leaveServer,
+		handleDialogOpenChange,
+		dispose() {
+			disposed = true;
+			lifetime.abort();
+			if (searchTimer) clearTimeout(searchTimer);
+		}
+	};
 }
 
 export type RondoCommunityState = ReturnType<typeof createRondoCommunityState>;

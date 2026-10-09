@@ -1,12 +1,12 @@
 <script lang="ts">
 	// Composes the Bits UI radio group with shared Rhea layout and binding
-	import { RadioGroup as RadioGroupPrimitive } from "bits-ui";
-	import { cn } from "../../../utils.js";
+	import { RadioGroup as RadioGroupPrimitive } from 'bits-ui';
+	import { cn } from '../../../utils.js';
 
 	let {
 		ref = $bindable(null),
 		class: className,
-		value = $bindable(""),
+		value = $bindable(''),
 		...restProps
 	}: RadioGroupPrimitive.RootProps = $props();
 </script>
@@ -15,6 +15,6 @@
 	bind:ref
 	bind:value
 	data-slot="radio-group"
-	class={cn("grid gap-3 w-full", className)}
+	class={cn('grid w-full gap-3', className)}
 	{...restProps}
 />

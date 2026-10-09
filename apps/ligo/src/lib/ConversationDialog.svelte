@@ -1,13 +1,16 @@
 <script lang="ts">
 	// Presents conversation discovery and group forms through the owned dialog controller
 
-	import { onDestroy, untrack } from "svelte";
-	import type { QueryClient } from "@tanstack/svelte-query";
-	import type { LigoConversation } from "@kaordo/contracts";
-	import { UserAvatar } from "@kaordo/account-ui";
-	import { BookmarkIcon, Button, CheckIcon, Dialog, Input, SearchIcon } from "@kaordo/ui";
-	import type { ConversationDialogMode } from "./ligo-model";
-	import { createConversationDialogState, type ConversationDialogApi } from "./conversation-dialog-state.svelte.ts";
+	import { onDestroy, untrack } from 'svelte';
+	import type { QueryClient } from '@tanstack/svelte-query';
+	import type { LigoConversation } from '@kaordo/contracts';
+	import { UserAvatar } from '@kaordo/account-ui';
+	import { BookmarkIcon, Button, CheckIcon, Dialog, Input, SearchIcon } from '@kaordo/ui';
+	import type { ConversationDialogMode } from './ligo-model';
+	import {
+		createConversationDialogState,
+		type ConversationDialogApi
+	} from './conversation-dialog-state.svelte.ts';
 
 	let {
 		api,
@@ -18,7 +21,7 @@
 		savedError,
 		open = $bindable(null),
 		onOpenSaved,
-		onSelectConversation,
+		onSelectConversation
 	}: {
 		api: ConversationDialogApi;
 		queryClient: QueryClient;
@@ -32,15 +35,25 @@
 	} = $props();
 
 	const state = createConversationDialogState({
-		api: untrack(() => api), queryClient: untrack(() => queryClient),
-		mode: () => open, selected: () => selected, selectedId: () => selectedId,
-		onClose: () => { open = null; }, onSelect: (id) => onSelectConversation(id)
+		api: untrack(() => api),
+		queryClient: untrack(() => queryClient),
+		mode: () => open,
+		selected: () => selected,
+		selectedId: () => selectedId,
+		onClose: () => {
+			open = null;
+		},
+		onSelect: (id) => onSelectConversation(id)
 	});
 	const form = state.form;
-	const dialogTitle = $derived(open === "add" ? "Add people" : form.groupMode ? "New group" : "New conversation");
-	const dialogDescription = $derived(open === "add"
-		? "Find Kaordo accounts by username. New members can read messages sent after they join."
-		: "Find Kaordo accounts by username. Start a direct chat, create a group, or save a note for yourself.");
+	const dialogTitle = $derived(
+		open === 'add' ? 'Add people' : form.groupMode ? 'New group' : 'New conversation'
+	);
+	const dialogDescription = $derived(
+		open === 'add'
+			? 'Find Kaordo accounts by username. New members can read messages sent after they join.'
+			: 'Find Kaordo accounts by username. Start a direct chat, create a group, or save a note for yourself.'
+	);
 	onDestroy(state.dispose);
 </script>
 
@@ -57,7 +70,7 @@
 				<Dialog.Description>{dialogDescription}</Dialog.Description>
 			</Dialog.Header>
 
-			{#if open === "new"}
+			{#if open === 'new'}
 				<button
 					type="button"
 					disabled={selfBusy}
@@ -71,13 +84,20 @@
 					</span>
 				</button>
 				<label class="mb-4 flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
-					<input type="checkbox" bind:checked={form.groupMode} class="size-5 rounded accent-primary" />
+					<input
+						type="checkbox"
+						bind:checked={form.groupMode}
+						class="size-5 rounded accent-primary"
+					/>
 					Create a group
 				</label>
 			{/if}
 
-			{#if form.groupMode && open === "new"}
-				<label class="mb-4 block text-xs font-semibold uppercase tracking-wider text-muted-foreground" for="ligo-group-title">
+			{#if form.groupMode && open === 'new'}
+				<label
+					class="mb-4 block text-xs font-semibold tracking-wider text-muted-foreground uppercase"
+					for="ligo-group-title"
+				>
 					Group name
 				</label>
 				<Input
@@ -89,11 +109,16 @@
 				/>
 			{/if}
 
-			<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground" for="ligo-user-search">
+			<label
+				class="block text-xs font-semibold tracking-wider text-muted-foreground uppercase"
+				for="ligo-user-search"
+			>
 				Find people
 			</label>
 			<div class="relative mt-2">
-				<SearchIcon class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+				<SearchIcon
+					class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+				/>
 				<Input
 					id="ligo-user-search"
 					class="pl-10"
@@ -120,29 +145,43 @@
 
 			<div class="mt-4 min-h-24">
 				{#if state.searchTerm.length < 2}
-					<p class="py-5 text-center text-sm text-muted-foreground">Type at least two characters to search.</p>
+					<p class="py-5 text-center text-sm text-muted-foreground">
+						Type at least two characters to search.
+					</p>
 				{:else if state.searchQuery.isPending}
-					<p class="py-5 text-center text-sm text-muted-foreground" role="status">Searching accounts…</p>
+					<p class="py-5 text-center text-sm text-muted-foreground" role="status">
+						Searching accounts…
+					</p>
 				{:else if state.searchQuery.error}
-					<p class="py-5 text-center text-sm text-destructive" role="alert">Search is unavailable. Try again.</p>
+					<p class="py-5 text-center text-sm text-destructive" role="alert">
+						Search is unavailable. Try again.
+					</p>
 				{:else if !state.availableUsers.length}
 					<p class="py-5 text-center text-sm text-muted-foreground">
 						{state.searchQuery.data?.items.length
-							? "Everyone matching is already in this group."
-							: "No accounts found."}
+							? 'Everyone matching is already in this group.'
+							: 'No accounts found.'}
 					</p>
 				{:else}
 					{#each state.availableUsers as candidate (candidate.id)}
 						<button
 							type="button"
 							disabled={state.busy}
-							onclick={() => (form.groupMode ? state.toggleUser(candidate) : void state.startDirectChat(candidate))}
+							onclick={() =>
+								form.groupMode
+									? state.toggleUser(candidate)
+									: void state.startDirectChat(candidate)}
 							class="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
 						>
-							<UserAvatar user={candidate} class="size-9 rounded-xl [&_[data-slot=avatar-fallback]]:text-xs" />
+							<UserAvatar
+								user={candidate}
+								class="size-9 rounded-xl [&_[data-slot=avatar-fallback]]:text-xs"
+							/>
 							<span class="min-w-0 flex-1">
 								<span class="block truncate text-sm font-semibold">{candidate.displayName}</span>
-								<span class="block truncate text-xs text-muted-foreground">@{candidate.username}</span>
+								<span class="block truncate text-xs text-muted-foreground"
+									>@{candidate.username}</span
+								>
 							</span>
 							{#if form.selectedUsers.some((user) => user.id === candidate.id)}
 								<CheckIcon class="size-4 text-link" />
@@ -162,10 +201,12 @@
 				<Dialog.Footer class="mt-5 flex flex-row justify-end gap-2 border-t border-border pt-4">
 					<Button variant="outline" disabled={state.busy} onclick={state.close}>Cancel</Button>
 					<Button
-						disabled={state.busy || !form.selectedUsers.length || (open === "new" && !form.groupTitle.trim())}
+						disabled={state.busy ||
+							!form.selectedUsers.length ||
+							(open === 'new' && !form.groupTitle.trim())}
 						onclick={() => void state.confirmGroupChange()}
 					>
-						{state.busy ? "Working…" : open === "add" ? "Add people" : "Create group"}
+						{state.busy ? 'Working…' : open === 'add' ? 'Add people' : 'Create group'}
 					</Button>
 				</Dialog.Footer>
 			{/if}

@@ -30,17 +30,17 @@ verification and deployment evidence in the internal engineering documentation.
 ```ts
 // Records the user-facing changes included in this release
 
-import type { ReleaseNotes } from "../types";
+import type { ReleaseNotes } from '../types';
 
 const release = {
-	releasedAt: "2026-10-03",
-	summary: "A short description of the release.",
+	releasedAt: '2026-10-03',
+	summary: 'A short description of the release.',
 	sections: [
 		{
-			heading: "Fluo",
-			changes: ["A concise description of a user-visible change."],
-		},
-	],
+			heading: 'Fluo',
+			changes: ['A concise description of a user-visible change.']
+		}
+	]
 } satisfies ReleaseNotes;
 
 export default release;

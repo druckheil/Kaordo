@@ -1,22 +1,24 @@
 {
-  "name": "@kaordo/account-ui",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "svelte": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
-  },
-  "peerDependencies": { "svelte": "^5.0.0" },
-  "dependencies": {
-    "@kaordo/crypto": "workspace:*",
-    "@kaordo/auth": "workspace:*",
-    "@kaordo/api-client": "workspace:*",
-    "@kaordo/contracts": "workspace:*",
-    "@kaordo/ui": "workspace:*",
-    "@tanstack/svelte-query": "^6.3.0"
-  }
+	"name": "@kaordo/account-ui",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"svelte": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"peerDependencies": {
+		"svelte": "^5.0.0"
+	},
+	"dependencies": {
+		"@kaordo/crypto": "workspace:*",
+		"@kaordo/auth": "workspace:*",
+		"@kaordo/api-client": "workspace:*",
+		"@kaordo/contracts": "workspace:*",
+		"@kaordo/ui": "workspace:*",
+		"@tanstack/svelte-query": "^6.3.0"
+	}
 }
