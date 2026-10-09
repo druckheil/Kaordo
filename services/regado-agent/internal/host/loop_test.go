@@ -5,57 +5,20 @@ package host
 // Exercises inventory and pool reads against real Btrfs filesystems on loop devices
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/hosttest"
 )
-
-func mustRun(t *testing.T, args ...string) string {
-	t.Helper()
-	output, err := command.Run(context.Background(), args...)
-	if err != nil {
-		t.Fatalf("%s: %v", strings.Join(args, " "), err)
-	}
-	return strings.TrimSpace(output)
-}
-
-// loopDevice attaches a sparse 1 GiB file; the backing name becomes the device identity
-func loopDevice(t *testing.T, name string) string {
-	t.Helper()
-	file := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(file, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Truncate(file, 1<<30); err != nil {
-		t.Fatal(err)
-	}
-	device := mustRun(t, "losetup", "--find", "--show", file)
-	t.Cleanup(func() { _, _ = command.Run(context.Background(), "losetup", "--detach", device) })
-	return device
-}
-
-func mountPool(t *testing.T, device string, options ...string) string {
-	t.Helper()
-	target := t.TempDir()
-	args := []string{"mount"}
-	if len(options) > 0 {
-		args = append(args, "-o", strings.Join(options, ","))
-	}
-	mustRun(t, append(args, device, target)...)
-	t.Cleanup(func() { _, _ = command.Run(context.Background(), "umount", target) })
-	return target
-}
 
 func TestHostPoolFactsOnLoopDevices(t *testing.T) {
 	ctx := context.Background()
-	first := loopDevice(t, "pool-a.img")
-	second := loopDevice(t, "pool-b.img")
-	mustRun(t, "mkfs.btrfs", "-q", "-f", "-L", "kaordo", "-d", "raid1", "-m", "raid1", first, second)
-	uuid := mustRun(t, "blkid", "-s", "UUID", "-o", "value", first)
-	mount := mountPool(t, first)
+	first := hosttest.Disk(t, "pool-a.img", 1<<30)
+	second := hosttest.Disk(t, "pool-b.img", 1<<30)
+	hosttest.MustRun(t, "mkfs.btrfs", "-q", "-f", "-L", "kaordo", "-d", "raid1", "-m", "raid1", first, second)
+	uuid := hosttest.MustRun(t, "blkid", "-s", "UUID", "-o", "value", first)
+	mount := hosttest.Mount(t, first)
 
 	devices, err := Inventory(ctx, command.Run, uuid, Options{Loop: true})
 	if err != nil {
@@ -83,12 +46,11 @@ func TestHostPoolFactsOnLoopDevices(t *testing.T) {
 
 func TestHostPoolReportsAMissingMember(t *testing.T) {
 	ctx := context.Background()
-	first := loopDevice(t, "degraded-a.img")
-	second := loopDevice(t, "degraded-b.img")
-	mustRun(t, "mkfs.btrfs", "-q", "-f", "-d", "raid1", "-m", "raid1", first, second)
-	mustRun(t, "losetup", "--detach", second)
-	mustRun(t, "btrfs", "device", "scan", "--forget")
-	mount := mountPool(t, first, "degraded")
+	first := hosttest.Disk(t, "degraded-a.img", 1<<30)
+	second := hosttest.Disk(t, "degraded-b.img", 1<<30)
+	hosttest.MustRun(t, "mkfs.btrfs", "-q", "-f", "-d", "raid1", "-m", "raid1", first, second)
+	hosttest.Forget(t, second)
+	mount := hosttest.Mount(t, first, "degraded")
 
 	pool, err := ReadPool(ctx, command.Run, mount, nil)
 	if err != nil {

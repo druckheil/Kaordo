@@ -23,11 +23,10 @@ run([
 	'--workdir',
 	'/src/services/regado-agent',
 	image,
-	'go',
-	'test',
-	'-tags',
-	'hosttest',
-	'-count=1',
-	...process.argv.slice(2),
-	'./...'
+	'sh',
+	'-c',
+	// A real host's devtmpfs creates partition nodes; a container's /dev is a static tmpfs
+	'mount -t devtmpfs devtmpfs /dev && exec go test -tags hosttest -count=1 "$@" ./...',
+	'host-test',
+	...process.argv.slice(2)
 ]);
