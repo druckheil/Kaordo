@@ -31,9 +31,10 @@ compromised browser or OS account.
 
 Kerno stores public identities and an account-key bundle sealed to each approved
 device. A new browser can authenticate but cannot open private content until an
-approved device signs its key transfer, or the user supplies a recovery key. Open
-**Encryption and recovery** in the application header, compare the 96-bit device
-fingerprint on both devices, and approve only the intended device. Account
+approved device signs its key transfer, or the user supplies a recovery key. On the
+approved device open **Agordoj → Encryption & recovery** (the settings link in app
+headers shows a count while a device waits), compare the 96-bit device fingerprint
+on both devices, and approve only the intended device. Account
 identities and previously encountered peer keys are pinned locally; an unexpected
 key change fails closed rather than resetting the account.
 
@@ -44,8 +45,9 @@ decrypted object URLs.
 
 ## Recovery after losing every device
 
-1. On an approved device, open **Encryption and recovery** and create a recovery
-   key. A random 256-bit secret is generated locally.
+1. On an approved device, open **Agordoj → Encryption & recovery** and create a
+   recovery key. A random 256-bit secret is generated locally. The page warns while
+   no recovery key is active.
 2. Save the displayed secret or download its JSON file to a separate secure
    location, confirm it, then activate recovery.
 3. After losing all devices, sign in normally on a new browser and choose

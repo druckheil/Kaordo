@@ -15,6 +15,8 @@ const routes = [
 	'/login/',
 	'/register/',
 	'/agordoj/',
+	'/agordoj/appearance/',
+	'/agordoj/encryption/',
 	'/changelog/',
 	'/ligo/',
 	'/fluo/',

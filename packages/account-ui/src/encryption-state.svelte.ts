@@ -1,5 +1,5 @@
 // Registers device public keys and unlocks account secrets only on approved devices
-import { onMount } from 'svelte';
+import { createContext, onMount } from 'svelte';
 import { createEncryptionApi } from '@kaordo/api-client';
 import {
 	createAccountKeys,
@@ -22,6 +22,10 @@ import {
 } from '@kaordo/crypto';
 import type { EncryptionIdentity } from '@kaordo/contracts';
 
+export type EncryptionState = ReturnType<typeof createEncryptionState>;
+// The provider owns the device session; settings views below it read the same state
+export const [getEncryptionState, setEncryptionState] = createContext<EncryptionState>();
+
 export function createEncryptionState(baseUrl: string, ownerId: string) {
 	const api = createEncryptionApi(baseUrl);
 	let phase = $state<'loading' | 'pending' | 'ready' | 'error'>('loading');
@@ -30,6 +34,8 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 	let error = $state('');
 	let busy = $state(false);
 	let recoveryReady = $state(false);
+	// Whether the server holds a recovery bundle; null until checked
+	let recoveryActive = $state<boolean | null>(null);
 	let recovery = $state<RecoveryFile | null>(null);
 	let recoveryUpdate: Awaited<ReturnType<typeof createRecovery>>['update'] | undefined;
 	let device: LocalDevice | undefined;
@@ -157,6 +163,7 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 		try {
 			await api.saveRecovery(recoveryUpdate, lifetime.signal);
 			recoveryReady = true;
+			recoveryActive = true;
 			recoveryUpdate = undefined;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Recovery could not be saved.';
@@ -219,6 +226,14 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 		} finally {
 			if (restored) destroyAccountKeys(restored);
 			busy = false;
+		}
+	}
+	async function loadRecoveryStatus() {
+		if (!keys) return;
+		try {
+			recoveryActive = !!(await api.recovery(lifetime.signal));
+		} catch {
+			if (!lifetime.signal.aborted) recoveryActive = null;
 		}
 	}
 	function clearRecovery() {
@@ -288,6 +303,10 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 		get recoveryReady() {
 			return recoveryReady;
 		},
+		get recoveryActive() {
+			return recoveryActive;
+		},
+		loadRecoveryStatus,
 		prepareRecovery,
 		activateRecovery,
 		recover,

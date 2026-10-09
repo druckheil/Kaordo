@@ -9,7 +9,11 @@ export { Slider } from './components/ui/slider/index.js';
 // Shared application shells
 export { default as ModuleLanding } from './ModuleLanding.svelte';
 export { default as AppHeader } from './AppHeader.svelte';
-export { headerActionsContext, type HeaderActions } from './header-actions.js';
+export {
+	settingsNoticeContext,
+	type SettingsNotice,
+	type SettingsNoticeSource
+} from './settings-notice.js';
 export { default as ThemeProvider } from './ThemeProvider.svelte';
 export { default as ThemeToggle } from './ThemeToggle.svelte';
 export { default as AgordojLink } from './AgordojLink.svelte';
@@ -40,6 +44,9 @@ export { default as EllipsisIcon } from '@lucide/svelte/icons/ellipsis';
 export { default as XIcon } from '@lucide/svelte/icons/x';
 export { default as ShieldCheckIcon } from '@lucide/svelte/icons/shield-check';
 export { default as KeyRoundIcon } from '@lucide/svelte/icons/key-round';
+export { default as MonitorSmartphoneIcon } from '@lucide/svelte/icons/monitor-smartphone';
+export { default as PaletteIcon } from '@lucide/svelte/icons/palette';
+export { default as TriangleAlertIcon } from '@lucide/svelte/icons/triangle-alert';
 export { default as LogOutIcon } from '@lucide/svelte/icons/log-out';
 
 // Post and message icons

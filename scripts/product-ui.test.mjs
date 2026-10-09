@@ -10,8 +10,10 @@ import {
 	encryptedPost,
 	openPost,
 	postText,
-	privateRecords
+	privateRecords,
+	waitingDevice
 } from './encryption-fixture.mjs';
+import { installQualityFixture } from './ui-quality-fixture.mjs';
 
 const id = (n) => `01999111-2222-7333-8444-${String(n).padStart(12, '0')}`;
 const now = '2026-10-03T10:00:00Z';
@@ -908,3 +910,54 @@ for (const app of ['ligo', 'rondo']) {
 		assert.deepEqual(errors, [], 'No client runtime errors');
 	});
 }
+
+test('Agordoj approves a waiting device and activates a recovery key', async ({
+	startAppFixture
+}) => {
+	const { page, origin, errors } = await startAppFixture('portal');
+	await installQualityFixture(page, 'portal', { waitingDevices: [waitingDevice()] });
+	await page.goto(origin + '/agordoj/');
+	await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor();
+	await page.getByRole('link', { name: /^Encryption & recovery/ }).click();
+	await page.getByRole('heading', { name: 'Encryption & recovery', level: 1 }).waitFor();
+
+	const devices = page.getByRole('region', { name: 'Devices' });
+	await devices.getByRole('button', { name: 'Compare fingerprint' }).click();
+	const approval = page.waitForResponse(
+		(response) => response.url().endsWith('/approve') && response.request().method() === 'POST'
+	);
+	await devices.getByRole('button', { name: 'Approve' }).click();
+	expect((await approval).status()).toBe(200);
+	await expect(devices.getByText('All your devices are approved.')).toBeVisible();
+
+	const recovery = page.getByRole('region', { name: 'Recovery key' });
+	await expect(recovery.getByText(/No recovery key yet/)).toBeVisible();
+	await recovery.getByRole('button', { name: 'Create recovery key' }).click();
+	await expect(recovery.getByLabel('Keep this secret')).not.toHaveValue('');
+	const activate = recovery.getByRole('button', { name: 'Activate recovery' });
+	await expect(activate).toBeDisabled();
+	await recovery.getByRole('checkbox', { name: 'I saved the key in a safe place' }).click();
+	const saved = page.waitForResponse(
+		(response) =>
+			response.url().endsWith('/v1/crypto/recovery') && response.request().method() === 'PUT'
+	);
+	await activate.click();
+	expect((await saved).status()).toBe(200);
+	await expect(recovery.getByText('A recovery key is active.')).toBeVisible();
+
+	await page.getByRole('link', { name: 'Settings', exact: true }).click();
+	await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor();
+	expect(errors).toEqual([]);
+});
+
+test('Apps point the settings link at waiting device approvals', async ({ startAppFixture }) => {
+	const { page, origin, errors } = await startAppFixture('memoro');
+	await installQualityFixture(page, 'memoro', { waitingDevices: [waitingDevice()] });
+	await page.goto(origin + '/memoro/?date=2026-10-01');
+	await expect(page.getByRole('heading', { name: 'Memoro', exact: true })).toBeVisible();
+	await expect(
+		page.getByRole('link', { name: 'Agordoj, 1 device awaiting approval' })
+	).toHaveAttribute('href', '/agordoj/encryption/');
+	await expect(page.getByRole('button', { name: 'Encryption and recovery' })).toHaveCount(0);
+	expect(errors).toEqual([]);
+});

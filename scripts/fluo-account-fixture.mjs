@@ -1,9 +1,17 @@
 // Shares contract-shaped profile, presence and encryption responses across strict synthetic browser fixtures
 import { encryptionFixture } from './encryption-fixture.mjs';
 
-export function fluoAccountFixtureResponse(request, accounts, { viewerId, privacy, records }) {
+export function fluoAccountFixtureResponse(
+	request,
+	accounts,
+	{ viewerId, privacy, records, waitingDevices }
+) {
 	const path = new URL(request.url()).pathname;
-	const encrypted = encryptionFixture(request, accounts, viewerId, { privacy, records }).response();
+	const encrypted = encryptionFixture(request, accounts, viewerId, {
+		privacy,
+		records,
+		waitingDevices
+	}).response();
 	if (encrypted) return encrypted;
 	const presentation = (account) => ({
 		id: account.id,

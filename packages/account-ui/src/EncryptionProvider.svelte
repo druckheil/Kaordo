@@ -1,23 +1,20 @@
 <script lang="ts">
 	// Gates private content on device approval without sending decryption keys to the server
 	import { setContext, untrack, type Snippet } from 'svelte';
+	import { agordojPaths } from '@kaordo/links';
 	import {
-		headerActionsContext,
+		settingsNoticeContext,
 		AppHeader,
 		Button,
 		Dialog,
 		DropdownMenu,
 		Input,
 		Label,
-		Checkbox,
 		LockIcon,
-		KeyRoundIcon,
-		CheckIcon,
-		DownloadIcon,
-		ChevronDownIcon
+		ChevronDownIcon,
+		type SettingsNoticeSource
 	} from '@kaordo/ui';
-	import { deviceFingerprint } from '@kaordo/crypto';
-	import { createEncryptionState } from './encryption-state.svelte';
+	import { createEncryptionState, setEncryptionState } from './encryption-state.svelte';
 
 	let {
 		apiBaseUrl,
@@ -36,34 +33,33 @@
 		untrack(() => apiBaseUrl),
 		untrack(() => ownerId)
 	);
-	setContext(headerActionsContext, () => securityAction);
-	let devicesOpen = $state(false);
-	let selected = $state<string | null>(null);
+	setEncryptionState(encryption);
 	let recoveryOpen = $state(false);
 	let recoverySecret = $state('');
 	let recoveryFileError = $state('');
 	let replaceDeviceId = $state('');
-	let savedRecovery = $state(false);
 	let recoveryFile: HTMLInputElement;
 	const pending = $derived(
-		encryption.identity?.devices.filter((device) => !device.wrappedKeys) ?? []
+		encryption.phase === 'ready'
+			? (encryption.identity?.devices.filter((device) => !device.wrappedKeys).length ?? 0)
+			: 0
+	);
+	// Devices waiting for approval point the shared settings link at Agordoj's encryption section
+	setContext<SettingsNoticeSource>(settingsNoticeContext, () =>
+		pending
+			? {
+					count: pending,
+					label:
+						pending === 1 ? '1 device awaiting approval' : `${pending} devices awaiting approval`,
+					href: agordojPaths.encryption
+				}
+			: undefined
 	);
 	const deviceLimit = $derived(
 		!!encryption.identity &&
 			encryption.identity.devices.length >= 20 &&
 			!encryption.identity.devices.some((device) => device.id === encryption.deviceId)
 	);
-	function downloadRecovery() {
-		if (!encryption.recovery) return;
-		const url = URL.createObjectURL(
-			new Blob([JSON.stringify(encryption.recovery, null, 2)], { type: 'application/json' })
-		);
-		const link = document.createElement('a');
-		link.href = url;
-		link.download = 'kaordo-recovery-key.json';
-		link.click();
-		setTimeout(() => URL.revokeObjectURL(url), 1000);
-	}
 	async function chooseRecoveryFile(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
@@ -81,12 +77,6 @@
 		}
 	}
 	$effect(() => {
-		if (!devicesOpen) {
-			encryption.clearRecovery();
-			savedRecovery = false;
-		}
-	});
-	$effect(() => {
 		if (!recoveryOpen) {
 			recoverySecret = '';
 			recoveryFileError = '';
@@ -94,25 +84,6 @@
 		}
 	});
 </script>
-
-{#snippet securityAction()}
-	{#if encryption.phase === 'ready'}
-		<Button
-			size="icon-sm"
-			variant="ghost"
-			class="relative"
-			aria-label="Encryption and recovery"
-			title="Encryption and recovery"
-			onclick={() => (devicesOpen = true)}
-		>
-			<KeyRoundIcon class="size-4" />
-			{#if pending.length}<span
-					class="absolute -top-1 -right-1 rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground"
-					>{pending.length}</span
-				>{/if}
-		</Button>
-	{/if}
-{/snippet}
 
 {#if encryption.phase === 'ready'}
 	{@render children()}
@@ -140,8 +111,8 @@
 			</h1>
 			{#if encryption.phase === 'pending'}
 				<p class="mt-3 text-sm leading-6 text-muted-foreground">
-					Open Kaordo on an already approved device. Choose “Approve a device” and check that its
-					fingerprint matches this one.
+					On an already approved device, open Agordoj, then Encryption & recovery, and approve the
+					request whose fingerprint matches this one.
 				</p>
 				<p
 					class="mt-5 rounded-xl bg-muted p-4 font-mono text-lg tracking-wide"
@@ -174,92 +145,6 @@
 		</section>
 	</svelte:element>
 {/if}
-
-<Dialog.Root bind:open={devicesOpen}>
-	<Dialog.Content class="max-w-lg">
-		<Dialog.Header
-			><Dialog.Title>Encryption & recovery</Dialog.Title><Dialog.Description
-				>Your devices hold the keys. Keep a recovery key separately in case every device is lost.</Dialog.Description
-			></Dialog.Header
-		>
-		<div class="space-y-3">
-			{#each pending as device (device.id)}
-				<div class="rounded-2xl border border-border p-4">
-					{#await deviceFingerprint(device.publicKey)}<p class="text-sm text-muted-foreground">
-							Loading fingerprint…
-						</p>{:then fingerprint}
-						<p class="font-mono text-base tracking-wide">{fingerprint}</p>
-						<p class="mt-1 text-xs text-muted-foreground">
-							Requested {new Date(device.createdAt).toLocaleString('en')}
-						</p>
-						{#if selected === device.id}
-							<p class="mt-4 text-sm">Does this fingerprint match your new device?</p>
-							<div class="mt-3 flex gap-2">
-								<Button disabled={encryption.busy} onclick={() => encryption.approve(device.id)}
-									><CheckIcon class="size-4" />Approve</Button
-								><Button variant="ghost" onclick={() => (selected = null)}>Cancel</Button>
-							</div>
-						{:else}<Button
-								class="mt-3"
-								size="sm"
-								variant="outline"
-								onclick={() => (selected = device.id)}>Compare fingerprint</Button
-							>{/if}
-					{/await}
-				</div>
-			{:else}<p role="status" class="py-5 text-sm text-muted-foreground">
-					All your devices are approved.
-				</p>{/each}
-			<section class="space-y-3 rounded-2xl border border-border p-4">
-				<h2 class="font-semibold">Personal recovery key</h2>
-				<p class="text-sm leading-6 text-muted-foreground">
-					This key restores your encrypted data after you sign in, even without an approved device.
-					Anyone with the key can unlock the data. Store it offline, separately from your devices.
-				</p>
-				{#if encryption.recovery}
-					<Label.Root for="recovery-export">Keep this secret</Label.Root>
-					<Input
-						id="recovery-export"
-						class="font-mono text-xs"
-						value={encryption.recovery.secret}
-						readonly
-						spellcheck="false"
-						autocomplete="off"
-					/>
-					<Button variant="outline" onclick={downloadRecovery}
-						><DownloadIcon class="size-4" />Download recovery file</Button
-					>
-					{#if encryption.recoveryReady}<p role="status" class="text-sm text-muted-foreground">
-							Recovery is active. Keep the new key; older recovery secrets are replaced.
-						</p>
-					{:else}
-						<div class="flex items-center gap-2">
-							<Checkbox.Root
-								id="recovery-saved"
-								bind:checked={savedRecovery}
-								class="grid size-5 shrink-0 place-items-center rounded-md border border-input data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
-								>{#snippet children({ checked })}{#if checked}<CheckIcon
-											class="size-3.5"
-										/>{/if}{/snippet}</Checkbox.Root
-							><Label.Root for="recovery-saved">I saved the key in a safe place</Label.Root>
-						</div>
-						<Button
-							disabled={!savedRecovery || encryption.busy}
-							onclick={() => encryption.activateRecovery()}>Activate recovery</Button
-						>
-					{/if}
-				{:else}<Button
-						variant="outline"
-						disabled={encryption.busy}
-						onclick={() => encryption.prepareRecovery()}>Create or replace recovery key</Button
-					>{/if}
-			</section>
-			{#if encryption.error}<p role="alert" class="text-sm text-destructive">
-					{encryption.error}
-				</p>{/if}
-		</div>
-	</Dialog.Content>
-</Dialog.Root>
 
 <Dialog.Root bind:open={recoveryOpen}>
 	<Dialog.Content class="max-w-lg">

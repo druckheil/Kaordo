@@ -8,6 +8,11 @@
 			"types": "./src/index.ts",
 			"svelte": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./encryption-settings": {
+			"types": "./src/EncryptionSettings.svelte",
+			"svelte": "./src/EncryptionSettings.svelte",
+			"default": "./src/EncryptionSettings.svelte"
 		}
 	},
 	"peerDependencies": {
@@ -18,6 +23,7 @@
 		"@kaordo/auth": "workspace:*",
 		"@kaordo/contracts": "workspace:*",
 		"@kaordo/crypto": "workspace:*",
+		"@kaordo/links": "workspace:*",
 		"@kaordo/ui": "workspace:*",
 		"@tanstack/svelte-query": "^6.3.0"
 	},

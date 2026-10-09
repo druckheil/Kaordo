@@ -631,12 +631,17 @@ test('Portal, release history and appearance support keyboard focus, enlarged te
 	for (const [path, title] of [
 		['/', 'Your connected space.'],
 		['/changelog/', 'Release history'],
-		['/agordoj/', 'Appearance']
+		['/agordoj/', 'Settings'],
+		['/agordoj/appearance/', 'Appearance']
 	]) {
 		await page.goto(origin + path);
 		await page.getByRole('heading', { name: title, level: 1, exact: true }).waitFor();
 		if (path === '/') await page.getByText(/Welcome, Alex Morgan/).waitFor();
-		await responsiveAudit(page, testInfo, 'portal-' + (path.split('/')[1] || 'home'));
+		await responsiveAudit(
+			page,
+			testInfo,
+			'portal-' + (path.split('/').filter(Boolean).join('-') || 'home')
+		);
 		await page.setViewportSize({ width: 667, height: 375 });
 		await auditScreen(page, testInfo, 'portal-short-' + title);
 	}
@@ -856,7 +861,7 @@ test('All themes keep semantic text, field boundaries and keyboard focus disting
 	const catalog = JSON.parse(
 		readFileSync(new URL('../packages/ui/src/lib/themes/catalog.json', import.meta.url), 'utf8')
 	);
-	await page.goto(origin + '/agordoj/');
+	await page.goto(origin + '/agordoj/appearance/');
 	await page.getByRole('heading', { level: 1 }).waitFor();
 	const themes = Array.isArray(catalog) ? catalog : catalog.themes;
 	for (const theme of themes) {

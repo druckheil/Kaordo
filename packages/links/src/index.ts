@@ -14,3 +14,9 @@ export const appPaths = {
 
 export type KaordoAppId = keyof typeof appPaths;
 export type KaordoAppPath = (typeof appPaths)[KaordoAppId];
+
+// Agordoj sections are portal pages that other apps link to directly
+export const agordojPaths = {
+	appearance: '/agordoj/appearance/',
+	encryption: '/agordoj/encryption/'
+} as const satisfies Record<string, RootRelativePath>;

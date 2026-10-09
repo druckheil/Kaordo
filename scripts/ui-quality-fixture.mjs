@@ -54,7 +54,7 @@ const post = (n, text, own = false) =>
 	encryptedPost(readablePost(n, text, own), { images: n === 10 ? [image] : [] });
 const members = [viewer.id, partner.id];
 
-export async function installQualityFixture(page, app, { uploadOrigin } = {}) {
+export async function installQualityFixture(page, app, { uploadOrigin, waitingDevices } = {}) {
 	const posts = [
 		post(10, 'A quiet moment between the mountains and the sky.'),
 		post(11, 'Small steps, shared ideas and a little time to learn.', true)
@@ -262,7 +262,8 @@ export async function installQualityFixture(page, app, { uploadOrigin } = {}) {
 		let body = fluoAccountFixtureResponse(request, [viewer, partner], {
 			viewerId: viewer.id,
 			privacy: settings.privacy,
-			records
+			records,
+			waitingDevices
 		});
 		if (body) {
 			await route.fulfill({ json: body });

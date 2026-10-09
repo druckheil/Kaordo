@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Provides the shared Kaordo header and accessible app navigation
 	import { getContext, type Snippet } from 'svelte';
-	import { headerActionsContext, type HeaderActions } from './header-actions.js';
+	import { settingsNoticeContext, type SettingsNoticeSource } from './settings-notice.js';
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import { Button } from './components/ui/button/index.js';
@@ -29,8 +29,7 @@
 		actions,
 		showAllApps = true
 	}: Props = $props();
-	const contextualActions = getContext<HeaderActions | undefined>(headerActionsContext);
-	const accountActions = $derived(contextualActions?.());
+	const settingsNotice = getContext<SettingsNoticeSource | undefined>(settingsNoticeContext);
 
 	const headerClass = $derived(
 		`shrink-0 border-b border-border/80 bg-background/95 backdrop-blur-xl ${sticky ? 'sticky top-0 z-20' : ''}`
@@ -86,7 +85,6 @@
 		<div
 			class={`flex shrink-0 items-center gap-1 sm:gap-2 ${backAction ? 'col-start-2 row-start-1 xl:col-start-3' : ''}`}
 		>
-			{@render accountActions?.()}
 			{@render actions?.()}
 			{#if showAllApps}
 				<Button
@@ -102,7 +100,7 @@
 				</Button>
 			{/if}
 			<ThemeToggle />
-			<AgordojLink current={settingsActive} />
+			<AgordojLink current={settingsActive} notice={settingsNotice?.()} />
 		</div>
 	</div>
 </header>

@@ -6,7 +6,8 @@ import {
 	createHash,
 	createHmac,
 	hkdfSync,
-	randomBytes
+	randomBytes,
+	randomUUID
 } from 'node:crypto';
 import sodium from 'libsodium-wrappers';
 
@@ -410,18 +411,32 @@ function deviceBundle(ownerId, devicePublicKey) {
 	return encode(sodium.crypto_box_seal(bundle, decode(devicePublicKey)));
 }
 
+/** A browser that registered its key and waits for an approved device to transfer the account keys */
+export function waitingDevice() {
+	return { id: randomUUID(), publicKey: encode(sodium.crypto_box_keypair().publicKey) };
+}
+
 const states = new WeakMap();
 /**
  * Serves the encryption API for one synthetic owner per browser context.
  * The owner's account already exists, so each new browser device is approved as if by another device.
  */
-export function encryptionFixture(request, accountList, viewerId, { privacy, records = [] } = {}) {
+export function encryptionFixture(
+	request,
+	accountList,
+	viewerId,
+	{ privacy, records = [], waitingDevices = [] } = {}
+) {
 	const context = request.frame().page().context();
 	let state = states.get(context);
 	if (!state) {
 		state = {
 			ownerId: viewerId,
-			devices: [],
+			devices: waitingDevices.map((device) => ({
+				...device,
+				wrappedKeys: '',
+				createdAt: '2026-10-07T09:00:00Z'
+			})),
 			versions: [],
 			records: new Map(records.map((item) => [item.tag, structuredClone(item)])),
 			recovery: null
@@ -459,6 +474,23 @@ function encryptionResponse(request, state, declared, privacy) {
 			wrappedKeys: deviceBundle(state.ownerId, input.publicKey),
 			createdAt: new Date().toISOString()
 		});
+		return identity();
+	}
+	const approval = /^\/v1\/crypto\/devices\/([^/]+)\/approve$/.exec(path);
+	if (approval && method === 'POST') {
+		const device = state.devices.find((item) => item.id === approval[1]);
+		assert.ok(device && !device.wrappedKeys, 'Only a waiting device can be approved');
+		const { wrappedKeys, signature } = request.postDataJSON();
+		const message = ['kaordo-device-v1', state.ownerId, device.id, device.publicKey, wrappedKeys];
+		assert.ok(
+			sodium.crypto_sign_verify_detached(
+				decode(signature),
+				utf8(message.join('\n')),
+				syntheticAccount(state.ownerId).signing.publicKey
+			),
+			'The approved device transfer carries a valid account signature'
+		);
+		device.wrappedKeys = wrappedKeys;
 		return identity();
 	}
 	if (path.startsWith('/v1/crypto/users/')) {
