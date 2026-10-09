@@ -117,10 +117,11 @@ func TestEvaluateReportsOnlyActionableConditions(t *testing.T) {
 		{Kind: "integrity.scrub", State: operation.Failed, Error: "scrub found damaged data that no copy could repair: 2 blocks"},
 		{Kind: "integrity.smart-short", State: operation.Interrupted},
 		{Kind: "integrity.smart-short", State: operation.Succeeded},
+		{Kind: "cleanup.journal", State: operation.Failed, Error: "journal policy integration is unavailable"},
 	}
 	want := []string{
 		"critical device.errors.1", "critical operation.integrity.scrub", "critical pool.missing.2", "critical pool.usage",
-		"warning backup.none", "warning device.smart.wwn-b", "warning pool.drift",
+		"warning backup.none", "warning device.smart.wwn-b", "warning operation.cleanup.journal", "warning pool.drift",
 	}
 	got := Evaluate(in)
 	if !slices.Equal(keys(got), want) {

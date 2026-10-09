@@ -99,7 +99,7 @@ export const minimumReasonLength = 10;
 export function intentDescription(intent: AdminIntent | null): string {
 	switch (intent?.type) {
 		case 'log-retention':
-			return 'This changes retention for the entire host journal. Older archived logs may be permanently removed. The disk-space budget still applies. Your reason is recorded before execution.';
+			return "This changes the host's desired journal retention, which the agent then applies. Older archived logs may be permanently removed; the disk-space budget still applies. Your reason is recorded with the change.";
 		case 'status':
 			return 'This changes account access immediately and records your reason.';
 		case 'role':

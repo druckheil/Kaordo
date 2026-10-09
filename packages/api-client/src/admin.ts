@@ -3,8 +3,6 @@
 import type {
 	AdminAuditEntry,
 	AdminLogs,
-	AdminJournal,
-	AdminLogRetentionDays,
 	AdminMetrics,
 	AdminSummary,
 	AdminSystem,
@@ -83,17 +81,6 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
 		async logs(service: string, signal?: AbortSignal): Promise<AdminLogs> {
 			const { data, error, response } = await client.GET('/v1/admin/logs', {
 				params: { query: { service } },
-				signal
-			});
-			return requireResponseData(data, error, response.status);
-		},
-		async setLogRetention(
-			retentionDays: AdminLogRetentionDays,
-			reason: string,
-			signal?: AbortSignal
-		): Promise<AdminJournal> {
-			const { data, error, response } = await client.PATCH('/v1/admin/logs/retention', {
-				body: { retentionDays, reason },
 				signal
 			});
 			return requireResponseData(data, error, response.status);

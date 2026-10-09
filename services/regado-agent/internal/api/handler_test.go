@@ -73,6 +73,13 @@ func TestSettingsChangesStoreWithoutReadingDisks(t *testing.T) {
 		t.Fatalf("settings change = %+v, %v", result, err)
 	}
 
+	shorter := result.Document
+	shorter.Cleanup.JournalDays = 7
+	result, err = service.Apply(context.Background(), Change{Document: shorter, Reason: "Keep a week of logs", RequestedBy: "admin"})
+	if err != nil || result.Operation == nil || result.Operation.Kind != "cleanup.journal" || result.Operation.Target != "7 days of history" {
+		t.Fatalf("journal change = %+v, %v", result, err)
+	}
+
 	converge := result.Document
 	if _, err := service.Apply(context.Background(), Change{Document: converge, Reason: "Finish the change", RequestedBy: "admin", Converge: true}); err == nil {
 		t.Fatal("convergence did not read the disks")

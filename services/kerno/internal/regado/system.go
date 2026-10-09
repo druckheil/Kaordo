@@ -2,11 +2,9 @@ package regado
 
 // Calls fixed host operations over the protected system-agent Unix socket
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -35,31 +33,6 @@ func NewSystemClient(socket string) *SystemClient {
 	}
 }
 
-func (client *SystemClient) request(ctx context.Context, method, path string) (json.RawMessage, error) {
-	return client.requestBody(ctx, method, path, nil)
-}
-
-func (client *SystemClient) requestBody(ctx context.Context, method, path string, body io.Reader) (json.RawMessage, error) {
-	request, err := http.NewRequestWithContext(ctx, method, "http://regado-agent"+path, body)
-	if err != nil {
-		return nil, err
-	}
-	if body != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
-
-	response, err := client.client.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("system agent returned %d", response.StatusCode)
-	}
-	return readJSONResponse(response.Body)
-}
-
 func readJSONResponse(body io.Reader) (json.RawMessage, error) {
 	data, err := io.ReadAll(io.LimitReader(body, maxResponseSize+1))
 	if err != nil {
@@ -75,22 +48,14 @@ func readJSONResponse(body io.Reader) (json.RawMessage, error) {
 }
 
 func (client *SystemClient) Snapshot(ctx context.Context) (json.RawMessage, error) {
-	return client.request(ctx, http.MethodGet, "/snapshot")
+	return client.call(ctx, http.MethodGet, "/snapshot", nil)
 }
 
 func (client *SystemClient) Logs(ctx context.Context, service string) (json.RawMessage, error) {
 	path := "/logs?service=" + url.QueryEscape(service)
-	return client.request(ctx, http.MethodGet, path)
-}
-
-func (client *SystemClient) SetLogRetention(ctx context.Context, days int) (json.RawMessage, error) {
-	payload, err := json.Marshal(map[string]int{"retentionDays": days})
-	if err != nil {
-		return nil, err
-	}
-	return client.requestBody(ctx, http.MethodPatch, "/logs/retention", bytes.NewReader(payload))
+	return client.call(ctx, http.MethodGet, path, nil)
 }
 
 func (client *SystemClient) Action(ctx context.Context, action string) (json.RawMessage, error) {
-	return client.request(ctx, http.MethodPost, "/actions/"+url.PathEscape(action))
+	return client.call(ctx, http.MethodPost, "/actions/"+url.PathEscape(action), nil)
 }

@@ -1,6 +1,6 @@
 // Owns administrative command confirmation and mutation feedback
 import type { QueryClient } from '@tanstack/svelte-query';
-import type { AdminApi } from '@kaordo/api-client';
+import { adminHostOptions, type AdminApi } from '@kaordo/api-client';
 import {
 	errorMessage,
 	restartActions,
@@ -9,7 +9,7 @@ import {
 } from './regado-model';
 
 interface ActionDependencies {
-	api: Pick<AdminApi, 'action' | 'setLogRetention' | 'setStatus' | 'setRole'>;
+	api: Pick<AdminApi, 'action' | 'host' | 'applyHostState' | 'setStatus' | 'setRole'>;
 	queryClient: QueryClient;
 	refreshOverview: () => Promise<void>;
 	loadUsers: () => Promise<void>;
@@ -83,10 +83,25 @@ export function createAdminActionState({
 	async function performIntent(selected: AdminIntent): Promise<void> {
 		switch (selected.type) {
 			case 'log-retention': {
-				const result = await api.setLogRetention(selected.days, form.reason, lifetime.signal);
+				// Retention belongs to the host's desired state; the agent applies it as an operation
+				const facts = await queryClient.query({
+					...adminHostOptions(api, 'local', false),
+					staleTime: 0
+				});
 				lifetime.signal.throwIfAborted();
-				status.notice = result.warning || 'Journal retention updated.';
-				await queryClient.invalidateQueries({ queryKey: ['regado', 'logs'] });
+				const { cleanup } = facts.desired;
+				await api.applyHostState(
+					'local',
+					{
+						document: { ...facts.desired, cleanup: { ...cleanup, journalDays: selected.days } },
+						confirmations: [],
+						reason: form.reason
+					},
+					lifetime.signal
+				);
+				lifetime.signal.throwIfAborted();
+				status.notice = 'Journal retention is being applied. Storage › Activity shows the result.';
+				await queryClient.invalidateQueries({ queryKey: ['regado', 'hosts', 'local'] });
 				return;
 			}
 			case 'status':

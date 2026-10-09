@@ -23,11 +23,16 @@ type Inputs struct {
 	Operations []operation.Operation
 }
 
-var operationTitles = map[string]string{
-	"pool.apply":            "The last pool change",
-	"integrity.scrub":       "The last copy verification",
-	"integrity.smart-short": "The last short self-test",
-	"integrity.smart-long":  "The last long self-test",
+// operationAlerts names the operations whose failure stays an alert until a later run succeeds
+var operationAlerts = map[string]struct {
+	title    string
+	severity Severity
+}{
+	"pool.apply":            {"The last pool change", Critical},
+	"integrity.scrub":       {"The last copy verification", Critical},
+	"integrity.smart-short": {"The last short self-test", Critical},
+	"integrity.smart-long":  {"The last long self-test", Critical},
+	"cleanup.journal":       {"The last journal retention change", Warning},
 }
 
 func Evaluate(in Inputs) []Condition {
@@ -115,10 +120,10 @@ func driftConditions(in Inputs, latest map[string]operation.Operation) []Conditi
 
 func operationConditions(latest map[string]operation.Operation) []Condition {
 	conditions := []Condition{}
-	for _, kind := range slices.Sorted(maps.Keys(operationTitles)) {
+	for _, kind := range slices.Sorted(maps.Keys(operationAlerts)) {
 		if last, ok := latest[kind]; ok && last.State == operation.Failed {
-			conditions = append(conditions, Condition{Key: "operation." + kind, Severity: Critical,
-				Summary: operationTitles[kind] + " failed: " + last.Error})
+			conditions = append(conditions, Condition{Key: "operation." + kind, Severity: operationAlerts[kind].severity,
+				Summary: operationAlerts[kind].title + " failed: " + last.Error})
 		}
 	}
 	return conditions

@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/journal"
 )
 
 func TestServiceOutcomeAndNativeTimer(t *testing.T) {
@@ -43,7 +45,7 @@ func TestDNSActionStartsTimerAndCheckWithoutRestart(t *testing.T) {
 				return "", nil
 			}
 			response := httptest.NewRecorder()
-			newHandler(run, t.TempDir()+"/policy.conf").ServeHTTP(response, httptest.NewRequest("POST", "/actions/restart-ddclient", strings.NewReader("{}")))
+			newHandler(run, journal.Policy{}).ServeHTTP(response, httptest.NewRequest("POST", "/actions/restart-ddclient", strings.NewReader("{}")))
 			want := []string{"systemctl start ddclient.timer", "systemctl start ddclient.service"}
 			if failing == "ddclient.timer" {
 				want = want[:1]

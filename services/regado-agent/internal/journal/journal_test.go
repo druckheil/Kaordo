@@ -1,10 +1,9 @@
-package agent
+package journal
 
-// Verifies journal measurements, retention validation, policy persistence and failure recovery
+// Verifies journal measurements, policy persistence and failure recovery
 import (
 	"context"
 	"errors"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +45,18 @@ func TestJournalSettingsAndAllocatedBytes(t *testing.T) {
 	cancel()
 	if journalBytes(ctx, root) != nil {
 		t.Fatal("cancelled inventory was counted as complete")
+	}
+}
+
+func TestUnsupportedRetentionRunsNoCommand(t *testing.T) {
+	for _, days := range []int{-1, 2, 10000} {
+		_, err := Policy{}.Apply(context.Background(), func(context.Context, ...string) (string, error) {
+			t.Fatal("a command ran for an unsupported retention")
+			return "", nil
+		}, days)
+		if err == nil {
+			t.Fatalf("%d days accepted", days)
+		}
 	}
 }
 
@@ -93,7 +104,7 @@ func TestJournalPolicyPersistenceRecoveryAndNativeCleanup(t *testing.T) {
 			if mode == "size only" {
 				days = 0
 			}
-			status, err := applyJournalRetention(ctx, run, days, link, policy)
+			status, err := Policy{Link: link, Path: policy}.Apply(ctx, run, days)
 			value, _ := os.ReadFile(policy)
 			if mode == "restart fails" || mode == "overridden" || mode == "cancelled" {
 				if err == nil || string(value) != previous {
@@ -126,16 +137,5 @@ func TestJournalPolicyPersistenceRecoveryAndNativeCleanup(t *testing.T) {
 				t.Fatal("size-only policy still deletes by age")
 			}
 		})
-	}
-}
-
-func TestJournalRetentionRejectsUnsupportedBodiesBeforeCommands(t *testing.T) {
-	for _, body := range []string{"{}", `{"retentionDays":null}`, `{"retentionDays":-1}`, `{"retentionDays":10000}`, `{"retentionDays":"7"}`, `{"retentionDays":7,"path":"/etc"}`, `{"retentionDays":7} {}`} {
-		called := false
-		response := httptest.NewRecorder()
-		journalRetentionHandler(func(context.Context, ...string) (string, error) { called = true; return "", nil }, "/nonexistent/policy.conf").ServeHTTP(response, httptest.NewRequest("PATCH", "/logs/retention", strings.NewReader(body)))
-		if response.Code != 400 || called {
-			t.Fatalf("unsafe body accepted: %s status=%d", body, response.Code)
-		}
 	}
 }

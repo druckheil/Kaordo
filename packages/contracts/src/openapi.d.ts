@@ -1035,23 +1035,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/logs/retention": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** @description Audits and persists host-wide journal retention. Archived journals may be deleted by native rotation and vacuum. */
-        patch: operations["setRegadoLogRetention"];
-        trace?: never;
-    };
     "/v1/admin/actions/{action}": {
         parameters: {
             query?: never;
@@ -1413,7 +1396,7 @@ export interface components {
             kind: string;
             target?: string;
             reason?: string;
-            /** @description Account ID */
+            /** @description Account ID, schedule for scheduled checks, or agent for convergence the agent starts itself */
             requestedBy: string;
             state: components["schemas"]["HostOperationState"];
             cancellable: boolean;
@@ -5039,46 +5022,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegadoLogs"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    setRegadoLogRetention: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /**
-                     * @description Zero keeps history until the storage budget requires rotation
-                     * @enum {integer}
-                     */
-                    retentionDays: 0 | 1 | 7 | 14 | 30 | 90;
-                    reason: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Applied journal policy and current host-wide usage */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegadoJournal"];
                 };
             };
             /** @description Error */

@@ -116,7 +116,7 @@ Each item reports the space it reclaims, as an operation or schedule:
 - snapshot and backup retention;
 - Nix generations older than the policy, followed by `nix-collect-garbage`;
 - release directories beyond `releasesKeep`, never the active or previous one;
-- the journal size and age.
+- the journal's age: `cleanup.journalDays` is the only source, edited from Regado's Logs tab. The agent applies a change as a `cleanup.journal` operation, keeps an existing setting when it first adopts the host, and reapplies the desired value when journald reports another one.
 
 ## Alerts
 

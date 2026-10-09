@@ -56,7 +56,7 @@ export function adminLogsOptions(api: AdminApi, service: string) {
 }
 
 // Host facts refresh quickly while an operation is converging the host
-export function adminHostOptions(api: AdminApi, host: string, active: boolean) {
+export function adminHostOptions(api: Pick<AdminApi, 'host'>, host: string, active: boolean) {
 	return {
 		...readPolicy,
 		staleTime: 5_000,

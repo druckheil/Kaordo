@@ -59,7 +59,7 @@ Secrets never enter Git or the Nix store. `provision-secrets.sh` idempotently cr
   ```
 
 - **Verification badge.** Set it the same way: `INSERT INTO fluo_profiles (user_id, verified) VALUES ('<id>', true) ON CONFLICT (user_id) DO UPDATE SET verified = true`.
-- **Journal.** Persistent journald is capped at 256 MiB, and the age limit starts at 14 days. Regado can change it to 1, 7, 14, 30 or 90 days, or remove the age limit. The choice is stored in `/var/lib/regado-agent/journald-retention.conf` and survives rebuilds.
+- **Journal.** Persistent journald is capped at 256 MiB, and the age limit starts at 14 days. The age limit is `cleanup.journalDays` in the host's desired state: 1, 7, 14, 30 or 90 days, or none. Regado's Logs tab edits it, and the agent writes `/var/lib/regado-agent/journald-retention.conf`, which survives rebuilds. After a reinstall the agent reapplies the desired value.
 - **DNS.** `ddclient.service` is a oneshot, so between runs it is normally `inactive (dead)`. Check `ddclient.timer` and the last result before treating that as a failure.
 - **Health.** Check `systemctl --failed`, `ddclient.timer`, `btrfs-scrub-srv-kaordo.timer`, `127.0.0.1:8081/healthz` (Kerno) and `127.0.0.1:8082/healthz` (Nodo).
 - **Backups.** RAID1 is not a backup. Configure an encrypted restic repository on an independent device or remote storage, keep a recoverable copy of its password, and schedule it before treating production data as backed up.

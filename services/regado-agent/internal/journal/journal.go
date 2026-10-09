@@ -1,14 +1,12 @@
-package agent
+// Package journal measures the host journal and applies its retention through native journald rotation.
+package journal
 
-// Measures journal storage and applies persistent retention through native journald rotation
+// Reads journald's effective settings and storage, and rewrites the retention drop-in safely
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,13 +14,22 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
 )
 
-const journalPolicyLink = "/etc/systemd/journald.conf.d/90-kaordo-retention.conf"
+// DefaultLink is the drop-in the NixOS module points at the agent's policy file.
+const DefaultLink = "/etc/systemd/journald.conf.d/90-kaordo-retention.conf"
 
-var journalPolicyMu sync.Mutex
+// Policy is the retention file the agent owns and the journald drop-in that links to it.
+type Policy struct {
+	Link string
+	Path string
+}
 
-type journalStatus struct {
+var policyMu sync.Mutex
+
+type Status struct {
 	TotalBytes    *int64 `json:"totalBytes"`
 	DiskBytes     *int64 `json:"diskBytes"`
 	RuntimeBytes  *int64 `json:"runtimeBytes"`
@@ -32,17 +39,19 @@ type journalStatus struct {
 	Warning       string `json:"warning,omitempty"`
 }
 
-func journalPolicyManaged(link, policy string) bool {
-	target, err := filepath.EvalSymlinks(link)
+// managed reports whether journald reads this policy file through the drop-in link
+func (policy Policy) managed() bool {
+	target, err := filepath.EvalSymlinks(policy.Link)
 	if err != nil {
 		return false
 	}
-	expected, err := filepath.EvalSymlinks(policy)
+	expected, err := filepath.EvalSymlinks(policy.Path)
 	return err == nil && target == expected
 }
 
-func readJournalStatus(ctx context.Context, run commandRunner, link, policy string) journalStatus {
-	status := journalStatus{DiskBytes: journalBytes(ctx, "/var/log/journal"), RuntimeBytes: journalBytes(ctx, "/run/log/journal"), Managed: journalPolicyManaged(link, policy)}
+// Status measures journal storage and reads journald's effective size and age limits.
+func (policy Policy) Status(ctx context.Context, run command.Runner) Status {
+	status := Status{DiskBytes: journalBytes(ctx, "/var/log/journal"), RuntimeBytes: journalBytes(ctx, "/run/log/journal"), Managed: policy.managed()}
 	if status.DiskBytes != nil || status.RuntimeBytes != nil {
 		total := int64(0)
 		for _, value := range []*int64{status.DiskBytes, status.RuntimeBytes} {
@@ -148,7 +157,8 @@ func journalDays(raw string) *int {
 	return &days
 }
 
-func validJournalDays(days int) bool {
+// ValidDays lists the retention periods Regado offers; zero keeps only the size budget.
+func ValidDays(days int) bool {
 	switch days {
 	case 0, 1, 7, 14, 30, 90:
 		return true
@@ -156,7 +166,7 @@ func validJournalDays(days int) bool {
 	return false
 }
 
-func writeJournalPolicy(path string, content []byte) error {
+func writePolicy(path string, content []byte) error {
 	file, err := os.CreateTemp(filepath.Dir(path), ".journal-policy-")
 	if err != nil {
 		return err
@@ -176,38 +186,40 @@ func writeJournalPolicy(path string, content []byte) error {
 	return os.Rename(file.Name(), path)
 }
 
-func applyJournalRetention(ctx context.Context, run commandRunner, days int, link, policy string) (journalStatus, error) {
-	if !validJournalDays(days) {
-		return journalStatus{}, errors.New("unsupported journal retention")
+// Apply writes the retention, restarts journald and removes archives beyond it. A failed restart
+// or an overriding host setting restores the previous policy before returning.
+func (policy Policy) Apply(ctx context.Context, run command.Runner, days int) (Status, error) {
+	if !ValidDays(days) {
+		return Status{}, errors.New("unsupported journal retention")
 	}
-	journalPolicyMu.Lock()
-	defer journalPolicyMu.Unlock()
+	policyMu.Lock()
+	defer policyMu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return journalStatus{}, err
+		return Status{}, err
 	}
-	if !journalPolicyManaged(link, policy) {
-		return journalStatus{}, errors.New("journal policy integration is unavailable")
+	if !policy.managed() {
+		return Status{}, errors.New("journal policy integration is unavailable")
 	}
-	previous, err := os.ReadFile(policy) //nolint:gosec // fixed journald drop-in path
+	previous, err := os.ReadFile(policy.Path) //nolint:gosec // fixed journald drop-in path
 	if err != nil {
-		return journalStatus{}, err
+		return Status{}, err
 	}
 	content := []byte(fmt.Sprintf("# Managed by Regado; storage budget belongs to the NixOS module\n[Journal]\nMaxRetentionSec=%dday\n", days))
-	if err := writeJournalPolicy(policy, content); err != nil {
-		return journalStatus{}, err
+	if err := writePolicy(policy.Path, content); err != nil {
+		return Status{}, err
 	}
-	status := readJournalStatus(ctx, run, link, policy)
+	status := policy.Status(ctx, run)
 	if status.RetentionDays == nil || *status.RetentionDays != days {
-		return journalStatus{}, errors.Join(errors.New("the host configuration overrides this retention policy"), writeJournalPolicy(policy, previous))
+		return Status{}, errors.Join(errors.New("the host configuration overrides this retention policy"), writePolicy(policy.Path, previous))
 	}
 	if _, err := run(ctx, "systemctl", "restart", "systemd-journald.service"); err != nil {
-		restoreErr := writeJournalPolicy(policy, previous)
+		restoreErr := writePolicy(policy.Path, previous)
 		if restoreErr == nil {
 			restoreCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
 			_, restoreErr = run(restoreCtx, "systemctl", "restart", "systemd-journald.service")
 			stop()
 		}
-		return journalStatus{}, errors.Join(err, restoreErr)
+		return Status{}, errors.Join(err, restoreErr)
 	}
 	// Native vacuum removes only archived journals; rotate first so the requested age can take effect
 	_, cleanupErr := run(ctx, "journalctl", "--rotate")
@@ -223,29 +235,9 @@ func applyJournalRetention(ctx context.Context, run commandRunner, days int, lin
 			_, cleanupErr = run(ctx, args...)
 		}
 	}
-	status = readJournalStatus(ctx, run, link, policy)
+	status = policy.Status(ctx, run)
 	if cleanupErr != nil {
 		status.Warning = "Retention was saved, but archived-journal cleanup could not complete."
 	}
 	return status, nil
-}
-
-func journalRetentionHandler(run commandRunner, policy string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Days *int `json:"retentionDays"`
-		}
-		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
-		decoder.DisallowUnknownFields()
-		err := decoder.Decode(&body)
-		var extra any
-		if err != nil || body.Days == nil || !validJournalDays(*body.Days) || !errors.Is(decoder.Decode(&extra), io.EOF) {
-			http.Error(w, "invalid retention policy", http.StatusBadRequest)
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
-		defer cancel()
-		status, err := applyJournalRetention(ctx, run, *body.Days, journalPolicyLink, policy)
-		respond(w, status, err)
-	}
 }

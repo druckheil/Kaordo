@@ -31,6 +31,7 @@
 
 	function requester(operation: HostOperation): string {
 		if (operation.requestedBy === 'schedule') return 'Scheduled';
+		if (operation.requestedBy === 'agent') return 'Automatic';
 		return operation.requestedBy === viewerId ? 'You' : 'Another administrator';
 	}
 </script>

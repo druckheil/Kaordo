@@ -1,4 +1,4 @@
-// Package agent implements the Regado agent's host telemetry, journal and service operations.
+// Package agent implements the Regado agent's host telemetry, service journals and restarts.
 package agent
 
 // Defines HTTP routes, allowlisted actions and journal parsing
@@ -9,30 +9,30 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/journal"
 )
 
-// NewHandler serves host telemetry, service journals, allowlisted restarts and journal
-// retention; stateDir holds the retention policy that journald reads through a symlink.
-func NewHandler(stateDir string) http.Handler {
-	return newHandler(runCommand, filepath.Join(stateDir, "journald-retention.conf"))
+// NewHandler serves host telemetry, service journals with the journal's storage status, and
+// allowlisted restarts. Retention itself is part of the host's desired state.
+func NewHandler(policy journal.Policy) http.Handler {
+	return newHandler(runCommand, policy)
 }
 
-func newHandler(run commandRunner, policy string) http.Handler {
+func newHandler(run commandRunner, policy journal.Policy) http.Handler {
 	router := http.NewServeMux()
 	router.HandleFunc("GET /snapshot", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, snapshot(r.Context(), run), nil)
 	})
 	router.HandleFunc("GET /logs", logsHandler(run, policy))
 	router.HandleFunc("POST /actions/{action}", actionHandler(run))
-	router.HandleFunc("PATCH /logs/retention", journalRetentionHandler(run, policy))
 	return router
 }
 
-func logsHandler(run commandRunner, policy string) http.HandlerFunc {
+func logsHandler(run commandRunner, policy journal.Policy) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		value, err := logs(r.Context(), run, r.URL.Query().Get("service"), policy)
 		respond(w, value, err)
@@ -67,7 +67,7 @@ func validService(id string) bool {
 	return slices.Contains(services, id)
 }
 
-func logs(ctx context.Context, run commandRunner, id, policy string) (any, error) {
+func logs(ctx context.Context, run commandRunner, id string, policy journal.Policy) (any, error) {
 	if !validService(id) {
 		return nil, errors.New("unsupported service")
 	}
@@ -82,7 +82,7 @@ func logs(ctx context.Context, run commandRunner, id, policy string) (any, error
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"service": id, "items": entries, "journal": readJournalStatus(ctx, run, journalPolicyLink, policy)}, nil
+	return map[string]any{"service": id, "items": entries, "journal": policy.Status(ctx, run)}, nil
 }
 
 func parseJournalEntries(raw string) ([]map[string]string, error) {

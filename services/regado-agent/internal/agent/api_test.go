@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/journal"
 )
 
 func TestActionAllowlist(t *testing.T) {
@@ -13,7 +15,7 @@ func TestActionAllowlist(t *testing.T) {
 		t.Fatal("arbitrary journal unit accepted")
 	}
 	called := false
-	handler := newHandler(func(context.Context, ...string) (string, error) { called = true; return "", nil }, t.TempDir()+"/policy.conf")
+	handler := newHandler(func(context.Context, ...string) (string, error) { called = true; return "", nil }, journal.Policy{})
 	for _, path := range []string{"/actions/restart-kerno", "/actions/reboot", "/actions/../../etc", "/actions/scrub-filesystem"} {
 		request := httptest.NewRequest(http.MethodPost, path, nil)
 		response := httptest.NewRecorder()

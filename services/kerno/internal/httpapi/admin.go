@@ -48,7 +48,6 @@ func mountAdmin(router chi.Router, verify VerifyFunc, users account.Store, deps 
 		r.Get("/system", h.system)
 		r.Get("/metrics", h.metrics)
 		r.Get("/logs", h.logs)
-		r.Patch("/logs/retention", h.logRetention)
 		r.Post("/actions/{action}", h.action)
 		mountAdminHosts(r, deps.Hosts, deps.Alerts)
 	})

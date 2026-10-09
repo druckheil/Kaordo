@@ -127,7 +127,7 @@ test('Regado history, reload, enlarged text and text spacing preserve the select
 });
 
 test('Regado journal retention has keyboard focus and an audited confirmation', async ({
-	regado: { page, journalChanges }
+	regado: { page, host }
 }) => {
 	await openSection(page, 'Logs');
 	await expect(page.getByText('32.0 MiB', { exact: true })).toBeVisible();
@@ -159,15 +159,22 @@ test('Regado journal retention has keyboard focus and an audited confirmation', 
 	expect(focus.color, JSON.stringify(focus)).toBe(focus.expectedColor);
 	await retention.selectOption('7');
 	await page.getByRole('button', { name: 'Apply retention', exact: true }).click();
-	await expect(page.getByRole('dialog').getByText(/entire host journal/)).toBeVisible();
+	await expect(page.getByRole('dialog').getByText(/desired journal retention/)).toBeVisible();
 	await page
 		.getByRole('textbox', { name: 'Reason', exact: true })
 		.fill('Limit journal retention to seven days');
 	await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-	await expect(page.getByText('Journal retention updated.', { exact: true })).toBeVisible();
-	expect(journalChanges).toEqual([
-		{ retentionDays: 7, reason: 'Limit journal retention to seven days' }
+	await expect(page.getByText(/Journal retention is being applied/)).toBeVisible();
+	expect(host.changes).toEqual([
+		{
+			document: expect.objectContaining({
+				cleanup: { nixGenerationsDays: 30, releasesKeep: 5, journalDays: 7 }
+			}),
+			confirmations: [],
+			reason: 'Limit journal retention to seven days'
+		}
 	]);
+	await page.getByRole('button', { name: 'Refresh', exact: true }).click();
 	await expect(retention).toHaveValue('7');
 });
 

@@ -40,8 +40,6 @@ export const test = base.extend({
 		const { page, origin, errors } = await startAppFixture('regado');
 		const mutations = [];
 		const systemActions = [];
-		const journalChanges = [];
-		let retentionDays = 14;
 		let failFirstRoleChange = true;
 		let releaseStaleLogs;
 		const staleLogGate = new Promise((resolve) => (releaseStaleLogs = resolve));
@@ -177,7 +175,8 @@ export const test = base.extend({
 						diskBytes: 33554432,
 						runtimeBytes: 0,
 						maxUseBytes: 268435456,
-						retentionDays,
+						// Journald reports the retention the agent applied from the desired state
+						retentionDays: host.desired().cleanup.journalDays,
 						managed: true
 					},
 					items: [
@@ -202,19 +201,7 @@ export const test = base.extend({
 						}
 					]
 				};
-			else if (url.pathname.endsWith('/logs/retention') && request.method() === 'PATCH') {
-				const change = request.postDataJSON();
-				journalChanges.push(change);
-				retentionDays = change.retentionDays;
-				body = {
-					totalBytes: 16777216,
-					diskBytes: 16777216,
-					runtimeBytes: 0,
-					maxUseBytes: 268435456,
-					retentionDays,
-					managed: true
-				};
-			} else if (url.pathname.endsWith('/actions/restart-ddclient')) {
+			else if (url.pathname.endsWith('/actions/restart-ddclient')) {
 				systemActions.push({
 					path: url.pathname,
 					change: request.postDataJSON()
@@ -257,7 +244,6 @@ export const test = base.extend({
 				page,
 				mutations,
 				systemActions,
-				journalChanges,
 				host,
 				staleLogStarted,
 				releaseStaleLogs

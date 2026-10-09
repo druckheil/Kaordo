@@ -162,6 +162,7 @@ export const checks: { kind: CheckKind; title: string; setting: keyof HostState[
 export function operationTitle(operation: HostOperation): string {
 	if (operation.kind === 'pool.apply')
 		return `Apply desired state${operation.target ? ` (${operation.target})` : ''}`;
+	if (operation.kind === 'cleanup.journal') return 'Apply journal retention';
 	return checks.find((check) => check.kind === operation.kind)?.title ?? operation.kind;
 }
 

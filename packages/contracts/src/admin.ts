@@ -1,5 +1,5 @@
 // Exports Regado administration response types
-import type { components, paths } from './openapi.js';
+import type { components } from './openapi.js';
 
 type Schemas = components['schemas'];
 
@@ -13,8 +13,7 @@ export type AdminMetrics = Schemas['RegadoMetrics'];
 export type AdminLogs = Schemas['RegadoLogs'];
 export type AdminJournal = Schemas['RegadoJournal'];
 export type AdminService = Schemas['RegadoService'];
-export type AdminLogRetentionDays =
-	paths['/v1/admin/logs/retention']['patch']['requestBody']['content']['application/json']['retentionDays'];
+export type AdminLogRetentionDays = Schemas['HostState']['cleanup']['journalDays'];
 
 export type HostFacts = Schemas['HostFacts'];
 export type HostDevice = Schemas['HostDevice'];

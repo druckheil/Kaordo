@@ -21,6 +21,7 @@ import (
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/api"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/journal"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/storage"
@@ -76,7 +77,7 @@ func run() error {
 		Now: time.Now, Window: maintenanceWindow,
 	}
 	watchers.Go(func() { scheduler.Run(watch, scheduleInterval) })
-	server := newHTTPServer(api.NewHandler(service, agent.NewHandler(directory)))
+	server := newHTTPServer(api.NewHandler(service, agent.NewHandler(service.Journal)))
 	slog.Info("Regado agent listening", "socket", path)
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(listener) }()
@@ -121,10 +122,14 @@ func openService(ctx context.Context, directory string) (*api.Service, func(), e
 		Run: command.Run, Host: described, States: states, Operations: operations, Alerts: alerts,
 		Executor:  storage.Executor{Run: command.Run, Mount: described.PoolMount, Poll: time.Second, EFI: described.Firmware == "efi"},
 		Integrity: integrity.Checker{Run: command.Run, Mount: described.PoolMount, Poll: 30 * time.Second, ScrubLimit: scrubLimit},
+		Journal:   journal.Policy{Link: journal.DefaultLink, Path: filepath.Join(directory, "journald-retention.conf")},
 	}
 	if err := service.Adopt(ctx); err != nil {
 		// The API still serves facts and operations; Regado shows the adoption error from /host
 		slog.Error("could not adopt the current pool", "err", err)
+	}
+	if err := service.ReconcileJournal(ctx); err != nil {
+		slog.Error("could not reconcile the journal retention", "err", err)
 	}
 	// Operations stop first so running jobs record interruption before the state store closes
 	return service, func() { operations.Close(); alerts.Close(); states.Close() }, nil

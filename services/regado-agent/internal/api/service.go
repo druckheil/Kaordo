@@ -18,10 +18,14 @@ import (
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/host"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/journal"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/storage"
 )
+
+// AgentRequester marks operations the agent starts itself to converge the host.
+const AgentRequester = "agent"
 
 var (
 	ErrBusy        = errors.New("another pool change is still running")
@@ -70,6 +74,7 @@ type Service struct {
 	Operations *operation.Manager
 	Executor   storage.Executor
 	Integrity  integrity.Checker
+	Journal    journal.Policy
 	Alerts     *alert.Tracker
 	Health     host.HealthMonitor
 
@@ -105,6 +110,10 @@ func (service *Service) Adopt(ctx context.Context) error {
 	}
 	if len(pool.MetadataProfiles) == 1 && pool.MetadataProfiles[0] != storage.MetadataProfile("auto", len(members)) {
 		document.Pool.MetadataProfile = pool.MetadataProfiles[0]
+	}
+	// Keep the retention an administrator already chose for the journal
+	if days := service.Journal.Status(ctx, service.Run).RetentionDays; days != nil && journal.ValidDays(*days) {
+		document.Cleanup.JournalDays = *days
 	}
 	_, _, err = service.States.Put(document)
 	return err
@@ -187,7 +196,11 @@ func (service *Service) Apply(ctx context.Context, change Change) (ChangeResult,
 	}
 	if !change.Converge && reflect.DeepEqual(current.Pool, change.Document.Pool) {
 		stored, previous, err := service.States.Put(change.Document)
-		return ChangeResult{Document: stored, Previous: previous}, err
+		if err != nil {
+			return ChangeResult{}, err
+		}
+		started, err := service.applySettings(previous, stored, change)
+		return ChangeResult{Document: stored, Previous: previous, Operation: started}, err
 	}
 	devices, pool, err := service.facts(ctx)
 	if err != nil {
@@ -210,7 +223,12 @@ func (service *Service) Apply(ctx context.Context, change Change) (ChangeResult,
 		return ChangeResult{}, err
 	}
 	result := ChangeResult{Document: stored, Previous: previous}
+	settings, err := service.applySettings(previous, stored, change)
+	if err != nil {
+		return result, err
+	}
 	if len(plan.Steps) == 0 {
+		result.Operation = settings
 		return result, nil
 	}
 	started, err := service.Operations.Start(operation.Request{
@@ -225,6 +243,60 @@ func (service *Service) Apply(ctx context.Context, change Change) (ChangeResult,
 	}
 	result.Operation = &started
 	return result, nil
+}
+
+// applySettings starts the work that makes changed settings outside the pool take effect
+func (service *Service) applySettings(previous *state.Document, stored state.Document, change Change) (*operation.Operation, error) {
+	if previous != nil && previous.Cleanup.JournalDays == stored.Cleanup.JournalDays {
+		return nil, nil
+	}
+	started, err := service.Operations.Start(service.journalRequest(stored.Cleanup.JournalDays, change.RequestedBy, change.Reason))
+	if err != nil {
+		return nil, err
+	}
+	return &started, nil
+}
+
+func (service *Service) journalRequest(days int, requestedBy, reason string) operation.Request {
+	return operation.Request{
+		Kind: "cleanup.journal", Target: journalTarget(days), Reason: reason, RequestedBy: requestedBy,
+		Stages: []string{"Apply journal retention"},
+		Run: func(ctx context.Context, job *operation.Job) error {
+			job.Stage(0)
+			status, err := service.Journal.Apply(ctx, service.Run, days)
+			if err != nil {
+				return err
+			}
+			if status.Warning != "" {
+				job.Logf("%s", status.Warning)
+			}
+			job.Logf("The journal keeps %s", journalTarget(days))
+			return nil
+		},
+	}
+}
+
+func journalTarget(days int) string {
+	if days == 0 {
+		return "history within the size budget"
+	}
+	return fmt.Sprintf("%d days of history", days)
+}
+
+// ReconcileJournal applies the desired retention when journald reports another one, as after
+// a reinstall that restored the default policy file.
+func (service *Service) ReconcileJournal(ctx context.Context) error {
+	desired, err := service.States.Current()
+	if err != nil {
+		return err
+	}
+	status := service.Journal.Status(ctx, service.Run)
+	if !status.Managed || status.RetentionDays != nil && *status.RetentionDays == desired.Cleanup.JournalDays {
+		return nil
+	}
+	_, err = service.Operations.Start(service.journalRequest(desired.Cleanup.JournalDays, AgentRequester,
+		"The journal retention differed from the desired state"))
+	return err
 }
 
 func (service *Service) poolChangeActive() bool {

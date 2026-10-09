@@ -289,5 +289,5 @@ export function createHostFixture(now) {
 		return undefined;
 	}
 
-	return { handle, changes, plans, checks, tests };
+	return { handle, changes, plans, checks, tests, desired: () => desired };
 }

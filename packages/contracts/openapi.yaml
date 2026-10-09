@@ -291,7 +291,11 @@ components:
         kind: { type: string }
         target: { type: string }
         reason: { type: string }
-        requestedBy: { type: string, description: Account ID, or schedule for automatic work }
+        requestedBy:
+          {
+            type: string,
+            description: 'Account ID, schedule for scheduled checks, or agent for convergence the agent starts itself'
+          }
         state: { $ref: '#/components/schemas/HostOperationState' }
         cancellable: { type: boolean }
         stages: { type: array, items: { $ref: '#/components/schemas/HostOperationStage' } }
@@ -3469,38 +3473,6 @@ paths:
           {
             description: Latest journal entries for an allowlisted service,
             content: { application/json: { schema: { $ref: '#/components/schemas/RegadoLogs' } } }
-          }
-        default:
-          {
-            description: Error,
-            content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
-          }
-  /v1/admin/logs/retention:
-    patch:
-      operationId: setRegadoLogRetention
-      security: [{ bearerAuth: [] }]
-      description: Audits and persists host-wide journal retention. Archived journals may be deleted by native rotation and vacuum.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [retentionDays, reason]
-              properties:
-                retentionDays:
-                  {
-                    type: integer,
-                    enum: [0, 1, 7, 14, 30, 90],
-                    description: Zero keeps history until the storage budget requires rotation
-                  }
-                reason: { type: string, minLength: 10, maxLength: 500 }
-      responses:
-        '200':
-          {
-            description: Applied journal policy and current host-wide usage,
-            content:
-              { application/json: { schema: { $ref: '#/components/schemas/RegadoJournal' } } }
           }
         default:
           {
