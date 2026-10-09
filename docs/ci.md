@@ -4,14 +4,14 @@
 
 ## Layers
 
-| Job                            | Runs                                                                                                  | Needs              |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------ |
-| Frontend and unit tests        | `check:front`, generated-contract diff, `format:check`, `lint`, `knip`, `test:unit`                   | —                  |
-| Static app artifact            | `test:pages`: builds every app once and uploads the artifact                                          | —                  |
-| Browser fixtures (2 shards)    | `test:ui`: Playwright scenarios with synthetic data, accessibility and layout checks                  | frontend, artifact |
-| Go services and PostgreSQL     | Go build/vet/race tests, `golangci-lint`, actionlint, `product-db.integration.mjs` on a disposable DB | —                  |
-| Identity, product and recovery | `test:integration`: real Keycloak, Kerno, Nodo, LiveKit and restic against the built artifact         | frontend, artifact |
-| Dependency advisories          | `pnpm audit` and `govulncheck` per Go module                                                          | —                  |
+| Job                            | Runs                                                                                                                                                         | Needs              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| Frontend and unit tests        | `check:front`, generated-contract diff, `format:check`, `lint`, `knip`, `test:unit`                                                                          | —                  |
+| Static app artifact            | `test:pages`: builds every app once and uploads the artifact                                                                                                 | —                  |
+| Browser fixtures (2 shards)    | `test:ui`: Playwright scenarios with synthetic data, accessibility and layout checks                                                                         | frontend, artifact |
+| Go services and PostgreSQL     | Go build/vet/race tests, `golangci-lint`, regado-agent host tests on loop devices (`test:host`), actionlint, `product-db.integration.mjs` on a disposable DB | —                  |
+| Identity, product and recovery | `test:integration`: real Keycloak, Kerno, Nodo, LiveKit and restic against the built artifact                                                                | frontend, artifact |
+| Dependency advisories          | `pnpm audit` and `govulncheck` per Go module                                                                                                                 | —                  |
 
 Browser and integration jobs use the **same run's** static artifact, built with local endpoints. Production-origin checks run only in `pnpm test:pages:production` and the deployment preflight.
 
@@ -25,6 +25,7 @@ pnpm test:pages
 pnpm exec playwright install chromium --only-shell
 pnpm test:ui
 pnpm lint:go && pnpm test:go
+pnpm test:host        # Docker with privileged containers
 pnpm test:product:db  # application PostgreSQL container running
 pnpm test:integration # Docker and restic installed; ports free; pnpm dev stopped
 ```

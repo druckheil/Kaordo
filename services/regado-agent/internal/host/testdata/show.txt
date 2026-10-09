@@ -1,0 +1,5 @@
+Label: 'kaordo'  uuid: e1b53e8e-ac0b-414d-9b60-f6e58597357c
+	Total devices 2 FS bytes used 7505887232
+	devid    1 size 931481518080 used 13992198144 path /dev/sdb3
+	devid    2 size 1000203837440 used 13992198144 path /dev/sda2
+

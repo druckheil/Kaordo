@@ -150,8 +150,10 @@ jobs:
       - name: Lint Go modules
         run: |
           for module in kerno nodo mediaauth regado-agent; do
-            (cd "services/$module" && golangci-lint run --config ../../.golangci.yml ./...)
+            (cd "services/$module" && golangci-lint run --build-tags hosttest --config ../../.golangci.yml ./...)
           done
+      - name: Test host operations on loop devices with real storage tools
+        run: node scripts/host-test.mjs
       - name: Lint GitHub Actions workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/checks.yml
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
