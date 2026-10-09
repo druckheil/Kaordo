@@ -15,9 +15,9 @@ usernames. Content made public — public posts of a public account and public
 communities — is readable by anyone who can see it, including the server
 operator.
 
-Deploying this model recreates the application database and media once (see
-[production](../deploy/nixos/README.md#upgrading-from-003)); Keycloak accounts remain.
-Older backups can still contain plaintext and are an operator responsibility.
+Production adopted this model on 2026-10-09 by recreating the application database
+and media once; Keycloak accounts remained. Any backup taken before that date can
+still contain plaintext and is an operator responsibility.
 
 This is an implementation description, not a security certification.
 

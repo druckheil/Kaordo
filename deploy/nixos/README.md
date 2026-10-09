@@ -49,19 +49,6 @@ Secrets never enter Git or the Nix store. `provision-secrets.sh` idempotently cr
 2. Copy them to the host and run `nixos-rebuild switch`. Kerno applies pending migrations as it starts.
 3. Run `node sync-keycloak-production.mjs`, which reads the bootstrap admin credential from the secrets directory.
 
-## Upgrading from 0.0.3
-
-The release with device-held encryption replaces the old SQL files with versioned migrations and starts from an empty application database. Keycloak accounts, passwords and TOTP remain. Kaordo account rows are recreated at the next sign-in; profiles, follows, settings, roles and all content are discarded. Run this once on the host, immediately before that release's `deploy:production`:
-
-```sh
-sudo -u kaordo psql -d kaordo -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
-sudo systemctl stop nodo
-sudo find /srv/kaordo/media -mindepth 1 -delete
-sudo systemctl start nodo
-```
-
-Every uploaded file loses its database reference, so the media directory is cleared too. The running Kerno fails requests until the deployment replaces it. Afterwards sign in once and grant `admin` and the verification badge again (below).
-
 ## Operations
 
 - **Administrators.** Roles are never inferred from usernames. Find the account by its exact Keycloak subject, then grant the role. Administrative actions are recorded in `admin_audit`.

@@ -6,7 +6,7 @@ Product UI and all user-facing copy must be in English. Repository documentation
 
 The rebuild started at scope 0.0.1 with a new Git root. The previous code and full history remain at `/Users/druckheil/Projects/Archive/Kaordo-before-0.0.1`. Do not restore old D1 schemas, wire formats, Tauri commands, or release artifacts for compatibility.
 
-Implemented applications are Portal authentication/account entry, Fluo social posting with profiles, presence and activity settings, Ligo messaging, Rondo communities and LiveKit calls, Lingvo German vocabulary/phrase learning, Memoro daily tasks/journal, and Regado administration. Device-held content encryption and offline recovery are implemented in the current source; deploying them requires the one-time database reset described in `deploy/nixos/README.md`. Notifications outside Fluo, other account settings and Matrix integration remain incomplete or reserved. Describe actual capabilities and evidence, not the scaffold's original plans.
+Implemented applications are Portal authentication/account entry, Fluo social posting with profiles, presence and activity settings, Ligo messaging, Rondo communities and LiveKit calls, Lingvo German vocabulary/phrase learning, Memoro daily tasks/journal, and Regado administration. Device-held content encryption and offline recovery are implemented and deployed; the 0.0.4 production deployment on 2026-10-09 recreated the application database and media once. Notifications outside Fluo, other account settings and Matrix integration remain incomplete or reserved. Describe actual capabilities and evidence, not the scaffold's original plans.
 
 ## Architecture
 
