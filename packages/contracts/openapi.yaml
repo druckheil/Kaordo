@@ -312,6 +312,22 @@ components:
           required: [log]
           properties:
             log: { type: array, items: { $ref: '#/components/schemas/HostOperationLogEntry' } }
+    HostAlert:
+      type: object
+      required: [key, severity, summary, firstSeen, lastSeen]
+      properties:
+        key: { type: string, description: Stable while the problem lasts }
+        severity: { type: string, enum: [warning, critical] }
+        summary: { type: string }
+        firstSeen: { type: string, format: date-time }
+        lastSeen: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time }
+    HostAlertTest:
+      type: object
+      required: [ligo, ntfy]
+      properties:
+        ligo: { type: boolean }
+        ntfy: { type: string, description: 'sent, not configured, or failed: <reason>' }
     HostCheckRequest:
       type: object
       required: [kind, reason]
@@ -3612,6 +3628,33 @@ paths:
           content: { application/json: { schema: { $ref: '#/components/schemas/HostOperation' } } }
         default: { $ref: '#/components/responses/RegadoHostError' }
 
+  /v1/admin/hosts/{host}/alerts:
+    get:
+      operationId: listRegadoHostAlerts
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RegadoHost' }]
+      responses:
+        '200':
+          description: Open alerts by severity, then alerts resolved in the last 30 days
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [alerts]
+                properties:
+                  alerts: { type: array, items: { $ref: '#/components/schemas/HostAlert' } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+  /v1/admin/hosts/{host}/alerts/test:
+    post:
+      operationId: testRegadoHostAlerts
+      description: Sends a test notice to every administrator through Ligo and the host's ntfy topic.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RegadoHost' }]
+      responses:
+        '200':
+          description: Where the test notice was delivered
+          content: { application/json: { schema: { $ref: '#/components/schemas/HostAlertTest' } } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
   /v1/admin/hosts/{host}/operations/{operation}:
     get:
       operationId: getRegadoHostOperation

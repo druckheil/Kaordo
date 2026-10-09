@@ -47,6 +47,11 @@ func NewHandler(service *Service, system http.Handler) http.Handler {
 		operations, err := service.Operations.List(limit)
 		respond(w, map[string]any{"items": operations}, err)
 	})
+	mux.HandleFunc("GET /alerts", func(w http.ResponseWriter, r *http.Request) {
+		after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+		report, err := service.AlertReport(max(0, after))
+		respond(w, report, err)
+	})
 	mux.HandleFunc("POST /operations", func(w http.ResponseWriter, r *http.Request) {
 		var check CheckRequest
 		if !decode(w, r, &check) {

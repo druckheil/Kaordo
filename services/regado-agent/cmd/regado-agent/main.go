@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/agent"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/alert"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/api"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
@@ -31,6 +32,7 @@ const (
 	defaultPoolMount  = "/srv/kaordo"
 	defaultStateDir   = "/var/lib/regado-agent"
 	healthInterval    = 15 * time.Minute
+	alertInterval     = time.Minute
 	scheduleInterval  = 10 * time.Minute
 	// Scrub limit per device keeps services responsive while every copy is read
 	scrubLimit = "64m"
@@ -68,6 +70,7 @@ func run() error {
 	defer watchers.Wait()
 	defer stopWatching()
 	watchers.Go(func() { service.WatchHealth(watch, healthInterval) })
+	watchers.Go(func() { service.WatchAlerts(watch, alertInterval) })
 	scheduler := &integrity.Scheduler{
 		Operations: service.Operations, States: service.States, Request: service.IntegrityRequest,
 		Now: time.Now, Window: maintenanceWindow,
@@ -107,9 +110,15 @@ func openService(ctx context.Context, directory string) (*api.Service, func(), e
 		states.Close()
 		return nil, nil, err
 	}
+	alerts, err := alert.Open(filepath.Join(directory, "alerts"))
+	if err != nil {
+		operations.Close()
+		states.Close()
+		return nil, nil, err
+	}
 	described := api.DescribeHost(environment("REGADO_POOL_MOUNT", defaultPoolMount))
 	service := &api.Service{
-		Run: command.Run, Host: described, States: states, Operations: operations,
+		Run: command.Run, Host: described, States: states, Operations: operations, Alerts: alerts,
 		Executor:  storage.Executor{Run: command.Run, Mount: described.PoolMount, Poll: time.Second, EFI: described.Firmware == "efi"},
 		Integrity: integrity.Checker{Run: command.Run, Mount: described.PoolMount, Poll: 30 * time.Second, ScrubLimit: scrubLimit},
 	}
@@ -118,7 +127,7 @@ func openService(ctx context.Context, directory string) (*api.Service, func(), e
 		slog.Error("could not adopt the current pool", "err", err)
 	}
 	// Operations stop first so running jobs record interruption before the state store closes
-	return service, func() { operations.Close(); states.Close() }, nil
+	return service, func() { operations.Close(); alerts.Close(); states.Close() }, nil
 }
 
 func environment(name, fallback string) string {

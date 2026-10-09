@@ -66,6 +66,16 @@ export function adminHostOptions(api: AdminApi, host: string, active: boolean) {
 	};
 }
 
+export function adminHostAlertsOptions(api: AdminApi, host: string) {
+	return {
+		...readPolicy,
+		staleTime: 10_000,
+		refetchInterval: 60_000,
+		queryKey: ['regado', 'hosts', host, 'alerts'] as const,
+		queryFn: ({ signal }: ReadContext) => api.hostAlerts(host, signal)
+	};
+}
+
 export function adminHostOperationsOptions(api: AdminApi, host: string, limit = 50) {
 	return {
 		...readPolicy,

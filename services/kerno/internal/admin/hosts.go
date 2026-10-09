@@ -24,6 +24,7 @@ type HostAgent interface {
 	Operation(context.Context, string) (json.RawMessage, error)
 	CancelOperation(context.Context, string) (json.RawMessage, error)
 	StartCheck(context.Context, json.RawMessage) (json.RawMessage, error)
+	Alerts(ctx context.Context, after int64) (json.RawMessage, error)
 }
 
 // AgentError carries an agent's refusal: its HTTP status and operator-facing message.

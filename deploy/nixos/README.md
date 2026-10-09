@@ -41,7 +41,7 @@ KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:pages:production
 
 ## Secrets
 
-Secrets never enter Git or the Nix store. `provision-secrets.sh` idempotently creates root-only files under `/srv/kaordo/secrets`. Provide the Namecheap password in `/srv/kaordo/secrets/namecheap-ddns` (mode 0600).
+Secrets never enter Git or the Nix store. `provision-secrets.sh` idempotently creates root-only files under `/srv/kaordo/secrets`. Provide the Namecheap password in `/srv/kaordo/secrets/namecheap-ddns` (mode 0600). A protected ntfy topic for Regado alerts needs `KAORDO_NTFY_TOKEN=<token>` in `/srv/kaordo/secrets/kerno.env`; public topics need none.
 
 ## Manual recovery
 

@@ -10,6 +10,7 @@
 		adminSummaryOptions,
 		adminSystemOptions,
 		adminHostOptions,
+		adminHostAlertsOptions,
 		adminMetricsOptions,
 		adminUsersOptions,
 		adminAuditOptions,
@@ -89,6 +90,10 @@
 	// Shares the Storage view's cache entry, so switching tabs shows the last facts at once
 	const hostQuery = createQuery(
 		() => ({ ...adminHostOptions(api, 'local', false), enabled: tab === 'Overview' }),
+		() => queryClient
+	);
+	const alertsQuery = createQuery(
+		() => ({ ...adminHostAlertsOptions(api, 'local'), enabled: tab === 'Overview' }),
 		() => queryClient
 	);
 	const metricsQuery = createQuery(
@@ -235,6 +240,7 @@
 					{summary}
 					{system}
 					facts={hostQuery.data ?? null}
+					openAlerts={alertsQuery.data?.alerts.filter((alert) => !alert.resolvedAt).length ?? 0}
 					{metrics}
 					{loading}
 					bind:timeWindow

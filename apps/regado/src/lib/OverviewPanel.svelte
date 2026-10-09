@@ -12,6 +12,7 @@
 		summary,
 		system,
 		facts,
+		openAlerts,
 		metrics,
 		loading,
 		timeWindow = $bindable(),
@@ -20,6 +21,7 @@
 		summary: AdminSummary | null;
 		system: AdminSystem | null;
 		facts: HostFacts | null;
+		openAlerts: number;
 		metrics: AdminMetrics | null;
 		loading: boolean;
 		timeWindow: MetricsWindow;
@@ -130,6 +132,12 @@
 		<p class="mt-1 text-xs text-muted-foreground">
 			{health?.details[0] ?? (facts ? 'Every copy is in place and no device reports errors.' : '')}
 		</p>
+		{#if openAlerts > 0}
+			<p class="mt-3 text-sm font-medium text-destructive">
+				{openAlerts}
+				{openAlerts === 1 ? 'open alert' : 'open alerts'} · see Storage
+			</p>
+		{/if}
 	</section>
 	<section class="rounded-[1.4rem] border border-border bg-card p-6">
 		<h2 class="text-lg font-bold">Services</h2>

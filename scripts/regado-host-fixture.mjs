@@ -96,6 +96,7 @@ export function createHostFixture(now) {
 	const operations = [];
 	const changes = [];
 	const checks = [];
+	const tests = [];
 	const plans = [];
 	// Each read of a running operation advances it, so polling drives it to completion
 	let operationReads = 0;
@@ -230,6 +231,31 @@ export function createHostFixture(now) {
 			operationReads = 0;
 			return { document: desired, previous, operation };
 		}
+		if (path === '/alerts')
+			return {
+				alerts: [
+					{
+						key: 'backup.none',
+						severity: 'warning',
+						summary:
+							'No backup target is configured. Two copies survive a failed disk, not deletion or losing the host.',
+						firstSeen: now,
+						lastSeen: now
+					},
+					{
+						key: 'pool.usage',
+						severity: 'warning',
+						summary: 'The pool is 82% full.',
+						firstSeen: now,
+						lastSeen: now,
+						resolvedAt: now
+					}
+				]
+			};
+		if (path === '/alerts/test') {
+			tests.push(desired.alerts.ntfy);
+			return { ligo: true, ntfy: desired.alerts.ntfy ? 'sent' : 'not configured' };
+		}
 		if (path === '/operations' && request.method() === 'POST') {
 			const check = request.postDataJSON();
 			checks.push(check);
@@ -263,5 +289,5 @@ export function createHostFixture(now) {
 		return undefined;
 	}
 
-	return { handle, changes, plans, checks };
+	return { handle, changes, plans, checks, tests };
 }

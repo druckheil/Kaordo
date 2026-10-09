@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -13,6 +14,7 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligoevents"
 	"github.com/druckheil/Kaordo/services/kerno/internal/nodoclient"
+	"github.com/druckheil/Kaordo/services/kerno/internal/ntfy"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres"
 	"github.com/druckheil/Kaordo/services/kerno/internal/regado"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondovoice"
@@ -51,6 +53,12 @@ func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify t
 	ligoEvents := ligoevents.New(ctx, cfg.DatabaseURL, ligoStore)
 	mediaClient := nodoclient.Client{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey}
 	voice := newRondoVoice(cfg)
+	admins := adminDependencies(cfg, pool)
+
+	// Alert delivery writes notices through the pool, so it stops before the pool closes
+	deliveryCtx, stopDelivery := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	workers.Go(func() { admins.Alerts.Run(deliveryCtx, alertInterval) })
 
 	router := httpapi.NewRouter(
 		verify,
@@ -59,7 +67,7 @@ func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify t
 			Fluo:       fluoDependencies(cfg, pool, mediaClient),
 			Ligo:       ligoDependencies(cfg, mediaClient, ligoStore, ligoEvents),
 			Rondo:      rondoDependencies(cfg, pool, voice),
-			Admin:      adminDependencies(cfg, pool),
+			Admin:      admins,
 			Encryption: httpapi.EncryptionDependencies{Store: postgres.NewEncryption(pool)},
 			Vault:      httpapi.VaultDependencies{Store: postgres.NewVault(pool)},
 			Memoro: httpapi.MemoroDependencies{Store: postgres.NewMemoro(pool), Media: mediaClient,
@@ -67,7 +75,11 @@ func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify t
 		},
 		cfg.AllowedOrigins,
 	)
-	return router, ligoEvents.Close
+	return router, func() {
+		stopDelivery()
+		workers.Wait()
+		ligoEvents.Close()
+	}
 }
 
 func fluoDependencies(cfg config, pool *pgxpool.Pool, media nodoclient.Client) httpapi.FluoDependencies {
@@ -104,13 +116,16 @@ func rondoDependencies(cfg config, pool *pgxpool.Pool, voice httpapi.RondoVoice)
 func adminDependencies(cfg config, pool *pgxpool.Pool) httpapi.AdminDependencies {
 	store := postgres.NewAdmin(pool)
 	agent := regado.NewSystemClient(regadoAgentSocket)
+	// The local agent is the first host; remote agents join this registry
+	hosts := admin.NewHosts(map[string]admin.HostAgent{"local": agent}, store)
+	push := ntfy.Client{Token: cfg.NtfyToken, Link: cfg.AllowedOrigins[0] + "/regado/?view=storage"}
 	return httpapi.AdminDependencies{
 		Store:   store,
 		System:  agent,
 		Metrics: regado.NewMetricsClient(metricsEndpoint),
 		Media:   nodoclient.Client{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey},
-		// The local agent is the first host; remote agents join this registry
-		Hosts: admin.NewHosts(map[string]admin.HostAgent{"local": agent}, store),
+		Hosts:   hosts,
+		Alerts:  admin.NewAlertDelivery(hosts, store, push, time.Now),
 	}
 }
 

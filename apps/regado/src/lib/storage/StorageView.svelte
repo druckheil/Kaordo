@@ -1,11 +1,12 @@
 <script lang="ts">
-	// Composes the host's pool summary, convergence status, devices, checks, changes and activity
+	// Composes the host's pool summary, alerts, convergence status, devices, checks and activity
 	import { untrack } from 'svelte';
 	import type { QueryClient } from '@tanstack/svelte-query';
 	import type { AdminApi } from '@kaordo/api-client';
 	import { Button, TriangleAlertIcon } from '@kaordo/ui';
 	import type { AdminMediaMaintenance } from '@kaordo/contracts';
 	import DeviceList from './DeviceList.svelte';
+	import HostAlerts from './HostAlerts.svelte';
 	import IntegrityChecks from './IntegrityChecks.svelte';
 	import MediaFiles from './MediaFiles.svelte';
 	import OperationList from './OperationList.svelte';
@@ -61,6 +62,7 @@
 		</div>
 	{:else if facts}
 		<PoolSummary {facts} />
+		<HostAlerts {facts} {storage} />
 		{#if facts.drift.steps.length > 0 || facts.drift.issues.length > 0}
 			<section
 				class="rounded-[1.4rem] border border-destructive/35 bg-card p-4 sm:p-6"

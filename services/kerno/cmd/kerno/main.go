@@ -18,6 +18,7 @@ const (
 	regadoAgentSocket = "/run/regado-agent/agent.sock"
 	metricsEndpoint   = "http://127.0.0.1:9090"
 	shutdownTimeout   = 10 * time.Second
+	alertInterval     = time.Minute
 )
 
 func main() {

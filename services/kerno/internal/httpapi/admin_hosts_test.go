@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/account"
 	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
@@ -35,6 +36,9 @@ func (stub hostAgentStub) Operation(context.Context, string) (json.RawMessage, e
 func (stub hostAgentStub) CancelOperation(context.Context, string) (json.RawMessage, error) {
 	return nil, stub.err
 }
+func (stub hostAgentStub) Alerts(context.Context, int64) (json.RawMessage, error) {
+	return json.RawMessage(`{"host":"server","ntfy":null,"alerts":[{"key":"backup.none"}],"events":[],"sequence":1}`), stub.err
+}
 func (stub hostAgentStub) StartCheck(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return json.RawMessage(`{"id":"op-1","kind":"integrity.scrub"}`), stub.err
 }
@@ -46,8 +50,15 @@ func hostRouter(err error) http.Handler {
 	}
 	store := &adminStub{}
 	hosts := admin.NewHosts(map[string]admin.HostAgent{"local": hostAgentStub{err: err}}, store)
-	return NewRouter(verify, users, Modules{Admin: AdminDependencies{Store: store, Hosts: hosts}}, nil)
+	alerts := admin.NewAlertDelivery(hosts, noticeStub{}, nil, time.Now)
+	return NewRouter(verify, users, Modules{Admin: AdminDependencies{Store: store, Hosts: hosts, Alerts: alerts}}, nil)
 }
+
+type noticeStub struct{}
+
+func (noticeStub) AlertCursor(context.Context, string) (int64, error)  { return 0, nil }
+func (noticeStub) SetAlertCursor(context.Context, string, int64) error { return nil }
+func (noticeStub) NotifyAdministrators(context.Context, string) error  { return nil }
 
 func hostRequest(handler http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -84,6 +95,12 @@ func TestHostRoutesProxyAgentsAndMapRefusals(t *testing.T) {
 	busy := hostRouter(&admin.AgentError{Status: 409, Message: "another integrity check is still running"})
 	if response := hostRequest(busy, http.MethodPost, "/v1/admin/hosts/local/operations", `{"kind":"integrity.scrub","reason":"Verify every copy now"}`); response.Code != 409 {
 		t.Fatalf("busy check = %d %s", response.Code, response.Body)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodGet, "/v1/admin/hosts/local/alerts", ""); response.Code != 200 || response.Body.String() != `{"alerts":[{"key":"backup.none"}]}`+"\n" {
+		t.Fatalf("alerts = %d %q", response.Code, response.Body)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodPost, "/v1/admin/hosts/local/alerts/test", ""); response.Code != 200 || !strings.Contains(response.Body.String(), `"ntfy":"not configured"`) {
+		t.Fatalf("test notice = %d %s", response.Code, response.Body)
 	}
 	unavailable := hostRouter(errors.New("dial unix: no such file"))
 	if response := hostRequest(unavailable, http.MethodGet, "/v1/admin/hosts/local/operations", ""); response.Code != 503 || strings.Contains(response.Body.String(), "dial") {

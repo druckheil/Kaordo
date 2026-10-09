@@ -132,5 +132,7 @@ export type {
 	HostOperationStage,
 	HostStateChange,
 	HostCheckRequest,
+	HostAlert,
+	HostAlertTest,
 	HostStateChangeResult
 } from './admin.js';

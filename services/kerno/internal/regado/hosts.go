@@ -39,6 +39,10 @@ func (client *SystemClient) CancelOperation(ctx context.Context, id string) (jso
 	return client.call(ctx, http.MethodPost, "/operations/"+url.PathEscape(id)+"/cancel", nil)
 }
 
+func (client *SystemClient) Alerts(ctx context.Context, after int64) (json.RawMessage, error) {
+	return client.call(ctx, http.MethodGet, "/alerts?after="+strconv.FormatInt(after, 10), nil)
+}
+
 func (client *SystemClient) StartCheck(ctx context.Context, check json.RawMessage) (json.RawMessage, error) {
 	return client.call(ctx, http.MethodPost, "/operations", check)
 }

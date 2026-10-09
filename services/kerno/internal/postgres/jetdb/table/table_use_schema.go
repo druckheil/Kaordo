@@ -34,6 +34,7 @@ func UseSchema(schema string) {
 	MemoroDays = MemoroDays.FromSchema(schema)
 	NodoUploadClaims = NodoUploadClaims.FromSchema(schema)
 	PrivateRecords = PrivateRecords.FromSchema(schema)
+	RegadoAlertCursors = RegadoAlertCursors.FromSchema(schema)
 	RondoChannels = RondoChannels.FromSchema(schema)
 	RondoMembers = RondoMembers.FromSchema(schema)
 	RondoServers = RondoServers.FromSchema(schema)

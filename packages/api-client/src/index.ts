@@ -9,6 +9,7 @@ export {
 	adminAuditOptions,
 	adminLogsOptions,
 	adminHostOptions,
+	adminHostAlertsOptions,
 	adminHostOperationsOptions,
 	adminHostOperationOptions
 } from './admin-queries.ts';

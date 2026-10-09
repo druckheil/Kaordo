@@ -1150,6 +1150,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/hosts/{host}/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRegadoHostAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/alerts/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Sends a test notice to every administrator through Ligo and the host's ntfy topic. */
+        post: operations["testRegadoHostAlerts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/hosts/{host}/operations/{operation}": {
         parameters: {
             query?: never;
@@ -1400,6 +1433,24 @@ export interface components {
         };
         HostOperationRecord: components["schemas"]["HostOperation"] & {
             log: components["schemas"]["HostOperationLogEntry"][];
+        };
+        HostAlert: {
+            /** @description Stable while the problem lasts */
+            key: string;
+            /** @enum {string} */
+            severity: "warning" | "critical";
+            summary: string;
+            /** Format: date-time */
+            firstSeen: string;
+            /** Format: date-time */
+            lastSeen: string;
+            /** Format: date-time */
+            resolvedAt?: string;
+        };
+        HostAlertTest: {
+            ligo: boolean;
+            /** @description sent, not configured, or failed: <reason> */
+            ntfy: string;
         };
         HostCheckRequest: {
             /** @enum {string} */
@@ -5229,6 +5280,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HostOperation"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    listRegadoHostAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Open alerts by severity, then alerts resolved in the last 30 days */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        alerts: components["schemas"]["HostAlert"][];
+                    };
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    testRegadoHostAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Where the test notice was delivered */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostAlertTest"];
                 };
             };
             default: components["responses"]["RegadoHostError"];

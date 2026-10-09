@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/alert"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/host"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
@@ -69,6 +70,7 @@ type Service struct {
 	Operations *operation.Manager
 	Executor   storage.Executor
 	Integrity  integrity.Checker
+	Alerts     *alert.Tracker
 	Health     host.HealthMonitor
 
 	// mu serializes plans with the writes that act on them

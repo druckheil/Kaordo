@@ -210,6 +210,9 @@ func ensureConversationParticipants(ctx context.Context, tx pgx.Tx, ids []string
 }
 
 func insertConversation(ctx context.Context, tx pgx.Tx, actorID string, participantIDs []string, input ligo.NewConversation) (string, error) {
+	if input.Kind == "self" {
+		return ensureSelfConversation(ctx, tx, actorID)
+	}
 	conversations := table.LigoConversations
 	var id string
 	var statement jetpg.InsertStatement
@@ -220,11 +223,6 @@ func insertConversation(ctx context.Context, tx pgx.Tx, actorID string, particip
 			VALUES(jetpg.String("duo"), jetUUID(actorID), jetUUID(participantIDs[0]), jetUUID(participantIDs[1])).
 			ON_CONFLICT(conversations.DuoLow, conversations.DuoHigh).
 			DO_UPDATE(jetpg.SET(conversations.DuoLow.SET(conversations.EXCLUDED.DuoLow)))
-	case "self":
-		statement = conversations.INSERT(conversations.Kind, conversations.CreatedBy).
-			VALUES(jetpg.String("self"), jetUUID(actorID)).
-			ON_CONFLICT(conversations.CreatedBy).WHERE(conversations.Kind.EQ(jetpg.String("self"))).
-			DO_UPDATE(jetpg.SET(conversations.CreatedBy.SET(conversations.EXCLUDED.CreatedBy)))
 	default:
 		if input.ID == "" {
 			input.ID = uuid.NewString()
@@ -233,6 +231,18 @@ func insertConversation(ctx context.Context, tx pgx.Tx, actorID string, particip
 			VALUES(jetUUID(input.ID), jetpg.String("group"), jetpg.String(input.Title), jetUUID(actorID))
 	}
 	err := jetQueryRow(ctx, tx, statement.RETURNING(jetpg.CAST(conversations.ID).AS_TEXT())).Scan(&id)
+	return id, err
+}
+
+// ensureSelfConversation returns the owner's Saved messages conversation, creating it once
+func ensureSelfConversation(ctx context.Context, tx pgx.Tx, ownerID string) (string, error) {
+	conversations := table.LigoConversations
+	var id string
+	err := jetQueryRow(ctx, tx, conversations.INSERT(conversations.Kind, conversations.CreatedBy).
+		VALUES(jetpg.String("self"), jetUUID(ownerID)).
+		ON_CONFLICT(conversations.CreatedBy).WHERE(conversations.Kind.EQ(jetpg.String("self"))).
+		DO_UPDATE(jetpg.SET(conversations.CreatedBy.SET(conversations.EXCLUDED.CreatedBy))).
+		RETURNING(jetpg.CAST(conversations.ID).AS_TEXT())).Scan(&id)
 	return id, err
 }
 

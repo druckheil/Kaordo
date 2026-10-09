@@ -24,6 +24,8 @@ type config struct {
 	LiveKitPublicURL string
 	LiveKitAPIKey    string
 	LiveKitAPISecret string
+	// NtfyToken authorizes publishing to protected ntfy topics; public topics need none
+	NtfyToken string
 }
 
 func loadConfig() (config, error) {
@@ -53,6 +55,7 @@ func readConfig() config {
 		LiveKitAPIKey:    os.Getenv("LIVEKIT_API_KEY"),
 		LiveKitAPISecret: os.Getenv("LIVEKIT_API_SECRET"),
 		AllowedOrigins:   splitOrigins(os.Getenv("KAORDO_ALLOWED_ORIGINS")),
+		NtfyToken:        os.Getenv("KAORDO_NTFY_TOKEN"),
 	}
 }
 

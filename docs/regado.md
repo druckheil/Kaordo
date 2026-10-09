@@ -120,20 +120,25 @@ Each item reports the space it reclaims, as an operation or schedule:
 
 ## Alerts
 
-The agent evaluates health facts into alerts. Each alert has a stable key, a severity (`warning` or `critical`), a summary and the times it was first seen, last seen and resolved. Kerno polls each host every minute and delivers transitions (opened, escalated, resolved) once:
+The agent evaluates its facts into alerts every minute. Each alert has a stable key, a severity (`warning` or `critical`), a summary and the times it was first seen, last seen and resolved. Every transition (opened, escalated, resolved) gets a sequence number in `/var/lib/regado-agent/alerts`.
 
-- **Ligo:** a system notice in each administrator's Saved messages conversation;
-- **ntfy:** a push to the configured topic.
+Kerno polls `GET /alerts?after=<cursor>` on each host every minute and delivers each transition once, in order. The cursor lives in `regado_alert_cursors`. Transitions older than 24 hours are skipped, so a reset never replays history as news.
+
+- **Ligo:** a plaintext system notice in each active administrator's Saved messages. This is the durable record; the cursor advances only after it is stored.
+- **ntfy:** a push to the topic in the desired state, with a link to Regado. It is best effort. A token for protected topics is read from `KAORDO_NTFY_TOKEN` in Kerno's environment.
+
+Regado lists open and recently resolved alerts, edits the topic and usage thresholds, and sends an audited test notice.
 
 Alerts cover:
 
-- a missing device, device errors or failing SMART;
-- pool usage above 80% (warning) or 90% (critical);
-- a profile mismatch;
-- scrub errors;
-- a failed operation;
-- no backup target, or a backup older than its policy;
-- failed systemd units and certificate expiry.
+- a missing pool device, and device error counters above zero;
+- a failed SMART self-assessment (critical) or reallocated, pending or unreadable sectors (warning) on pool and backup disks;
+- pool usage above the warning (default 80%) and critical (default 90%) thresholds;
+- a pool that differs from its desired state, or mixes profiles, while no pool change is running;
+- a failed pool change, copy verification or self-test, until a later run succeeds;
+- no backup target.
+
+Still to come: a backup older than its policy, failed systemd units and certificate expiry.
 
 ## Multiple hosts
 
@@ -147,7 +152,7 @@ Every API is addressed by host: `/v1/admin/hosts/{host}/…`. Kerno's host regis
 
 ## Delivery phases
 
-Done: the operation journal, the desired state store, host addressing in Kerno and the contract, device classification, pool planning and the add, replace, convert and remove operations, SMART facts, scheduled and on-demand integrity checks, and the Regado Storage view. The partition planner, file-copy checker and layout dialog are removed. Everything else below is still to be built.
+Done: the operation journal, the desired state store, host addressing in Kerno and the contract, device classification, pool planning and the add, replace, convert and remove operations, SMART facts, scheduled and on-demand integrity checks, alerts with Ligo and ntfy delivery, and the Regado Storage view. The partition planner, file-copy checker and layout dialog are removed. Everything else below is still to be built.
 
 1. **Foundation.** The operation journal and API, the desired state store with revisions and export, host addressing in Kerno and the contract, alert evaluation and delivery (Ligo and ntfy), and the Regado operations activity view.
 2. **Storage.** Device classification and lifecycle operations, the boot reconciler, integrity schedules, space and quota reporting, cleanup. Replaces the partition planner, file-copy checker and layout dialog.

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/alert"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/host"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/hosttest"
@@ -35,9 +36,14 @@ func newService(t *testing.T, mount string) (*Service, http.Handler) {
 		t.Fatal(err)
 	}
 	t.Cleanup(operations.Close)
+	alerts, err := alert.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(alerts.Close)
 	service := &Service{
 		Run: command.Run, Host: Host{Name: "test", Firmware: "bios", PoolMount: mount}, Inventory: host.Options{Loop: true},
-		States: states, Operations: operations,
+		States: states, Operations: operations, Alerts: alerts,
 		Executor: storage.Executor{Run: command.Run, Mount: mount, Poll: 50 * time.Millisecond},
 	}
 	if err := service.Adopt(context.Background()); err != nil {
@@ -154,6 +160,18 @@ func TestHostAPIRunsChecksOnRequest(t *testing.T) {
 	service.Health.Refresh(context.Background(), command.Run, devices, time.Now)
 	if code := call(t, handler, http.MethodPost, "/operations", CheckRequest{Kind: integrity.KindSMARTShort, Reason: "Weekly", RequestedBy: "admin"}, nil); code != http.StatusUnprocessableEntity {
 		t.Fatalf("self-test without SMART devices = %d", code)
+	}
+
+	// A healthy two-disk pool without a backup target raises only that warning
+	if err := service.EvaluateAlerts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var report AlertReport
+	if code := call(t, handler, http.MethodGet, "/alerts?after=0", nil, &report); code != http.StatusOK {
+		t.Fatalf("GET /alerts = %d", code)
+	}
+	if len(report.Events) != 1 || report.Events[0].Key != "backup.none" || report.Events[0].Kind != alert.Opened || report.Host != "test" {
+		t.Fatalf("alert report = %+v", report)
 	}
 
 	var started operation.Operation

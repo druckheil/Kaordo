@@ -16,11 +16,11 @@ import (
 
 const hostBodyLimit = 64 << 10
 
-func mountAdminHosts(r chi.Router, hosts *admin.Hosts) {
+func mountAdminHosts(r chi.Router, hosts *admin.Hosts, alerts *admin.AlertDelivery) {
 	if hosts == nil {
 		return
 	}
-	h := hostsHandler{hosts: hosts}
+	h := hostsHandler{hosts: hosts, alerts: alerts}
 	r.Get("/hosts", h.list)
 	r.Get("/hosts/{host}", h.facts)
 	r.Post("/hosts/{host}/state/plan", h.plan)
@@ -29,10 +29,15 @@ func mountAdminHosts(r chi.Router, hosts *admin.Hosts) {
 	r.Post("/hosts/{host}/operations", h.startCheck)
 	r.Get("/hosts/{host}/operations/{operation}", h.operation)
 	r.Post("/hosts/{host}/operations/{operation}/cancel", h.cancel)
+	if alerts != nil {
+		r.Get("/hosts/{host}/alerts", h.listAlerts)
+		r.Post("/hosts/{host}/alerts/test", h.testAlerts)
+	}
 }
 
 type hostsHandler struct {
-	hosts *admin.Hosts
+	hosts  *admin.Hosts
+	alerts *admin.AlertDelivery
 }
 
 func (h hostsHandler) list(w http.ResponseWriter, _ *http.Request) {
@@ -92,6 +97,20 @@ func (h hostsHandler) operation(w http.ResponseWriter, r *http.Request) {
 func (h hostsHandler) cancel(w http.ResponseWriter, r *http.Request) {
 	result, err := h.hosts.Cancel(r.Context(), adminActor(r).ID, chi.URLParam(r, "host"), chi.URLParam(r, "operation"))
 	writeHostResult(w, result, err)
+}
+
+func (h hostsHandler) listAlerts(w http.ResponseWriter, r *http.Request) {
+	result, err := h.alerts.Alerts(r.Context(), chi.URLParam(r, "host"))
+	writeHostResult(w, result, err)
+}
+
+func (h hostsHandler) testAlerts(w http.ResponseWriter, r *http.Request) {
+	result, err := h.alerts.SendTest(r.Context(), adminActor(r).ID, chi.URLParam(r, "host"))
+	if err != nil {
+		writeHostResult(w, nil, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func decodeHostBody(w http.ResponseWriter, r *http.Request, target any) bool {

@@ -354,6 +354,53 @@ test('Regado integrity checks run on request and follow an audited schedule', as
 	await expect(scrub.getByText(/^Weekly · Passed /)).toBeVisible();
 });
 
+test('Regado alerts are listed and push notifications are configured and tested', async ({
+	regado: { page, host }
+}) => {
+	await expect(page.getByText('1 open alert · see Storage', { exact: true })).toBeVisible();
+	await openSection(page, 'Storage');
+	const alerts = page.getByRole('region', { name: 'Alerts', exact: true });
+	await expect(
+		alerts.getByRole('list', { name: 'Open alerts', exact: true }).getByRole('listitem')
+	).toHaveCount(1);
+	await expect(alerts.getByText(/Push notifications are off/)).toBeVisible();
+
+	await alerts.getByRole('button', { name: 'Notifications…', exact: true }).click();
+	const dialog = page.getByRole('dialog', { name: 'Notifications', exact: true });
+	await dialog.getByRole('checkbox', { name: 'Push notifications with ntfy', exact: true }).click();
+	await expect(dialog.getByLabel('Server', { exact: true })).toHaveValue('https://ntfy.sh');
+	const topic = await dialog.getByLabel('Topic', { exact: true }).inputValue();
+	expect(topic).toMatch(/^kaordo-[a-z2-9]{20}$/);
+	await dialog.getByLabel('Warning at %', { exact: true }).fill('95');
+	await expect(dialog.getByText(/Thresholds must satisfy/)).toBeVisible();
+	await dialog.getByLabel('Warning at %', { exact: true }).fill('75');
+	await dialog.getByLabel('Reason', { exact: true }).fill('Push alerts to the operator phone');
+	await accessibility(page, 'Notifications dialog');
+	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect(dialog).toBeHidden();
+	expect(host.changes).toEqual([
+		{
+			document: expect.objectContaining({
+				alerts: {
+					poolWarningPercent: 75,
+					poolCriticalPercent: 90,
+					ntfy: { url: 'https://ntfy.sh', topic }
+				}
+			}),
+			confirmations: [],
+			reason: 'Push alerts to the operator phone'
+		}
+	]);
+	await expect(alerts.getByText(`on ntfy topic ${topic}.`, { exact: false })).toBeVisible();
+
+	await alerts.getByRole('button', { name: 'Notifications…', exact: true }).click();
+	await dialog.getByRole('button', { name: 'Send test notice', exact: true }).click();
+	await expect(
+		dialog.getByText('Test notice sent to Saved messages · ntfy: sent', { exact: true })
+	).toBeVisible();
+	expect(host.tests).toEqual([{ url: 'https://ntfy.sh', topic }]);
+});
+
 test('Regado media checks and cleanup are confirmed and report progress', async ({
 	regado: { page, systemActions }
 }) => {

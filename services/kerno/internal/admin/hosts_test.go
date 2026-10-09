@@ -13,6 +13,7 @@ import (
 type agentStub struct {
 	applied json.RawMessage
 	started json.RawMessage
+	alerts  func(after int64) string
 	result  json.RawMessage
 	err     error
 }
@@ -31,6 +32,9 @@ func (*agentStub) Operation(context.Context, string) (json.RawMessage, error) {
 }
 func (*agentStub) CancelOperation(context.Context, string) (json.RawMessage, error) {
 	return json.RawMessage(`{"state":"cancelled"}`), nil
+}
+func (stub *agentStub) Alerts(_ context.Context, after int64) (json.RawMessage, error) {
+	return json.RawMessage(stub.alerts(after)), nil
 }
 func (stub *agentStub) StartCheck(_ context.Context, check json.RawMessage) (json.RawMessage, error) {
 	stub.started = check
