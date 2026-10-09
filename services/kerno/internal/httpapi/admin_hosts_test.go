@@ -1,0 +1,82 @@
+package httpapi
+
+// Verifies that host routes pass agent refusals through and hide agent failures
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/druckheil/Kaordo/services/kerno/internal/account"
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
+	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
+)
+
+type hostAgentStub struct{ err error }
+
+func (stub hostAgentStub) Host(context.Context) (json.RawMessage, error) {
+	return json.RawMessage(`{"host":{"name":"server"}}`), stub.err
+}
+func (stub hostAgentStub) PlanState(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{"steps":[],"issues":[]}`), stub.err
+}
+func (stub hostAgentStub) ApplyState(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{"document":{"revision":2}}`), stub.err
+}
+func (stub hostAgentStub) Operations(context.Context, int) (json.RawMessage, error) {
+	return json.RawMessage(`{"items":[]}`), stub.err
+}
+func (stub hostAgentStub) Operation(context.Context, string) (json.RawMessage, error) {
+	return nil, stub.err
+}
+func (stub hostAgentStub) CancelOperation(context.Context, string) (json.RawMessage, error) {
+	return nil, stub.err
+}
+
+func hostRouter(err error) http.Handler {
+	users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555551", Username: "operator", IsAdmin: true}}
+	verify := func(context.Context, string) (identity.Claims, error) {
+		return identity.Claims{Subject: "operator", Username: "operator"}, nil
+	}
+	store := &adminStub{}
+	hosts := admin.NewHosts(map[string]admin.HostAgent{"local": hostAgentStub{err: err}}, store)
+	return NewRouter(verify, users, Modules{Admin: AdminDependencies{Store: store, Hosts: hosts}}, nil)
+}
+
+func hostRequest(handler http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer valid")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func TestHostRoutesProxyAgentsAndMapRefusals(t *testing.T) {
+	if response := hostRequest(hostRouter(nil), http.MethodGet, "/v1/admin/hosts", ""); response.Code != 200 || !strings.Contains(response.Body.String(), `"local"`) {
+		t.Fatalf("hosts = %d %s", response.Code, response.Body)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodGet, "/v1/admin/hosts/local", ""); response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("facts = %d %v", response.Code, response.Header())
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodGet, "/v1/admin/hosts/elsewhere", ""); response.Code != 404 {
+		t.Fatalf("unknown host = %d", response.Code)
+	}
+	refused := hostRouter(&admin.AgentError{Status: 422, Message: "Erasing a device needs its serial number."})
+	response := hostRequest(refused, http.MethodPut, "/v1/admin/hosts/local/state", `{"document":{},"confirmations":[],"reason":"Grow the pool now"}`)
+	if response.Code != 422 || !strings.Contains(response.Body.String(), "serial number") {
+		t.Fatalf("refusal = %d %s", response.Code, response.Body)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodPut, "/v1/admin/hosts/local/state", `{"document":{},"reason":"short"}`); response.Code != 400 || !strings.Contains(response.Body.String(), "reason") {
+		t.Fatalf("short reason = %d %s", response.Code, response.Body)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodPut, "/v1/admin/hosts/local/state", `{"document":{},"unexpected":1}`); response.Code != 400 {
+		t.Fatalf("unknown field = %d", response.Code)
+	}
+	unavailable := hostRouter(errors.New("dial unix: no such file"))
+	if response := hostRequest(unavailable, http.MethodGet, "/v1/admin/hosts/local/operations", ""); response.Code != 503 || strings.Contains(response.Body.String(), "dial") {
+		t.Fatalf("agent failure = %d %s", response.Code, response.Body)
+	}
+}

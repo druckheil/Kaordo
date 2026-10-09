@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/httpapi"
 	"github.com/druckheil/Kaordo/services/kerno/internal/identity"
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligoevents"
@@ -101,11 +102,15 @@ func rondoDependencies(cfg config, pool *pgxpool.Pool, voice httpapi.RondoVoice)
 }
 
 func adminDependencies(cfg config, pool *pgxpool.Pool) httpapi.AdminDependencies {
+	store := postgres.NewAdmin(pool)
+	agent := regado.NewSystemClient(regadoAgentSocket)
 	return httpapi.AdminDependencies{
-		Store:       postgres.NewAdmin(pool),
-		System:      regado.NewSystemClient(regadoAgentSocket),
+		Store:       store,
+		System:      agent,
 		Metrics:     regado.NewMetricsClient(metricsEndpoint),
 		Maintenance: nodoclient.Client{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey},
+		// The local agent is the first host; remote agents join this registry
+		Hosts: admin.NewHosts(map[string]admin.HostAgent{"local": agent}, store),
 	}
 }
 

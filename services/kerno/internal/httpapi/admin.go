@@ -27,6 +27,7 @@ type AdminDependencies struct {
 	System      AdminSystem
 	Metrics     AdminMetrics
 	Maintenance AdminStorageMaintenance
+	Hosts       *admin.Hosts
 }
 
 type adminActorKey struct{}
@@ -52,6 +53,7 @@ func mountAdmin(router chi.Router, verify VerifyFunc, users account.Store, deps 
 		r.Get("/logs", h.logs)
 		r.Patch("/logs/retention", h.logRetention)
 		r.Post("/actions/{action}", h.action)
+		mountAdminHosts(r, deps.Hosts)
 	})
 }
 

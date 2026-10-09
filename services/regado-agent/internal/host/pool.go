@@ -62,7 +62,7 @@ var (
 
 // ReadPool reads the Btrfs filesystem mounted at mount and maps members to devices.
 func ReadPool(ctx context.Context, run command.Runner, mount string, devices []Device) (Pool, error) {
-	pool := Pool{Mount: mount, Members: []Member{}}
+	pool := Pool{Mount: mount, Members: []Member{}, DataProfiles: []string{}, MetadataProfiles: []string{}, SystemProfiles: []string{}}
 	show, err := run(ctx, "btrfs", "filesystem", "show", "--raw", mount)
 	if err != nil {
 		return Pool{}, err

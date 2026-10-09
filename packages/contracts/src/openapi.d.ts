@@ -1100,10 +1100,334 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/hosts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRegadoHosts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoHost"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/state/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["planRegadoHostState"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["applyRegadoHostState"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRegadoHostOperations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/operations/{operation}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoHostOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/operations/{operation}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancelRegadoHostOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        HostIdentity: {
+            name: string;
+            machineId: string;
+            /** @enum {string} */
+            firmware: "bios" | "efi";
+            poolMount: string;
+        };
+        HostPartition: {
+            path: string;
+            number: number;
+            size: number;
+            label: string;
+            type: string;
+            fsType: string;
+            fsLabel: string;
+            fsUuid: string;
+            mountpoints: string[];
+        };
+        HostDevice: {
+            /** @description Stable /dev/disk/by-id name; empty when the device has none */
+            id: string;
+            path: string;
+            model: string;
+            serial: string;
+            wwn: string;
+            size: number;
+            rotational: boolean;
+            transport: string;
+            fsType: string;
+            fsLabel: string;
+            fsUuid: string;
+            mountpoints: string[];
+            partitions: components["schemas"]["HostPartition"][];
+            /** @enum {string} */
+            class: "pool" | "backup" | "blank" | "foreign" | "unidentified";
+            hostsSystem: boolean;
+        };
+        HostDeviceErrors: {
+            write: number;
+            read: number;
+            flush: number;
+            corruption: number;
+            generation: number;
+        };
+        HostPoolMember: {
+            devid: number;
+            size: number;
+            used: number;
+            path: string;
+            deviceId: string;
+            missing: boolean;
+            errors: components["schemas"]["HostDeviceErrors"];
+        };
+        HostPool: {
+            uuid: string;
+            label: string;
+            mount: string;
+            members: components["schemas"]["HostPoolMember"][];
+            dataProfiles: string[];
+            metadataProfiles: string[];
+            systemProfiles: string[];
+            deviceSize: number;
+            allocated: number;
+            used: number;
+            freeEstimated: number;
+            dataRatio: number;
+        };
+        HostSnapshotPolicy: {
+            /** @enum {string} */
+            schedule: "off" | "hourly" | "daily";
+            keepHourly: number;
+            keepDaily: number;
+            keepWeekly: number;
+            keepMonthly: number;
+        };
+        HostBackupTarget: {
+            id: string;
+            /** @enum {string} */
+            kind: "disk";
+            device: string;
+        };
+        HostBackupPolicy: {
+            volume: string;
+            target: string;
+            /** @enum {string} */
+            schedule: "hourly" | "daily" | "weekly";
+            keepDaily: number;
+            keepWeekly: number;
+            keepMonthly: number;
+        };
+        HostNtfyChannel: {
+            url: string;
+            topic: string;
+        };
+        /** @description The host's desired state document; the agent validates it and assigns revisions */
+        HostState: {
+            revision: number;
+            pool: {
+                devices: string[];
+                /** @enum {string} */
+                dataProfile: "single" | "raid1" | "raid1c3";
+                /** @enum {string} */
+                metadataProfile: "auto" | "single" | "dup" | "raid1" | "raid1c3";
+            };
+            volumes: {
+                [key: string]: {
+                    quotaBytes: number | null;
+                };
+            };
+            snapshots: {
+                [key: string]: components["schemas"]["HostSnapshotPolicy"];
+            };
+            integrity: {
+                /** @enum {string} */
+                scrub: "off" | "weekly" | "monthly";
+                /** @enum {string} */
+                smartShort: "off" | "weekly" | "monthly";
+                /** @enum {string} */
+                smartLong: "off" | "weekly" | "monthly";
+            };
+            backups: {
+                targets: components["schemas"]["HostBackupTarget"][];
+                policies: components["schemas"]["HostBackupPolicy"][];
+            };
+            cleanup: {
+                nixGenerationsDays: number;
+                releasesKeep: number;
+                /** @enum {integer} */
+                journalDays: 0 | 1 | 7 | 14 | 30 | 90;
+            };
+            alerts: {
+                poolWarningPercent: number;
+                poolCriticalPercent: number;
+                ntfy: null | components["schemas"]["HostNtfyChannel"];
+            };
+        };
+        HostPoolStep: {
+            /** @enum {string} */
+            kind: "replace" | "add" | "convert" | "remove";
+            device?: string;
+            replaces?: number;
+            data?: string;
+            metadata?: string;
+            summary: string;
+            /** @description Serial the operator must type before the device is erased */
+            confirm?: string;
+        };
+        HostPoolPlan: {
+            steps: components["schemas"]["HostPoolStep"][];
+            issues: string[];
+        };
+        HostFacts: {
+            host: components["schemas"]["HostIdentity"];
+            devices: components["schemas"]["HostDevice"][];
+            pool: components["schemas"]["HostPool"];
+            desired: components["schemas"]["HostState"];
+            drift: components["schemas"]["HostPoolPlan"];
+        };
+        /** @enum {string} */
+        HostOperationState: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted" | "skipped";
+        HostOperationStage: {
+            name: string;
+            state: components["schemas"]["HostOperationState"];
+            progress?: {
+                done: number;
+                /** @description Zero when the size is unknown */
+                total: number;
+                unit: string;
+            };
+            detail?: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+        };
+        HostOperation: {
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            target?: string;
+            reason?: string;
+            /** @description Account ID */
+            requestedBy: string;
+            state: components["schemas"]["HostOperationState"];
+            cancellable: boolean;
+            stages: components["schemas"]["HostOperationStage"][];
+            error?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+        };
+        HostOperationLogEntry: {
+            /** Format: date-time */
+            at: string;
+            message: string;
+        };
+        HostOperationRecord: components["schemas"]["HostOperation"] & {
+            log: components["schemas"]["HostOperationLogEntry"][];
+        };
+        HostStateChange: {
+            document: components["schemas"]["HostState"];
+            confirmations: string[];
+            reason: string;
+        };
+        HostStateChangeResult: {
+            document: components["schemas"]["HostState"];
+            previous: null | components["schemas"]["HostState"];
+            operation: null | components["schemas"]["HostOperation"];
+        };
         PrivateRecord: {
             tag: string;
             revision: number;
@@ -2273,8 +2597,20 @@ export interface components {
             referenced: boolean;
         };
     };
-    responses: never;
-    parameters: never;
+    responses: {
+        /** @description An agent refusal (400, 404, 409, 422) with its operator-facing message, or 503 when the agent is unavailable */
+        RegadoHostError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
+    };
+    parameters: {
+        RegadoHost: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -4985,6 +5321,183 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
+        };
+    };
+    listRegadoHosts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registered hosts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            id: string;
+                        }[];
+                    };
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    getRegadoHost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Devices, pool, desired state and the steps needed to converge */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostFacts"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    planRegadoHostState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostState"];
+            };
+        };
+        responses: {
+            /** @description Steps the document would start, and issues that block it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostPoolPlan"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    applyRegadoHostState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostStateChange"];
+            };
+        };
+        responses: {
+            /** @description The stored revision and the operation converging the host */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostStateChangeResult"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    listRegadoHostOperations: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest operations first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["HostOperation"][];
+                    };
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    getRegadoHostOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+                operation: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The operation with its log */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostOperationRecord"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    cancelRegadoHostOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+                operation: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The operation after the cancellation request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostOperation"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
         };
     };
 }

@@ -17,6 +17,294 @@ components:
       name: X-Kaordo-Internal-Token
       description: Derived token shared only by the local Kerno and Nodo processes.
   schemas:
+    HostIdentity:
+      type: object
+      required: [name, machineId, firmware, poolMount]
+      properties:
+        name: { type: string }
+        machineId: { type: string }
+        firmware: { type: string, enum: [bios, efi] }
+        poolMount: { type: string }
+    HostPartition:
+      type: object
+      required: [path, number, size, label, type, fsType, fsLabel, fsUuid, mountpoints]
+      properties:
+        path: { type: string }
+        number: { type: integer }
+        size: { type: integer }
+        label: { type: string }
+        type: { type: string }
+        fsType: { type: string }
+        fsLabel: { type: string }
+        fsUuid: { type: string }
+        mountpoints: { type: array, items: { type: string } }
+    HostDevice:
+      type: object
+      required:
+        [
+          id,
+          path,
+          model,
+          serial,
+          wwn,
+          size,
+          rotational,
+          transport,
+          fsType,
+          fsLabel,
+          fsUuid,
+          mountpoints,
+          partitions,
+          class,
+          hostsSystem
+        ]
+      properties:
+        id:
+          { type: string, description: Stable /dev/disk/by-id name; empty when the device has none }
+        path: { type: string }
+        model: { type: string }
+        serial: { type: string }
+        wwn: { type: string }
+        size: { type: integer }
+        rotational: { type: boolean }
+        transport: { type: string }
+        fsType: { type: string }
+        fsLabel: { type: string }
+        fsUuid: { type: string }
+        mountpoints: { type: array, items: { type: string } }
+        partitions: { type: array, items: { $ref: '#/components/schemas/HostPartition' } }
+        class: { type: string, enum: [pool, backup, blank, foreign, unidentified] }
+        hostsSystem: { type: boolean }
+    HostDeviceErrors:
+      type: object
+      required: [write, read, flush, corruption, generation]
+      properties:
+        write: { type: integer }
+        read: { type: integer }
+        flush: { type: integer }
+        corruption: { type: integer }
+        generation: { type: integer }
+    HostPoolMember:
+      type: object
+      required: [devid, size, used, path, deviceId, missing, errors]
+      properties:
+        devid: { type: integer }
+        size: { type: integer }
+        used: { type: integer }
+        path: { type: string }
+        deviceId: { type: string }
+        missing: { type: boolean }
+        errors: { $ref: '#/components/schemas/HostDeviceErrors' }
+    HostPool:
+      type: object
+      required:
+        [
+          uuid,
+          label,
+          mount,
+          members,
+          dataProfiles,
+          metadataProfiles,
+          systemProfiles,
+          deviceSize,
+          allocated,
+          used,
+          freeEstimated,
+          dataRatio
+        ]
+      properties:
+        uuid: { type: string }
+        label: { type: string }
+        mount: { type: string }
+        members: { type: array, items: { $ref: '#/components/schemas/HostPoolMember' } }
+        dataProfiles: { type: array, items: { type: string } }
+        metadataProfiles: { type: array, items: { type: string } }
+        systemProfiles: { type: array, items: { type: string } }
+        deviceSize: { type: integer }
+        allocated: { type: integer }
+        used: { type: integer }
+        freeEstimated: { type: integer }
+        dataRatio: { type: number }
+    HostSnapshotPolicy:
+      type: object
+      required: [schedule, keepHourly, keepDaily, keepWeekly, keepMonthly]
+      properties:
+        schedule: { type: string, enum: ['off', hourly, daily] }
+        keepHourly: { type: integer, minimum: 0, maximum: 1000 }
+        keepDaily: { type: integer, minimum: 0, maximum: 1000 }
+        keepWeekly: { type: integer, minimum: 0, maximum: 1000 }
+        keepMonthly: { type: integer, minimum: 0, maximum: 1000 }
+    HostBackupTarget:
+      type: object
+      required: [id, kind, device]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [disk] }
+        device: { type: string }
+    HostBackupPolicy:
+      type: object
+      required: [volume, target, schedule, keepDaily, keepWeekly, keepMonthly]
+      properties:
+        volume: { type: string }
+        target: { type: string }
+        schedule: { type: string, enum: [hourly, daily, weekly] }
+        keepDaily: { type: integer, minimum: 0 }
+        keepWeekly: { type: integer, minimum: 0 }
+        keepMonthly: { type: integer, minimum: 0 }
+    HostNtfyChannel:
+      type: object
+      required: [url, topic]
+      properties:
+        url: { type: string }
+        topic: { type: string }
+    HostState:
+      type: object
+      description: The host's desired state document; the agent validates it and assigns revisions
+      required: [revision, pool, volumes, snapshots, integrity, backups, cleanup, alerts]
+      properties:
+        revision: { type: integer, minimum: 0 }
+        pool:
+          type: object
+          required: [devices, dataProfile, metadataProfile]
+          properties:
+            devices: { type: array, minItems: 1, maxItems: 64, items: { type: string } }
+            dataProfile: { type: string, enum: [single, raid1, raid1c3] }
+            metadataProfile: { type: string, enum: [auto, single, dup, raid1, raid1c3] }
+        volumes:
+          type: object
+          additionalProperties:
+            type: object
+            required: [quotaBytes]
+            properties:
+              quotaBytes: { type: [integer, 'null'] }
+        snapshots:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/HostSnapshotPolicy' }
+        integrity:
+          type: object
+          required: [scrub, smartShort, smartLong]
+          properties:
+            scrub: { type: string, enum: ['off', weekly, monthly] }
+            smartShort: { type: string, enum: ['off', weekly, monthly] }
+            smartLong: { type: string, enum: ['off', weekly, monthly] }
+        backups:
+          type: object
+          required: [targets, policies]
+          properties:
+            targets: { type: array, items: { $ref: '#/components/schemas/HostBackupTarget' } }
+            policies: { type: array, items: { $ref: '#/components/schemas/HostBackupPolicy' } }
+        cleanup:
+          type: object
+          required: [nixGenerationsDays, releasesKeep, journalDays]
+          properties:
+            nixGenerationsDays: { type: integer, minimum: 0, maximum: 3650 }
+            releasesKeep: { type: integer, minimum: 2, maximum: 50 }
+            journalDays: { type: integer, enum: [0, 1, 7, 14, 30, 90] }
+        alerts:
+          type: object
+          required: [poolWarningPercent, poolCriticalPercent, ntfy]
+          properties:
+            poolWarningPercent: { type: integer, minimum: 50, maximum: 98 }
+            poolCriticalPercent: { type: integer, minimum: 51, maximum: 99 }
+            ntfy:
+              oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/HostNtfyChannel'
+    HostPoolStep:
+      type: object
+      required: [kind, summary]
+      properties:
+        kind: { type: string, enum: [replace, add, convert, remove] }
+        device: { type: string }
+        replaces: { type: integer }
+        data: { type: string }
+        metadata: { type: string }
+        summary: { type: string }
+        confirm:
+          { type: string, description: Serial the operator must type before the device is erased }
+    HostPoolPlan:
+      type: object
+      required: [steps, issues]
+      properties:
+        steps: { type: array, items: { $ref: '#/components/schemas/HostPoolStep' } }
+        issues: { type: array, items: { type: string } }
+    HostFacts:
+      type: object
+      required: [host, devices, pool, desired, drift]
+      properties:
+        host: { $ref: '#/components/schemas/HostIdentity' }
+        devices: { type: array, items: { $ref: '#/components/schemas/HostDevice' } }
+        pool: { $ref: '#/components/schemas/HostPool' }
+        desired: { $ref: '#/components/schemas/HostState' }
+        drift: { $ref: '#/components/schemas/HostPoolPlan' }
+    HostOperationState:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled, interrupted, skipped]
+    HostOperationStage:
+      type: object
+      required: [name, state]
+      properties:
+        name: { type: string }
+        state: { $ref: '#/components/schemas/HostOperationState' }
+        progress:
+          type: object
+          required: [done, total, unit]
+          properties:
+            done: { type: integer }
+            total: { type: integer, description: Zero when the size is unknown }
+            unit: { type: string }
+        detail: { type: string }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+    HostOperation:
+      type: object
+      required: [id, kind, requestedBy, state, cancellable, stages, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        target: { type: string }
+        reason: { type: string }
+        requestedBy: { type: string, description: Account ID, or schedule for automatic work }
+        state: { $ref: '#/components/schemas/HostOperationState' }
+        cancellable: { type: boolean }
+        stages: { type: array, items: { $ref: '#/components/schemas/HostOperationStage' } }
+        error: { type: string }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+    HostOperationLogEntry:
+      type: object
+      required: [at, message]
+      properties:
+        at: { type: string, format: date-time }
+        message: { type: string }
+    HostOperationRecord:
+      allOf:
+        - $ref: '#/components/schemas/HostOperation'
+        - type: object
+          required: [log]
+          properties:
+            log: { type: array, items: { $ref: '#/components/schemas/HostOperationLogEntry' } }
+    HostStateChange:
+      type: object
+      required: [document, confirmations, reason]
+      properties:
+        document: { $ref: '#/components/schemas/HostState' }
+        confirmations: { type: array, maxItems: 64, items: { type: string, maxLength: 128 } }
+        reason: { type: string, minLength: 10, maxLength: 500 }
+    HostStateChangeResult:
+      type: object
+      required: [document, previous, operation]
+      properties:
+        document: { $ref: '#/components/schemas/HostState' }
+        previous:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/HostState'
+        operation:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/HostOperation'
     PrivateRecord:
       type: object
       required: [tag, revision, nonce, ciphertext]
@@ -1801,6 +2089,16 @@ components:
       required: [referenced]
       properties:
         referenced: { type: boolean }
+  parameters:
+    RegadoHost:
+      name: host
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,62}$' }
+  responses:
+    RegadoHostError:
+      description: An agent refusal (400, 404, 409, 422) with its operator-facing message, or 503 when the agent is unavailable
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 paths:
   /v1/fluo/keyring:
     get:
@@ -3538,3 +3836,107 @@ paths:
             description: Error,
             content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
           }
+
+  /v1/admin/hosts:
+    get:
+      operationId: listRegadoHosts
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Registered hosts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { type: object, required: [id], properties: { id: { type: string } } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+
+  /v1/admin/hosts/{host}:
+    get:
+      operationId: getRegadoHost
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RegadoHost' }]
+      responses:
+        '200':
+          description: Devices, pool, desired state and the steps needed to converge
+          content: { application/json: { schema: { $ref: '#/components/schemas/HostFacts' } } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+
+  /v1/admin/hosts/{host}/state/plan:
+    post:
+      operationId: planRegadoHostState
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RegadoHost' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/HostState' } } }
+      responses:
+        '200':
+          description: Steps the document would start, and issues that block it
+          content: { application/json: { schema: { $ref: '#/components/schemas/HostPoolPlan' } } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+
+  /v1/admin/hosts/{host}/state:
+    put:
+      operationId: applyRegadoHostState
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RegadoHost' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/HostStateChange' } } }
+      responses:
+        '200':
+          description: The stored revision and the operation converging the host
+          content:
+            { application/json: { schema: { $ref: '#/components/schemas/HostStateChangeResult' } } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+
+  /v1/admin/hosts/{host}/operations:
+    get:
+      operationId: listRegadoHostOperations
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RegadoHost'
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200 } }
+      responses:
+        '200':
+          description: Newest operations first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/HostOperation' } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+
+  /v1/admin/hosts/{host}/operations/{operation}:
+    get:
+      operationId: getRegadoHostOperation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RegadoHost'
+        - { name: operation, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The operation with its log
+          content:
+            { application/json: { schema: { $ref: '#/components/schemas/HostOperationRecord' } } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+
+  /v1/admin/hosts/{host}/operations/{operation}/cancel:
+    post:
+      operationId: cancelRegadoHostOperation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RegadoHost'
+        - { name: operation, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The operation after the cancellation request
+          content: { application/json: { schema: { $ref: '#/components/schemas/HostOperation' } } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
