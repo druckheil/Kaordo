@@ -225,7 +225,8 @@ func (checker Checker) selfTest(ctx context.Context, job *operation.Job, test st
 			}
 		}
 	}()
-	if _, err := checker.smartctl(ctx, "--test="+test, device.Path); err != nil {
+	// force replaces a test the drive is still running, such as one left by an agent that crashed
+	if _, err := checker.smartctl(ctx, "--test=force", "--test="+test, device.Path); err != nil {
 		return err
 	}
 	running = true

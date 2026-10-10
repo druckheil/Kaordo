@@ -65,7 +65,7 @@ func (smart *scriptedSMART) run(_ context.Context, args ...string) (string, erro
 	smart.commands = append(smart.commands, strings.Join(args, " "))
 	device := args[len(args)-1]
 	switch args[2] {
-	case "--test=long":
+	case "--test=force":
 		if smart.startFailure && device == smart.failedDevice {
 			return `{"smartctl":{"exit_status":4}}`, errors.New("a self-test is already running")
 		}
@@ -130,7 +130,7 @@ func TestSelfTestRunsEachDeviceAndReportsFailures(t *testing.T) {
 					t.Fatalf("stage %d = %+v, want %s", index, stage, want)
 				}
 			}
-			if smart.commands[0] != "smartctl --json --test=long /dev/sda" {
+			if smart.commands[0] != "smartctl --json --test=force --test=long /dev/sda" {
 				t.Fatalf("commands = %q", smart.commands)
 			}
 		})
@@ -145,7 +145,7 @@ func TestSelfTestShutdownAbortsAndWaitsForTheDrive(t *testing.T) {
 			aborted, abortPolls := false, 0
 			run := func(ctx context.Context, args ...string) (string, error) {
 				switch args[2] {
-				case "--test=long":
+				case "--test=force":
 					if phase == "start" {
 						signal.Do(func() { close(ready) })
 						<-ctx.Done()
