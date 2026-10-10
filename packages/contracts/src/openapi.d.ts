@@ -1035,6 +1035,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoDataUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/actions/{action}": {
         parameters: {
             query?: never;
@@ -1127,6 +1143,38 @@ export interface paths {
         put?: never;
         /** @description Runs an integrity check outside its schedule; one check runs at a time. */
         post: operations["startRegadoHostCheck"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoHostUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/usage/measure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["measureRegadoHostUsage"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1434,6 +1482,72 @@ export interface components {
             ligo: boolean;
             /** @description sent, not configured, or failed: <reason> */
             ntfy: string;
+        };
+        HostUsageCategory: {
+            /** @enum {string} */
+            key: "system" | "nix" | "logs" | "database" | "media" | "metrics" | "releases" | "temporary" | "other";
+            /** @description Allocated bytes of the files */
+            bytes: number;
+            files: number;
+            /** @description Change since the measurement a day earlier */
+            growthDay: number | null;
+            /** @description Change since the measurement a week earlier */
+            growthWeek: number | null;
+        };
+        HostUsageSample: {
+            /** Format: date-time */
+            at: string;
+            stored: number;
+            bytes: {
+                [key: string]: number;
+            };
+        };
+        HostUsage: {
+            /** Format: date-time */
+            measuredAt: string | null;
+            measuring: boolean;
+            /** @description One copy of each stored byte, after compression, and the space still free */
+            pool: {
+                stored: number;
+                free: number;
+            };
+            categories: components["schemas"]["HostUsageCategory"][];
+            history: components["schemas"]["HostUsageSample"][];
+            /** @description The last week's growth projected onto the free space; null when nothing grows */
+            fullInDays: number | null;
+        };
+        RegadoAppBytes: {
+            posts: number;
+            messages: number;
+            channels: number;
+            profile: number;
+            journal: number;
+            learning: number;
+        };
+        RegadoUserData: {
+            /** Format: uuid */
+            id: string;
+            username: string;
+            displayName: string;
+            media: components["schemas"]["RegadoAppBytes"];
+            records: components["schemas"]["RegadoAppBytes"];
+            total: number;
+            addedWeek: number;
+        };
+        RegadoDataUsage: {
+            users: components["schemas"]["RegadoUserData"][];
+            databases: {
+                name: string;
+                bytes: number;
+            }[];
+            tables: {
+                name: string;
+                bytes: number;
+                rows: number;
+                deadRows: number;
+            }[];
+            referencedMedia: number;
+            referencedUploads: number;
         };
         HostCheckRequest: {
             /** @enum {string} */
@@ -5037,6 +5151,35 @@ export interface operations {
             };
         };
     };
+    getRegadoDataUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Each account's storage by application, the databases and their largest tables */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegadoDataUsage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     runRegadoAction: {
         parameters: {
             query?: never;
@@ -5226,6 +5369,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HostOperation"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    getRegadoHostUsage: {
+        parameters: {
+            query: {
+                window: "1d" | "7d" | "30d" | "90d";
+            };
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What fills the host's storage, measured hourly, with its history in the window */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostUsage"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    measureRegadoHostUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A measurement started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        measuring: boolean;
+                    };
                 };
             };
             default: components["responses"]["RegadoHostError"];

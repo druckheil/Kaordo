@@ -16,6 +16,8 @@ import type {
 	HostStateChangeResult,
 	HostCheckRequest,
 	HostAlert,
+	HostUsage,
+	AdminDataUsage,
 	HostAlertTest,
 	paths
 } from '@kaordo/contracts';
@@ -151,6 +153,28 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
 					signal
 				}
 			);
+			return requireResponseData(data, error, response.status);
+		},
+		async hostUsage(
+			host: string,
+			window: '1d' | '7d' | '30d' | '90d',
+			signal?: AbortSignal
+		): Promise<HostUsage> {
+			const { data, error, response } = await client.GET('/v1/admin/hosts/{host}/usage', {
+				params: { path: { host }, query: { window } },
+				signal
+			});
+			return requireResponseData(data, error, response.status);
+		},
+		async measureHostUsage(host: string, signal?: AbortSignal): Promise<{ measuring: boolean }> {
+			const { data, error, response } = await client.POST('/v1/admin/hosts/{host}/usage/measure', {
+				params: { path: { host } },
+				signal
+			});
+			return requireResponseData(data, error, response.status);
+		},
+		async dataUsage(signal?: AbortSignal): Promise<AdminDataUsage> {
+			const { data, error, response } = await client.GET('/v1/admin/usage', { signal });
 			return requireResponseData(data, error, response.status);
 		},
 		async hostAlerts(host: string, signal?: AbortSignal): Promise<{ alerts: HostAlert[] }> {

@@ -332,6 +332,88 @@ components:
       properties:
         ligo: { type: boolean }
         ntfy: { type: string, description: 'sent, not configured, or failed: <reason>' }
+    HostUsageCategory:
+      type: object
+      required: [key, bytes, files, growthDay, growthWeek]
+      properties:
+        key:
+          type: string
+          enum: [system, nix, logs, database, media, metrics, releases, temporary, other]
+        bytes: { type: integer, description: Allocated bytes of the files, before compression }
+        files: { type: integer }
+        growthDay:
+          { type: [integer, 'null'], description: Change since the measurement a day earlier }
+        growthWeek:
+          { type: [integer, 'null'], description: Change since the measurement a week earlier }
+    HostUsageSample:
+      type: object
+      required: [at, stored, bytes]
+      properties:
+        at: { type: string, format: date-time }
+        stored: { type: integer }
+        bytes: { type: object, additionalProperties: { type: integer } }
+    HostUsage:
+      type: object
+      required: [measuredAt, measuring, pool, categories, history, fullInDays]
+      properties:
+        measuredAt: { type: [string, 'null'], format: date-time }
+        measuring: { type: boolean }
+        pool:
+          type: object
+          required: [stored, free]
+          description: One copy of each stored byte, after compression, and the space still free
+          properties:
+            stored: { type: integer }
+            free: { type: integer }
+        categories: { type: array, items: { $ref: '#/components/schemas/HostUsageCategory' } }
+        history: { type: array, items: { $ref: '#/components/schemas/HostUsageSample' } }
+        fullInDays:
+          type: [number, 'null']
+          description: The last week's growth projected onto the free space; null when nothing grows
+    RegadoAppBytes:
+      type: object
+      required: [posts, messages, channels, profile, journal, learning]
+      properties:
+        posts: { type: integer }
+        messages: { type: integer }
+        channels: { type: integer }
+        profile: { type: integer }
+        journal: { type: integer }
+        learning: { type: integer }
+    RegadoUserData:
+      type: object
+      required: [id, username, displayName, media, records, total, addedWeek]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        media: { $ref: '#/components/schemas/RegadoAppBytes' }
+        records: { $ref: '#/components/schemas/RegadoAppBytes' }
+        total: { type: integer }
+        addedWeek: { type: integer }
+    RegadoDataUsage:
+      type: object
+      required: [users, databases, tables, referencedMedia, referencedUploads]
+      properties:
+        users: { type: array, items: { $ref: '#/components/schemas/RegadoUserData' } }
+        databases:
+          type: array
+          items:
+            type: object
+            required: [name, bytes]
+            properties: { name: { type: string }, bytes: { type: integer } }
+        tables:
+          type: array
+          items:
+            type: object
+            required: [name, bytes, rows, deadRows]
+            properties:
+              name: { type: string }
+              bytes: { type: integer }
+              rows: { type: integer }
+              deadRows: { type: integer }
+        referencedMedia: { type: integer }
+        referencedUploads: { type: integer }
     HostCheckRequest:
       type: object
       required: [kind]
@@ -3473,6 +3555,18 @@ paths:
             description: Error,
             content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
           }
+  /v1/admin/usage:
+    get:
+      operationId: getRegadoDataUsage
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Each account's storage by application, the databases and their largest tables
+          content:
+            { application/json: { schema: { $ref: '#/components/schemas/RegadoDataUsage' } } }
+        default:
+          description: Error
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
   /v1/admin/actions/{action}:
     post:
       operationId: runRegadoAction
@@ -3598,6 +3692,36 @@ paths:
           content: { application/json: { schema: { $ref: '#/components/schemas/HostOperation' } } }
         default: { $ref: '#/components/responses/RegadoHostError' }
 
+  /v1/admin/hosts/{host}/usage:
+    get:
+      operationId: getRegadoHostUsage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RegadoHost'
+        - name: window
+          in: query
+          required: true
+          schema: { type: string, enum: [1d, 7d, 30d, 90d] }
+      responses:
+        '200':
+          description: What fills the host's storage, measured hourly, with its history in the window
+          content: { application/json: { schema: { $ref: '#/components/schemas/HostUsage' } } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+  /v1/admin/hosts/{host}/usage/measure:
+    post:
+      operationId: measureRegadoHostUsage
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RegadoHost' }]
+      responses:
+        '200':
+          description: A measurement started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [measuring]
+                properties: { measuring: { type: boolean } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
   /v1/admin/hosts/{host}/alerts:
     get:
       operationId: listRegadoHostAlerts

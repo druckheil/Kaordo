@@ -39,6 +39,12 @@ func (stub hostAgentStub) CancelOperation(context.Context, string) (json.RawMess
 func (stub hostAgentStub) Alerts(context.Context, int64) (json.RawMessage, error) {
 	return json.RawMessage(`{"host":"server","ntfy":null,"alerts":[{"key":"backup.none"}],"events":[],"sequence":1}`), stub.err
 }
+func (stub hostAgentStub) Usage(_ context.Context, window string) (json.RawMessage, error) {
+	return json.RawMessage(`{"window":"` + window + `"}`), stub.err
+}
+func (stub hostAgentStub) MeasureUsage(context.Context) (json.RawMessage, error) {
+	return json.RawMessage(`{"measuring":true}`), stub.err
+}
 func (stub hostAgentStub) StartCheck(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return json.RawMessage(`{"id":"op-1","kind":"integrity.scrub"}`), stub.err
 }
@@ -108,6 +114,15 @@ func TestHostRoutesProxyAgentsAndMapRefusals(t *testing.T) {
 	}
 	if response := hostRequest(hostRouter(nil), http.MethodPost, "/v1/admin/hosts/local/alerts/test", ""); response.Code != 200 || !strings.Contains(response.Body.String(), `"ntfy":"not configured"`) {
 		t.Fatalf("test notice = %d %s", response.Code, response.Body)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodGet, "/v1/admin/hosts/local/usage?window=30d", ""); response.Code != 200 || !strings.Contains(response.Body.String(), `"window":"30d"`) {
+		t.Fatalf("usage = %d %s", response.Code, response.Body)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodPost, "/v1/admin/hosts/local/usage/measure", ""); response.Code != 200 || !strings.Contains(response.Body.String(), "measuring") {
+		t.Fatalf("measure = %d %s", response.Code, response.Body)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodGet, "/v1/admin/usage", ""); response.Code != 200 || !strings.Contains(response.Body.String(), `"addedWeek":1024`) {
+		t.Fatalf("data usage = %d %s", response.Code, response.Body)
 	}
 	unavailable := hostRouter(errors.New("dial unix: no such file"))
 	if response := hostRequest(unavailable, http.MethodGet, "/v1/admin/hosts/local/operations", ""); response.Code != 503 || strings.Contains(response.Body.String(), "dial") {

@@ -22,6 +22,16 @@ func (h adminHandler) summary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+// dataUsage reports per-account storage and the database's largest tables
+func (h adminHandler) dataUsage(w http.ResponseWriter, r *http.Request) {
+	item, err := h.deps.Store.DataUsage(r.Context())
+	if err != nil {
+		adminFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (h adminHandler) users(w http.ResponseWriter, r *http.Request) {
 	search := strings.TrimSpace(r.URL.Query().Get("q"))
 	if utf8.RuneCountInString(search) > 50 {

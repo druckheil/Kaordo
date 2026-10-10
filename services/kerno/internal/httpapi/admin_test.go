@@ -31,6 +31,9 @@ func (*adminStub) SetAdmin(context.Context, string, string, bool, string) (admin
 	return admin.User{}, nil
 }
 func (*adminStub) Audit(context.Context) ([]admin.AuditEntry, error) { return nil, nil }
+func (*adminStub) DataUsage(context.Context) (admin.DataUsage, error) {
+	return admin.DataUsage{Users: []admin.UserData{{Username: "member", Total: 2048, AddedWeek: 1024}}}, nil
+}
 func (store *adminStub) Record(context.Context, string, string, string, string, any) error {
 	store.records++
 	return store.recordError

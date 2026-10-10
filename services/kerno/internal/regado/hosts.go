@@ -43,6 +43,14 @@ func (client *SystemClient) Alerts(ctx context.Context, after int64) (json.RawMe
 	return client.call(ctx, http.MethodGet, "/alerts?after="+strconv.FormatInt(after, 10), nil)
 }
 
+func (client *SystemClient) Usage(ctx context.Context, window string) (json.RawMessage, error) {
+	return client.call(ctx, http.MethodGet, "/usage?window="+url.QueryEscape(window), nil)
+}
+
+func (client *SystemClient) MeasureUsage(ctx context.Context) (json.RawMessage, error) {
+	return client.call(ctx, http.MethodPost, "/usage/measure", nil)
+}
+
 func (client *SystemClient) StartCheck(ctx context.Context, check json.RawMessage) (json.RawMessage, error) {
 	return client.call(ctx, http.MethodPost, "/operations", check)
 }

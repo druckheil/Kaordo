@@ -38,6 +38,12 @@ func (*agentStub) CancelOperation(context.Context, string) (json.RawMessage, err
 func (stub *agentStub) Alerts(_ context.Context, after int64) (json.RawMessage, error) {
 	return json.RawMessage(stub.alerts(after)), nil
 }
+func (*agentStub) Usage(_ context.Context, window string) (json.RawMessage, error) {
+	return json.RawMessage(`{"window":"` + window + `"}`), nil
+}
+func (*agentStub) MeasureUsage(context.Context) (json.RawMessage, error) {
+	return json.RawMessage(`{"measuring":true}`), nil
+}
 func (stub *agentStub) StartCheck(_ context.Context, check json.RawMessage) (json.RawMessage, error) {
 	stub.started = check
 	return json.RawMessage(`{"id":"op-2"}`), nil

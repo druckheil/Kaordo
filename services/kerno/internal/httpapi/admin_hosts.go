@@ -29,6 +29,8 @@ func mountAdminHosts(r chi.Router, hosts *admin.Hosts, alerts *admin.AlertDelive
 	r.Post("/hosts/{host}/operations", h.startCheck)
 	r.Get("/hosts/{host}/operations/{operation}", h.operation)
 	r.Post("/hosts/{host}/operations/{operation}/cancel", h.cancel)
+	r.Get("/hosts/{host}/usage", h.usage)
+	r.Post("/hosts/{host}/usage/measure", h.measureUsage)
 	if alerts != nil {
 		r.Get("/hosts/{host}/alerts", h.listAlerts)
 		r.Post("/hosts/{host}/alerts/test", h.testAlerts)
@@ -96,6 +98,16 @@ func (h hostsHandler) operation(w http.ResponseWriter, r *http.Request) {
 
 func (h hostsHandler) cancel(w http.ResponseWriter, r *http.Request) {
 	result, err := h.hosts.Cancel(r.Context(), adminActor(r).ID, chi.URLParam(r, "host"), chi.URLParam(r, "operation"))
+	writeHostResult(w, result, err)
+}
+
+func (h hostsHandler) usage(w http.ResponseWriter, r *http.Request) {
+	result, err := h.hosts.Usage(r.Context(), chi.URLParam(r, "host"), r.URL.Query().Get("window"))
+	writeHostResult(w, result, err)
+}
+
+func (h hostsHandler) measureUsage(w http.ResponseWriter, r *http.Request) {
+	result, err := h.hosts.MeasureUsage(r.Context(), chi.URLParam(r, "host"))
 	writeHostResult(w, result, err)
 }
 

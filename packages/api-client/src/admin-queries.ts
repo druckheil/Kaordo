@@ -76,6 +76,30 @@ export function adminHostAlertsOptions(api: AdminApi, host: string) {
 	};
 }
 
+// Storage is measured hourly; a requested measurement is followed closely until it lands
+export function adminHostUsageOptions(
+	api: AdminApi,
+	host: string,
+	window: '1d' | '7d' | '30d' | '90d'
+) {
+	return {
+		...readPolicy,
+		queryKey: ['regado', 'hosts', host, 'usage', window] as const,
+		queryFn: ({ signal }: ReadContext) => api.hostUsage(host, window, signal),
+		refetchInterval: (query: { state: { data?: { measuring: boolean } } }) =>
+			query.state.data?.measuring ? 5_000 : 60_000
+	};
+}
+
+export function adminDataUsageOptions(api: AdminApi) {
+	return {
+		...readPolicy,
+		refetchInterval: 60_000,
+		queryKey: ['regado', 'usage'] as const,
+		queryFn: ({ signal }: ReadContext) => api.dataUsage(signal)
+	};
+}
+
 export function adminHostOperationsOptions(api: AdminApi, host: string, limit = 50) {
 	return {
 		...readPolicy,

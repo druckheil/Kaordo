@@ -60,4 +60,5 @@ type Store interface {
 	SetAdmin(context.Context, string, string, bool, string) (User, error)
 	Audit(context.Context) ([]AuditEntry, error)
 	Record(context.Context, string, string, string, string, any) error
+	DataUsage(context.Context) (DataUsage, error)
 }

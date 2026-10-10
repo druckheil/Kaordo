@@ -25,6 +25,8 @@ type HostAgent interface {
 	CancelOperation(context.Context, string) (json.RawMessage, error)
 	StartCheck(context.Context, json.RawMessage) (json.RawMessage, error)
 	Alerts(ctx context.Context, after int64) (json.RawMessage, error)
+	Usage(ctx context.Context, window string) (json.RawMessage, error)
+	MeasureUsage(context.Context) (json.RawMessage, error)
 }
 
 // AgentError carries an agent's refusal: its HTTP status and operator-facing message.
@@ -189,6 +191,24 @@ func (hosts *Hosts) StartCheck(ctx context.Context, actorID, id string, check Ch
 		return nil, err
 	}
 	return agent.StartCheck(ctx, request)
+}
+
+// Usage returns what fills the host's storage and its history within window.
+func (hosts *Hosts) Usage(ctx context.Context, id, window string) (json.RawMessage, error) {
+	agent, err := hosts.agent(id)
+	if err != nil {
+		return nil, err
+	}
+	return agent.Usage(ctx, window)
+}
+
+// MeasureUsage asks the host to measure its storage now instead of at the next hour.
+func (hosts *Hosts) MeasureUsage(ctx context.Context, id string) (json.RawMessage, error) {
+	agent, err := hosts.agent(id)
+	if err != nil {
+		return nil, err
+	}
+	return agent.MeasureUsage(ctx)
 }
 
 // DiffDocuments lists changed leaves between two JSON documents; arrays compare as whole values.

@@ -133,6 +133,10 @@ export type {
 	HostStateChange,
 	HostCheckRequest,
 	HostAlert,
+	HostUsage,
+	HostUsageCategory,
+	AdminDataUsage,
+	AdminUserData,
 	HostAlertTest,
 	HostStateChangeResult
 } from './admin.js';
