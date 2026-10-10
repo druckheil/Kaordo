@@ -1,27 +1,28 @@
 // Records the user-facing changes included in the Kaordo 0.0.2 release
 
-import type { ReleaseNotes } from "../types";
+import type { ReleaseNotes } from '../types';
 
 const release = {
-	releasedAt: "2026-10-06",
-	summary: "0.0.2 expands Fluo conversations and adds persistent account themes and remembered sign-in.",
+	releasedAt: '2026-10-06',
+	summary:
+		'0.0.2 expands Fluo conversations and adds persistent account themes and remembered sign-in.',
 	sections: [
 		{
-			heading: "Account and Portal",
+			heading: 'Account and Portal',
 			changes: [
-				"Added shared light and dark themes with matching appearance across the apps and sign-in pages.",
-				"Remembered sign-ins now last up to 30 days of inactivity, with a five-year maximum session lifetime.",
-			],
+				'Added shared light and dark themes with matching appearance across the apps and sign-in pages.',
+				'Remembered sign-ins now last up to 30 days of inactivity, with a five-year maximum session lifetime.'
+			]
 		},
 		{
-			heading: "Fluo",
+			heading: 'Fluo',
 			changes: [
-				"Posts open in a focused thread view with parent context, paginated replies, and full post interactions on replies.",
-				"Added post context actions and visibility controls, and kept a clear placeholder when a quoted post is deleted.",
-				"Improved multi-photo galleries and carousel navigation, and made the Following feed show only followed accounts' posts.",
-			],
-		},
-	],
+				'Posts open in a focused thread view with parent context, paginated replies, and full post interactions on replies.',
+				'Added post context actions and visibility controls, and kept a clear placeholder when a quoted post is deleted.',
+				"Improved multi-photo galleries and carousel navigation, and made the Following feed show only followed accounts' posts."
+			]
+		}
+	]
 } satisfies ReleaseNotes;
 
 export default release;

@@ -2,8 +2,8 @@ package upload
 
 // Processes completed uploads and resumes pending media jobs after restart
 import (
-	"log"
-	"os"
+	"io/fs"
+	"log/slog"
 	"strings"
 )
 
@@ -47,23 +47,23 @@ func (server *Server) processQueue() {
 			return
 		case id := <-server.jobs:
 			if err := server.process(server.ctx, id); err != nil && server.ctx.Err() == nil {
-				log.Printf("Nodo could not process upload %s: %v", id, err)
-				_ = os.WriteFile(server.errorPath(id), []byte("processing failed\n"), 0600)
+				slog.Error("upload processing failed", "upload", id, "err", err)
+				_ = server.root.WriteFile(errorName(id), []byte("processing failed\n"), 0600)
 			}
 		}
 	}
 }
 
 func (server *Server) resumeCompleted() {
-	entries, err := os.ReadDir(server.config.Directory)
+	entries, err := fs.ReadDir(server.root.FS(), ".")
 	if err != nil {
-		log.Printf("Nodo could not scan uploads: %v", err)
+		slog.Error("upload scan failed", "err", err)
 		return
 	}
 	server.workers.Go(func() { server.enqueueUnprocessed(entries) })
 }
 
-func (server *Server) enqueueUnprocessed(entries []os.DirEntry) {
+func (server *Server) enqueueUnprocessed(entries []fs.DirEntry) {
 	for _, entry := range entries {
 		if server.ctx.Err() != nil {
 			return

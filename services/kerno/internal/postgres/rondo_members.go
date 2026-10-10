@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
+
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
 	jetpg "github.com/go-jet/jet/v2/postgres"
@@ -34,7 +36,11 @@ func (store *Rondo) Create(ctx context.Context, actorID string, input rondo.NewS
 	if err := addRondoServerOwner(ctx, tx, serverID, actorID); err != nil {
 		return rondo.Detail{}, err
 	}
-	if _, err := insertRondoChannel(ctx, tx, serverID, actorID, "general"); err != nil {
+	general := input.General
+	if general == "" {
+		general = "general"
+	}
+	if _, err := insertEncryptedRondoChannel(ctx, tx, serverID, actorID, input.GeneralID, general); err != nil {
 		return rondo.Detail{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -64,10 +70,16 @@ func enforceRondoOwnedServerLimit(ctx context.Context, tx pgx.Tx, ownerID string
 }
 
 func insertRondoServer(ctx context.Context, tx pgx.Tx, ownerID string, input rondo.NewServer) (string, error) {
+	if input.ID == "" {
+		input.ID = uuid.NewString()
+	}
+	if err := validateRondoMetadata(ctx, tx, ownerID, input.ID, input.Name, input.Access == "public", []string{ownerID}, ""); err != nil {
+		return "", err
+	}
 	servers := table.RondoServers
 	var id string
-	err := jetQueryRow(ctx, tx, servers.INSERT(servers.Name, servers.Description, servers.Access, servers.OwnerID).
-		VALUES(jetpg.String(input.Name), jetpg.String(input.Description), jetpg.String(input.Access), jetUUID(ownerID)).
+	err := jetQueryRow(ctx, tx, servers.INSERT(servers.ID, servers.Name, servers.Description, servers.Access, servers.OwnerID).
+		VALUES(jetUUID(input.ID), jetpg.String(input.Name), jetpg.String(input.Description), jetpg.String(input.Access), jetUUID(ownerID)).
 		RETURNING(jetpg.CAST(servers.ID).AS_TEXT())).Scan(&id)
 	return id, err
 }
@@ -221,6 +233,12 @@ func addRondoMember(ctx context.Context, tx pgx.Tx, serverID, userID string) err
 }
 
 func (store *Rondo) Invite(ctx context.Context, actorID, serverID, userID string) (rondo.Detail, error) {
+	return store.invite(ctx, actorID, serverID, userID, nil)
+}
+func (store *Rondo) InviteEncrypted(ctx context.Context, actorID, serverID, userID string, metadata rondo.EncryptedMetadata) (rondo.Detail, error) {
+	return store.invite(ctx, actorID, serverID, userID, &metadata)
+}
+func (store *Rondo) invite(ctx context.Context, actorID, serverID, userID string, metadata *rondo.EncryptedMetadata) (rondo.Detail, error) {
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
 		return rondo.Detail{}, err
@@ -243,6 +261,11 @@ func (store *Rondo) Invite(ctx context.Context, actorID, serverID, userID string
 	}
 	if !member {
 		if err := addMemberWithinCapacity(ctx, tx, serverID, userID); err != nil {
+			return rondo.Detail{}, err
+		}
+	}
+	if metadata != nil {
+		if err := replaceRondoMetadata(ctx, tx, actorID, serverID, *metadata); err != nil {
 			return rondo.Detail{}, err
 		}
 	}

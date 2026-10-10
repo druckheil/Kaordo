@@ -1,10 +1,11 @@
+// Command nodo receives resumable uploads and serves stored media bytes.
 package main
 
 // Loads Nodo configuration and serves the upload API
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -26,7 +27,8 @@ type config struct {
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatal(err)
+		slog.Error("stopped", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -85,7 +87,7 @@ func newHTTPServer(address string, handler http.Handler) *http.Server {
 func serve(ctx context.Context, server *http.Server) error {
 	result := make(chan error, 1)
 	go func() { result <- server.ListenAndServe() }()
-	log.Printf("Nodo listening on %s", server.Addr)
+	slog.Info("Nodo listening", "addr", server.Addr)
 
 	select {
 	case err := <-result:

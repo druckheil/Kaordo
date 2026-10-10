@@ -1,16 +1,16 @@
 <script lang="ts">
 	// Renders one responsive metric series and reflects the active color theme
 
-	import { onMount } from "svelte";
-	import "uplot/dist/uPlot.min.css";
-	import type uPlot from "uplot";
-	import ContextHelp from "./ContextHelp.svelte";
+	import { onMount } from 'svelte';
+	import 'uplot/dist/uPlot.min.css';
+	import type uPlot from 'uplot';
+	import ContextHelp from './ContextHelp.svelte';
 
 	let {
 		title,
 		points,
-		unit = "%",
-		description = "",
+		unit = '%',
+		description = ''
 	}: {
 		title: string;
 		points: { time: number; value: number }[];
@@ -24,7 +24,7 @@
 	const latest = $derived(points.at(-1)?.value);
 	const data = $derived([
 		points.map((point) => point.time),
-		points.map((point) => point.value),
+		points.map((point) => point.value)
 	] as uPlot.AlignedData);
 
 	onMount(() => {
@@ -32,7 +32,7 @@
 		const themeObserver = observeTheme();
 		const sizeObserver = observeSize();
 
-		void import("uplot").then(({ default: Plot }) => {
+		void import('uplot').then(({ default: Plot }) => {
 			if (!disposed) createChart(Plot);
 		});
 
@@ -54,7 +54,7 @@
 		const observer = new MutationObserver(() => chart?.redraw());
 		observer.observe(document.documentElement, {
 			attributes: true,
-			attributeFilter: ["class", "data-theme"],
+			attributeFilter: ['class', 'data-theme']
 		});
 		return observer;
 	}
@@ -91,28 +91,28 @@
 			scales: { x: { time: true } },
 			axes: [
 				{
-					label: "Time (local)",
+					label: 'Time (local)',
 					labelSize: 20,
-					stroke: () => themeColor("--muted-foreground"),
-					grid: { stroke: () => themeColor("--border") },
+					stroke: () => themeColor('--muted-foreground'),
+					grid: { stroke: () => themeColor('--border') }
 				},
 				{
-					label: unit === "%" ? "Usage (%)" : unit.trim() || "Tasks",
+					label: unit === '%' ? 'Usage (%)' : unit.trim() || 'Tasks',
 					labelSize: 20,
-					stroke: () => themeColor("--muted-foreground"),
-					grid: { stroke: () => themeColor("--border") },
-					size: 52,
-				},
+					stroke: () => themeColor('--muted-foreground'),
+					grid: { stroke: () => themeColor('--border') },
+					size: 52
+				}
 			],
 			series: [
 				{},
 				{
 					label: title,
-					stroke: () => themeColor("--primary"),
+					stroke: () => themeColor('--primary'),
 					width: 2,
-					points: { show: false },
-				},
-			],
+					points: { show: false }
+				}
+			]
 		};
 	}
 
@@ -131,28 +131,19 @@
 			{#if description}<ContextHelp label={title}
 					><p>{description}</p>
 					<p>
-						The horizontal axis is local time. The vertical axis shows {unit ===
-						"%"
-							? "percentage used"
-							: unit.trim() || "the number of runnable or waiting tasks"}. The
-						value above is the latest sample.
+						The horizontal axis is local time. The vertical axis shows {unit === '%'
+							? 'percentage used'
+							: unit.trim() || 'the number of runnable or waiting tasks'}. The value above is the
+						latest sample.
 					</p></ContextHelp
 				>{/if}
 		</div>
 		<strong class="text-2xl font-bold tracking-tight text-foreground"
-			>{latest === undefined
-				? "—"
-				: `${latest.toFixed(unit === "%" ? 1 : 2)}${unit}`}</strong
+			>{latest === undefined ? '—' : `${latest.toFixed(unit === '%' ? 1 : 2)}${unit}`}</strong
 		>
 	</div>
-	{#if points.length === 0}<div
-			class="grid h-44 place-items-center text-sm text-muted-foreground"
-		>
+	{#if points.length === 0}<div class="grid h-44 place-items-center text-sm text-muted-foreground">
 			Waiting for samples
 		</div>{/if}
-	<div
-		bind:this={host}
-		class:sr-only={points.length === 0}
-		aria-hidden="true"
-	></div>
+	<div bind:this={host} class:sr-only={points.length === 0} aria-hidden="true"></div>
 </section>

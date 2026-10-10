@@ -1,0 +1,195 @@
+{
+	"blockdevices": [
+		{
+			"name": "sda",
+			"path": "/dev/sda",
+			"type": "disk",
+			"id-link": "wwn-0x50014ee000000001",
+			"wwn": "0x50014ee000000001",
+			"serial": "WD-TEST0001",
+			"model": "WDC WD10EADS-00L5B1",
+			"size": 1000204886016,
+			"rota": true,
+			"tran": "sata",
+			"partn": null,
+			"partlabel": null,
+			"parttypename": null,
+			"fstype": null,
+			"label": null,
+			"uuid": null,
+			"mountpoints": [],
+			"children": [
+				{
+					"name": "sda1",
+					"path": "/dev/sda1",
+					"type": "part",
+					"id-link": "wwn-0x50014ee000000001-part1",
+					"size": 1048576,
+					"rota": true,
+					"partn": 1,
+					"partlabel": "kaordo-boot",
+					"parttypename": "BIOS boot",
+					"fstype": null,
+					"label": null,
+					"uuid": null,
+					"mountpoints": [null]
+				},
+				{
+					"name": "sda2",
+					"path": "/dev/sda2",
+					"type": "part",
+					"id-link": "wwn-0x50014ee000000001-part2",
+					"size": 1000203837440,
+					"rota": true,
+					"partn": 2,
+					"partlabel": "kaordo-pool",
+					"parttypename": "Linux filesystem",
+					"fstype": "btrfs",
+					"label": "kaordo",
+					"uuid": "e1b53e8e-ac0b-414d-9b60-f6e58597357c",
+					"mountpoints": []
+				}
+			]
+		},
+		{
+			"name": "sdb",
+			"path": "/dev/sdb",
+			"type": "disk",
+			"id-link": "wwn-0x50014ee000000002",
+			"wwn": "0x50014ee000000002",
+			"serial": "WD-TEST0002",
+			"model": "WDC WD10EACS-00C7B0",
+			"size": 1000204886016,
+			"rota": true,
+			"tran": "sata",
+			"partn": null,
+			"fstype": null,
+			"uuid": null,
+			"mountpoints": [],
+			"children": [
+				{
+					"name": "sdb1",
+					"path": "/dev/sdb1",
+					"type": "part",
+					"size": 2097152,
+					"partn": 1,
+					"parttypename": "BIOS boot",
+					"mountpoints": []
+				},
+				{
+					"name": "sdb2",
+					"path": "/dev/sdb2",
+					"type": "part",
+					"size": 68719476736,
+					"partn": 2,
+					"fstype": "ext4",
+					"uuid": "11111111-2222-3333-4444-555555555555",
+					"mountpoints": ["/nix/store", "/"]
+				},
+				{
+					"name": "sdb3",
+					"path": "/dev/sdb3",
+					"type": "part",
+					"size": 931481518080,
+					"partn": 3,
+					"fstype": "btrfs",
+					"label": "kaordo",
+					"uuid": "e1b53e8e-ac0b-414d-9b60-f6e58597357c",
+					"mountpoints": ["/srv/kaordo"]
+				}
+			]
+		},
+		{
+			"name": "sdc",
+			"path": "/dev/sdc",
+			"type": "disk",
+			"id-link": "wwn-0x5000c50000000003",
+			"serial": "ZA-TEST0003",
+			"model": "ST2000DM008",
+			"size": 2000398934016,
+			"rota": true,
+			"tran": "sata",
+			"fstype": null,
+			"mountpoints": []
+		},
+		{
+			"name": "sdd",
+			"path": "/dev/sdd",
+			"type": "disk",
+			"id-link": "usb-Kingston_DataTraveler_0004-0:0",
+			"serial": "0004",
+			"model": "DataTraveler",
+			"size": 16008609792,
+			"rota": false,
+			"tran": "usb",
+			"fstype": null,
+			"mountpoints": [],
+			"children": [
+				{
+					"name": "sdd1",
+					"path": "/dev/sdd1",
+					"type": "part",
+					"size": 16007561216,
+					"partn": 1,
+					"fstype": "exfat",
+					"label": "PHOTOS",
+					"uuid": "AB12-CD34",
+					"mountpoints": []
+				}
+			]
+		},
+		{
+			"name": "sde",
+			"path": "/dev/sde",
+			"type": "disk",
+			"id-link": "wwn-0x5000c50000000005",
+			"serial": "ZA-TEST0005",
+			"model": "ST4000VN006",
+			"size": 4000787030016,
+			"rota": true,
+			"tran": "sata",
+			"fstype": null,
+			"mountpoints": [],
+			"children": [
+				{
+					"name": "sde1",
+					"path": "/dev/sde1",
+					"type": "part",
+					"size": 4000785981440,
+					"partn": 1,
+					"fstype": "btrfs",
+					"label": "kaordo-backup",
+					"uuid": "99999999-8888-7777-6666-555555555555",
+					"mountpoints": ["/var/lib/regado-agent/targets/spare"]
+				}
+			]
+		},
+		{
+			"name": "sdf",
+			"path": "/dev/sdf",
+			"type": "disk",
+			"id-link": null,
+			"serial": null,
+			"model": "Generic",
+			"size": 1000000000,
+			"rota": true,
+			"mountpoints": []
+		},
+		{
+			"name": "zram0",
+			"path": "/dev/zram0",
+			"type": "disk",
+			"size": 2030043136,
+			"rota": false,
+			"mountpoints": ["[SWAP]"]
+		},
+		{
+			"name": "loop0",
+			"path": "/dev/loop0",
+			"type": "loop",
+			"size": 1073741824,
+			"rota": false,
+			"mountpoints": []
+		}
+	]
+}

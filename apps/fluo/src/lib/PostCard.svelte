@@ -24,7 +24,7 @@
 		onFollow,
 		onSave,
 		onVisibilityChange,
-		onDelete,
+		onDelete
 	}: {
 		post: FluoPost;
 		viewerId: string;

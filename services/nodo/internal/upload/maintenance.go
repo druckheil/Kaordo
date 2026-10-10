@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"time"
@@ -120,7 +121,7 @@ func (server *Server) runStorageMaintenance(repair bool) {
 
 func (server *Server) auditStorage(ctx context.Context, repair bool) (storageMaintenance, error) {
 	report := storageMaintenance{Directory: server.config.Directory}
-	entries, err := os.ReadDir(server.config.Directory)
+	entries, err := fs.ReadDir(server.root.FS(), ".")
 	if err != nil {
 		return report, err
 	}
@@ -133,7 +134,7 @@ func (server *Server) auditStorage(ctx context.Context, repair bool) (storageMai
 		return report, err
 	}
 	var auditErr error
-	candidates := expiredUploadIDs(server.config.Directory, entries)
+	candidates := expiredUploadIDs(server.root, entries)
 	for index, id := range candidates {
 		server.maintenanceProgress("references", int64(index), int64(len(candidates)), "uploads")
 		if err := ctx.Err(); err != nil {
@@ -146,7 +147,7 @@ func (server *Server) auditStorage(ctx context.Context, repair bool) (storageMai
 	return report, auditErr
 }
 
-func (server *Server) inventoryUploadArtifacts(ctx context.Context, entries []os.DirEntry, report *storageMaintenance) (map[string]uploadArtifacts, error) {
+func (server *Server) inventoryUploadArtifacts(ctx context.Context, entries []fs.DirEntry, report *storageMaintenance) (map[string]uploadArtifacts, error) {
 	groups := make(map[string]uploadArtifacts)
 	for index, entry := range entries {
 		server.maintenanceProgress("inventory", int64(index), int64(len(entries)), "files")
@@ -182,8 +183,8 @@ func (server *Server) missingDisplayArtifacts(ctx context.Context, groups map[st
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if _, err := os.Stat(server.readyPath(id)); err == nil {
-			if _, err := os.Stat(server.displayPath(id)); errors.Is(err, os.ErrNotExist) {
+		if _, err := server.root.Stat(readyName(id)); err == nil {
+			if _, err := server.root.Stat(displayName(id)); errors.Is(err, os.ErrNotExist) {
 				report.MissingFiles++
 				report.UnverifiedFiles += group.files
 				missing[id] = true
@@ -244,7 +245,7 @@ func (server *Server) removeIfUnreferenced(ctx context.Context, id string) (bool
 	if err != nil || !eligible {
 		return false, err
 	}
-	if err := server.removeFiles(id); err != nil {
+	if err := server.quota.removeFiles(id); err != nil {
 		return false, err
 	}
 	return true, nil

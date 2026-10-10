@@ -1,9 +1,11 @@
-import Root, {
+// Exports the shared button component and variant types
+import Root from './button.svelte';
+import {
 	type ButtonProps,
 	type ButtonSize,
 	type ButtonVariant,
-	buttonVariants,
-} from "./button.svelte";
+	buttonVariants
+} from './button-variants.js';
 
 export {
 	Root,
@@ -13,5 +15,5 @@ export {
 	buttonVariants,
 	type ButtonProps,
 	type ButtonSize,
-	type ButtonVariant,
+	type ButtonVariant
 };

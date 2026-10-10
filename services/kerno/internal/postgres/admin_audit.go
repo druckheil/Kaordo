@@ -5,23 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
+	"github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 )
 
-type AdminAuditEntry struct {
-	ID        string          `json:"id"`
-	Actor     string          `json:"actor"`
-	Target    *string         `json:"target"`
-	Action    string          `json:"action"`
-	Reason    string          `json:"reason"`
-	Detail    json.RawMessage `json:"detail"`
-	CreatedAt time.Time       `json:"createdAt"`
-}
-
-func (store *Admin) Audit(ctx context.Context) ([]AdminAuditEntry, error) {
+func (store *Admin) Audit(ctx context.Context) ([]admin.AuditEntry, error) {
 	audit := table.AdminAudit.AS("a")
 	actor := table.Users.AS("actor")
 	target := table.Users.AS("target")
@@ -34,9 +24,9 @@ func (store *Admin) Audit(ctx context.Context) ([]AdminAuditEntry, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	items := make([]AdminAuditEntry, 0)
+	items := make([]admin.AuditEntry, 0)
 	for rows.Next() {
-		var item AdminAuditEntry
+		var item admin.AuditEntry
 		if err := rows.Scan(&item.ID, &item.Actor, &item.Target, &item.Action,
 			&item.Reason, &item.Detail, &item.CreatedAt); err != nil {
 			return nil, err

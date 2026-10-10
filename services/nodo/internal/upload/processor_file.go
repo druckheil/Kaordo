@@ -1,29 +1,27 @@
 package upload
 
-// Stages generic attachments without decoding or changing their bytes
+// Stages generic and device-encrypted attachments without decoding or changing their bytes
 import (
+	"crypto/rand"
 	"errors"
 	"io"
 	"os"
 )
 
-func (server *Server) processFile(source, id, filename string) (mediaInfo, string, error) {
-	input, err := os.Open(source)
+func (server *Server) processFile(id, filename string) (mediaInfo, string, error) {
+	input, err := server.root.Open(id)
 	if err != nil {
 		return mediaInfo{}, "", err
 	}
-	defer input.Close()
+	defer func() { _ = input.Close() }() // read-only source
 
 	stat, err := input.Stat()
 	if err != nil || stat.Size() < 1 || stat.Size() > maxUploadSize {
 		return mediaInfo{}, "", errors.New("file exceeds its size limit")
 	}
 
-	output, err := stagedFilePath(server.config.Directory, id+".file-*")
-	if err != nil {
-		return mediaInfo{}, "", err
-	}
-	if err := linkOrCopy(source, output, input); err != nil {
+	output := id + ".file-" + rand.Text()
+	if err := server.linkOrCopy(id, output, input); err != nil {
 		return mediaInfo{}, "", err
 	}
 	return mediaInfo{
@@ -34,40 +32,21 @@ func (server *Server) processFile(source, id, filename string) (mediaInfo, strin
 	}, output, nil
 }
 
-func stagedFilePath(directory, pattern string) (string, error) {
-	file, err := os.CreateTemp(directory, pattern)
-	if err != nil {
-		return "", err
-	}
-	path := file.Name()
-	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", err
-	}
-	if err := os.Remove(path); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func linkOrCopy(source, destination string, input io.Reader) error {
-	if err := os.Link(source, destination); err == nil {
+// linkOrCopy shares the upload's bytes with its display artifact when the filesystem allows it
+func (server *Server) linkOrCopy(source, destination string, input io.Reader) error {
+	if err := server.root.Link(source, destination); err == nil {
 		return nil
 	}
 
-	output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	output, err := server.root.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
 	_, copyErr := io.Copy(output, input)
 	closeErr := output.Close()
-	if copyErr != nil {
-		_ = os.Remove(destination)
-		return copyErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(destination)
-		return closeErr
+	if err := errors.Join(copyErr, closeErr); err != nil {
+		_ = server.root.Remove(destination)
+		return err
 	}
 	return nil
 }

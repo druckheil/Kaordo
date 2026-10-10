@@ -2,9 +2,9 @@
 	// Loads shared design tokens for every Ligo route
 
 	import './layout.css';
-  import { ThemeProvider } from '@kaordo/ui';
+	import { ThemeProvider } from '@kaordo/ui';
 
-  let { children } = $props();
+	let { children }: { children: import('svelte').Snippet } = $props();
 </script>
 
 <ThemeProvider />

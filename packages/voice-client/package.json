@@ -1,27 +1,34 @@
 {
-  "name": "@kaordo/voice-client",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    },
-    "./sounds": {
-      "types": "./src/sounds.ts",
-      "default": "./src/sounds.ts"
-    },
-    "./preferences": {
-      "types": "./src/preferences.ts",
-      "default": "./src/preferences.ts"
-    },
-    "./devices": {
-      "types": "./src/devices.ts",
-      "default": "./src/devices.ts"
-    }
-  },
-  "dependencies": {
-    "livekit-client": "^2.22.3"
-  }
+	"name": "@kaordo/voice-client",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./sounds": {
+			"types": "./src/sounds.ts",
+			"default": "./src/sounds.ts"
+		},
+		"./preferences": {
+			"types": "./src/preferences.ts",
+			"default": "./src/preferences.ts"
+		},
+		"./devices": {
+			"types": "./src/devices.ts",
+			"default": "./src/devices.ts"
+		},
+		"./model": {
+			"types": "./src/model.ts",
+			"default": "./src/model.ts"
+		}
+	},
+	"dependencies": {
+		"livekit-client": "^2.22.3"
+	},
+	"scripts": {
+		"check": "tsc -p ."
+	}
 }

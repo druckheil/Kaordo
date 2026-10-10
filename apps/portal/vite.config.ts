@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import { localViteServer } from '../../scripts/local-vite.mjs';
+import { localViteDependencies, localViteServer } from '../../scripts/local-vite.mjs';
 
 function runesForFile(filename: string): boolean | undefined {
 	const isDependency = filename.split(/[/\\]/).includes('node_modules');
@@ -15,6 +15,7 @@ function runesForFile(filename: string): boolean | undefined {
 export default defineConfig({
 	envDir: '../..',
 	server: localViteServer('portal'),
+	optimizeDeps: localViteDependencies,
 	plugins: [
 		tailwindcss(),
 		sveltekit({

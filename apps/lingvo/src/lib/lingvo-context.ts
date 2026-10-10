@@ -4,19 +4,21 @@ import type { QueryClient } from '@tanstack/svelte-query';
 import type { LingvoApi } from '@kaordo/api-client';
 
 export const [getLingvoContext, setLingvoContext] = createContext<{
-  api: LingvoApi;
-  queryClient: QueryClient;
-  notify(message: string): void;
-  changed(dictionaryId: string): Promise<void>;
+	api: LingvoApi;
+	queryClient: QueryClient;
+	notify(this: void, message: string): void;
+	changed(this: void, dictionaryId: string): Promise<void>;
 }>();
 
 export type LingvoView = 'learn' | 'phrases' | 'dictionary' | 'library' | 'study';
 export type CardKind = 'word' | 'phrase';
 
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+	return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
 }
 
 export function dueDate(value: string): string {
-  return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+	return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(
+		new Date(value)
+	);
 }

@@ -24,8 +24,9 @@ type NotificationPreferences struct {
 }
 
 type PrivacySettings struct {
-	AccountVisibility string `json:"accountVisibility"`
-	ShowLikes         bool   `json:"showLikes"`
+	AccountVisibility  string `json:"accountVisibility"`
+	ShowLikes          bool   `json:"showLikes"`
+	PresenceVisibility string `json:"presenceVisibility"`
 }
 
 type Settings struct {
@@ -43,8 +44,9 @@ type NotificationPreferencesPatch struct {
 }
 
 type PrivacySettingsPatch struct {
-	AccountVisibility *string `json:"accountVisibility"`
-	ShowLikes         *bool   `json:"showLikes"`
+	AccountVisibility  *string `json:"accountVisibility"`
+	ShowLikes          *bool   `json:"showLikes"`
+	PresenceVisibility *string `json:"presenceVisibility"`
 }
 
 type SettingsPatch struct {
@@ -58,39 +60,40 @@ func DefaultSettings() Settings {
 			Likes: NotifyAll, Dislikes: NotifyAll, Replies: NotifyAll,
 			Follows: NotifyAll, Unfollows: NotifyOff, Quotes: NotifyAll,
 		},
-		Privacy: PrivacySettings{AccountVisibility: VisibilityPublic, ShowLikes: true},
+		Privacy: PrivacySettings{AccountVisibility: VisibilityPublic, ShowLikes: true, PresenceVisibility: PresenceAll},
 	}
 }
 
+// Validate requires at least one known setting and rejects unknown values
 func (patch SettingsPatch) Validate() error {
-	changed := false
-	if n := patch.Notifications; n != nil {
-		for _, policy := range []*string{n.Likes, n.Dislikes, n.Replies, n.Follows, n.Unfollows, n.Quotes} {
-			if policy == nil {
-				continue
-			}
-			if *policy != NotifyAll && *policy != NotifyOff && *policy != NotifyFollowing {
-				return ErrInvalidSettings
-			}
-			changed = true
-		}
-		if !changed {
-			return ErrInvalidSettings
-		}
-	}
-	if p := patch.Privacy; p != nil {
-		if p.AccountVisibility == nil && p.ShowLikes == nil {
-			return ErrInvalidSettings
-		}
-		if p.AccountVisibility != nil && !ValidVisibility(*p.AccountVisibility) {
-			return ErrInvalidSettings
-		}
-		changed = true
-	}
-	if !changed {
+	if patch.Notifications == nil && patch.Privacy == nil ||
+		patch.Notifications != nil && !patch.Notifications.valid() ||
+		patch.Privacy != nil && !patch.Privacy.valid() {
 		return ErrInvalidSettings
 	}
 	return nil
+}
+
+func (patch NotificationPreferencesPatch) valid() bool {
+	changed := false
+	for _, policy := range []*string{patch.Likes, patch.Dislikes, patch.Replies, patch.Follows, patch.Unfollows, patch.Quotes} {
+		if policy == nil {
+			continue
+		}
+		if *policy != NotifyAll && *policy != NotifyOff && *policy != NotifyFollowing {
+			return false
+		}
+		changed = true
+	}
+	return changed
+}
+
+func (patch PrivacySettingsPatch) valid() bool {
+	if patch.AccountVisibility == nil && patch.ShowLikes == nil && patch.PresenceVisibility == nil {
+		return false
+	}
+	return (patch.AccountVisibility == nil || ValidVisibility(*patch.AccountVisibility)) &&
+		(patch.PresenceVisibility == nil || ValidPresenceVisibility(*patch.PresenceVisibility))
 }
 
 type SettingsStore interface {

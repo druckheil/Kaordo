@@ -5,12 +5,32 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
+	"sync"
 
 	tusd "github.com/tus/tusd/v2/pkg/handler"
 )
+
+type uploadQuota struct {
+	mu         sync.Mutex
+	root       *os.Root
+	maxUploads int
+	maxBytes   int64
+	pending    map[string]usage
+	used       map[string]usage
+	indexed    map[string]indexedUpload
+}
+
+func newUploadQuota(root *os.Root, config Config) (*uploadQuota, error) {
+	used, indexed, err := loadQuotaUsage(root)
+	if err != nil {
+		return nil, err
+	}
+	return &uploadQuota{root: root, maxUploads: config.MaxOwnerUploads,
+		maxBytes: config.MaxOwnerBytes, pending: make(map[string]usage), used: used, indexed: indexed}, nil
+}
 
 type reservation struct {
 	owner  string
@@ -29,8 +49,8 @@ type indexedUpload struct {
 	size  int64
 }
 
-func loadQuotaUsage(directory string) (map[string]usage, map[string]indexedUpload, error) {
-	files, err := os.ReadDir(directory)
+func loadQuotaUsage(root *os.Root) (map[string]usage, map[string]indexedUpload, error) {
+	files, err := fs.ReadDir(root.FS(), ".")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -41,16 +61,15 @@ func loadQuotaUsage(directory string) (map[string]usage, map[string]indexedUploa
 		if !strings.HasSuffix(file.Name(), ".info") {
 			continue
 		}
-		if err := indexUploadMetadata(directory, file.Name(), used, indexed); err != nil {
+		if err := indexUploadMetadata(root, file.Name(), used, indexed); err != nil {
 			return nil, nil, err
 		}
 	}
 	return used, indexed, nil
 }
 
-func indexUploadMetadata(directory, name string, used map[string]usage, indexed map[string]indexedUpload) error {
-	path := filepath.Join(directory, name)
-	data, err := os.ReadFile(path)
+func indexUploadMetadata(root *os.Root, name string, used map[string]usage, indexed map[string]indexedUpload) error {
+	data, err := root.ReadFile(name)
 	if err != nil {
 		return fmt.Errorf("read upload metadata %s: %w", name, err)
 	}
@@ -74,63 +93,90 @@ func addIndexedUpload(id string, info tusd.FileInfo, used map[string]usage, inde
 	used[owner] = current
 }
 
-func (server *Server) reserve(entry *reservation, size int64) error {
-	server.quotaMu.Lock()
-	defer server.quotaMu.Unlock()
+func (quota *uploadQuota) reserve(entry *reservation, size int64) error {
+	quota.mu.Lock()
+	defer quota.mu.Unlock()
 
-	current := server.pending[entry.owner]
-	current.count += server.used[entry.owner].count
-	current.bytes += server.used[entry.owner].bytes
-	if current.count >= server.config.MaxOwnerUploads || current.bytes+size > server.config.MaxOwnerBytes {
+	current := quota.pending[entry.owner]
+	current.count += quota.used[entry.owner].count
+	current.bytes += quota.used[entry.owner].bytes
+	if current.count >= quota.maxUploads || current.bytes+size > quota.maxBytes {
 		return errors.New("storage quota reached")
 	}
 
-	pending := server.pending[entry.owner]
+	pending := quota.pending[entry.owner]
 	pending.count++
 	pending.bytes += size
-	server.pending[entry.owner] = pending
+	quota.pending[entry.owner] = pending
 	entry.size, entry.active = size, true
 	return nil
 }
 
-func (server *Server) release(entry *reservation) {
-	server.quotaMu.Lock()
-	defer server.quotaMu.Unlock()
+func (quota *uploadQuota) release(entry *reservation) {
+	quota.mu.Lock()
+	defer quota.mu.Unlock()
 	if !entry.active {
 		return
 	}
 
-	server.indexCompletedUpload(entry)
-	server.releasePendingUsage(entry)
+	quota.indexCompletedUpload(entry)
+	quota.releasePendingUsage(entry)
 	entry.active = false
 }
 
-func (server *Server) indexCompletedUpload(entry *reservation) {
+func (quota *uploadQuota) indexCompletedUpload(entry *reservation) {
 	if entry.id == "" {
 		return
 	}
 
-	_, err := os.Stat(filepath.Join(server.config.Directory, entry.id+".info"))
-	_, indexed := server.indexed[entry.id]
+	_, err := quota.root.Stat(entry.id + ".info")
+	_, indexed := quota.indexed[entry.id]
 	// An unreadable .info file may still occupy quota. Count it until startup reconciliation.
 	if indexed || (err != nil && errors.Is(err, os.ErrNotExist)) {
 		return
 	}
 
-	server.indexed[entry.id] = indexedUpload{owner: entry.owner, size: entry.size}
-	used := server.used[entry.owner]
+	quota.indexed[entry.id] = indexedUpload{owner: entry.owner, size: entry.size}
+	used := quota.used[entry.owner]
 	used.count++
 	used.bytes += entry.size
-	server.used[entry.owner] = used
+	quota.used[entry.owner] = used
 }
 
-func (server *Server) releasePendingUsage(entry *reservation) {
-	pending := server.pending[entry.owner]
+func (quota *uploadQuota) releasePendingUsage(entry *reservation) {
+	pending := quota.pending[entry.owner]
 	pending.count--
 	pending.bytes -= entry.size
 	if pending.count == 0 {
-		delete(server.pending, entry.owner)
+		delete(quota.pending, entry.owner)
 		return
 	}
-	server.pending[entry.owner] = pending
+	quota.pending[entry.owner] = pending
+}
+
+func (quota *uploadQuota) removeFiles(id string) error {
+	quota.mu.Lock()
+	defer quota.mu.Unlock()
+
+	if err := removeUploadFiles(quota.root, id); err != nil {
+		return err
+	}
+	quota.removeFromUsageIndex(id)
+	return nil
+}
+
+func (quota *uploadQuota) removeFromUsageIndex(id string) {
+	item, exists := quota.indexed[id]
+	if !exists {
+		return
+	}
+	used := quota.used[item.owner]
+	used.count--
+	used.bytes -= item.size
+	if used.count == 0 {
+		delete(quota.used, item.owner)
+	} else {
+		quota.used[item.owner] = used
+	}
+	delete(quota.indexed, id)
 }

@@ -1,6 +1,6 @@
 {
-  "modeStorageKey": "kaordo.color-mode",
-  "themeStorageKey": "kaordo.theme",
-  "identityModeParameter": "kaordo_mode",
-  "identityThemeParameter": "kaordo_theme"
+	"modeStorageKey": "kaordo.color-mode",
+	"themeStorageKey": "kaordo.theme",
+	"identityModeParameter": "kaordo_mode",
+	"identityThemeParameter": "kaordo_theme"
 }

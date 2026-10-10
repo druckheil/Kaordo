@@ -1,29 +1,17 @@
 package postgres
 
 import (
-	"context"
 	"errors"
-	"os"
-	"strings"
 	"sync"
 	"testing"
 
+	adminmodel "github.com/druckheil/Kaordo/services/kerno/internal/admin"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestAdminAccessFlow(t *testing.T) {
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+func TestAdminAccountActions(t *testing.T) {
+	ctx, pool := testDatabase(t)
 	users := NewUsers(pool)
 	admin, err := users.Upsert(ctx, "regado-admin", "regadoadmin", "Regado Admin")
 	if err != nil {
@@ -52,79 +40,22 @@ func TestAdminAccessFlow(t *testing.T) {
 			t.Fatalf("users for %q = %+v, %v", query, listed, err)
 		}
 	}
-	if _, err := store.SetDisabled(ctx, admin.ID, admin.ID, true, "self lockout attempt"); !errors.Is(err, ErrAdminTarget) {
+	if _, err := store.SetDisabled(ctx, admin.ID, admin.ID, true, "self lockout attempt"); !errors.Is(err, adminmodel.ErrTarget) {
 		t.Fatalf("self disable = %v", err)
 	}
-	if _, err := store.SetAdmin(ctx, admin.ID, admin.ID, false, "self revocation attempt"); !errors.Is(err, ErrAdminTarget) {
+	if _, err := store.SetAdmin(ctx, admin.ID, admin.ID, false, "self revocation attempt"); !errors.Is(err, adminmodel.ErrTarget) {
 		t.Fatalf("self role change = %v", err)
 	}
 	promoted, err := store.SetAdmin(ctx, admin.ID, target.ID, true, "Assign administrator responsibilities")
 	if err != nil || !promoted.IsAdmin {
 		t.Fatalf("role grant = %+v, %v", promoted, err)
 	}
-	if _, err := store.SetDisabled(ctx, admin.ID, target.ID, true, "disable privileged target"); !errors.Is(err, ErrAdminTarget) {
+	if _, err := store.SetDisabled(ctx, admin.ID, target.ID, true, "disable privileged target"); !errors.Is(err, adminmodel.ErrTarget) {
 		t.Fatalf("administrator was disabled: %v", err)
 	}
 	revoked, err := store.SetAdmin(ctx, admin.ID, target.ID, false, "Administrator responsibilities concluded")
 	if err != nil || revoked.IsAdmin {
 		t.Fatalf("role revocation = %+v, %v", revoked, err)
-	}
-	reason := "Investigating a documented policy violation"
-	accessCase, err := store.CreateAccessCase(ctx, admin.ID, target.ID, reason)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if accessCase.TargetUserID != target.ID {
-		t.Fatalf("case target = %+v", accessCase)
-	}
-	if _, err := store.AccessCase(ctx, target.ID, accessCase.ID); err == nil {
-		t.Fatal("target opened admin case")
-	}
-	if _, err := store.AccessCase(ctx, admin.ID, accessCase.ID); err != nil {
-		t.Fatal(err)
-	}
-	var noticeID string
-	messages := table.LigoMessages.AS("m")
-	conversations := table.LigoConversations.AS("c")
-	if err := jetQueryRow(ctx, pool, messages.SELECT(jetpg.CAST(messages.ID).AS_TEXT()).
-		FROM(messages.INNER_JOIN(conversations, conversations.ID.EQ(messages.ConversationID))).
-		WHERE(jetpg.AND(conversations.Kind.EQ(jetpg.String("self")), conversations.CreatedBy.EQ(jetUUID(target.ID)), messages.SystemNotice.IS_TRUE())).
-		ORDER_BY(messages.CreatedAt.DESC()).LIMIT(1)).Scan(&noticeID); err != nil {
-		t.Fatal(err)
-	}
-	var conversationID string
-	if err := jetQueryRow(ctx, pool, messages.SELECT(jetpg.CAST(messages.ConversationID).AS_TEXT()).
-		WHERE(messages.ID.EQ(jetUUID(noticeID)))).Scan(&conversationID); err != nil {
-		t.Fatal(err)
-	}
-	message, err := NewLigo(pool).message(ctx, target.ID, noticeID)
-	if err != nil || !message.SystemNotice || !strings.Contains(message.Text, accessCase.ID) {
-		t.Fatalf("notice = %+v, %v", message, err)
-	}
-	saved, err := NewLigo(pool).GetConversation(ctx, target.ID, conversationID)
-	if err != nil || saved.UnreadCount != 1 || saved.LastMessage == nil || saved.LastMessage.ID != noticeID {
-		t.Fatalf("Saved messages notification = %+v, %v", saved, err)
-	}
-	if _, err := NewLigo(pool).Edit(ctx, target.ID, conversationID, noticeID, "hide notice"); err == nil {
-		t.Fatal("notice was editable")
-	}
-	if _, err := NewLigo(pool).DeleteMessage(ctx, target.ID, conversationID, noticeID); err == nil {
-		t.Fatal("notice was deletable")
-	}
-	if _, err := NewLigo(pool).SetReaction(ctx, target.ID, conversationID, noticeID, "heart", true); err == nil {
-		t.Fatal("system notice accepted a reaction")
-	}
-	page, err := store.CaseContent(ctx, target.ID, "messages", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range page.Items {
-		if item.ID == noticeID {
-			t.Fatal("system notice leaked into inspected content")
-		}
-	}
-	if _, err := store.CaseContent(ctx, target.ID, "posts", ""); err != nil {
-		t.Fatal(err)
 	}
 	changed, err := store.SetDisabled(ctx, admin.ID, target.ID, true, "Repeated policy violation")
 	if err != nil || changed.DisabledAt == nil {
@@ -137,21 +68,6 @@ func TestAdminAccessFlow(t *testing.T) {
 	if _, err := store.SetDisabled(ctx, admin.ID, target.ID, false, "Appeal was accepted"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CloseCase(ctx, target.ID, accessCase.ID); err == nil {
-		t.Fatal("target closed another actor's case")
-	}
-	if err := store.CloseCase(ctx, admin.ID, accessCase.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.AccessCase(ctx, admin.ID, accessCase.ID); err == nil {
-		t.Fatal("closed case still allowed access")
-	}
-	if err := store.CloseCase(ctx, admin.ID, accessCase.ID); err != nil {
-		t.Fatal("case closure is not idempotent:", err)
-	}
-	if err := store.Record(ctx, admin.ID, target.ID, "case.read", reason, map[string]string{"caseId": accessCase.ID}); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.Record(ctx, admin.ID, "", "log.read", "", map[string]string{"service": "kerno"}); err != nil {
 		t.Fatal(err)
 	}
@@ -159,24 +75,10 @@ func TestAdminAccessFlow(t *testing.T) {
 	if err != nil || len(entries) < 3 {
 		t.Fatalf("audit = %+v, %v", entries, err)
 	}
-	for _, entry := range entries {
-		if entry.Action == "case.read" && (entry.Target == nil || *entry.Target != target.Username) {
-			t.Fatalf("content read lost its target: %+v", entry)
-		}
-	}
 }
 
 func TestAdminMutualRevocationPreservesAdministrator(t *testing.T) {
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	ctx, pool := testDatabase(t)
 	users := NewUsers(pool)
 	a, err := users.Upsert(ctx, "regado-race-a", "regadoracea", "Race A")
 	if err != nil {
@@ -206,7 +108,7 @@ func TestAdminMutualRevocationPreservesAdministrator(t *testing.T) {
 	for err := range results {
 		if err == nil {
 			success++
-		} else if !errors.Is(err, ErrAdminTarget) {
+		} else if !errors.Is(err, adminmodel.ErrTarget) {
 			t.Fatal(err)
 		}
 	}

@@ -1,171 +1,112 @@
-# GitHub Actions checks
+# CI
 
-The `Checks` workflow validates source, static apps, services, product journeys and dependencies. It never deploys. The final `checks` job is the stable status to require in branch protection: every preceding job must succeed, including integration. A failed, skipped or cancelled layer cannot produce a green gate.
+`.github/workflows/checks.yml` runs on pushes to `main` and `scope-*`, on pull requests and on manual dispatch. A new commit cancels the older run for the same ref. Branch protection requires the final `checks` job. That job passes only when every layer below succeeded; a skipped or cancelled layer fails it. `scope-*` runs validate only. On a push to `main`, a final job asks production to install the release that run built.
 
-## Layers and ownership
+## Layers
 
-| Job | Coverage | Dependencies |
-| --- | --- | --- |
-| Frontend and unit tests | Svelte/TypeScript, generated OpenAPI types, account/API cancellation and cache helpers, Lingvo presentation/AI/CSV/speech/FSRS, layout, parsed dependency ownership and deployment/rollback fixtures | None |
-| Static app artifact | All six app builds, prerendered routes, local assets, lazy-loading and initial JavaScript budget | None |
-| Browser fixtures and accessibility (two shards) | Post navigation/composing/sharing, media paste and cold first uploads in Fluo/Ligo/Rondo, native scrolling, Lingvo practice/forms/error recovery, Regado interactions/history, public reflow, touch targets, enlarged text, forced colors, palette contrast and automated WCAG checks | Frontend and static artifact |
-| Go services and PostgreSQL | All four modules with race detection, vet and build; Fluo/Ligo/Rondo/Admin/Lingvo isolated product/access tests, capacity fixtures, concurrent reviews and migration replay | None |
-| Identity, product and recovery journeys | Real registration, TOTP/recovery, persistent/rotating/revoked sessions, application SSO, uploads and processing, posts, messaging, LiveKit camera/calls, Lingvo dictionary/card/review/undo persistence, encrypted backup and disposable restore | Frontend and static artifact |
-| Dependency advisories | npm advisories and `govulncheck` for every Go module | None |
+| Job                            | Runs                                                                                                                                                         | Needs              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| Frontend and unit tests        | `check:front`, generated-contract diff, `format:check`, `lint`, `knip`, `test:unit`                                                                          | —                  |
+| Static app artifact            | `test:pages`: builds every app once and uploads the artifact                                                                                                 | —                  |
+| Production release payload     | Production-origin frontend checks, Linux backend build and complete release-manifest verification; kept as the `production-release` artifact on `main`       | —                  |
+| Browser fixtures (3 shards)    | `test:ui`: Playwright scenarios with synthetic data, accessibility and layout checks                                                                         | frontend, artifact |
+| Go services and PostgreSQL     | Go build/vet/race tests, `golangci-lint`, regado-agent host tests on loop devices (`test:host`), actionlint, `product-db.integration.mjs` on a disposable DB | —                  |
+| Identity, product and recovery | `test:integration`: real Keycloak, Kerno, Nodo, LiveKit and restic against the built artifact                                                                | frontend, artifact |
+| Dependency advisories          | `pnpm audit` and `govulncheck` per Go module                                                                                                                 | —                  |
 
-Static apps are built once and passed to both browser and integration jobs as the **same run's artifact**. The artifact uses explicit local endpoints; tests do not contact production. Release-only production-origin checks remain in `pnpm test:pages:production` and the production deployment preflight.
+Browser and integration jobs use the **same run's** static artifact, built with local endpoints. The separate production payload job uses public production endpoints and the same packaging path as `pnpm deploy:production`. It never receives production secrets.
 
-Browser scenarios use native Playwright test-level sharding across two independent
-GitHub runners (`--fully-parallel --workers=1 --shard=1/2` and `2/2`). Each runner
-owns one Vite-generating worker and fresh test contexts; live journeys remain
-sequential. Both shards must succeed for the aggregate gate. Each test step has
-a five-minute budget inside a seven-minute job, allowing fresh Chromium setup
-and diagnostic uploads. Action/navigation/test budgets and zero retries remain
-unchanged. Failure artifacts have distinct shard names. Scale independent shards
-when coverage grows; do not add workers sharing generated app source on one host.
-Both browser and live jobs use the local `setup-chromium` composite action. It
-selects the official HTTPS Ubuntu archive in the ephemeral runner's existing
-APT sources, preserving Ubuntu signing keys, suites and components, then installs
-Chromium through the pinned Playwright CLI. It does not affect production hosts.
+## Automatic deployment
 
-Push checks run on `main` and `scope-*` branches. Feature branches are checked through pull requests. Tags do not repeat branch checks. `workflow_dispatch` supports explicit runs once the workflow is on the default branch. A new commit cancels obsolete work for the same branch or PR, while unrelated branches remain independent.
+GitHub builds; the server only installs. After `checks` passes on a push to `main`, the `deploy` job, the only one allowed to mint an OIDC token, sends that token to `https://kaordo.link/v1/deployments`. Kerno accepts it only when GitHub signed it for that origin and its `workflow_ref` is the one `cd.nix` names, then asks regado-agent to start `kaordo-deploy@<run>`. The job polls the run's state and fails when the deployment fails, so the `production` environment in GitHub shows each result.
+
+The unit downloads the run's `production-release` artifact with a read-only token and installs it with `deploy-release.sh` only if the run is that workflow's push to `main`, passed `checks`, is still the branch head, contains the revision production runs, and its download and archive match GitHub's digest and the clean manifest. Deployments queue behind each other; an older run ends `superseded`. A rejected release leaves the previous one running; re-running the deploy job retries it. Regado alerts on a failed deployment, critically when the rollback failed too. See [production](../deploy/nixos/README.md).
+
+Main protection requires an up-to-date PR and the `checks` context, applies to administrators, and disallows force pushes and deletion; squash and rebase merging are disabled. A merge into `main` is deployment authorization; version tags and release notes remain separate operations.
 
 ## Local reproduction
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm check:front
+pnpm check:front && pnpm format:check && pnpm lint && pnpm knip
 pnpm test:unit
 pnpm test:pages
 pnpm exec playwright install chromium --only-shell
 pnpm test:ui
-pnpm test:product:db # application PostgreSQL running
-pnpm test:integration # Docker, ffmpeg and restic installed; app/backend ports free
+pnpm lint:go && pnpm test:go
+pnpm test:host        # Docker with privileged containers
+pnpm test:product:db  # application PostgreSQL container running
+pnpm test:integration # Docker and restic installed; ports free; pnpm dev stopped
 ```
 
-On Linux, install browser system libraries with `pnpm exec playwright install --with-deps chromium --only-shell`. The Playwright version is pinned in `package.json`; use its downloaded Chromium on CI. `CHROME_BIN` and macOS Chrome remain available for local work.
+`test:integration` starts `dev-local.mjs --static` through Playwright's `webServer` and stops it on exit. CI also removes the Compose volumes. With `pnpm dev` already running, `pnpm test:auth:live` and `pnpm test:backup:live` run the live journeys against it. On one machine, run `test:unit` before `test:integration`, because the launcher tests briefly hold the same ports.
 
-`pnpm test:integration` uses Playwright's `webServer` lifecycle to run `dev-local.mjs --static`. Readiness occurs after the databases, identity policy, Kerno and Nodo are ready and the built site is listening. A process exit fails startup immediately, and startup has a finite deadline. Playwright terminates application processes on exit; CI also stops Compose and deletes its disposable volumes. This local command preserves Docker volumes. `pnpm dev` remains the HMR development workflow.
+Finish `check:front` and `test:pages` before starting `test:ui`. SvelteKit sync and builds update files watched by fixture Vite servers and can reload an active browser scenario or invalidate optimized dependencies.
 
-For an already-running local stack, use `pnpm test:auth:live` or `pnpm test:backup:live`. The identity-only command is a diagnostic subset; CI must always execute the complete live project.
+All seven apps use `localViteDependencies` in `scripts/local-vite.mjs`. Vite normally scans only Svelte script blocks, losing template imports and functions called only by actions or events. A Rolldown `load` hook supplies the compiled JavaScript for linked Svelte source components, so the scanner follows the complete component graph, including template-level lazy imports. Components in `node_modules` remain owned by the Svelte optimizer plugin. The complete scan can publish prepared bundles without waiting for the browser's static crawl (`holdUntilCrawlEnd: false`). Linked workspace modules stay unbundled so auth and feature state retain one instance. Dependency bundles and static release builds retain their normal tree shaking.
 
-On one local host, finish `pnpm test:unit` before starting integration: launcher
-preflight unit fixtures briefly own the same ports that the live launcher checks.
-Also sequence the complete live journey after the browser-engine audit: although
-fixtures use separate ports, concurrent browser/compiler/media work can exhaust
-the journey's whole-test budget. Hosted unit, browser and integration jobs run on
-separate machines. Preserve occupied-port rejection, the full journey and its
-named budgets when diagnosing local resource contention.
+`vite-dependencies.test.mjs` starts every real app in a separate process with an empty temporary cache and asserts that its lazy libraries finish optimization before a browser request. It then restarts with the same cache, verifies reuse of the complete graph and reports measured cold/warm preparation times. `test:unit` runs these scans after the other Node suites so optimizer CPU work does not compete with deployment fixtures that spawn host-command stubs. Browser fixture teardown also rejects dependency-scan errors and optimizer-triggered page reloads, even when the interaction assertions happen to pass. The Playwright worker owns and removes each cache, so every hosted browser shard starts cold regardless of pnpm and Go cache hits.
 
-Useful focused commands:
+`test:product:db` creates a random database in the local `app-db` container (CI sets `KAORDO_TEST_DB_CONTAINER` and `KAORDO_DB_PASSWORD`), runs the Kerno PostgreSQL tests with `-race` against it and drops it. The tests apply the embedded migrations and fail when the generated Jet tables differ from the schema. It never touches the application database.
+
+Useful focused runs:
 
 ```sh
 pnpm test:product:ui
 pnpm test:regado:ui
-pnpm exec playwright test --project=browser ui-public.test.mjs
+node --test scripts/vite-dependencies.test.mjs
 pnpm exec playwright test --project=browser ui-quality.test.mjs
-pnpm exec playwright install webkit firefox
-pnpm test:ui:browsers
 pnpm exec playwright test --project=browser --repeat-each=3 --workers=1
+pnpm test:ui:browsers # optional WebKit/Firefox audit
 pnpm exec playwright show-trace path/to/trace.zip
-pnpm exec playwright show-report dist/test-results/report
-# Workflow syntax, expressions, action inputs and shell validation
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/checks.yml
 ```
 
-The PostgreSQL runner defaults to local Compose. CI selects its service container using `KAORDO_TEST_DB_CONTAINER` and passes the disposable password through `KAORDO_DB_PASSWORD`. Each run creates and drops a random database; test data never shares the application database.
+## Rules for tests
 
-`lingvo-client.test.mjs` owns browser-independent presentation, AI/CSV validation,
-speech teardown and previews from the pinned ts-fsrs implementation. Go scheduler
-tests consume the same 32-case reference fixture. Lingvo database tests own import
-identity/migration, access, capacity, revisions, concurrent review and undo/replay;
-they require the isolated DSN supplied by `product-db.integration.mjs`.
+1. **Preserve coverage.** Fix the cause, not the assertion. No excluded journeys, accepted skips, `.only` or retries. Playwright retries are zero.
+2. **Use the smallest layer that proves the behavior.** Pure logic goes in Node unit tests. Constraints, transactions and access go in PostgreSQL tests. Rendered behavior goes in Playwright fixtures. Real identity, media, calls and restore go in live journeys. `ci-config.test.mjs` rejects test files no suite runs.
+3. **Integration uses release behavior.** Built static apps avoid Vite dependency discovery and HMR reloads. Every fixture test gets a fresh browser context and its own mocked API state. Never share mutable accounts or cache browser storage.
+4. **Wait for observable state.** Use role and label locators and web-first assertions. Register response listeners before the click. Assert the mutation and the resulting UI separately.
+5. **Keep timeouts intentional.** Actions get 10 s and navigation 15 s; slow work gets a named budget. Fixed sleeps are allowed only to measure time itself (for example a TOTP period), with a comment saying so.
+6. **Own teardown.** Close contexts before deleting temporary accounts in `finally`. Drop temporary databases and isolate backup repositories.
+7. **Cache inputs, not results.** Cache pnpm and Go downloads and builds only. Never cache built apps across revisions, credentials, databases or media.
+8. **Keep failures diagnosable and safe.** Fixture failures keep traces, screenshots and the HTML report for three days. Live identity tests disable traces and screenshots because they contain credentials. Never upload environments, tokens, storage, dumps or media.
+9. **Keep automation reproducible.** Pin Ubuntu, Node 24, the lockfile, service images, tools and Actions by commit. Keep `contents: read` and checkout without persisted credentials. After dependency changes, also run `GOWORK=off go build`, `go mod verify` and `govulncheck` in each module.
+10. **Measure honestly.** Record the commit, run URL, job durations and cache state. A faster run with less coverage is not an improvement.
 
-`ui-quality.test.mjs` owns representative authenticated UI checks with synthetic data from `ui-quality-fixture.mjs`. It covers 320px/390px/1440px layouts, modal bounds, 24px minimum targets, 44px primary touch targets, keyboard focus/recovery, 200% text size, WCAG text spacing, forced colors and 280 semantic contrast pairs. Screenshots are optional (`KAORDO_UI_SCREENSHOTS=1`) and remain build output. Run static builds and Svelte checks before fixture tests: changing generated `.svelte-kit` files during a Vite scenario can reload the document and invalidate interaction state. Do not interpret a passing axe scan as formal WCAG certification or a measured UEQ/VisAWI score.
+## Hosted evidence
 
-`regado-fixture.mjs` supplies a fresh authenticated API fixture for each Regado
-scenario. `regado-ui.test.mjs` owns individual navigation, layout, history, disk,
-journal, access-case and error-recovery tasks. Lingvo tasks likewise own fresh
-state. A compound test exhausting its whole-test budget must be split by useful
-task without dropping its assertions or extending every action timeout.
+The complete [Svelte dependency discovery run](https://github.com/druckheil/Kaordo/actions/runs/38052661311) on 2026-10-10 tested `120054e5ef1a0de0bbc6c5463459c24b9b93972d` on `scope-0.0.4`. All nine jobs passed in 7m55s, measured from workflow creation to completion of the final gate. This includes formatting, ESLint, knip, golangci-lint, actionlint, all 198 Node tests, 10 static artifact checks, 68 browser scenarios and all five live journeys. Browser scenarios used zero retries; the optimizer reload guard remained clean.
 
-`pnpm test:ui:browsers` repeats the synthetic scenarios in WebKit and Firefox with one worker. Chromium owns touch emulation and forced-color scenarios. WebKit remains headless; Firefox's two native PNG clipboard scenarios use a headed browser because this macOS headless backend exposes an image item whose `getAsFile()` is null. The other Firefox scenarios remain headless. On Linux, provide a display with `xvfb-run -a pnpm test:ui:browsers`. This optional engine audit does not change the required Chromium CI gate or launch identity services. The static guest fixture shares the built endpoints' localhost host and resolves silent login with an HTTP redirect. WebKit's route backend cannot fulfill redirects, so that backend uses an equivalent document navigation; real identity redirects stay covered by the live suite.
+| Job                                  | Duration |
+| ------------------------------------ | -------- |
+| Frontend and unit tests              | 2m44s    |
+| Static app artifact                  | 1m43s    |
+| Browser fixtures and accessibility 1 | 3m55s    |
+| Browser fixtures and accessibility 2 | 4m59s    |
+| Browser fixtures and accessibility 3 | 4m24s    |
+| Go services and PostgreSQL           | 3m36s    |
+| Identity, product and recovery       | 4m42s    |
+| Dependency advisories                | 42s      |
+| Final checks gate                    | 3s       |
 
-## Rules for adding and repairing tests
+Job durations include dependency setup and cleanup. Every pnpm setup restored its package cache through a matching restore key; the Go and golangci-lint caches also hit. Browser installation and each fixture's Vite optimization were fresh. The unit suite measured both empty and reused Vite caches on the hosted runner, as shown below. No hosted run with empty pnpm and Go caches was measured for this change, so the workflow total is a warm dependency-cache result.
 
-1. **Preserve coverage.** Fix the cause before changing assertions. Do not obtain a green run by excluding a journey, weakening accessibility/access checks, accepting skips or adding blanket retries. Playwright retries are zero and CI rejects `.only`.
-2. **Choose the smallest useful layer.** Pure transformations, cancellation and configuration belong in Node unit tests. SQL constraints, transactions and permissions belong in isolated database tests. Rendered behavior belongs in Playwright fixtures. Real identity/media/call/restore boundaries belong in live journeys. `ci-config.test.mjs` rejects unassigned regression files. Add new files to the corresponding suite, not a second full-stack workflow.
-3. **Use the real release behavior for integration.** Built static apps avoid Vite dependency discovery and HMR reloads during a lazy editor, upload or call. Fixture Vite servers are worker-owned; every server owns a temporary dependency cache that is removed on teardown, and every test receives a fresh Playwright browser context and its own mocked API state. First-upload regressions explicitly replace the worker's app server with a fresh one so a warm dependency cache cannot hide a reload; never keep two fixture servers generating the same app's `.svelte-kit` source. Synthetic binary uploads use an owned HTTP fixture and verify received bytes because WebKit's route interception cannot expose Blob request bodies. Prepare lazy libraries through their owning workspace package rather than prebundling a second copy of in-memory authentication. Never cache browser storage or share mutable account fixtures.
-4. **Wait for observable state.** Prefer role/label locators, Playwright assertions and explicit API actions. Register response listeners before clicking; assert the mutation status and the resulting UI separately. A feed refetch is not the contract for successful posting. Layout checks wait for the requested viewport/state, and accessibility checks start from a deliberately positioned, settled screen.
-5. **Keep timeouts intentional.** Normal actions are bounded at 10 seconds, navigation at 15 seconds, and slow processing/startup gets a named budget. Fixed waits are allowed only when measuring actual time semantics, such as an expiry crossing or TOTP period; explain them. Increasing timeouts is not a fix for a missing request or lost dialog.
-6. **Own teardown.** Stop fixture servers and background requests, close contexts, remove temporary accounts in `finally`, drop temporary databases and isolate backup repositories. Parallelize independent jobs; keep the live suite sequential because it deliberately exercises shared services and recovery.
-7. **Cache inputs, not decisions.** pnpm caches dependency downloads with a frozen lockfile; setup-go caches modules and compilation for the declared toolchain and all four `go.sum` files. Never cache pass/fail results, built apps across revisions, credentials, databases or media. Browser downloads are installed with the pinned Playwright CLI; Linux system packages still need installation, so there is no separate browser cache to maintain.
-8. **Make failures diagnosable.** Fixture/public failures retain Playwright traces, screenshots, Vite logs and an HTML report for three days. Inspect the first failed action and application/server output before changing code. Live authentication disables traces and screenshots because requests and native forms contain credentials, tokens and recovery codes; do not upload its storage, dumps, media or environment files.
-9. **Keep automation reproducible.** Use the pinned Ubuntu family, Node 24, `go.work`, the lockfile, pinned service/tool versions and commit-pinned Actions. Also verify a dependency change with `GOWORK=off` builds, `go mod verify` and `govulncheck@v1.8.0` from each module directory: workspace version selection can conceal an older standalone dependency. Dependabot groups Action updates monthly. Keep `contents: read`, disable persisted checkout credentials, and preserve the aggregate gate. Lint workflow changes with actionlint and observe the complete hosted run before calling a CI repair verified.
-10. **Measure honestly.** Report the commit, run URL, job durations and whether caches were warm. Include startup/setup/artifact time in wall-clock comparisons. A faster run with reduced coverage is not an improvement.
+## Optimizer measurements
 
-## Investigation evidence
+The Svelte-aware scan was measured on 2026-10-10 on macOS arm64 with Node 24.18.0, Vite 8.3.1 and Svelte 5.57.1. `pnpm test:unit` starts one Node process per app; the cold phase uses an empty optimizer cache, and the warm phase recreates the Vite server in that same process and verifies that all prepared dependencies were loaded from the cache. Timings include configuration and dependency preparation, exclude process startup and browser rendering, and are diagnostics rather than performance assertions.
 
-On 6 October 2026 the preceding workflow ran every layer sequentially. The successful [scope-0.0.3 run](https://github.com/druckheil/Kaordo/actions/runs/37420463620) took 7m48s; its Go stage took 2m04s, UI stage 1m02s and live stage 1m26s. Twenty preceding runs failed during browser checks or the live journey. The [last failed live run](https://github.com/druckheil/Kaordo/actions/runs/37418387771) spent 10m07s before failing while waiting 60 seconds for a feed response after publication. The following successful workflow excluded the registration/product journey with `test:auth:live:identity`.
+The same test in the hosted run above measured the following on Ubuntu 24.04 x64. Package downloads were cached in both environments; the cold column specifically means an empty Vite optimizer cache.
 
-This repair restores that journey, runs it against the single built artifact, observes the publish mutation directly, separates independent jobs and adds native Playwright isolation, diagnostics and workflow validation. Hosted verification results are recorded after execution; local success alone is not evidence of GitHub runner behavior.
+| App    | Local empty cache | Local cached restart | Hosted empty cache | Hosted cached restart |
+| ------ | ----------------- | -------------------- | ------------------ | --------------------- |
+| Portal | 1,187 ms          | 24 ms                | 2,580 ms           | 48 ms                 |
+| Fluo   | 1,293 ms          | 31 ms                | 2,985 ms           | 61 ms                 |
+| Ligo   | 1,247 ms          | 35 ms                | 2,805 ms           | 72 ms                 |
+| Rondo  | 1,335 ms          | 36 ms                | 2,914 ms           | 73 ms                 |
+| Regado | 1,222 ms          | 24 ms                | 2,857 ms           | 45 ms                 |
+| Lingvo | 1,227 ms          | 33 ms                | 2,720 ms           | 44 ms                 |
+| Memoro | 1,275 ms          | 41 ms                | 2,823 ms           | 80 ms                 |
 
-### Hosted verification of this repair
-
-Commit `33ae7cfb0a7f79e1fef0b77fdce3549a6ca0e019` passed **all seven jobs twice** on GitHub-hosted Ubuntu 24.04:
-
-| Run | Wall time including setup, artifacts and the aggregate gate | Result |
-| --- | --- | --- |
-| [Attempt 1](https://github.com/druckheil/Kaordo/actions/runs/37440480234/attempts/1) | 5m14s | All layers passed |
-| [Attempt 2, same commit](https://github.com/druckheil/Kaordo/actions/runs/37440480234/attempts/2) | 4m40s | All layers passed |
-
-Each attempt ran 124 Node unit/config/deployment tests and 9 artifact checks with zero skips, 12 browser scenarios, all 5 live journeys, PostgreSQL product/capacity/migration tests, Go race/vet/build, actionlint and both dependency scans. Both restored pnpm/Go dependency caches; browser libraries and Compose services were installed on fresh runners. These measurements are **not a fully cold cache benchmark**. The prior 7m48s baseline had a cold Go cache and excluded the full live registration/product journey, so the timings also reflect different coverage and cache state.
-
-The follow-up tightens cleanup ordering: browser contexts close before temporary identities/application rows are removed, preventing background requests from racing account deletion. It retains the same coverage and budgets.
-
-Reference documentation: [Playwright testing practices](https://playwright.dev/docs/best-practices), [Playwright CI and worker guidance](https://playwright.dev/docs/ci), [Playwright webServer lifecycle](https://playwright.dev/docs/test-webserver), [GitHub workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
-
-### Local quality audit — 7 October 2026
-
-The [quality audit ledger](audits/iso-iec-25010-2023-2026-10-07.md) records expanded
-fast, database, Chromium, WebKit/Firefox and complete static integration evidence
-against the working tree based on `c061186`. It includes rejected Rondo browser
-persistence in a real connected call and all five live journeys.
-Compound Regado/Lingvo browser budget failures were diagnosed from their first
-failed trace action and corrected through task isolation; coverage and retries
-were preserved. No workflow file was edited, and no hosted run of this
-assessed refactor is claimed. The hosted durations above belong to their recorded
-commit and cache conditions.
-
-### Release 0.0.3 browser budget diagnosis
-
-The [first release run](https://github.com/druckheil/Kaordo/actions/runs/37691069679)
-at `864c31295f96af3528277fe77122f18936672f41` passed frontend/unit, static artifacts,
-Go/PostgreSQL, dependency checks and all five live journeys. The old single
-five-minute browser job was cancelled at scenario 33 of 57 after 1m20s setup
-and 3m54s of progressing tests, without a failed assertion. The aggregate gate
-correctly rejected that incomplete run. The repair splits the unchanged scenarios
-between separate runners using [Playwright sharding](https://playwright.dev/docs/test-sharding);
-it does not extend action waits or drop coverage. Hosted verification of the
-repair is recorded with its exact commit after the complete run.
-
-The [sharded follow-up](https://github.com/druckheil/Kaordo/actions/runs/37692138978)
-at `00be873f70654e5411e71809fd4607399df9c39f` exposed a separate runner setup issue:
-the first shard passed all 29 scenarios in 3.1m, but APT spent 2m58s downloading
-27.3 MB, including a stalled `fonts-freefont-ttf` download from
-`azure.archive.ubuntu.com`. The second runner spent 6m17s downloading 32.5 MB and
-exhausted its job budget shortly after starting the unchanged tests. This matches the
-[runner-image mirror report](https://github.com/actions/runner-images/issues/14594).
-The release hotfix shares official-archive browser setup across browser and live
-jobs; retries and test budgets remain unchanged. This failed run is not counted
-as a complete verification.
-
-The [first main run](https://github.com/druckheil/Kaordo/actions/runs/37693421594)
-at `0e9b155bbc7dd0262cb746a43908b5297a34f648` showed the runner's newer APT
-`mirror+file:/etc/apt/apt-mirrors.txt` source. Replacing direct Azure URLs alone
-left Azure first in that mirror list: the second shard lost 2m03s on downloads
-and was cancelled at its final scenario. All other layers passed, including all
-five live journeys. `ci-ubuntu-mirror.sh` now handles direct and mirror-file
-sources, verifies the selected source, preserves signing keys/suites/components,
-and has fixture tests for both forms, security sources, idempotence and unknown
-future mirror formats. No incomplete run is treated as release evidence.
+The complete browser suite passed locally as three independent cold fixture shards: 23 tests in 1.3m, 23 in 1.9m and 22 in 1.5m, with zero retries and no optimizer-triggered reloads. These macOS timings do not predict hosted Ubuntu job durations.

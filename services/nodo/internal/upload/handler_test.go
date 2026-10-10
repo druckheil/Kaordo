@@ -3,6 +3,7 @@ package upload
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -14,7 +15,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -39,7 +39,7 @@ func TestUploadLocationUsesProxyHTTPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = handler.Close() })
+	t.Cleanup(handler.Close)
 	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8082/v1/uploads/", nil)
 	request.Header.Set("Authorization", "Bearer alice")
 	request.Header.Set("Tus-Resumable", "1.0.0")
@@ -89,7 +89,7 @@ func TestResumableImageUploadAndAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = handler.Close() })
+	t.Cleanup(handler.Close)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	client := server.Client()
@@ -234,7 +234,7 @@ func TestResumableImageUploadAndAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = restarted.Close() })
+	t.Cleanup(restarted.Close)
 	restartedServer := httptest.NewServer(restarted)
 	defer restartedServer.Close()
 	restartPost, err := http.NewRequest(http.MethodPost, restartedServer.URL+"/v1/uploads/", nil)
@@ -273,7 +273,7 @@ func TestUploadAcceptanceEndsBeforeGarbageCollection(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{config: Config{Directory: directory}}
+	server := &Server{config: Config{Directory: directory}, root: testRoot(t, directory)}
 	for _, age := range []struct {
 		value   time.Duration
 		expired bool
@@ -314,7 +314,7 @@ func TestFourConcurrentImageUploadsAcceptMislabeledWebP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = handler.Close() })
+	t.Cleanup(handler.Close)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	client := server.Client()
@@ -434,47 +434,10 @@ func TestFourConcurrentImageUploadsAcceptMislabeledWebP(t *testing.T) {
 	}
 }
 
-func TestVideoProcessing(t *testing.T) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg is not installed")
-	}
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		t.Skip("ffprobe is not installed")
-	}
-	directory := t.TempDir()
-	source := filepath.Join(directory, "source.mp4")
-	command := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-		"-f", "lavfi", "-i", "testsrc=size=320x240:rate=12", "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p", source)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("create video: %v: %s", err, output)
-	}
-	server := &Server{config: Config{Directory: directory}}
-	item, output, err := server.processVideo(t.Context(), source, "01999111-2222-7333-8444-555555555555")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(output)
-	if item.Kind != "video" || item.MimeType != "video/mp4" || item.Width != 320 || item.Height != 240 || item.Size < 1 {
-		t.Fatalf("processed video metadata = %+v", item)
-	}
-}
-
-func TestResumableVideoUploadAndPlayback(t *testing.T) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg is not installed")
-	}
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		t.Skip("ffprobe is not installed")
-	}
-	source := filepath.Join(t.TempDir(), "source.mp4")
-	command := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-		"-f", "lavfi", "-i", "testsrc=size=160x120:rate=12", "-t", "1",
-		"-c:v", "libx264", "-pix_fmt", "yuv420p", source)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("create video: %v: %s", err, output)
-	}
-	data, err := os.ReadFile(source)
-	if err != nil {
+// Device-encrypted media reaches Nodo as opaque bytes that must round-trip unchanged
+func TestResumableEncryptedFileUploadAndDownload(t *testing.T) {
+	data := make([]byte, 64*1024)
+	if _, err := rand.Read(data); err != nil {
 		t.Fatal(err)
 	}
 	key := []byte(strings.Repeat("k", 32))
@@ -490,7 +453,7 @@ func TestResumableVideoUploadAndPlayback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = handler.Close() })
+	t.Cleanup(handler.Close)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	create, err := http.NewRequest(http.MethodPost, server.URL+"/v1/uploads/", nil)
@@ -500,7 +463,8 @@ func TestResumableVideoUploadAndPlayback(t *testing.T) {
 	create.Header.Set("Authorization", "Bearer alice")
 	create.Header.Set("Tus-Resumable", "1.0.0")
 	create.Header.Set("Upload-Length", strconv.Itoa(len(data)))
-	create.Header.Set("Upload-Metadata", "filetype "+base64.StdEncoding.EncodeToString([]byte("video/mp4")))
+	create.Header.Set("Upload-Metadata", "filetype "+base64.StdEncoding.EncodeToString([]byte("application/octet-stream"))+
+		",filename "+base64.StdEncoding.EncodeToString([]byte("clip.bin")))
 	created, err := server.Client().Do(create)
 	if err != nil {
 		t.Fatal(err)
@@ -516,7 +480,7 @@ func TestResumableVideoUploadAndPlayback(t *testing.T) {
 	path := location.Path
 	id := strings.TrimPrefix(path, "/v1/uploads/")
 	if !validUploadID(id) {
-		t.Fatalf("invalid video upload ID: %q", id)
+		t.Fatalf("invalid upload ID: %q", id)
 	}
 	patch, err := http.NewRequest(http.MethodPatch, server.URL+path, bytes.NewReader(data))
 	if err != nil {
@@ -532,7 +496,7 @@ func TestResumableVideoUploadAndPlayback(t *testing.T) {
 	}
 	patched.Body.Close()
 	if patched.StatusCode != http.StatusNoContent {
-		t.Fatalf("patch video = %d", patched.StatusCode)
+		t.Fatalf("patch upload = %d", patched.StatusCode)
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -547,20 +511,21 @@ func TestResumableVideoUploadAndPlayback(t *testing.T) {
 		}
 		if result.StatusCode == http.StatusOK {
 			var item struct {
-				Complete       bool
-				Width, Height  int
-				Kind, MimeType string
+				Complete                 bool
+				Width, Height            int
+				Kind, MimeType, Filename string
 			}
 			err = json.NewDecoder(result.Body).Decode(&item)
 			result.Body.Close()
-			if err != nil || !item.Complete || item.Kind != "video" || item.MimeType != "video/mp4" || item.Width != 160 || item.Height != 120 {
-				t.Fatalf("processed video metadata = %+v, %v", item, err)
+			if err != nil || !item.Complete || item.Kind != "file" || item.MimeType != "application/octet-stream" ||
+				item.Filename != "clip.bin" || item.Width != 0 || item.Height != 0 {
+				t.Fatalf("stored file metadata = %+v, %v", item, err)
 			}
 			break
 		}
 		result.Body.Close()
 		if result.StatusCode != http.StatusAccepted || time.Now().After(deadline) {
-			t.Fatalf("video processing status = %d", result.StatusCode)
+			t.Fatalf("file processing status = %d", result.StatusCode)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -573,11 +538,11 @@ func TestResumableVideoUploadAndPlayback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer shown.Body.Close()
-	if shown.StatusCode != http.StatusOK || shown.Header.Get("Content-Type") != "video/mp4" {
-		t.Fatalf("signed video response = %d %q", shown.StatusCode, shown.Header.Get("Content-Type"))
+	if shown.StatusCode != http.StatusOK || shown.Header.Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("signed download response = %d %q", shown.StatusCode, shown.Header.Get("Content-Type"))
 	}
-	if body, err := io.ReadAll(shown.Body); err != nil || len(body) == 0 {
-		t.Fatalf("processed video is empty: %v", err)
+	if body, err := io.ReadAll(shown.Body); err != nil || !bytes.Equal(body, data) {
+		t.Fatalf("downloaded bytes differ from the upload: %v", err)
 	}
 }
 
@@ -599,7 +564,7 @@ func TestOldUnreferencedUploadIsCollected(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]bool{"referenced": referenced.Load()})
 	}))
 	defer kerno.Close()
-	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: key}, pending: make(map[string]usage)}
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: key}, root: testRoot(t, directory), quota: &uploadQuota{root: testRoot(t, directory)}}
 	referenced.Store(true)
 	server.garbageCollect(context.Background())
 	if _, err := os.Stat(filepath.Join(directory, id+".info")); err != nil {
@@ -629,7 +594,7 @@ func TestCleanupFailsClosedOnMissingReferenceState(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer kerno.Close()
-	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}}
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}, root: testRoot(t, directory), quota: &uploadQuota{root: testRoot(t, directory)}}
 	server.garbageCollect(context.Background())
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("source was removed without an explicit reference decision: %v", err)
@@ -651,7 +616,7 @@ func TestOrphanSourceWithoutMetadataIsCollected(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]bool{"referenced": false})
 	}))
 	defer kerno.Close()
-	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}}
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}, root: testRoot(t, directory), quota: &uploadQuota{root: testRoot(t, directory)}}
 	server.garbageCollect(context.Background())
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("orphan source still exists: %v", err)
@@ -673,7 +638,7 @@ func TestOrphanDisplayWithoutMetadataIsCollected(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]bool{"referenced": false})
 	}))
 	defer kerno.Close()
-	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}}
+	server := &Server{config: Config{Directory: directory, KernoURL: kerno.URL, MediaKey: []byte(strings.Repeat("k", 32))}, root: testRoot(t, directory), quota: &uploadQuota{root: testRoot(t, directory)}}
 	server.garbageCollect(context.Background())
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("orphan display still exists: %v", err)

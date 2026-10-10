@@ -4,30 +4,31 @@
  */
 
 export interface paths {
-    "/v1/lingvo/dictionaries": {
+    "/v1/deployments": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["listLingvoDictionaries"];
+        get?: never;
         put?: never;
-        post: operations["createLingvoDictionary"];
+        /** @description Installs the release the calling run built, once that run's revision is still the branch head */
+        post: operations["requestDeployment"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/lingvo/dictionaries/{dictionaryId}": {
+    "/v1/deployments/{run}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["getLingvoOverview"];
+        get: operations["getDeployment"];
         put?: never;
         post?: never;
         delete?: never;
@@ -36,62 +37,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/lingvo/dictionaries/{dictionaryId}/settings": {
+    "/v1/fluo/keyring": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put: operations["updateLingvoSettings"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/lingvo/dictionaries/{dictionaryId}/cards": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listLingvoCards"];
+        get: operations["getFluoKeyring"];
         put?: never;
-        post: operations["createLingvoCard"];
+        post: operations["updateFluoKeyring"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}": {
+    "/v1/fluo/keys": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put: operations["updateLingvoCard"];
-        post?: never;
-        delete: operations["deleteLingvoCard"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/lingvo/dictionaries/{dictionaryId}/study": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getLingvoStudyQueue"];
+        get: operations["getFluoKeys"];
         put?: never;
         post?: never;
         delete?: never;
@@ -100,7 +69,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/lingvo/dictionaries/{dictionaryId}/cards/{cardId}/reviews": {
+    "/v1/rondo/channels/{id}/voice-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get: operations["readRondoVoiceKey"];
+        put: operations["writeRondoVoiceKey"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/crypto/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["readRecoveryBundle"];
+        put: operations["saveRecoveryBundle"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/crypto/records/read": {
         parameters: {
             query?: never;
             header?: never;
@@ -109,14 +112,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["reviewLingvoCard"];
+        post: operations["readPrivateRecords"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/lingvo/dictionaries/{dictionaryId}/reviews/{reviewId}/undo": {
+    "/v1/crypto/records/commit": {
         parameters: {
             query?: never;
             header?: never;
@@ -125,14 +128,63 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["undoLingvoReview"];
+        post: operations["commitPrivateRecords"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/lingvo/dictionaries/{dictionaryId}/folders": {
+    "/v1/crypto/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["publicEncryptionIdentity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/crypto/audience/{module}/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["encryptionAudience"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/crypto/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Reads this account's public identity and sealed device keys; private keys never reach Kerno. */
+        get: operations["readEncryptionIdentity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/crypto/devices": {
         parameters: {
             query?: never;
             header?: never;
@@ -141,14 +193,49 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["createLingvoFolder"];
+        /** @description Initializes the first device or registers another device awaiting a signed transfer. */
+        post: operations["registerEncryptionDevice"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/lingvo/dictionaries/{dictionaryId}/folders/{folderId}": {
+    "/v1/crypto/devices/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Approves a device using account-signed sealed keys; login alone cannot mint an approval. */
+        post: operations["approveEncryptionDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/crypto/devices/{id}/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Records that the token's sign-in session uses this device of the account. */
+        put: operations["useEncryptionDevice"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/crypto/devices/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -158,22 +245,42 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete: operations["deleteLingvoFolder"];
+        /** @description Removes a device binding using an account signature bound to its current public key and sealed bundle. Does not erase keys already obtained by a device. */
+        delete: operations["forgetEncryptionDevice"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/lingvo/dictionaries/{dictionaryId}/imports": {
+    "/v1/memoro/month": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["readMemoroMonth"];
         put?: never;
-        post: operations["importLingvoCards"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/memoro/days/{dayTag}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dayTag: string;
+            };
+            cookie?: never;
+        };
+        get: operations["readMemoroDay"];
+        /** @description Saves encrypted content with a revision check and validates encrypted upload ownership. */
+        put: operations["saveMemoroDay"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -188,6 +295,88 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getLingvoCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/profiles/{username}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getFluoProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Updates the current account's Fluo nickname and optional profile fields. Account username, registration date and verification cannot be changed here. */
+        put: operations["updateFluoProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/profile/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["setFluoStatus"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Renews availability and returns compact account avatars and privacy-filtered presence for the requested IDs. Foreground clients refresh every 2 seconds; hidden or closed clients expire after 7 seconds. Repeated beats within 1 second do not write again. */
+        post: operations["touchFluoPresence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fluo/users/{id}/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listFluoConnections"];
         put?: never;
         post?: never;
         delete?: never;
@@ -848,57 +1037,6 @@ export interface paths {
         patch: operations["setRegadoUserRole"];
         trace?: never;
     };
-    "/v1/admin/cases": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description Opens a 15-minute account-content access case, audits it and notifies the target in Ligo Saved messages. */
-        post: operations["openRegadoAccessCase"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/cases/{id}/content": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Audited content read for the case creator before expiry. Media URLs expire after one minute. */
-        get: operations["readRegadoCaseContent"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/cases/{id}/close": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description Ends the case immediately and audits it. Previously issued media links expire within one minute. */
-        post: operations["closeRegadoAccessCase"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/system": {
         parameters: {
             query?: never;
@@ -947,21 +1085,20 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/logs/retention": {
+    "/v1/admin/usage": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["getRegadoDataUsage"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** @description Audits and persists host-wide journal retention. Archived journals may be deleted by native rotation and vacuum. */
-        patch: operations["setRegadoLogRetention"];
+        patch?: never;
         trace?: never;
     };
     "/v1/admin/actions/{action}": {
@@ -973,6 +1110,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Restarts run through regado-agent; media actions audit or clean stored uploads in Nodo. */
         post: operations["runRegadoAction"];
         delete?: never;
         options?: never;
@@ -980,23 +1118,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/storage/plan": {
+    "/v1/admin/hosts": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["listRegadoHosts"];
         put?: never;
-        post: operations["previewRegadoStoragePlan"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/storage/apply": {
+    "/v1/admin/hosts/{host}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoHost"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/state/plan": {
         parameters: {
             query?: never;
             header?: never;
@@ -1005,7 +1159,137 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["applyRegadoStoragePlan"];
+        post: operations["planRegadoHostState"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["applyRegadoHostState"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRegadoHostOperations"];
+        put?: never;
+        /** @description Runs an integrity check outside its schedule; one check runs at a time. */
+        post: operations["startRegadoHostCheck"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoHostUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/usage/measure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["measureRegadoHostUsage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRegadoHostAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/alerts/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Sends a test notice to every administrator through Ligo and the host's ntfy topic. */
+        post: operations["testRegadoHostAlerts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/operations/{operation}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoHostOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/operations/{operation}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancelRegadoHostOperation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1016,6 +1300,499 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The last state the production deployment of one GitHub Actions run reported */
+        Deployment: {
+            /** Format: int64 */
+            run: number;
+            /** @description The commit the run built */
+            revision?: string;
+            /** @enum {string} */
+            state: "waiting" | "deploying" | "succeeded" | "superseded" | "failed";
+            message?: string;
+            /** @description The release failed and restoring the previous one did too; production may be inconsistent */
+            rollbackFailed?: boolean;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        HostIdentity: {
+            name: string;
+            machineId: string;
+            /** @enum {string} */
+            firmware: "bios" | "efi";
+            poolMount: string;
+        };
+        HostPartition: {
+            path: string;
+            number: number;
+            size: number;
+            label: string;
+            type: string;
+            fsType: string;
+            fsLabel: string;
+            fsUuid: string;
+            mountpoints: string[];
+        };
+        HostDevice: {
+            /** @description Stable /dev/disk/by-id name; empty when the device has none */
+            id: string;
+            path: string;
+            model: string;
+            serial: string;
+            wwn: string;
+            size: number;
+            rotational: boolean;
+            transport: string;
+            fsType: string;
+            fsLabel: string;
+            fsUuid: string;
+            mountpoints: string[];
+            partitions: components["schemas"]["HostPartition"][];
+            /** @enum {string} */
+            class: "pool" | "backup" | "blank" | "foreign" | "unidentified";
+            hostsSystem: boolean;
+            health: components["schemas"]["HostDeviceHealth"] | null;
+        };
+        HostDeviceHealth: {
+            /** @enum {string} */
+            state: "passed" | "warning" | "failed" | "unavailable" | "standby";
+            passed: boolean | null;
+            temperatureC: number | null;
+            powerOnHours: number | null;
+            reallocatedSectors: number | null;
+            pendingSectors: number | null;
+            uncorrectableSectors: number | null;
+            /** Format: date-time */
+            checkedAt: string;
+        };
+        HostDeviceErrors: {
+            write: number;
+            read: number;
+            flush: number;
+            corruption: number;
+            generation: number;
+        };
+        HostPoolMember: {
+            devid: number;
+            size: number;
+            used: number;
+            path: string;
+            deviceId: string;
+            missing: boolean;
+            errors: components["schemas"]["HostDeviceErrors"];
+        };
+        HostPool: {
+            uuid: string;
+            label: string;
+            mount: string;
+            members: components["schemas"]["HostPoolMember"][];
+            dataProfiles: string[];
+            metadataProfiles: string[];
+            systemProfiles: string[];
+            deviceSize: number;
+            allocated: number;
+            used: number;
+            freeEstimated: number;
+            dataRatio: number;
+            /** @description One copy of the filesystem's metadata */
+            metadataUsed: number;
+        };
+        HostSnapshotPolicy: {
+            /** @enum {string} */
+            schedule: "off" | "hourly" | "daily";
+            keepHourly: number;
+            keepDaily: number;
+            keepWeekly: number;
+            keepMonthly: number;
+        };
+        HostBackupTarget: {
+            id: string;
+            /** @enum {string} */
+            kind: "disk";
+            device: string;
+        };
+        HostBackupPolicy: {
+            volume: string;
+            target: string;
+            /** @enum {string} */
+            schedule: "hourly" | "daily" | "weekly";
+            keepDaily: number;
+            keepWeekly: number;
+            keepMonthly: number;
+        };
+        HostNtfyChannel: {
+            url: string;
+            topic: string;
+        };
+        /** @description The host's desired state document; the agent validates it and assigns revisions */
+        HostState: {
+            revision: number;
+            pool: {
+                devices: string[];
+                /** @enum {string} */
+                dataProfile: "single" | "raid1" | "raid1c3";
+                /** @enum {string} */
+                metadataProfile: "auto" | "single" | "dup" | "raid1" | "raid1c3";
+            };
+            volumes: {
+                [key: string]: {
+                    quotaBytes: number | null;
+                };
+            };
+            snapshots: {
+                [key: string]: components["schemas"]["HostSnapshotPolicy"];
+            };
+            integrity: {
+                /** @enum {string} */
+                scrub: "off" | "weekly" | "monthly";
+                /** @enum {string} */
+                smartShort: "off" | "weekly" | "monthly";
+                /** @enum {string} */
+                smartLong: "off" | "weekly" | "monthly";
+            };
+            backups: {
+                targets: components["schemas"]["HostBackupTarget"][];
+                policies: components["schemas"]["HostBackupPolicy"][];
+            };
+            cleanup: {
+                nixGenerationsDays: number;
+                releasesKeep: number;
+                /** @enum {integer} */
+                journalDays: 0 | 1 | 7 | 14 | 30 | 90;
+            };
+            alerts: {
+                poolWarningPercent: number;
+                poolCriticalPercent: number;
+                ntfy: null | components["schemas"]["HostNtfyChannel"];
+            };
+        };
+        HostPoolStep: {
+            /** @enum {string} */
+            kind: "replace" | "add" | "convert" | "remove";
+            device?: string;
+            replaces?: number;
+            data?: string;
+            metadata?: string;
+            summary: string;
+            /** @description Serial the operator must type before the device is erased */
+            confirm?: string;
+        };
+        HostPoolPlan: {
+            steps: components["schemas"]["HostPoolStep"][];
+            issues: string[];
+        };
+        HostFacts: {
+            host: components["schemas"]["HostIdentity"];
+            devices: components["schemas"]["HostDevice"][];
+            pool: components["schemas"]["HostPool"];
+            desired: components["schemas"]["HostState"];
+            drift: components["schemas"]["HostPoolPlan"];
+        };
+        /** @enum {string} */
+        HostOperationState: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted" | "skipped";
+        HostOperationStage: {
+            name: string;
+            state: components["schemas"]["HostOperationState"];
+            progress?: {
+                done: number;
+                /** @description Zero when the size is unknown */
+                total: number;
+                unit: string;
+            };
+            detail?: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+        };
+        HostOperation: {
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            target?: string;
+            reason?: string;
+            /** @description Account ID, schedule for scheduled checks, or agent for convergence the agent starts itself */
+            requestedBy: string;
+            state: components["schemas"]["HostOperationState"];
+            cancellable: boolean;
+            stages: components["schemas"]["HostOperationStage"][];
+            error?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+        };
+        HostOperationLogEntry: {
+            /** Format: date-time */
+            at: string;
+            message: string;
+        };
+        HostOperationRecord: components["schemas"]["HostOperation"] & {
+            log: components["schemas"]["HostOperationLogEntry"][];
+        };
+        HostAlert: {
+            /** @description Stable while the problem lasts */
+            key: string;
+            /** @enum {string} */
+            severity: "warning" | "critical";
+            summary: string;
+            /** Format: date-time */
+            firstSeen: string;
+            /** Format: date-time */
+            lastSeen: string;
+            /** Format: date-time */
+            resolvedAt?: string;
+        };
+        HostAlertTest: {
+            ligo: boolean;
+            /** @description sent, not configured, or failed: <reason> */
+            ntfy: string;
+        };
+        HostUsageCategory: {
+            /** @enum {string} */
+            key: "system" | "nix" | "logs" | "database" | "media" | "metrics" | "releases" | "temporary" | "other" | "metadata" | "unreferenced";
+            /** @description Logical file sizes; metadata is reported by the filesystem, unreferenced is the positive remainder of stored pool usage after subtracting file sizes and metadata, without determining its cause */
+            bytes: number;
+            files: number;
+            /** @description Change since the measurement a day earlier */
+            growthDay: number | null;
+            /** @description Change since the measurement a week earlier */
+            growthWeek: number | null;
+        };
+        HostUsageSample: {
+            /** Format: date-time */
+            at: string;
+            stored: number;
+            bytes: {
+                [key: string]: number;
+            };
+        };
+        HostUsage: {
+            /** Format: date-time */
+            measuredAt: string | null;
+            measuring: boolean;
+            /** @description One copy of each stored byte, after compression, and the space still free */
+            pool: {
+                stored: number;
+                free: number;
+                /** @description Positive difference between counted file sizes plus filesystem metadata and stored pool usage; an estimate rather than a measurement of compression or shared extents */
+                saved: number;
+            };
+            categories: components["schemas"]["HostUsageCategory"][];
+            history: components["schemas"]["HostUsageSample"][];
+            /** @description The last week's growth projected onto the free space; null when nothing grows */
+            fullInDays: number | null;
+        };
+        RegadoAppBytes: {
+            posts: number;
+            messages: number;
+            channels: number;
+            profile: number;
+            journal: number;
+            learning: number;
+        };
+        RegadoUserData: {
+            /** Format: uuid */
+            id: string;
+            username: string;
+            displayName: string;
+            media: components["schemas"]["RegadoAppBytes"];
+            records: components["schemas"]["RegadoAppBytes"];
+            total: number;
+            addedWeek: number;
+        };
+        RegadoDataUsage: {
+            users: components["schemas"]["RegadoUserData"][];
+            databases: {
+                name: string;
+                bytes: number;
+            }[];
+            tables: {
+                name: string;
+                bytes: number;
+                rows: number;
+                deadRows: number;
+            }[];
+            referencedMedia: number;
+            referencedUploads: number;
+        };
+        HostCheckRequest: {
+            /** @enum {string} */
+            kind: "integrity.scrub" | "integrity.smart-short" | "integrity.smart-long";
+            /** @description Optional reason recorded in the audit */
+            reason?: string;
+        };
+        HostStateChange: {
+            document: components["schemas"]["HostState"];
+            confirmations: string[];
+            /** @description Optional reason recorded in the audit */
+            reason?: string;
+            /** @description Start pool steps even when the pool section is unchanged; other settings never touch disks */
+            converge?: boolean;
+        };
+        HostStateChangeResult: {
+            document: components["schemas"]["HostState"];
+            previous: null | components["schemas"]["HostState"];
+            operation: null | components["schemas"]["HostOperation"];
+        };
+        PrivateRecord: {
+            tag: string;
+            revision: number;
+            nonce: string;
+            ciphertext: string;
+        };
+        PrivateRecordTransaction: {
+            writes: components["schemas"]["PrivateRecord"][];
+            deletes: {
+                tag: string;
+                revision: number;
+            }[];
+        };
+        PublicEncryptionIdentity: {
+            /** Format: uuid */
+            id: string;
+            encryptionPublicKey: string;
+            signingPublicKey: string;
+        };
+        EncryptionAudience: {
+            public: boolean;
+            users: components["schemas"]["PublicEncryptionIdentity"][];
+        };
+        ContentEnvelope: {
+            /** @constant */
+            version: 1;
+            context: string;
+            /** Format: uuid */
+            senderId: string;
+            nonce: string;
+            ciphertext: string;
+            publicKey: string;
+            signature: string;
+            keys: {
+                /** Format: uuid */
+                userId: string;
+                key: string;
+            }[];
+        };
+        FluoContent: components["schemas"]["FluoDocument"] | components["schemas"]["FluoEnvelope"];
+        FluoKeyRef: {
+            /** Format: uuid */
+            ownerId: string;
+            /** @description Version 0 is the author's never-shared self key */
+            version: number;
+        };
+        FluoEnvelope: {
+            /** @constant */
+            version: 1;
+            context: string;
+            /** Format: uuid */
+            senderId: string;
+            nonce: string;
+            ciphertext: string;
+            keyring: components["schemas"]["FluoKeyRef"][];
+            signature: string;
+        };
+        FluoKeyringState: {
+            /** @enum {string} */
+            accountVisibility: "public" | "private";
+            versions: {
+                version: number;
+                published: boolean;
+            }[];
+            missing: {
+                recipient: components["schemas"]["PublicEncryptionIdentity"];
+                versions: number[];
+            }[];
+        };
+        FluoKeyringUpdate: {
+            /** @description The next version to create */
+            create: number;
+            publish: {
+                version: number;
+                key: string;
+            }[];
+            grants: {
+                /** Format: uuid */
+                recipientId: string;
+                version: number;
+                sealedKey: string;
+            }[];
+        };
+        FluoKeyMaterial: {
+            /** Format: uuid */
+            ownerId: string;
+            version: number;
+            publicKey?: string;
+            sealedKey?: string;
+        };
+        EncryptionDevice: {
+            /** Format: uuid */
+            id: string;
+            publicKey: string;
+            wrappedKeys: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** @description The identity provider session (the token's sid) that last used this device; empty before one did */
+            sessionId: string;
+            /**
+             * @description How the device received the account keys; empty while it waits or when unrecorded
+             * @enum {string}
+             */
+            unlockedWith: "" | "account" | "device" | "recovery";
+            /** Format: date-time */
+            unlockedAt: string | null;
+        };
+        EncryptionIdentity: {
+            encryptionPublicKey: string;
+            signingPublicKey: string;
+            devices: components["schemas"]["EncryptionDevice"][];
+        };
+        EncryptionRegistration: {
+            /** Format: uuid */
+            id: string;
+            publicKey: string;
+            encryptionPublicKey?: string;
+            signingPublicKey?: string;
+            wrappedKeys?: string;
+        };
+        EncryptionApproval: {
+            wrappedKeys: string;
+            signature: string;
+        };
+        EncryptedEnvelope: {
+            nonce: string;
+            ciphertext: string;
+        };
+        MemoroSummary: {
+            dayTag: string;
+            monthTag: string;
+            revision: number;
+            nonce: string;
+            ciphertext: string;
+        };
+        MemoroDay: {
+            dayTag: string;
+            monthTag: string;
+            revision: number;
+            nonce: string;
+            ciphertext: string;
+            media: {
+                /** Format: uuid */
+                id: string;
+                size: number;
+                /** Format: uri */
+                url: string;
+            }[];
+        };
+        MemoroDayUpdate: {
+            monthTag: string;
+            revision: number;
+            nonce: string;
+            ciphertext: string;
+            summary: components["schemas"]["EncryptedEnvelope"];
+            attachmentIds: string[];
+        };
         LingvoDictionary: {
             /** Format: uuid */
             id: string;
@@ -1209,7 +1986,6 @@ export interface components {
             uploads: number;
             mediaBytes: number;
             databaseBytes: number;
-            openCases: number;
             mediaByKind: {
                 kind: string;
                 objects: number;
@@ -1245,202 +2021,12 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
-        RegadoCase: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            targetUserId: string;
-            targetUsername: string;
-            reason: string;
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: date-time */
-            expiresAt: string;
-        };
-        RegadoContentMedia: {
-            /** Format: uuid */
-            id: string;
-            kind: string;
-            mimeType: string;
-            filename: string;
-            size: number;
-            /** Format: uri */
-            url: string;
-        };
-        RegadoContent: {
-            /** Format: uuid */
-            id: string;
-            text: string;
-            context: string;
-            /** Format: date-time */
-            createdAt: string;
-            media: components["schemas"]["RegadoContentMedia"][];
-        };
-        RegadoContentPage: {
-            items: components["schemas"]["RegadoContent"][];
-            /** Format: uuid */
-            nextCursor: string | null;
-        };
-        RegadoDisk: {
-            name: string;
-            path: string;
-            label: string | null;
-            partitionLabel: string | null;
-            fsType: string | null;
-            size: number;
-            type: string;
-            model: string | null;
-            serial: string | null;
-            wwn: string | null;
-            mountpoints: (string | null)[];
-            /** @description Whether this device contains the filesystem mounted at / */
-            systemDisk: boolean;
-            /**
-             * @description Operational state of this physical device in the managed storage pool
-             * @enum {string}
-             */
-            storageState?: "unconfigured" | "queued" | "working";
-            /** @description Whether the host agent's current preflight considers this device safe to onboard */
-            configureEligible?: boolean;
-            /** @description A concise explanation of the current storage state or onboarding eligibility */
-            configureReason?: string;
-            /** @description Discovered physical connection such as SATA */
-            transport?: string | null;
-            /** @description Discovered controller address; no enclosure bay is inferred */
-            address?: string | null;
-            partitionType?: string | null;
-            start?: number;
-            number?: number;
-            /** @enum {string} */
-            role?: "" | "system" | "storage" | "unassigned";
-            bootKind?: string;
-            /** @description Partition-table and alignment slack excluded from allocatable regions */
-            overheadBytes?: number;
-            layoutAvailable?: boolean;
-            unallocated?: {
-                /** @description Byte offset from the start of the physical disk */
-                start: number;
-                size: number;
-            }[];
-            children?: components["schemas"]["RegadoDisk"][];
-            health?: components["schemas"]["RegadoDiskHealth"];
-        };
-        RegadoDiskHealth: {
-            /** @enum {string} */
-            state: "passed" | "warning" | "failed" | "unavailable" | "standby";
-            passed: boolean | null;
-            temperatureC: number | null;
-            powerOnHours: number | null;
-            reallocatedSectors: number | null;
-            pendingSectors: number | null;
-            uncorrectableSectors: number | null;
-            /** Format: date-time */
-            checkedAt: string;
-        };
-        RegadoMount: {
-            path: string;
-            source: string;
-            fsType: string;
-            total: number;
-            used: number;
-            free: number;
-            available: boolean;
-            integrity: components["schemas"]["RegadoFilesystemIntegrity"] | null;
-        };
-        RegadoFilesystemIntegrity: {
-            uuid: string;
-            /** @description Physical block device paths participating in this Btrfs filesystem */
-            members: string[];
-            dataProfile: string;
-            metadataProfile: string;
-            systemProfile: string;
-            mirroredPercent: number;
-            deviceErrors: number;
-            devicesOnline: number;
-            devicesExpected: number;
-            healthy: boolean;
-            balanceRunning: boolean;
-            /** @enum {string} */
-            scrubState: "not-run" | "running" | "complete" | "errors" | "unknown";
-            scrubErrors: number;
-            /** @description Sum of physical pool capacity before RAID replication */
-            physicalTotal?: number;
-            /** @description Physical space used including replicas and metadata */
-            physicalUsed?: number;
-        };
-        RegadoReplicationReport: {
-            path: string;
-            /** @enum {string} */
-            state: "checking" | "repairing" | "complete" | "failed";
-            /** @enum {string} */
-            stage: "replication" | "checksums" | "inventory" | "complete";
-            /** Format: date-time */
-            startedAt: string | null;
-            /** Format: date-time */
-            checkedAt: string | null;
-            files: number;
-            /** @description Logical size of regular files */
-            bytes: number;
-            unreadable: number;
-            /** @enum {string} */
-            duplication: "" | "duplicated" | "single" | "unverified";
-            progress?: components["schemas"]["RegadoOperationProgress"] | null;
-            /** @enum {string} */
-            checksumState: "" | "passed" | "errors";
-            error: string;
-        };
         RegadoOperationProgress: {
             completed: number;
             /** @description Null when no measured denominator is available */
             total: number | null;
             /** @enum {string} */
             unit: "bytes" | "chunks" | "files" | "uploads" | "steps";
-        };
-        RegadoLayoutRequest: {
-            device: string;
-            identity: string;
-            filesystem: string;
-            systemBytes: number;
-            storageBytes: number;
-            fingerprint?: string;
-            confirmation?: string;
-        };
-        RegadoLayoutStep: {
-            /** @enum {string} */
-            kind: "keep" | "boot" | "create" | "resize" | "activate";
-            /** @enum {string} */
-            role: "system" | "storage";
-            number: number;
-            start: number;
-            size: number;
-            previousSize: number;
-            source: string;
-        };
-        RegadoStoragePlan: {
-            device: string;
-            identity: string;
-            fingerprint: string;
-            supported: boolean;
-            /** @enum {string} */
-            backend: "disko" | "systemd-repart";
-            /** @description Exportable Disko role declaration; applying it to existing disks requires operator review */
-            declaration: string;
-            issues: string[];
-            warnings: string[];
-            systemBytes: number;
-            storageBytes: number;
-            availableBytes: number;
-            steps: components["schemas"]["RegadoLayoutStep"][];
-        };
-        RegadoLayoutReport: {
-            device: string;
-            /** @enum {string} */
-            state: "running" | "complete" | "failed";
-            stage: string;
-            /** Format: date-time */
-            startedAt: string;
-            error: string;
-            progress: components["schemas"]["RegadoOperationProgress"] | null;
         };
         RegadoMediaMaintenance: {
             directory: string;
@@ -1475,7 +2061,6 @@ export interface components {
         };
         RegadoActionResult: {
             action: string;
-            target: string;
             output: string;
             accepted: boolean;
         };
@@ -1514,12 +2099,8 @@ export interface components {
             };
             /** Format: date-time */
             time: string;
-            disks: components["schemas"]["RegadoDisk"][];
-            mounts: components["schemas"]["RegadoMount"][];
             swapDevices: components["schemas"]["RegadoSwapDevice"][];
             services: components["schemas"]["RegadoService"][];
-            layoutReports?: components["schemas"]["RegadoLayoutReport"][];
-            replicationReports?: components["schemas"]["RegadoReplicationReport"][];
             mediaMaintenance?: components["schemas"]["RegadoMediaMaintenance"] | null;
         };
         RegadoSample: {
@@ -1601,14 +2182,24 @@ export interface components {
         LigoMessagePreview: {
             /** Format: uuid */
             id: string;
+            /** Format: uuid */
+            clientId: string;
             text: string;
             /** Format: uuid */
             senderId: string;
             deleted: boolean;
+            /** @description Administrator notices are plaintext metadata */
+            systemNotice: boolean;
             /** Format: date-time */
             createdAt: string;
         };
         LigoConversation: {
+            channel?: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                serverId: string;
+            };
             /** Format: uuid */
             id: string;
             /** @enum {string} */
@@ -1637,6 +2228,8 @@ export interface components {
             nextCursor: string | null;
         };
         LigoNewConversation: {
+            /** Format: uuid */
+            id?: string;
             /** @enum {string} */
             kind: "duo" | "group" | "self";
             title?: string;
@@ -1664,6 +2257,8 @@ export interface components {
             active: boolean;
         };
         LigoMembersRequest: {
+            title?: string;
+            expectedTitle?: string;
             participantIds: string[];
         };
         RondoServer: {
@@ -1699,19 +2294,40 @@ export interface components {
             members: components["schemas"]["LigoUser"][];
         };
         RondoServerPage: {
+            /** Format: uuid */
+            nextCursor?: string | null;
             items: components["schemas"]["RondoServer"][];
         };
         RondoNewServer: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            generalId?: string;
+            general?: string;
             name: string;
             description: string;
             /** @enum {string} */
             access: "public" | "private";
         };
-        RondoInvite: {
+        RondoInvite: components["schemas"]["RondoEncryptedMetadata"] & {
             /** Format: uuid */
             userId: string;
         };
+        RondoEncryptedMetadata: {
+            expectedName: string;
+            name: string;
+            channels: {
+                [key: string]: string;
+            };
+        };
+        RondoVoiceKey: {
+            revision: number;
+            membershipTag: string;
+            envelope: components["schemas"]["ContentEnvelope"] | null;
+        };
         RondoNewChannel: {
+            /** Format: uuid */
+            id?: string;
             name: string;
         };
         RondoVoiceTicket: {
@@ -1733,12 +2349,77 @@ export interface components {
             username: string;
             displayName: string;
             following: boolean;
+            avatar?: components["schemas"]["FluoMedia"] | null;
+            /** @description Account-owned verification; not editable through profile requests. */
+            verified?: boolean;
+        };
+        /** @enum {string} */
+        FluoPresence: "online" | "busy" | "offline";
+        /** @enum {string} */
+        FluoStatus: "online" | "busy" | "invisible";
+        UserPresentation: {
+            /** Format: uuid */
+            id: string;
+            avatar: components["schemas"]["FluoMedia"] | null;
+            /** @description Availability filtered by current privacy and mutual follows; null hides the indicator. */
+            presence: components["schemas"]["FluoPresence"] | null;
+        };
+        FluoProfile: components["schemas"]["FluoAuthor"] & {
+            bio: string;
+            /** Format: date */
+            birthDate: string | null;
+            location: string;
+            website: string;
+            pronouns: string;
+            banner: components["schemas"]["FluoMedia"] | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int64 */
+            followersCount: number;
+            /** Format: int64 */
+            followingCount: number;
+            followedBy: boolean;
+            /** @enum {string} */
+            accountVisibility: "public" | "private";
+            /** @description Current account and follow policy permits this viewer to see public posts. */
+            canViewPosts: boolean;
+            /** @description Null hides availability under the owner's privacy policy or invisible status. Online and busy expire after 7 seconds without an active Kaordo heartbeat. */
+            presence: components["schemas"]["FluoPresence"] | null;
+            /** @description The chosen status, returned only to the profile owner when status visibility is not Nobody. */
+            status?: components["schemas"]["FluoStatus"];
+        };
+        FluoProfileUpdate: {
+            nickname: string;
+            bio: string;
+            /** Format: date */
+            birthDate: string | null;
+            location: string;
+            /** @description An absolute HTTP(S) URL without credentials */
+            website: string;
+            pronouns: string;
+            /**
+             * Format: uuid
+             * @description Owned
+             */
+            avatarId: string | null;
+            /**
+             * Format: uuid
+             * @description Owned
+             */
+            bannerId: string | null;
+        };
+        FluoConnectionPage: {
+            items: components["schemas"]["FluoAuthor"][];
+            nextCursor: string | null;
         };
         FluoMedia: {
             /** Format: uuid */
             id: string;
-            /** @enum {string} */
-            kind: "image" | "video";
+            /**
+             * @description Stored post attachments are opaque files until the device opens their descriptor
+             * @enum {string}
+             */
+            kind: "image" | "video" | "file";
             mimeType: string;
             width: number;
             height: number;
@@ -1784,7 +2465,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             author: components["schemas"]["FluoAuthor"];
-            content: components["schemas"]["FluoDocument"];
+            content: components["schemas"]["FluoContent"];
             text: string;
             /** @enum {string} */
             visibility: "public" | "private";
@@ -1821,7 +2502,12 @@ export interface components {
             nextCursor: string | null;
         };
         FluoNewPost: {
-            content: components["schemas"]["FluoDocument"];
+            /**
+             * Format: uuid
+             * @description Device-generated ID bound to the encrypted content signature
+             */
+            id?: string;
+            content: components["schemas"]["FluoContent"];
             /** @enum {string} */
             visibility: "public" | "private";
             /** Format: uuid */
@@ -1837,6 +2523,8 @@ export interface components {
         FluoPostVisibility: {
             /** @enum {string} */
             visibility: "public" | "private";
+            /** @description Required when a private post becomes public */
+            content?: components["schemas"]["FluoEnvelope"];
         };
         FluoReaction: {
             /** @enum {string} */
@@ -1873,6 +2561,12 @@ export interface components {
              * @default true
              */
             showLikes: boolean;
+            /**
+             * @description Availability is visible to everyone, mutual follows only, or nobody. Invisible status always hides it from other accounts.
+             * @default all
+             * @enum {string}
+             */
+            presenceVisibility: "all" | "friends" | "off";
         };
         FluoSettings: {
             notifications: components["schemas"]["FluoNotificationPreferences"];
@@ -1891,6 +2585,8 @@ export interface components {
                 /** @enum {string} */
                 accountVisibility?: "public" | "private";
                 showLikes?: boolean;
+                /** @enum {string} */
+                presenceVisibility?: "all" | "friends" | "off";
             };
         };
         /** @description Activity from another account, visible only to its recipient while its posts remain accessible. */
@@ -1959,15 +2655,27 @@ export interface components {
             referenced: boolean;
         };
     };
-    responses: never;
-    parameters: never;
+    responses: {
+        /** @description An agent refusal (400, 404, 409, 422) with its operator-facing message, or 503 when the agent is unavailable */
+        RegadoHostError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
+    };
+    parameters: {
+        RegadoHost: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    listLingvoDictionaries: {
+    requestDeployment: {
         parameters: {
             query?: never;
             header?: never;
@@ -1976,290 +2684,81 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful response */
+            /** @description The deployment is waiting for another one or running */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LingvoDictionaryPage"];
+                    "application/json": components["schemas"]["Deployment"];
                 };
             };
-            /** @description Request rejected */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    createLingvoDictionary: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LingvoNewDictionary"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LingvoDictionary"];
-                };
-            };
-            /** @description Request rejected */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    getLingvoOverview: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dictionaryId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LingvoOverview"];
-                };
-            };
-            /** @description Request rejected */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    updateLingvoSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dictionaryId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LingvoSettings"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LingvoDictionary"];
-                };
-            };
-            /** @description Request rejected */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    listLingvoCards: {
-        parameters: {
-            query?: {
-                kind?: "word" | "phrase";
-                status?: "active" | "known" | "suspended";
-                folder?: string;
-                q?: string;
-                offset?: number;
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                dictionaryId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LingvoCardPage"];
-                };
-            };
-            /** @description Request rejected */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    createLingvoCard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dictionaryId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LingvoNewCard"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LingvoCard"];
-                };
-            };
-            /** @description Request rejected */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    updateLingvoCard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dictionaryId: string;
-                cardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LingvoCardUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LingvoCard"];
-                };
-            };
-            /** @description Request rejected */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    deleteLingvoCard: {
-        parameters: {
-            query: {
-                revision: number;
-            };
-            header?: never;
-            path: {
-                dictionaryId: string;
-                cardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Completed */
-            204: {
+            /** @description The token is not a trusted workflow run's */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Request rejected */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
+            default: components["responses"]["RegadoHostError"];
         };
     };
-    getLingvoStudyQueue: {
+    getDeployment: {
         parameters: {
-            query: {
-                kind: "word" | "phrase";
-                folder?: string;
-            };
+            query?: never;
             header?: never;
             path: {
-                dictionaryId: string;
+                run: number;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Successful response */
+            /** @description The run's deployment */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LingvoStudyPage"];
+                    "application/json": components["schemas"]["Deployment"];
                 };
             };
-            /** @description Request rejected */
+            /** @description The token is not a trusted workflow run's */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A run reads only its own deployment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    getFluoKeyring: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Own audience key versions and followed accounts still waiting for sealed copies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoKeyringState"];
+                };
+            };
+            /** @description API error */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -2270,32 +2769,129 @@ export interface operations {
             };
         };
     };
-    reviewLingvoCard: {
+    updateFluoKeyring: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FluoKeyringUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated audience key state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoKeyringState"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getFluoKeys: {
+        parameters: {
+            query: {
+                /** @description Comma-separated ownerId:version pairs */
+                refs: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Published keys and sealed copies addressed to the viewer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["FluoKeyMaterial"][];
+                    };
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    readRondoVoiceKey: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                dictionaryId: string;
-                cardId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Membership-bound voice key */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RondoVoiceKey"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    writeRondoVoiceKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LingvoReview"];
+                "application/json": components["schemas"]["RondoVoiceKey"];
             };
         };
         responses: {
-            /** @description Successful response */
+            /** @description Committed voice key */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LingvoReviewResult"];
+                    "application/json": components["schemas"]["RondoVoiceKey"];
                 };
             };
-            /** @description Request rejected */
+            /** @description API error */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -2306,28 +2902,169 @@ export interface operations {
             };
         };
     };
-    undoLingvoReview: {
+    readRecoveryBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sealed recovery bundle or an empty string before setup */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        wrappedKeys: string;
+                    };
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    saveRecoveryBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedWrappedKeys: string;
+                    wrappedKeys: string;
+                    signature: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Recovery bundle saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        saved: boolean;
+                    };
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    readPrivateRecords: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    tags: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Owned ciphertext records */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PrivateRecord"][];
+                    };
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    commitPrivateRecords: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrivateRecordTransaction"];
+            };
+        };
+        responses: {
+            /** @description Committed ciphertext records */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PrivateRecord"][];
+                    };
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    publicEncryptionIdentity: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                dictionaryId: string;
-                reviewId: string;
+                id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Successful response */
+            /** @description Public encryption identity */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LingvoCard"];
+                    "application/json": components["schemas"]["PublicEncryptionIdentity"];
                 };
             };
-            /** @description Request rejected */
+            /** @description API error */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -2338,98 +3075,300 @@ export interface operations {
             };
         };
     };
-    createLingvoFolder: {
+    encryptionAudience: {
+        parameters: {
+            query?: {
+                private?: boolean;
+            };
+            header?: never;
+            path: {
+                module: "ligo" | "ligo-history" | "rondo";
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized encryption recipients */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionAudience"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    readEncryptionIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Account identity, or null before its first device */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        identity: components["schemas"]["EncryptionIdentity"] | null;
+                    };
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    registerEncryptionDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EncryptionRegistration"];
+            };
+        };
+        responses: {
+            /** @description Current identity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionIdentity"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    approveEncryptionDevice: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                dictionaryId: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EncryptionApproval"];
+            };
+        };
+        responses: {
+            /** @description Current identity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionIdentity"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    useEncryptionDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        recorded: boolean;
+                    };
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    forgetEncryptionDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
                 "application/json": {
-                    name: string;
+                    signature: string;
                 };
             };
         };
         responses: {
-            /** @description Successful response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LingvoFolder"];
-                };
-            };
-            /** @description Request rejected */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    deleteLingvoFolder: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dictionaryId: string;
-                folderId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Completed */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Request rejected */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    importLingvoCards: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dictionaryId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LingvoImport"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
+            /** @description Current identity */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LingvoImportResult"];
+                    "application/json": components["schemas"]["EncryptionIdentity"];
                 };
             };
-            /** @description Request rejected */
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    readMemoroMonth: {
+        parameters: {
+            query: {
+                tag: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Encrypted calendar summaries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["MemoroSummary"][];
+                    };
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    readMemoroDay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dayTag: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Encrypted day, or null for an empty date */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        day: components["schemas"]["MemoroDay"] | null;
+                    };
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    saveMemoroDay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dayTag: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoroDayUpdate"];
+            };
+        };
+        responses: {
+            /** @description Saved encrypted day */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoroDay"];
+                };
+            };
+            /** @description Error */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -2461,6 +3400,177 @@ export interface operations {
                 };
             };
             /** @description Request rejected */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getFluoProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                username: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Case-insensitive account username lookup with privacy-filtered availability. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoProfile"];
+                };
+            };
+            /** @description Access, lookup or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateFluoProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FluoProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Saved profile; image claims and reference retirement commit atomically. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoProfile"];
+                };
+            };
+            /** @description Validation, access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setFluoStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    status: components["schemas"]["FluoStatus"];
+                };
+            };
+        };
+        responses: {
+            /** @description Current profile with the saved status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoProfile"];
+                };
+            };
+            /** @description Validation, access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    touchFluoPresence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    userIds: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Availability renewed and current account presentation returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["UserPresentation"][];
+                    };
+                };
+            };
+            /** @description Access or server error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listFluoConnections: {
+        parameters: {
+            query: {
+                kind: "followers" | "following";
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active accounts in the selected follow list, with stable cursor pagination. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluoConnectionPage"];
+                };
+            };
+            /** @description Validation, access or server error. */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -2837,8 +3947,8 @@ export interface operations {
         parameters: {
             query?: {
                 feed?: "latest" | "following" | "mine" | "saved";
-                /** @description Search post text and author names */
-                q?: string;
+                /** @description Restrict an accessible feed to this profile owner */
+                authorId?: string;
                 cursor?: string;
                 limit?: number;
             };
@@ -3735,6 +4845,7 @@ export interface operations {
     discoverRondoServers: {
         parameters: {
             query?: {
+                cursor?: string;
                 q?: string;
             };
             header?: never;
@@ -4030,7 +5141,7 @@ export interface operations {
             content: {
                 "application/json": {
                     disabled: boolean;
-                    reason: string;
+                    reason?: string;
                 };
             };
         };
@@ -4099,7 +5210,7 @@ export interface operations {
             content: {
                 "application/json": {
                     isAdmin: boolean;
-                    reason: string;
+                    reason?: string;
                 };
             };
         };
@@ -4112,106 +5223,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RegadoUser"];
                 };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    openRegadoAccessCase: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: uuid */
-                    targetUserId: string;
-                    reason: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Opened case */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegadoCase"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    readRegadoCaseContent: {
-        parameters: {
-            query: {
-                kind: "posts" | "messages";
-                before?: string;
-            };
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Up to 50 content items */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegadoContentPage"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    closeRegadoAccessCase: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Case closed */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Error */
             default: {
@@ -4315,33 +5326,22 @@ export interface operations {
             };
         };
     };
-    setRegadoLogRetention: {
+    getRegadoDataUsage: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /**
-                     * @description Zero keeps history until the storage budget requires rotation
-                     * @enum {integer}
-                     */
-                    retentionDays: 0 | 1 | 7 | 14 | 30 | 90;
-                    reason: string;
-                };
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Applied journal policy and current host-wide usage */
+            /** @description Each account's storage by application, the databases and their largest tables */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegadoJournal"];
+                    "application/json": components["schemas"]["RegadoDataUsage"];
                 };
             };
             /** @description Error */
@@ -4360,20 +5360,15 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                action: "restart-nodo" | "restart-livekit" | "restart-ddclient" | "scrub-filesystem" | "configure-storage" | "check-storage" | "repair-storage";
+                action: "restart-nodo" | "restart-livekit" | "restart-ddclient" | "check-media" | "clean-media";
             };
             cookie?: never;
         };
         requestBody: {
             content: {
                 "application/json": {
-                    reason: string;
-                    /** @description Device path for configure-storage or mounted Btrfs path for scrub-filesystem/check-storage/repair-storage */
-                    target?: string;
-                    /** @description Stable serial or WWN */
-                    identity?: string;
-                    /** @description Existing mounted Btrfs data-pool path for configure-storage */
-                    filesystem?: string;
+                    /** @description Optional reason recorded in the audit */
+                    reason?: string;
                 };
             };
         };
@@ -4398,74 +5393,306 @@ export interface operations {
             };
         };
     };
-    previewRegadoStoragePlan: {
+    listRegadoHosts: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegadoLayoutRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Non-mutating layout preview with capability constraints */
+            /** @description Registered hosts */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegadoStoragePlan"];
+                    "application/json": {
+                        items: {
+                            id: string;
+                        }[];
+                    };
                 };
             };
-            /** @description Error */
-            default: {
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    getRegadoHost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Devices, pool, desired state and the steps needed to converge */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiError"];
+                    "application/json": components["schemas"]["HostFacts"];
                 };
             };
+            default: components["responses"]["RegadoHostError"];
         };
     };
-    applyRegadoStoragePlan: {
+    planRegadoHostState: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RegadoLayoutRequest"] & {
-                    reason: string;
-                    fingerprint: string;
-                    confirmation: string;
-                };
+                "application/json": components["schemas"]["HostState"];
             };
         };
         responses: {
-            /** @description Revalidated audited layout change queued */
-            202: {
+            /** @description Steps the document would start, and issues that block it */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegadoActionResult"];
+                    "application/json": components["schemas"]["HostPoolPlan"];
                 };
             };
-            /** @description Error */
-            default: {
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    applyRegadoHostState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostStateChange"];
+            };
+        };
+        responses: {
+            /** @description The stored revision and the operation converging the host */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiError"];
+                    "application/json": components["schemas"]["HostStateChangeResult"];
                 };
             };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    listRegadoHostOperations: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest operations first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["HostOperation"][];
+                    };
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    startRegadoHostCheck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description The started operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostOperation"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    getRegadoHostUsage: {
+        parameters: {
+            query: {
+                window: "1d" | "7d" | "30d" | "90d";
+            };
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What fills the host's storage, measured hourly, with its history in the window */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostUsage"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    measureRegadoHostUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A measurement started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        measuring: boolean;
+                    };
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    listRegadoHostAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Open alerts by severity, then alerts resolved in the last 30 days */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        alerts: components["schemas"]["HostAlert"][];
+                    };
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    testRegadoHostAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Where the test notice was delivered */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostAlertTest"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    getRegadoHostOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+                operation: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The operation with its log */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostOperationRecord"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    cancelRegadoHostOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+                operation: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The operation after the cancellation request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostOperation"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
         };
     };
 }

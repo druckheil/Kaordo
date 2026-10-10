@@ -1,3 +1,4 @@
+// Package mediaauth signs and verifies short-lived media URLs shared by Kerno and Nodo.
 package mediaauth
 
 // Signs media URLs and validates internal Nodo requests
@@ -15,7 +16,7 @@ import (
 
 const (
 	keySize             = 32
-	internalTokenDomain = "kaordo-nodo-internal-v1"
+	internalTokenDomain = "kaordo-nodo-internal-v1" //nolint:gosec // domain-separation label, not a credential
 	maximumSignatureAge = 10 * time.Minute
 )
 

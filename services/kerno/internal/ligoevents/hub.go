@@ -1,30 +1,34 @@
+// Package ligoevents relays PostgreSQL conversation notifications to server-sent event subscribers.
 package ligoevents
 
 // Distributes Ligo activity hints to subscribed user streams
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 )
 
 const reconnectDelay = 2 * time.Second
 
+type memberStore interface {
+	MemberIDs(context.Context, string) ([]string, error)
+}
+
 // Hub distributes database change hints. Message bodies never travel through
 // NOTIFY; every client reloads authorized state from Kerno.
 type Hub struct {
-	store     ligo.Store
+	store     memberStore
 	mu        sync.Mutex
 	listeners map[string]map[chan string]struct{}
 	cancel    context.CancelFunc
 	done      chan struct{}
 }
 
-func New(ctx context.Context, dsn string, store ligo.Store) *Hub {
+func New(ctx context.Context, dsn string, store memberStore) *Hub {
 	ctx, cancel := context.WithCancel(ctx)
 	hub := &Hub{store: store, listeners: make(map[string]map[chan string]struct{}), cancel: cancel, done: make(chan struct{})}
 	go func() { defer close(hub.done); hub.run(ctx, dsn) }()
@@ -108,7 +112,7 @@ func (hub *Hub) run(ctx context.Context, dsn string) {
 		if ctx.Err() != nil {
 			return
 		}
-		log.Printf("Ligo event listener reconnecting: %v", err)
+		slog.Warn("Ligo event listener reconnecting", "err", err)
 		hub.resync()
 		if !waitForReconnect(ctx) {
 			return

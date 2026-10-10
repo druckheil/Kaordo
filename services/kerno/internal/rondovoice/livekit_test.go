@@ -39,7 +39,7 @@ func TestJoinTokenUsesScopedSDKGrantAndShortLifetime(t *testing.T) {
 	if !reflect.DeepEqual(claims.Video.CanPublishSources, []string{"microphone", "camera", "screen_share", "screen_share_audio"}) {
 		t.Fatalf("sources: %+v", claims.Video.CanPublishSources)
 	}
-	if registered.ExpiresAt == nil || registered.ExpiresAt.Time.Before(before.Add(joinTokenLifetime-time.Second)) || registered.ExpiresAt.Time.After(time.Now().Add(joinTokenLifetime)) {
+	if registered.ExpiresAt == nil || registered.ExpiresAt.Before(before.Add(joinTokenLifetime-time.Second)) || registered.ExpiresAt.After(time.Now().Add(joinTokenLifetime)) {
 		t.Fatal("join token outlives its two-minute bound")
 	}
 	if _, _, err := verifier.Verify("wrong-secret"); err == nil {

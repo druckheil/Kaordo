@@ -1,0 +1,143 @@
+package api
+
+// Checks error statuses and strict request decoding without host tools
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/deployment"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/usage"
+)
+
+func TestErrorsMapToStatuses(t *testing.T) {
+	cases := map[error]int{
+		fmt.Errorf("%w: pool", state.ErrInvalid): http.StatusUnprocessableEntity,
+		fmt.Errorf("%w: issue", ErrNotReady):     http.StatusUnprocessableEntity,
+		fmt.Errorf("%w: serial", ErrUnconfirmed): http.StatusUnprocessableEntity,
+		state.ErrConflict:                        http.StatusConflict,
+		ErrBusy:                                  http.StatusConflict,
+		operation.ErrNotCancellable:              http.StatusConflict,
+		operation.ErrNotFound:                    http.StatusNotFound,
+		ErrIncomplete:                            http.StatusBadRequest,
+		ErrUnknownCheck:                          http.StatusBadRequest,
+		ErrCheckRunning:                          http.StatusConflict,
+		integrity.ErrNothingToCheck:              http.StatusUnprocessableEntity,
+		errors.New("btrfs: exit status 1"):       http.StatusBadGateway,
+	}
+	for err, want := range cases {
+		if got := statusOf(err); got != want {
+			t.Errorf("%v = %d, want %d", err, got, want)
+		}
+	}
+}
+
+func TestDecodeRejectsUnknownFieldsAndTrailingData(t *testing.T) {
+	for _, body := range []string{`{"document":{},"unexpected":true}`, `{"reason":"a"} {"reason":"b"}`, `not json`} {
+		recorder := httptest.NewRecorder()
+		var change Change
+		if decode(recorder, httptest.NewRequest(http.MethodPut, "/state", strings.NewReader(body)), &change) || recorder.Code != http.StatusBadRequest {
+			t.Errorf("%s accepted with %d", body, recorder.Code)
+		}
+	}
+}
+
+func TestSettingsChangesStoreWithoutReadingDisks(t *testing.T) {
+	states, err := state.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer states.Close()
+	operations, err := operation.Open(t.TempDir(), time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operations.Close()
+	stored, _, err := states.Put(state.Default([]string{"wwn-0x50014ee0aaaa0001", "wwn-0x50014ee0aaaa0002"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unreachable := func(context.Context, ...string) (string, error) { return "", errors.New("disks are not read") }
+	service := &Service{Run: unreachable, States: states, Operations: operations}
+
+	weekly := stored
+	weekly.Integrity.Scrub = "weekly"
+	result, err := service.Apply(context.Background(), Change{Document: weekly, RequestedBy: "admin"})
+	if err != nil || result.Document.Revision != 2 || result.Operation != nil || result.Previous.Integrity.Scrub != "monthly" {
+		t.Fatalf("settings change = %+v, %v", result, err)
+	}
+	if _, err := service.Apply(context.Background(), Change{Document: result.Document}); !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("change without a requesting account = %v", err)
+	}
+
+	shorter := result.Document
+	shorter.Cleanup.JournalDays = 7
+	result, err = service.Apply(context.Background(), Change{Document: shorter, Reason: "Keep a week of logs", RequestedBy: "admin"})
+	if err != nil || result.Operation == nil || result.Operation.Kind != "cleanup.journal" || result.Operation.Target != "7 days of history" {
+		t.Fatalf("journal change = %+v, %v", result, err)
+	}
+
+	converge := result.Document
+	if _, err := service.Apply(context.Background(), Change{Document: converge, Reason: "Finish the change", RequestedBy: "admin", Converge: true}); err == nil {
+		t.Fatal("convergence did not read the disks")
+	}
+}
+
+func TestUsageRouteRequiresAKnownWindow(t *testing.T) {
+	monitor, err := usage.Open(t.TempDir(), nil, "/srv/kaordo", nil, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer monitor.Close()
+	handler := NewHandler(&Service{Usage: monitor}, nil)
+	for window, want := range map[string]int{"7d": http.StatusOK, "90d": http.StatusOK, "2y": http.StatusBadRequest, "": http.StatusBadRequest} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/usage?window="+window, nil))
+		if recorder.Code != want {
+			t.Errorf("window %q = %d", window, recorder.Code)
+		}
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/usage/measure", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("measure = %d", recorder.Code)
+	}
+}
+
+func TestDeploymentRoutesStartARunAndReportIt(t *testing.T) {
+	var commands []string
+	systemd := func(_ context.Context, args ...string) (string, error) {
+		commands = append(commands, strings.Join(args, " "))
+		return "inactive", nil
+	}
+	handler := NewHandler(&Service{Deployments: deployment.Deployments{Run: systemd, Directory: t.TempDir()}}, nil)
+	for _, fixture := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{http.MethodPost, "/deployments", `{"run":0}`, http.StatusBadRequest},
+		{http.MethodPost, "/deployments", `{"run":12,"sha":"x"}`, http.StatusBadRequest},
+		{http.MethodGet, "/deployments/latest", "", http.StatusBadRequest},
+		// An inactive unit without a record has not been deployed
+		{http.MethodGet, "/deployments/12", "", http.StatusNotFound},
+		{http.MethodPost, "/deployments", `{"run":12}`, http.StatusNotFound},
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(fixture.method, fixture.path, strings.NewReader(fixture.body)))
+		if recorder.Code != fixture.want {
+			t.Errorf("%s %s %s = %d", fixture.method, fixture.path, fixture.body, recorder.Code)
+		}
+	}
+	if !slices.Contains(commands, "systemctl start kaordo-deploy@12.service") {
+		t.Fatalf("commands = %q", commands)
+	}
+}

@@ -1,14 +1,15 @@
 <script lang="ts">
-	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
-	import { cn } from "../../../utils.js";
-	import type { ComponentProps } from "svelte";
+	// Styles the accessible dropdown-menu group heading
+
+	import { DropdownMenu as DropdownMenuPrimitive } from 'bits-ui';
+	import { cn } from '../../../utils.js';
 
 	let {
 		ref = $bindable(null),
 		class: className,
 		inset,
 		...restProps
-	}: ComponentProps<typeof DropdownMenuPrimitive.GroupHeading> & {
+	}: DropdownMenuPrimitive.GroupHeadingProps & {
 		inset?: boolean;
 	} = $props();
 </script>
@@ -17,6 +18,6 @@
 	bind:ref
 	data-slot="dropdown-menu-group-heading"
 	data-inset={inset}
-	class={cn("text-muted-foreground px-2 py-1 text-xs data-inset:pl-7", className)}
+	class={cn('px-2 py-1 text-xs text-muted-foreground data-inset:pl-7', className)}
 	{...restProps}
 />

@@ -1,9 +1,7 @@
 package postgres
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"sort"
 	"testing"
 	"time"
@@ -11,22 +9,12 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // This measures the actual List path in a disposable database. Timings are
 // evidence for a particular machine, not a portable pass/fail threshold.
 func TestFluoReadCapacity(t *testing.T) {
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	ctx, pool := testDatabase(t)
 	defer func() {
 		users := table.Users
 		if _, err := jetExec(ctx, pool, users.DELETE().WHERE(users.KeycloakSub.LIKE(jetpg.String("capacity-user-%")))); err != nil {
@@ -68,17 +56,16 @@ func TestFluoReadCapacity(t *testing.T) {
 	}
 	store := NewFluo(pool)
 	for _, scenario := range []struct {
-		name, search string
-		want         int
+		name string
+		want int
 	}{
 		{name: "latest", want: 20},
-		{name: "selective-search", search: "unique capacity needle", want: 1},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			durations := make([]time.Duration, 40)
 			for i := range durations {
 				start := time.Now()
-				page, err := store.List(ctx, fluo.ListOptions{ViewerID: viewerID, Feed: "latest", Search: scenario.search, Limit: 20})
+				page, err := store.List(ctx, fluo.ListOptions{ViewerID: viewerID, Feed: "latest", Limit: 20})
 				durations[i] = time.Since(start)
 				if err != nil || len(page.Items) != scenario.want {
 					t.Fatalf("page count = %d, error = %v", len(page.Items), err)

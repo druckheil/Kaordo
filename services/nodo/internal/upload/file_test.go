@@ -15,6 +15,16 @@ import (
 	tusd "github.com/tus/tusd/v2/pkg/handler"
 )
 
+func testRoot(t *testing.T, directory string) *os.Root {
+	t.Helper()
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return root
+}
+
 func TestGenericFileIsServedOnlyAsDownload(t *testing.T) {
 	directory := t.TempDir()
 	id := "01999111-2222-7333-8444-555555555593"
@@ -38,7 +48,7 @@ func TestGenericFileIsServedOnlyAsDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := []byte(strings.Repeat("k", 32))
-	server := &Server{config: Config{Directory: directory, MediaKey: key}, store: filestore.New(directory)}
+	server := &Server{config: Config{Directory: directory, MediaKey: key}, root: testRoot(t, directory), store: filestore.New(directory)}
 	if err := server.process(t.Context(), id); err != nil {
 		t.Fatal(err)
 	}
@@ -62,5 +72,37 @@ func TestGenericFileIsServedOnlyAsDownload(t *testing.T) {
 		!strings.Contains(response.Header().Get("Content-Disposition"), "report.html") ||
 		response.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("unsafe file headers = %v", response.Header())
+	}
+}
+
+func TestMediaCannotEscapeDataDirectory(t *testing.T) {
+	directory := t.TempDir()
+	secret := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(secret, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	id := "01999111-2222-7333-8444-555555555594"
+	ready, err := json.Marshal(mediaInfo{Kind: "file", MimeType: "application/octet-stream", Filename: "a.bin", Size: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, readyName(id)), ready, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(directory, displayName(id))); err != nil {
+		t.Fatal(err)
+	}
+	key := []byte(strings.Repeat("k", 32))
+	server := &Server{config: Config{Directory: directory, MediaKey: key}, root: testRoot(t, directory)}
+	signed, err := mediaauth.SignedURL("http://localhost:8082", id, time.Now().Add(time.Minute), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, signed, nil)
+	request.SetPathValue("id", id)
+	response := httptest.NewRecorder()
+	server.serveMedia(response, request)
+	if response.Code != http.StatusNotFound || strings.Contains(response.Body.String(), "outside") {
+		t.Fatalf("symlink outside the data directory was served: %d %q", response.Code, response.Body.String())
 	}
 }

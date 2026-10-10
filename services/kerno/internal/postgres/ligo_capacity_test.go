@@ -1,9 +1,7 @@
 package postgres
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"sort"
 	"testing"
 	"time"
@@ -11,22 +9,12 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/ligo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // This measures the real paginated read path in a disposable database.
 // Timings describe this machine, not a portable service-level guarantee.
 func TestLigoReadCapacity(t *testing.T) {
-	dsn := os.Getenv("KAORDO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set KAORDO_TEST_DATABASE_URL to an isolated migrated test database")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
+	ctx, pool := testDatabase(t)
 	users := NewUsers(pool)
 	owner, err := users.Upsert(ctx, "ligo-capacity-owner", "ligocapacityowner", "Owner")
 	if err != nil {

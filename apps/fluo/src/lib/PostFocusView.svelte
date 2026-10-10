@@ -25,7 +25,7 @@
 		onFollow,
 		onSave,
 		onVisibilityChange,
-		onDelete,
+		onDelete
 	}: {
 		thread: FluoPost[];
 		pending: boolean;
@@ -56,7 +56,7 @@
 			if (post?.id !== focusedPostId) return;
 			document.getElementById(`fluo-focused-post-${focusedPostId}`)?.scrollIntoView({
 				block: 'start',
-				behavior: 'instant',
+				behavior: 'instant'
 			});
 		});
 	});
@@ -64,7 +64,10 @@
 
 {#snippet threadContext()}
 	{#if ancestors.length}
-		<ol class="relative z-10 mb-4 grid gap-3 border-s-2 border-border ps-3" aria-label="Earlier posts in this thread">
+		<ol
+			class="relative z-10 mb-4 grid gap-3 border-s-2 border-border ps-3"
+			aria-label="Earlier posts in this thread"
+		>
 			{#each ancestors as ancestor (ancestor.id)}
 				<li class="min-w-0">
 					<PostItem
@@ -87,7 +90,12 @@
 {/snippet}
 
 {#if pending && !post}
-	<p class="rounded-[1.5rem] border border-border bg-card p-6 text-sm text-muted-foreground" role="status">Loading post…</p>
+	<p
+		class="rounded-[1.5rem] border border-border bg-card p-6 text-sm text-muted-foreground"
+		role="status"
+	>
+		Loading post…
+	</p>
 {:else if !post && error}
 	<div class="rounded-[1.5rem] border border-border bg-card p-6">
 		<p class="text-sm text-destructive" role="alert">{error}</p>
@@ -114,6 +122,9 @@
 				{onDelete}
 			/>
 		{/key}
-		<div class="h-[max(0px,calc(100dvh-9rem))] lg:h-[max(0px,calc(100dvh-5.5rem))]" aria-hidden="true"></div>
+		<div
+			class="h-[max(0px,calc(100dvh-9rem))] lg:h-[max(0px,calc(100dvh-5.5rem))]"
+			aria-hidden="true"
+		></div>
 	</div>
 {/if}

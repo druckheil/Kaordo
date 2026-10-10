@@ -21,7 +21,7 @@
 		onSave,
 		onVisibilityChange,
 		onDelete,
-		threadHasAncestors = false,
+		threadHasAncestors = false
 	}: {
 		post: FluoPost;
 		viewerId: string;
@@ -39,7 +39,10 @@
 	} = $props();
 
 	let nextPageRequest = false;
-	const replies = createInfiniteQuery(() => commentsOptions(api, post.id), () => queryClient);
+	const replies = createInfiniteQuery(
+		() => commentsOptions(api, post.id),
+		() => queryClient
+	);
 
 	async function fetchNextReplies(retry = false): Promise<void> {
 		if (nextPageRequest || !replies.hasNextPage || replies.isFetchingNextPage) return;
@@ -56,9 +59,13 @@
 	}
 
 	function observeReplyEnd(node: HTMLDivElement) {
-		const observer = new IntersectionObserver(([entry]) => {
-			if (entry?.isIntersecting) void fetchNextReplies();
-		}, { rootMargin: '320px 0px' });
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const entry = entries.at(0);
+				if (entry?.isIntersecting) void fetchNextReplies();
+			},
+			{ rootMargin: '320px 0px' }
+		);
 		observer.observe(node);
 
 		return { destroy: () => observer.disconnect() };
@@ -70,19 +77,31 @@
 		Replies <span class="ml-1 font-medium text-muted-foreground">{post.counts.comments}</span>
 	</h3>
 
-	<Button class="mt-4 w-full justify-center" variant="outline" size="sm" onclick={() => onReply(post)}>
+	<Button
+		class="mt-4 w-full justify-center"
+		variant="outline"
+		size="sm"
+		onclick={() => onReply(post)}
+	>
 		<MessageCircleIcon class="size-4" /> Write a reply
 	</Button>
 
 	{#if replies.isPending}
 		<p class="mt-5 text-sm text-muted-foreground" role="status">Loading replies…</p>
 	{:else if !replies.data}
-		<p class="mt-5 text-sm text-destructive" role="alert">{replies.error?.message ?? 'Could not load replies.'}</p>
-		<Button class="mt-3" variant="outline" size="sm" onclick={() => void replies.refetch()}>Try again</Button>
+		<p class="mt-5 text-sm text-destructive" role="alert">
+			{replies.error?.message ?? 'Could not load replies.'}
+		</p>
+		<Button class="mt-3" variant="outline" size="sm" onclick={() => void replies.refetch()}
+			>Try again</Button
+		>
 	{:else if replies.data.pages.every((page) => page.items.length === 0)}
 		<p class="mt-5 text-sm text-muted-foreground">No replies yet. Start the conversation.</p>
 	{:else}
-		<ol class="reply-list mt-4 grid gap-4 border-s-2 border-border ps-3" class:reply-list-threaded={threadHasAncestors}>
+		<ol
+			class="reply-list mt-4 grid gap-4 border-s-2 border-border ps-3"
+			class:reply-list-threaded={threadHasAncestors}
+		>
 			{#each replies.data.pages as page (page.nextCursor ?? 'latest')}
 				{#each page.items as reply (reply.id)}
 					<li class="min-w-0">
@@ -111,7 +130,9 @@
 			</Button>
 		{:else if replies.hasNextPage}
 			{#if replies.isFetchingNextPage}
-				<p class="mt-4 text-center text-sm text-muted-foreground" role="status">Loading more replies…</p>
+				<p class="mt-4 text-center text-sm text-muted-foreground" role="status">
+					Loading more replies…
+				</p>
 			{/if}
 			<div class="h-px" aria-hidden="true" use:observeReplyEnd></div>
 		{/if}
@@ -139,7 +160,13 @@
 	}
 
 	@keyframes comment-in {
-		from { opacity: 0; transform: translateY(-6px); }
-		to { opacity: 1; transform: translateY(0); }
+		from {
+			opacity: 0;
+			transform: translateY(-6px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 </style>

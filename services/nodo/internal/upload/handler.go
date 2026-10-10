@@ -35,14 +35,12 @@ type Server struct {
 	workers            sync.WaitGroup
 	handler            http.Handler
 	config             Config
+	root               *os.Root
 	store              filestore.FileStore
 	tus                *tusd.Handler
 	origins            map[string]bool
 	jobs               chan string
-	quotaMu            sync.Mutex
-	pending            map[string]usage
-	used               map[string]usage
-	indexed            map[string]indexedUpload
+	quota              *uploadQuota
 	maintenanceMu      sync.Mutex
 	maintenance        storageMaintenance
 	maintenanceRunning bool
@@ -60,6 +58,7 @@ func NewHandler(config Config) (*Server, error) {
 		return nil, err
 	}
 	if err := server.configureTUS(); err != nil {
+		_ = server.root.Close()
 		return nil, err
 	}
 	server.ctx, server.cancel = context.WithCancel(context.Background())
@@ -68,14 +67,15 @@ func NewHandler(config Config) (*Server, error) {
 	return server, nil
 }
 
-// Close stops background work after the HTTP server has drained active requests.
-func (server *Server) Close() error {
+// Close stops maintenance and background processing after the HTTP server has
+// drained active requests, then releases the data directory.
+func (server *Server) Close() {
 	server.maintenanceMu.Lock()
 	server.closing = true
 	server.cancel()
 	server.maintenanceMu.Unlock()
 	server.workers.Wait()
-	return nil
+	_ = server.root.Close() // repeated Close calls are harmless
 }
 
 func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -84,10 +84,10 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func normalizeConfig(config Config) (Config, error) {
 	if config.Directory == "" || len(config.MediaKey) != 32 {
-		return Config{}, errors.New("Nodo data directory and 32-byte media key are required")
+		return Config{}, errors.New("a data directory and a 32-byte media key are required")
 	}
 	if config.KernoURL == "" && config.VerifyOwner == nil {
-		return Config{}, errors.New("Kerno internal URL is required")
+		return Config{}, errors.New("the internal Kerno URL is required")
 	}
 	if err := os.MkdirAll(config.Directory, 0700); err != nil {
 		return Config{}, err
@@ -99,7 +99,7 @@ func normalizeConfig(config Config) (Config, error) {
 	config.Directory = absoluteDirectory
 	applyQuotaDefaults(&config)
 	if config.MaxOwnerUploads < 1 || config.MaxOwnerBytes < maxUploadSize {
-		return Config{}, errors.New("Nodo owner quota configuration is invalid")
+		return Config{}, errors.New("owner quota configuration is invalid")
 	}
 	return config, nil
 }
@@ -114,17 +114,22 @@ func applyQuotaDefaults(config *Config) {
 }
 
 func newServer(config Config) (*Server, error) {
-	used, indexed, err := loadQuotaUsage(config.Directory)
+	// Every artifact access stays inside the data directory, even through symlinks
+	root, err := os.OpenRoot(config.Directory)
 	if err != nil {
+		return nil, err
+	}
+	quota, err := newUploadQuota(root, config)
+	if err != nil {
+		_ = root.Close()
 		return nil, err
 	}
 	return &Server{
 		config:  config,
+		root:    root,
 		origins: configuredOrigins(config.AllowedOrigins),
 		jobs:    make(chan string, 16),
-		pending: make(map[string]usage),
-		used:    used,
-		indexed: indexed,
+		quota:   quota,
 	}, nil
 }
 

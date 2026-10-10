@@ -3,13 +3,15 @@ package postgres
 // Updates a Fluo post and its reply branch visibility atomically
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	jetpg "github.com/go-jet/jet/v2/postgres"
 	"github.com/jackc/pgx/v5"
 )
 
-func (store *Fluo) SetVisibility(ctx context.Context, actorID, postID, visibility string) error {
+// SetVisibility hides a post by access policy; publishing requires content re-encrypted for its audience
+func (store *Fluo) SetVisibility(ctx context.Context, actorID, postID, visibility string, content json.RawMessage, text string) error {
 	if !fluo.ValidVisibility(visibility) {
 		return fluo.ErrInvalidVisibility
 	}
@@ -18,6 +20,9 @@ func (store *Fluo) SetVisibility(ctx context.Context, actorID, postID, visibilit
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockFluoKeyring(ctx, tx, actorID, false); err != nil {
+		return err
+	}
 
 	if err := lockPostThread(ctx, tx, postID); err != nil {
 		return err
@@ -33,6 +38,11 @@ func (store *Fluo) SetVisibility(ctx context.Context, actorID, postID, visibilit
 		}
 		if hasPrivateParent {
 			return fluo.ErrPrivateParent
+		}
+		if previous.visibility != visibility {
+			if err := republishPost(ctx, tx, actorID, postID, previous.parentID, content, text); err != nil {
+				return err
+			}
 		}
 	}
 	if err := updatePostVisibility(ctx, tx, postID, visibility); err != nil {
@@ -68,5 +78,23 @@ func updatePostVisibility(ctx context.Context, tx pgx.Tx, postID, visibility str
 		SET visibility = #visibility, updated_at = clock_timestamp()
 		WHERE id IN (SELECT id FROM branch)
 	`, jetpg.RawArgs{"#post": postID, "#visibility": visibility}))
+	return err
+}
+
+// republishPost replaces the self-only encryption of a private post that has no replies
+func republishPost(ctx context.Context, tx pgx.Tx, actorID, postID string, parentID *string, content json.RawMessage, text string) error {
+	var branchSize int
+	if err := jetQueryRow(ctx, tx, jetpg.RawStatement(postBranchCTE+`SELECT count(*) FROM branch`,
+		jetpg.RawArgs{"#post": postID})).Scan(&branchSize); err != nil {
+		return err
+	}
+	if branchSize > 1 {
+		return fluo.ErrBranchHasReplies
+	}
+	if err := verifyFluoPostKeyring(ctx, tx, actorID, fluo.VisibilityPublic, parentID, content); err != nil {
+		return err
+	}
+	_, err := jetExec(ctx, tx, jetpg.RawStatement(`UPDATE fluo_posts SET content = #content::jsonb, plain_text = #text WHERE id = #post::uuid`,
+		jetpg.RawArgs{"#content": string(content), "#text": text, "#post": postID}))
 	return err
 }

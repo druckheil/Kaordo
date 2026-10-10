@@ -4,6 +4,10 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
+
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
+	"github.com/google/uuid"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	"github.com/druckheil/Kaordo/services/kerno/internal/rondo"
@@ -11,7 +15,23 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func insertRondoChannel(ctx context.Context, tx pgx.Tx, serverID, ownerID, name string) (rondo.Channel, error) {
+func insertEncryptedRondoChannel(ctx context.Context, tx pgx.Tx, serverID, ownerID, id, name string) (rondo.Channel, error) {
+	if id == "" {
+		id = uuid.NewString()
+	}
+	if strings.HasPrefix(name, encryption.TextPrefix) {
+		audience, err := encryptionAudience(ctx, tx, ownerID, "rondo", serverID, false)
+		if err != nil {
+			return rondo.Channel{}, err
+		}
+		ids := make([]string, len(audience.Users))
+		for index, user := range audience.Users {
+			ids[index] = user.ID
+		}
+		if err := validateRondoMetadata(ctx, tx, ownerID, serverID, name, audience.Public, ids, id); err != nil {
+			return rondo.Channel{}, err
+		}
+	}
 	var channel rondo.Channel
 	var conversationID string
 	conversations := table.LigoConversations
@@ -24,8 +44,8 @@ func insertRondoChannel(ctx context.Context, tx pgx.Tx, serverID, ownerID, name 
 	channels := table.RondoChannels
 	position := jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(channels.ID)).FROM(channels).
 		WHERE(channels.ServerID.EQ(jetUUID(serverID))))
-	channel, err = scanRondoChannel(jetQueryRow(ctx, tx, channels.INSERT(channels.ServerID, channels.ConversationID, channels.Name, channels.Position).
-		VALUES(jetUUID(serverID), jetUUID(conversationID), jetpg.String(name), position).
+	channel, err = scanRondoChannel(jetQueryRow(ctx, tx, channels.INSERT(channels.ID, channels.ServerID, channels.ConversationID, channels.Name, channels.Position).
+		VALUES(jetUUID(id), jetUUID(serverID), jetUUID(conversationID), jetpg.String(name), position).
 		RETURNING(jetpg.CAST(channels.ID).AS_TEXT(), jetpg.CAST(channels.ServerID).AS_TEXT(),
 			jetpg.CAST(channels.ConversationID).AS_TEXT(), channels.Name, channels.Position, channels.CreatedAt)))
 	if err != nil {
@@ -41,6 +61,9 @@ func insertRondoChannel(ctx context.Context, tx pgx.Tx, serverID, ownerID, name 
 }
 
 func (store *Rondo) CreateChannel(ctx context.Context, actorID, serverID, name string) (rondo.Channel, error) {
+	return store.CreateEncryptedChannel(ctx, actorID, serverID, "", name)
+}
+func (store *Rondo) CreateEncryptedChannel(ctx context.Context, actorID, serverID, id, name string) (rondo.Channel, error) {
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
 		return rondo.Channel{}, err
@@ -56,7 +79,7 @@ func (store *Rondo) CreateChannel(ctx context.Context, actorID, serverID, name s
 	if err := enforceRondoChannelLimit(ctx, tx, serverID); err != nil {
 		return rondo.Channel{}, err
 	}
-	channel, err := insertRondoChannel(ctx, tx, serverID, actorID, name)
+	channel, err := insertEncryptedRondoChannel(ctx, tx, serverID, actorID, id, name)
 	if isUniqueViolation(err) {
 		return rondo.Channel{}, rondo.ErrConflict
 	}

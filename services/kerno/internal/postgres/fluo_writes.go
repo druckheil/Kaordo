@@ -9,6 +9,7 @@ import (
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
 	jetpg "github.com/go-jet/jet/v2/postgres"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -24,12 +25,17 @@ func (store *Fluo) Create(ctx context.Context, actorID string, input fluo.NewPos
 		return fluo.Post{}, err
 	}
 	defer tx.Rollback(ctx)
-
+	if err := lockFluoKeyring(ctx, tx, actorID, false); err != nil {
+		return fluo.Post{}, err
+	}
 	if err := enforcePostRateLimit(ctx, tx, actorID); err != nil {
 		return fluo.Post{}, err
 	}
 	visibility, err := resolvePostVisibility(ctx, tx, actorID, input)
 	if err != nil {
+		return fluo.Post{}, err
+	}
+	if err := verifyFluoPostKeyring(ctx, tx, actorID, visibility, input.ParentID, input.Content); err != nil {
 		return fluo.Post{}, err
 	}
 	id, err := insertPost(ctx, tx, actorID, input, text, visibility)
@@ -150,9 +156,12 @@ func lockPostThread(ctx context.Context, tx pgx.Tx, postID string) error {
 
 func insertPost(ctx context.Context, tx pgx.Tx, actorID string, input fluo.NewPost, text, visibility string) (string, error) {
 	posts := table.FluoPosts
+	if input.ID == "" {
+		input.ID = uuid.NewString()
+	}
 	var id string
-	err := jetQueryRow(ctx, tx, posts.INSERT(posts.AuthorID, posts.Content, posts.PlainText, posts.Visibility, posts.ParentID, posts.QuoteID).
-		VALUES(jetUUID(actorID), jetpg.Json([]byte(input.Content)), jetpg.String(text), jetpg.String(visibility),
+	err := jetQueryRow(ctx, tx, posts.INSERT(posts.ID, posts.AuthorID, posts.Content, posts.PlainText, posts.Visibility, posts.ParentID, posts.QuoteID).
+		VALUES(jetUUID(input.ID), jetUUID(actorID), jetpg.Json([]byte(input.Content)), jetpg.String(text), jetpg.String(visibility),
 			nullableUUID(input.ParentID), nullableUUID(input.QuoteID)).
 		RETURNING(jetpg.CAST(posts.ID).AS_TEXT())).Scan(&id)
 	return id, err
@@ -180,7 +189,7 @@ func attachPostMedia(ctx context.Context, tx pgx.Tx, postID string, media []fluo
 			postMedia.Kind, postMedia.MimeType, postMedia.Width, postMedia.Height, postMedia.SizeBytes, postMedia.AltText).
 			VALUES(jetUUID(postID), jetUUID(item.ID), jetpg.Int(int64(position)), jetpg.String(item.Kind),
 				jetpg.String(item.MimeType), jetpg.Int(int64(item.Width)), jetpg.Int(int64(item.Height)),
-				jetpg.Int(int64(item.Size)), jetpg.String(item.AltText)))
+				jetpg.Int(item.Size), jetpg.String(item.AltText)))
 		if err != nil {
 			return err
 		}

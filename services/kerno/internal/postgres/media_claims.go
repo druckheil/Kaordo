@@ -1,6 +1,6 @@
 package postgres
 
-// Retires upload claims after their final message or post reference is removed
+// Retires upload claims after their final post, message or profile reference is removed
 import (
 	"context"
 	"sort"
@@ -35,11 +35,17 @@ func retireUnreferencedUpload(ctx context.Context, tx pgx.Tx, uploadID string) (
 	claim := table.NodoUploadClaims.AS("claim")
 	postMedia := table.FluoPostMedia.AS("post_media")
 	messageMedia := table.LigoMessageMedia.AS("message_media")
+	profileImages := table.FluoProfileImages.AS("profile_images")
+	diaryMedia := table.MemoroDayMedia.AS("diary_media")
 	unused := jetpg.AND(
+		jetpg.NOT(jetpg.EXISTS(jetpg.SELECT(diaryMedia.UploadID).FROM(diaryMedia).
+			WHERE(diaryMedia.UploadID.EQ(claim.UploadID)))),
 		jetpg.NOT(jetpg.EXISTS(jetpg.SELECT(postMedia.UploadID).FROM(postMedia).
 			WHERE(postMedia.UploadID.EQ(claim.UploadID)))),
 		jetpg.NOT(jetpg.EXISTS(jetpg.SELECT(messageMedia.UploadID).FROM(messageMedia).
 			WHERE(messageMedia.UploadID.EQ(claim.UploadID)))),
+		jetpg.NOT(jetpg.EXISTS(jetpg.SELECT(profileImages.UploadID).FROM(profileImages).
+			WHERE(profileImages.UploadID.EQ(claim.UploadID)))),
 	)
 	result, err := jetExec(ctx, tx, claim.UPDATE().SET(
 		claim.RetiredAt.SET(jetpg.RawTimestampz("now()")),

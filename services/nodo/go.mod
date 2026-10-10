@@ -1,6 +1,6 @@
 module github.com/druckheil/Kaordo/services/nodo
 
-go 1.27.1
+go 1.27.2
 
 replace github.com/druckheil/Kaordo/services/mediaauth => ../mediaauth
 

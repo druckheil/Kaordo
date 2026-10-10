@@ -8,47 +8,50 @@ import (
 	"image/png"
 	"os"
 
-	_ "golang.org/x/image/webp"
+	_ "golang.org/x/image/webp" // registers the WebP decoder used by decodeImage
 )
 
-func (server *Server) processImage(source, id, declaredType string) (mediaInfo, string, error) {
-	input, err := os.Open(source)
+func (server *Server) processImage(id, declaredType string) (mediaInfo, string, error) {
+	input, err := server.root.Open(id)
 	if err != nil {
 		return mediaInfo{}, "", err
 	}
-	defer input.Close()
+	defer func() { _ = input.Close() }() // read-only source
 
 	picture, config, format, err := decodeImage(input, declaredType)
 	if err != nil {
 		return mediaInfo{}, "", err
 	}
 
-	output, err := os.CreateTemp(server.config.Directory, id+".image-*")
+	output, name, err := createTemp(server.root, id+".image-")
 	if err != nil {
 		return mediaInfo{}, "", err
 	}
-	path := output.Name()
 	keepOutput := false
 	defer func() {
 		_ = output.Close()
 		if !keepOutput {
-			_ = os.Remove(path)
+			_ = server.root.Remove(name)
 		}
 	}()
 
 	if err := encodeImage(output, picture, format); err != nil {
 		return mediaInfo{}, "", err
 	}
+	stat, err := output.Stat()
+	if err != nil {
+		return mediaInfo{}, "", err
+	}
 	if err := output.Close(); err != nil {
 		return mediaInfo{}, "", err
 	}
 
-	item, err := imageMetadata(path, config, format)
+	item, err := imageMetadata(stat.Size(), config, format)
 	if err != nil {
 		return mediaInfo{}, "", err
 	}
 	keepOutput = true
-	return item, path, nil
+	return item, name, nil
 }
 
 func decodeImage(input *os.File, declaredType string) (image.Image, image.Config, string, error) {
@@ -96,9 +99,8 @@ func encodeImage(output *os.File, picture image.Image, sourceFormat string) erro
 	return (&png.Encoder{CompressionLevel: png.BestSpeed}).Encode(output, picture)
 }
 
-func imageMetadata(path string, config image.Config, format string) (mediaInfo, error) {
-	stat, err := os.Stat(path)
-	if err != nil || stat.Size() < 1 || stat.Size() > 25*1024*1024 {
+func imageMetadata(size int64, config image.Config, format string) (mediaInfo, error) {
+	if size < 1 || size > 25*1024*1024 {
 		return mediaInfo{}, errors.New("processed image exceeds its size limit")
 	}
 
@@ -111,6 +113,6 @@ func imageMetadata(path string, config image.Config, format string) (mediaInfo, 
 		MimeType: mimeType,
 		Width:    config.Width,
 		Height:   config.Height,
-		Size:     stat.Size(),
+		Size:     size,
 	}, nil
 }

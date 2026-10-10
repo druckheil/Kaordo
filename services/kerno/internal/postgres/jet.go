@@ -41,25 +41,15 @@ func jetQueryRow(ctx context.Context, executor jetExecutor, statement jetStateme
 	return executor.QueryRow(ctx, query, args...)
 }
 
-// JetQueryRow executes a Jet statement through the shared pgx pool during startup checks.
-func JetQueryRow(ctx context.Context, executor interface {
-	QueryRow(context.Context, string, ...any) pgx.Row
-}, statement interface {
-	Sql() (string, []interface{})
-}) pgx.Row {
-	query, args := statement.Sql()
-	return executor.QueryRow(ctx, query, args...)
-}
-
 func jetExec(ctx context.Context, executor jetExecutor, statement jetStatement) (pgconn.CommandTag, error) {
 	query, args := jetSQL(statement)
 	return executor.Exec(ctx, query, args...)
 }
 
-func jetNotify(ctx context.Context, executor jetExecutor, channel, payload string) error {
-	_, err := jetExec(ctx, executor, postgres.SELECT(postgres.RawString("pg_notify(#channel, #payload)", postgres.RawArgs{
-		"#channel": channel,
-		"#payload": payload,
+// notifyLigoActivity wakes conversation subscribers; ligoevents listens on the same channel
+func notifyLigoActivity(ctx context.Context, executor jetExecutor, conversationID string) error {
+	_, err := jetExec(ctx, executor, postgres.SELECT(postgres.RawString("pg_notify('ligo_activity', #conversation)", postgres.RawArgs{
+		"#conversation": conversationID,
 	})))
 	return err
 }

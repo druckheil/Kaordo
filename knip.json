@@ -1,0 +1,34 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"workspaces": {
+		".": {
+			"entry": [
+				"scripts/*.mjs",
+				"deploy/**/*.mjs",
+				"deploy/keycloak/themes/*/login/resources/js/*.js"
+			],
+			"project": ["scripts/**/*.mjs", "deploy/**/*.{mjs,js}"]
+		},
+		"packages/ui": {
+			"project": ["src/**/*.{ts,svelte,css}"],
+			"ignore": ["src/lib/components/ui/**/index.ts"]
+		},
+		"packages/*": {
+			"project": ["src/**/*.ts"]
+		},
+		"packages/account-ui": {
+			"project": ["src/**/*.{ts,svelte}"]
+		},
+		"packages/chat-ui": {
+			"project": ["src/**/*.{ts,svelte}"]
+		},
+		"packages/editor-ui": {
+			"project": ["src/**/*.{ts,svelte}"]
+		},
+		"packages/media-ui": {
+			"project": ["src/**/*.{ts,svelte}"]
+		}
+	},
+	"ignoreBinaries": ["go", "restic"],
+	"ignoreDependencies": ["tailwindcss"]
+}

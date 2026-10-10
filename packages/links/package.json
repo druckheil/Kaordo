@@ -1,12 +1,15 @@
 {
-  "name": "@kaordo/links",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
-  }
+	"name": "@kaordo/links",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"check": "tsc -p ."
+	}
 }

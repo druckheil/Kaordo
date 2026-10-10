@@ -33,7 +33,7 @@ func (server *Server) metadata(w http.ResponseWriter, r *http.Request) {
 
 	item, err := server.readReady(id)
 	if err != nil {
-		writeProcessingMetadata(w, server.errorPath(id))
+		writeProcessingMetadata(w, server.root, errorName(id))
 		return
 	}
 	writeCompleteMetadata(w, id, item)
@@ -60,8 +60,8 @@ func writeIncompleteMetadata(w http.ResponseWriter) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"complete": false})
 }
 
-func writeProcessingMetadata(w http.ResponseWriter, errorPath string) {
-	if _, err := os.Stat(errorPath); err == nil {
+func writeProcessingMetadata(w http.ResponseWriter, root *os.Root, errorFile string) {
+	if _, err := root.Stat(errorFile); err == nil {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "Media processing failed. Try another file."})
 		return
@@ -88,7 +88,7 @@ func (server *Server) serveMedia(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }() // read-only media
 	setMediaHeaders(w, item)
 	http.ServeContent(w, r, id, stat.ModTime(), file)
 }
@@ -108,7 +108,7 @@ func (server *Server) openReadyMedia(id string) (mediaInfo, *os.File, os.FileInf
 	if err != nil {
 		return mediaInfo{}, nil, nil, err
 	}
-	file, err := os.Open(server.displayPath(id))
+	file, err := server.root.Open(displayName(id))
 	if err != nil {
 		return mediaInfo{}, nil, nil, err
 	}

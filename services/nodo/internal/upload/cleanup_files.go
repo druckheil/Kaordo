@@ -1,72 +1,42 @@
+// Package upload implements Nodo's tus uploads, media processing, quotas and storage maintenance.
 package upload
 
-// Removes upload artifacts and updates the per-owner usage index
+// Removes upload artifacts and recognizes which data-directory names belong to an upload
 import (
 	"errors"
+	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
-func (server *Server) removeFiles(id string) error {
-	server.quotaMu.Lock()
-	defer server.quotaMu.Unlock()
+var temporaryArtifactPrefixes = []string{".image-", ".file-", ".ready-"}
 
-	if err := removeUploadFiles(server.config.Directory, id); err != nil {
-		return err
-	}
-	server.removeFromUsageIndex(id)
-	return nil
-}
-
-func removeUploadFiles(directory, id string) error {
-	for _, suffix := range []string{"", ".display", ".ready.json", ".error"} {
-		if err := removeIfPresent(filepath.Join(directory, id+suffix)); err != nil {
+func removeUploadFiles(root *os.Root, id string) error {
+	for _, name := range []string{id, displayName(id), readyName(id), errorName(id)} {
+		if err := removeIfPresent(root, name); err != nil {
 			return err
 		}
 	}
-	if err := removeTemporaryFiles(directory, id); err != nil {
-		return err
-	}
-	return removeIfPresent(filepath.Join(directory, id+".info"))
-}
-
-func removeTemporaryFiles(directory, id string) error {
-	for _, pattern := range []string{".image-*", ".video-*.mp4", ".file-*", ".ready-*"} {
-		matches, err := filepath.Glob(filepath.Join(directory, id+pattern))
+	for _, prefix := range temporaryArtifactPrefixes {
+		matches, err := fs.Glob(root.FS(), id+prefix+"*")
 		if err != nil {
 			return err
 		}
-		for _, path := range matches {
-			if err := removeIfPresent(path); err != nil {
+		for _, name := range matches {
+			if err := removeIfPresent(root, name); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	// The tus metadata goes last: garbage collection finds partial removals through it
+	return removeIfPresent(root, id+".info")
 }
 
-func removeIfPresent(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+func removeIfPresent(root *os.Root, name string) error {
+	if err := root.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
-}
-
-func (server *Server) removeFromUsageIndex(id string) {
-	item, exists := server.indexed[id]
-	if !exists {
-		return
-	}
-	used := server.used[item.owner]
-	used.count--
-	used.bytes -= item.size
-	if used.count == 0 {
-		delete(server.used, item.owner)
-	} else {
-		server.used[item.owner] = used
-	}
-	delete(server.indexed, id)
 }
 
 func uploadIDFromFilename(name string) string {
@@ -90,7 +60,7 @@ func isUploadArtifactSuffix(suffix string) bool {
 }
 
 func isTemporaryUploadSuffix(suffix string) bool {
-	for _, prefix := range []string{".image-", ".video-", ".file-", ".ready-"} {
+	for _, prefix := range temporaryArtifactPrefixes {
 		if strings.HasPrefix(suffix, prefix) {
 			return true
 		}

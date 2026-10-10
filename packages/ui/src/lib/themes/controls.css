@@ -1,5 +1,5 @@
 /* Identifies interactive boundaries and keyboard focus independently of decorative palette borders */
 :root {
-  --control-border: color-mix(in oklch, var(--foreground) 55%, var(--card));
-  --focus-color: var(--link);
+	--control-border: color-mix(in oklch, var(--foreground) 55%, var(--card));
+	--focus-color: var(--link);
 }

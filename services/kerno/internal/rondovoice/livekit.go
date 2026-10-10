@@ -1,3 +1,4 @@
+// Package rondovoice issues LiveKit access tokens for Rondo voice channels.
 package rondovoice
 
 // Creates LiveKit join tokens and removes room participants

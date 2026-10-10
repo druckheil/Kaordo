@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/fluo"
 	"github.com/druckheil/Kaordo/services/kerno/internal/postgres/jetdb/table"
@@ -29,7 +28,6 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 	a := table.Users.AS("a")
 	q := table.FluoPosts.AS("q")
 	qa := table.Users.AS("qa")
-	follows := table.FluoFollows.AS("f")
 	saved := table.FluoSavedPosts.AS("s")
 	reaction := table.FluoReactions.AS("r")
 	good := table.FluoReactions.AS("good")
@@ -39,12 +37,11 @@ func postQuery(viewerID string) jetpg.SelectStatement {
 	saves := table.FluoSavedPosts.AS("saves")
 	viewer := jetUUID(viewerID)
 	return jetpg.SELECT(
-		jetpg.CAST(p.ID).AS_TEXT(), jetpg.CAST(a.ID).AS_TEXT(), a.Username, a.DisplayName,
-		jetpg.EXISTS(jetpg.SELECT(follows.FollowerID).FROM(follows).
-			WHERE(jetpg.AND(follows.FollowerID.EQ(viewer), follows.FollowedID.EQ(a.ID)))),
+		jetpg.CAST(p.ID).AS_TEXT(), fluoAuthorColumns(viewerID, a),
 		p.Content, p.PlainText, p.Visibility, jetpg.CAST(p.ParentID).AS_TEXT(), jetpg.CAST(p.QuoteID).AS_TEXT(),
 		p.QuoteDeleted,
-		jetpg.CAST(q.ID).AS_TEXT(), jetpg.CAST(qa.ID).AS_TEXT(), qa.Username, qa.DisplayName, q.PlainText, postMediaJSON(q),
+		jetpg.CAST(q.ID).AS_TEXT(), jetpg.CAST(qa.ID).AS_TEXT(), qa.Username, fluoDisplayName(qa),
+		fluoImageJSON(qa.ID, "avatar"), fluoVerified(qa), q.PlainText, postMediaJSON(q),
 		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(good.PostID)).FROM(good).
 			WHERE(jetpg.AND(good.PostID.EQ(p.ID), good.Value.EQ(jetpg.String("good"))))),
 		jetpg.IntExp(jetpg.SELECT(jetpg.COUNT(bad.PostID)).FROM(bad).
@@ -84,11 +81,13 @@ type scanner interface{ Scan(...any) error }
 func scanPost(row scanner) (fluo.Post, error) {
 	var post fluo.Post
 	var parent, quote, quotePreviewID, quoteAuthorID, quoteUsername, quoteName, quoteText, reaction sql.NullString
-	var mediaJSON, quoteMediaJSON []byte
+	var mediaJSON, quoteMediaJSON, avatarJSON, quoteAvatarJSON []byte
+	var quoteVerified bool
 	err := row.Scan(
 		&post.ID, &post.Author.ID, &post.Author.Username, &post.Author.DisplayName, &post.Author.Following,
+		&avatarJSON, &post.Author.Verified,
 		&post.Content, &post.Text, &post.Visibility, &parent, &quote, &post.QuoteDeleted,
-		&quotePreviewID, &quoteAuthorID, &quoteUsername, &quoteName, &quoteText, &quoteMediaJSON,
+		&quotePreviewID, &quoteAuthorID, &quoteUsername, &quoteName, &quoteAvatarJSON, &quoteVerified, &quoteText, &quoteMediaJSON,
 		&post.Counts.Good, &post.Counts.Bad, &post.Counts.Comments, &post.Counts.Quotes, &post.Counts.Saves,
 		&reaction, &post.Saved,
 		&mediaJSON, &post.CreatedAt, &post.UpdatedAt,
@@ -97,6 +96,9 @@ func scanPost(row scanner) (fluo.Post, error) {
 		return fluo.Post{}, fluo.ErrNotFound
 	}
 	if err != nil {
+		return post, err
+	}
+	if err := json.Unmarshal(avatarJSON, &post.Author.Avatar); err != nil {
 		return post, err
 	}
 	if parent.Valid {
@@ -110,8 +112,12 @@ func scanPost(row scanner) (fluo.Post, error) {
 			ID: quotePreviewID.String,
 			Author: fluo.Author{
 				ID: quoteAuthorID.String, Username: quoteUsername.String, DisplayName: quoteName.String,
+				Verified: quoteVerified,
 			},
 			Text: quoteText.String,
+		}
+		if err := json.Unmarshal(quoteAvatarJSON, &post.Quote.Author.Avatar); err != nil {
+			return post, err
 		}
 		if err := json.Unmarshal(quoteMediaJSON, &post.Quote.Media); err != nil {
 			return post, fmt.Errorf("decode quoted post media: %w", err)
@@ -167,6 +173,9 @@ func validatePostParent(ctx context.Context, store *Fluo, options fluo.ListOptio
 func postListCondition(options fluo.ListOptions, posts *table.FluoPostsTable) jetpg.BoolExpression {
 	viewer := jetUUID(options.ViewerID)
 	condition := postAccessibleCondition(options.ViewerID, posts)
+	if options.AuthorID != nil {
+		condition = jetpg.AND(condition, posts.AuthorID.EQ(jetUUID(*options.AuthorID)))
+	}
 	if options.ParentID == nil {
 		if options.Feed != "saved" {
 			condition = jetpg.AND(condition, posts.ParentID.IS_NULL())
@@ -178,7 +187,7 @@ func postListCondition(options fluo.ListOptions, posts *table.FluoPostsTable) je
 	if options.Cursor != nil {
 		condition = jetpg.AND(condition, fluoBeforeCursor(posts.CreatedAt, posts.ID, *options.Cursor, false))
 	}
-	return postSearchCondition(condition, posts, options.Search)
+	return condition
 }
 
 func fluoBeforeCursor(createdAt jetpg.TimestampzExpression, id jetpg.StringExpression, cursor fluo.Cursor, inclusive bool) jetpg.BoolExpression {
@@ -209,22 +218,6 @@ func postFeedCondition(condition jetpg.BoolExpression, feed string, posts *table
 	default:
 		return jetpg.AND(condition, jetpg.Bool(false))
 	}
-}
-
-func postSearchCondition(condition jetpg.BoolExpression, posts *table.FluoPostsTable, search string) jetpg.BoolExpression {
-	search = strings.TrimSpace(search)
-	if search == "" {
-		return condition
-	}
-	pattern := jetpg.LOWER(jetpg.String("%" + escapeLikeLiteral(search) + "%"))
-	author := table.Users.AS("a")
-	return jetpg.AND(condition, jetpg.OR(
-		jetpg.LOWER(posts.PlainText).LIKE(pattern),
-		jetpg.EXISTS(jetpg.SELECT(author.ID).FROM(author).WHERE(jetpg.AND(
-			author.ID.EQ(posts.AuthorID),
-			jetpg.OR(jetpg.LOWER(author.Username).LIKE(pattern), jetpg.LOWER(author.DisplayName).LIKE(pattern)),
-		))),
-	))
 }
 
 func scanPostPage(rows pgx.Rows, limit int) (fluo.Page, error) {

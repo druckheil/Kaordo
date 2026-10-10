@@ -99,7 +99,9 @@
 		scroll-padding-block: 4rem;
 		-webkit-text-size-adjust: 100%;
 	}
-	:where(h1, h2, h3, p, blockquote) { overflow-wrap: anywhere; }
+	:where(h1, h2, h3, p, blockquote) {
+		overflow-wrap: anywhere;
+	}
 	::selection {
 		background: var(--accent);
 		color: var(--accent-foreground);
@@ -107,7 +109,16 @@
 }
 
 /* A solid outline stays visible across palettes, including controls with a soft decorative ring */
-:where(a[href], button, input, textarea, select, summary, [tabindex], [contenteditable='true']):focus-visible:not([tabindex='-1']) {
+:where(
+		a[href],
+		button,
+		input,
+		textarea,
+		select,
+		summary,
+		[tabindex],
+		[contenteditable='true']
+	):focus-visible:not([tabindex='-1']) {
 	outline: 2px solid var(--focus-color);
 	outline-offset: 2px;
 }
@@ -115,30 +126,71 @@
 	outline: 2px solid var(--focus-color);
 	outline-offset: -2px;
 }
-:where(main, [role='log'], .kaordo-scrollbar) { scroll-padding-block: 1rem; }
-:where(button, a[href], input, textarea, select, summary, [tabindex]) { scroll-margin-block: 4rem; }
-:where(select) { border-color: var(--control-border); }
-:where(select:not([multiple])) { height: 2.5rem; }
+:where(main, [role='log'], .kaordo-scrollbar) {
+	scroll-padding-block: 1rem;
+}
+:where(button, a[href], input, textarea, select, summary, [tabindex]) {
+	scroll-margin-block: 4rem;
+}
+:where(select) {
+	border-color: var(--control-border);
+}
+:where(select:not([multiple])) {
+	height: 2.5rem;
+}
 
 /* Touch controls have room for a finger; text fields do not trigger mobile browser zoom */
 @media (pointer: coarse) {
-	button:not([role='radio']), [data-slot='button'], [data-slot='app-home'], summary,
+	button:not([role='radio']),
+	[data-slot='button'],
+	[data-slot='app-home'],
+	summary,
 	label:has([role='radio'], input[type='checkbox'], input[type='radio']),
-	[data-slot='input'], [data-slot='textarea'], select,
-	[role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'] {
+	[data-slot='input'],
+	[data-slot='textarea'],
+	select,
+	[role='menuitem'],
+	[role='menuitemradio'],
+	[role='menuitemcheckbox'] {
 		min-height: 44px;
 		min-width: 44px;
 	}
-	[data-slot='input'], [data-slot='textarea'], select, [contenteditable='true'] { font-size: 1rem; }
-	select:not([multiple]) { height: max(2.5rem, 44px); }
+	[data-slot='input'],
+	[data-slot='textarea'],
+	select,
+	[contenteditable='true'] {
+		font-size: 1rem;
+	}
+	select:not([multiple]) {
+		height: max(2.5rem, 44px);
+	}
 }
 
 @media (forced-colors: active) {
-	:where(a[href], button, input, textarea, select, summary, [tabindex]):focus-visible { outline-color: Highlight; }
-	[data-slot='input'], [data-slot='textarea'], select, [data-slot='radio-group-item'], [data-slot='slider-thumb'] { border: 1px solid ButtonText; }
-	button, [data-slot='button'] { color: ButtonText; background-color: ButtonFace; border-color: ButtonText; }
-	a[data-slot='button'] { color: LinkText; }
-	button[aria-current='page'], a[aria-current='page'] { outline: 2px solid Highlight; outline-offset: -2px; }
+	:where(a[href], button, input, textarea, select, summary, [tabindex]):focus-visible {
+		outline-color: Highlight;
+	}
+	[data-slot='input'],
+	[data-slot='textarea'],
+	select,
+	[data-slot='radio-group-item'],
+	[data-slot='slider-thumb'] {
+		border: 1px solid ButtonText;
+	}
+	button,
+	[data-slot='button'] {
+		color: ButtonText;
+		background-color: ButtonFace;
+		border-color: ButtonText;
+	}
+	a[data-slot='button'] {
+		color: LinkText;
+	}
+	button[aria-current='page'],
+	a[aria-current='page'] {
+		outline: 2px solid Highlight;
+		outline-offset: -2px;
+	}
 }
 
 /* Reusable interaction utilities */
@@ -149,7 +201,9 @@
 		scrollbar-gutter: stable;
 		overscroll-behavior: contain;
 	}
-	.kaordo-scrollbar::-webkit-scrollbar { width: 6px; }
+	.kaordo-scrollbar::-webkit-scrollbar {
+		width: 6px;
+	}
 	.kaordo-scrollbar::-webkit-scrollbar-thumb {
 		border-radius: 999px;
 		background: var(--border);

@@ -9,6 +9,11 @@ export { Slider } from './components/ui/slider/index.js';
 // Shared application shells
 export { default as ModuleLanding } from './ModuleLanding.svelte';
 export { default as AppHeader } from './AppHeader.svelte';
+export {
+	settingsNoticeContext,
+	type SettingsNotice,
+	type SettingsNoticeSource
+} from './settings-notice.js';
 export { default as ThemeProvider } from './ThemeProvider.svelte';
 export { default as ThemeToggle } from './ThemeToggle.svelte';
 export { default as AgordojLink } from './AgordojLink.svelte';
@@ -17,6 +22,8 @@ export { withIdentityAppearance } from './themes/identity-appearance.js';
 
 // Composite interaction components
 export { IsUsingKeyboard } from 'bits-ui';
+export { Calendar } from 'bits-ui';
+export { Label, Checkbox } from 'bits-ui';
 export * as Dialog from './components/ui/dialog/index.js';
 export * as AlertDialog from './components/ui/alert-dialog/index.js';
 export * as ContextMenu from './components/ui/context-menu/index.js';
@@ -37,6 +44,11 @@ export { default as EllipsisIcon } from '@lucide/svelte/icons/ellipsis';
 export { default as XIcon } from '@lucide/svelte/icons/x';
 export { default as ShieldCheckIcon } from '@lucide/svelte/icons/shield-check';
 export { default as KeyRoundIcon } from '@lucide/svelte/icons/key-round';
+export { default as MonitorIcon } from '@lucide/svelte/icons/monitor';
+export { default as SmartphoneIcon } from '@lucide/svelte/icons/smartphone';
+export { default as MonitorSmartphoneIcon } from '@lucide/svelte/icons/monitor-smartphone';
+export { default as PaletteIcon } from '@lucide/svelte/icons/palette';
+export { default as TriangleAlertIcon } from '@lucide/svelte/icons/triangle-alert';
 export { default as LogOutIcon } from '@lucide/svelte/icons/log-out';
 
 // Post and message icons
@@ -117,4 +129,13 @@ export { default as FolderPlusIcon } from '@lucide/svelte/icons/folder-plus';
 export { default as UploadIcon } from '@lucide/svelte/icons/upload';
 export { default as DownloadIcon } from '@lucide/svelte/icons/download';
 export { default as SparklesIcon } from '@lucide/svelte/icons/sparkles';
+export { default as CameraIcon } from '@lucide/svelte/icons/camera';
+export { default as BadgeCheckIcon } from '@lucide/svelte/icons/badge-check';
+export { default as CalendarDaysIcon } from '@lucide/svelte/icons/calendar-days';
+export { default as CakeIcon } from '@lucide/svelte/icons/cake';
+export { default as MapPinIcon } from '@lucide/svelte/icons/map-pin';
+export { default as EyeOffIcon } from '@lucide/svelte/icons/eye-off';
+export { default as CircleMinusIcon } from '@lucide/svelte/icons/circle-minus';
+export { default as ZoomInIcon } from '@lucide/svelte/icons/zoom-in';
+export { default as ZoomOutIcon } from '@lucide/svelte/icons/zoom-out';
 export { default as LightbulbIcon } from '@lucide/svelte/icons/lightbulb';

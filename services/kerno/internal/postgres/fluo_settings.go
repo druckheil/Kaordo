@@ -24,11 +24,21 @@ func (store *Fluo) Settings(ctx context.Context, viewerID string) (fluo.Settings
 		jetpg.COALESCE(settings.NotifyQuotes, jetpg.String(defaults.Notifications.Quotes)),
 		jetpg.COALESCE(settings.AccountVisibility, jetpg.String(defaults.Privacy.AccountVisibility)),
 		jetpg.COALESCE(settings.ShowLikes, jetpg.Bool(defaults.Privacy.ShowLikes)),
+		jetpg.COALESCE(settings.PresenceVisibility, jetpg.String(defaults.Privacy.PresenceVisibility)),
 	).FROM(users.LEFT_JOIN(settings, settings.UserID.EQ(users.ID))).WHERE(users.ID.EQ(jetUUID(viewerID)))))
 }
 
 func (store *Fluo) UpdateSettings(ctx context.Context, viewerID string, patch fluo.SettingsPatch) (fluo.Settings, error) {
 	if err := patch.Validate(); err != nil {
+		return fluo.Settings{}, err
+	}
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fluo.Settings{}, err
+	}
+	defer tx.Rollback(ctx)
+	// Privacy changes wait for posts citing the current audience key, which may need rotation afterwards.
+	if err := lockFluoKeyring(ctx, tx, viewerID, true); err != nil {
 		return fluo.Settings{}, err
 	}
 	settings := table.FluoSettings
@@ -51,6 +61,7 @@ func (store *Fluo) UpdateSettings(ctx context.Context, viewerID string, patch fl
 		{settings.NotifyReplies, notifications.Replies}, {settings.NotifyFollows, notifications.Follows},
 		{settings.NotifyUnfollows, notifications.Unfollows}, {settings.NotifyQuotes, notifications.Quotes},
 		{settings.AccountVisibility, privacy.AccountVisibility},
+		{settings.PresenceVisibility, privacy.PresenceVisibility},
 	} {
 		if field.value == nil {
 			continue
@@ -67,12 +78,16 @@ func (store *Fluo) UpdateSettings(ctx context.Context, viewerID string, patch fl
 		updates = append(updates, settings.ShowLikes.SET(value))
 	}
 	// PostgreSQL defaults fill absent columns on insert; conflict updates touch only the supplied fields.
-	return scanFluoSettings(jetQueryRow(ctx, store.pool, settings.INSERT(columns).VALUES(values[0], values[1:]...).
+	saved, err := scanFluoSettings(jetQueryRow(ctx, tx, settings.INSERT(columns).VALUES(values[0], values[1:]...).
 		ON_CONFLICT(settings.UserID).DO_UPDATE(jetpg.SET(updates...)).RETURNING(
 		settings.NotifyLikes, settings.NotifyDislikes, settings.NotifyReplies,
 		settings.NotifyFollows, settings.NotifyUnfollows, settings.NotifyQuotes,
-		settings.AccountVisibility, settings.ShowLikes,
+		settings.AccountVisibility, settings.ShowLikes, settings.PresenceVisibility,
 	)))
+	if err != nil {
+		return fluo.Settings{}, err
+	}
+	return saved, tx.Commit(ctx)
 }
 
 func scanFluoSettings(row scanner) (fluo.Settings, error) {
@@ -81,6 +96,7 @@ func scanFluoSettings(row scanner) (fluo.Settings, error) {
 		&settings.Notifications.Likes, &settings.Notifications.Dislikes, &settings.Notifications.Replies,
 		&settings.Notifications.Follows, &settings.Notifications.Unfollows, &settings.Notifications.Quotes,
 		&settings.Privacy.AccountVisibility, &settings.Privacy.ShowLikes,
+		&settings.Privacy.PresenceVisibility,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fluo.Settings{}, fluo.ErrNotFound

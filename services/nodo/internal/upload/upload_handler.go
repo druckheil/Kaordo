@@ -39,7 +39,7 @@ func (server *Server) upload(w http.ResponseWriter, r *http.Request) {
 
 	entry := &reservation{owner: ownerID}
 	if r.Method == http.MethodPost {
-		defer server.release(entry)
+		defer server.quota.release(entry)
 	}
 	request := requestWithUploadContext(r, ownerID, entry)
 	http.StripPrefix("/v1/uploads/", server.tus).ServeHTTP(w, request)
@@ -91,7 +91,7 @@ func (server *Server) beforeCreate(event tusd.HookEvent) (tusd.HTTPResponse, tus
 	}
 	limit, supported := uploadSizeLimit(info.MetaData["filetype"])
 	if !supported {
-		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_UNSUPPORTED_MEDIA", "JPEG, PNG, WebP, MP4, WebM, MOV or file upload required", http.StatusUnsupportedMediaType)
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_UNSUPPORTED_MEDIA", "JPEG, PNG, WebP or encrypted file upload required", http.StatusUnsupportedMediaType)
 	}
 	if info.Size > limit {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.ErrMaxSizeExceeded
@@ -105,7 +105,7 @@ func (server *Server) beforeCreate(event tusd.HookEvent) (tusd.HTTPResponse, tus
 	if !ok || entry.owner != ownerID {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, errors.New("upload reservation is missing")
 	}
-	if err := server.reserve(entry, info.Size); err != nil {
+	if err := server.quota.reserve(entry, info.Size); err != nil {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, tusd.NewError("ERR_STORAGE_QUOTA", "Storage quota reached.", http.StatusInsufficientStorage)
 	}
 	entry.id = id.String()
@@ -120,7 +120,7 @@ func uploadSizeLimit(mediaType string) (int64, bool) {
 	switch mediaType {
 	case "image/jpeg", "image/png", "image/webp":
 		return maxImageUploadSize, true
-	case "video/mp4", "video/webm", "video/quicktime", "application/octet-stream":
+	case "application/octet-stream":
 		return maxUploadSize, true
 	default:
 		return 0, false

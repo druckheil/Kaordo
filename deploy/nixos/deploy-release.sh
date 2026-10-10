@@ -7,9 +7,14 @@ expected_hash=${2:?archive checksum required}
 origin_host=${3:?public hostname required}
 auth_realm=${4:?identity realm required}
 archive=${5:?release archive required}
+expected_revision=${6:-}
 
 if [[ ! "$release_id" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{12}-[0-9]{8}T[0-9]{6}Z(-dirty)?$ ]]; then
   echo 'invalid release ID' >&2
+  exit 2
+fi
+if [[ -n "$expected_revision" && ! "$expected_revision" =~ ^[a-f0-9]{40}$ ]]; then
+  echo 'invalid source revision' >&2
   exit 2
 fi
 if [[ ! "$expected_hash" =~ ^[a-f0-9]{64}$ || ! "$origin_host" =~ ^[A-Za-z0-9.-]+$ || ! "$auth_realm" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -37,7 +42,7 @@ node_runtime=
 previous_system=
 previous_site=
 previous_release=
-services=(caddy keycloak postgresql livekit kerno nodo regado-agent kaordo-system-volumes prometheus prometheus-node-exporter ddclient.timer)
+services=(caddy keycloak postgresql livekit kerno nodo regado-agent prometheus prometheus-node-exporter ddclient.timer)
 
 mkdir -p "$temporary_root" "$data_root/releases" "$data_root/rollbacks"
 if ! mkdir "$lock" 2>/dev/null; then
@@ -107,7 +112,7 @@ restore_release() {
           mv -f "$data_root/bin/.$binary-rollback" "$data_root/bin/$binary" || rollback_failed=1
       done
     fi
-    for path in deploy/nixos deploy/postgres deploy/keycloak scripts/sync-keycloak.mjs; do
+    for path in deploy/nixos deploy/keycloak scripts/sync-keycloak.mjs; do
       restore_source "/etc/nixos/$path" "$backup_root/etc-nixos/$path" || rollback_failed=1
     done
     if [[ "$system_switch_started" -eq 1 || "$(readlink -f /run/current-system)" != "$previous_system" ]]; then
@@ -117,11 +122,13 @@ restore_release() {
       wait_for_http http://127.0.0.1:8080/realms/master 120 &&
         "$node_runtime" "$release_root/etc/nixos/deploy/nixos/sync-keycloak-production.mjs" --restore "$backup_root/keycloak.json" || rollback_failed=1
     fi
-    systemctl restart kaordo-system-volumes || rollback_failed=1
     systemctl start regado-agent nodo kerno || rollback_failed=1
     wait_for_http http://127.0.0.1:8081/healthz &&
       wait_for_http http://127.0.0.1:8082/healthz && check_services || rollback_failed=1
-    if [[ "$rollback_failed" -eq 1 ]]; then echo 'Rollback needs operator attention; inspect the deployment log.' >&2;
+    # Exit code 70 tells automatic deployment that production may be inconsistent and it must halt
+    if [[ "$rollback_failed" -eq 1 ]]; then
+      echo 'Rollback needs operator attention; inspect the deployment log.' >&2
+      status=70
     else echo 'Previous release restored; forward-only database migrations are retained.' >&2; fi
   elif [[ "$status" -ne 0 ]]; then
     echo 'Release failed before changing the host.' >&2
@@ -132,6 +139,8 @@ restore_release() {
   exit "$status"
 }
 trap restore_release EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 if [[ -e "$release_root" || -e "$backup_root" ]]; then
   echo 'release or rollback directory already exists' >&2
@@ -157,13 +166,38 @@ if tar -tzf "$archive" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null; then
   echo 'release archive contains an unsafe path' >&2
   exit 1
 fi
+if tar -tvzf "$archive" | grep -E '^[^d-]' >/dev/null; then
+  echo 'release archive contains a link or special file' >&2
+  exit 1
+fi
 mkdir "$staging"
 tar -xzf "$archive" -C "$staging" --no-same-owner
+if [[ -n "$expected_revision" ]]; then
+  node --input-type=module - "$staging/manifest.json" "$expected_revision" <<'JS'
+import {readFileSync} from 'node:fs';
+const manifest = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+if (manifest.sourceCommit !== process.argv[3] || manifest.workingTreeDirty !== false)
+  throw new Error('Release must match the tested clean source revision.');
+JS
+fi
 for path in bin/kerno bin/nodo bin/regado-agent manifest.json site/index.html \
   etc/nixos/deploy/nixos/kaordo.nix etc/nixos/deploy/nixos/verify-release.mjs \
   etc/nixos/deploy/nixos/sync-keycloak-production.mjs etc/nixos/scripts/sync-keycloak.mjs; do
   [[ -s "$staging/$path" ]] || { printf 'release is missing %s\n' "$path" >&2; exit 1; }
 done
+
+# Read-only snapshots of the databases and uploads let an operator undo this release's data
+# changes. They share unchanged blocks with the live data; the newest three are kept
+snapshot="$data_root/snapshots/$(date -u +%Y%m%dT%H%M%SZ)-$release_id"
+mkdir -p "$snapshot"
+for volume in postgresql media; do
+  btrfs subvolume snapshot -r "$data_root/$volume" "$snapshot/$volume" >/dev/null
+done
+for old in $(find "$data_root/snapshots" -mindepth 1 -maxdepth 1 -type d | sort -r | tail -n +4); do
+  btrfs subvolume delete "$old"/* >/dev/null
+  rmdir "$old"
+done
+
 mv "$staging" "$release_root"
 chmod 0755 "$data_root/releases" "$release_root"
 mkdir -m 0700 "$backup_root"
@@ -171,12 +205,12 @@ mkdir "$backup_root/bin"
 for binary in kerno nodo regado-agent; do cp -a "$data_root/bin/$binary" "$backup_root/bin/$binary"; done
 printf '%s\n' "$previous_system" > "$backup_root/nixos-system"
 printf '%s\n' "$previous_site" > "$backup_root/site-target"
-for path in deploy/nixos deploy/postgres deploy/keycloak scripts/sync-keycloak.mjs; do
+for path in deploy/nixos deploy/keycloak scripts/sync-keycloak.mjs; do
   backup_source "/etc/nixos/$path" "$backup_root/etc-nixos/$path"
 done
 
 source_mutated=1
-for path in deploy/nixos deploy/postgres deploy/keycloak; do
+for path in deploy/nixos deploy/keycloak; do
   rm -rf "/etc/nixos/$path"
   mkdir -p "$(dirname "/etc/nixos/$path")"
   cp -a "$release_root/etc/nixos/$path" "/etc/nixos/$path"
@@ -190,7 +224,6 @@ node_runtime="$release_root/nixos-system/sw/bin/node"
 [[ -x "$node_runtime" ]]
 "$node_runtime" "$release_root/etc/nixos/deploy/nixos/verify-release.mjs" payload "$release_root" "$release_id" "$origin" "$auth_realm"
 "$node_runtime" "$release_root/etc/nixos/deploy/nixos/sync-keycloak-production.mjs" --snapshot "$backup_root/keycloak.json"
-bash /etc/nixos/deploy/nixos/apply-migrations.sh /etc/nixos/deploy/postgres
 
 for binary in kerno nodo regado-agent; do
   install -o root -g root -m 0755 "$release_root/bin/$binary" "$data_root/bin/.$binary-new"
@@ -200,7 +233,6 @@ for binary in kerno nodo regado-agent; do mv -f "$data_root/bin/.$binary-new" "$
 system_switch_started=1
 nixos-rebuild switch --store-path "$(readlink -f "$release_root/nixos-system")"
 [[ "$(readlink -f /run/current-system)" == "$(readlink -f "$release_root/nixos-system")" ]]
-systemctl restart kaordo-system-volumes
 systemctl restart regado-agent
 systemctl restart nodo
 systemctl restart kerno

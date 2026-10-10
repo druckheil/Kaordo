@@ -1,15 +1,21 @@
 <script lang="ts">
 	// Loads, virtualizes, and renders the active post feed
 
-	import { untrack } from "svelte";
-	import { createInfiniteQuery, type QueryClient } from "@tanstack/svelte-query";
-	import { createWindowVirtualizer } from "@tanstack/svelte-virtual";
-	import { feedOptions, type Feed, type FluoApi } from "@kaordo/api-client";
-	import type { FluoPage, FluoPost, UserIdentity } from "@kaordo/contracts";
-	import { BookmarkIcon, Button } from "@kaordo/ui";
-	import { estimatePostHeight, feedEmptyDescription, feedEmptyTitle, feedForView, type FluoView } from "./fluo-model";
-	import PostCard from "./PostCard.svelte";
-	import type { FluoPostActionHandlers } from "./post-actions";
+	import { untrack } from 'svelte';
+	import { createInfiniteQuery, type QueryClient } from '@tanstack/svelte-query';
+	import { createWindowVirtualizer } from '@tanstack/svelte-virtual';
+	import { feedOptions, type Feed, type FluoApi } from '@kaordo/api-client';
+	import type { FluoPost, UserIdentity } from '@kaordo/contracts';
+	import { BookmarkIcon, Button } from '@kaordo/ui';
+	import {
+		estimatePostHeight,
+		feedEmptyDescription,
+		feedEmptyTitle,
+		feedForView,
+		type FluoView
+	} from './fluo-model';
+	import PostCard from './PostCard.svelte';
+	import type { FluoPostActionHandlers } from './post-actions';
 
 	let {
 		view,
@@ -19,6 +25,7 @@
 		api,
 		queryClient,
 		removedIds,
+		profileId,
 		onReply,
 		onQuote,
 		onOpenPost,
@@ -26,7 +33,7 @@
 		onFollow,
 		onSave,
 		onVisibilityChange,
-		onDelete,
+		onDelete
 	}: {
 		view: FluoView;
 		feed: Feed;
@@ -35,6 +42,7 @@
 		api: FluoApi;
 		queryClient: QueryClient;
 		removedIds: string[];
+		profileId?: string;
 		onReply: (post: FluoPost) => void;
 		onQuote: (post: FluoPost) => void;
 		onOpenPost: (id: string) => void;
@@ -45,29 +53,40 @@
 		onDelete: (post: FluoPost) => void;
 	} = $props();
 
-	const canQueryPosts = $derived(view === "feed" || view === "search" || view === "saved" || view === "profile");
-	const currentFeed = $derived(feedForView(view, feed));
-	const activeSearch = $derived(view === "search" ? searchTerm : undefined);
-	const query = createInfiniteQuery(() => ({
-		...feedOptions(api, currentFeed, activeSearch),
-		enabled: typeof window !== "undefined" && canQueryPosts && (view !== "search" || searchTerm.length >= 2),
-	}), () => queryClient);
+	const canQueryPosts = $derived(
+		view === 'feed' || view === 'search' || view === 'saved' || view === 'profile'
+	);
+	const otherProfile = $derived(view === 'profile' && !!profileId && profileId !== user.id);
+	const currentFeed = $derived(otherProfile ? 'latest' : feedForView(view, feed));
+	const activeSearch = $derived(view === 'search' ? searchTerm : undefined);
+	const query = createInfiniteQuery(
+		() => ({
+			...feedOptions(api, {
+				feed: currentFeed,
+				search: activeSearch,
+				authorId: view === 'profile' ? profileId : undefined
+			}),
+			enabled:
+				typeof window !== 'undefined' &&
+				canQueryPosts &&
+				(view !== 'search' || searchTerm.length >= 2)
+		}),
+		() => queryClient
+	);
 	const posts = $derived(
-		query.data?.pages.flatMap((page) => page.items).filter((post) => !removedIds.includes(post.id)) ?? [],
+		query.data?.pages
+			.flatMap((page) => page.items)
+			.filter((post) => !removedIds.includes(post.id)) ?? []
 	);
 	let listElement = $state<HTMLDivElement>();
 
 	const virtualizer = createWindowVirtualizer<HTMLDivElement>({
 		count: 0,
 		getItemKey: (index) => posts[index]?.id ?? index,
-		estimateSize: (index) => estimatePostHeight(
-			posts[index],
-			contentWidth(),
-			viewportWidth(),
-			rootFontSize(),
-		),
+		estimateSize: (index) =>
+			estimatePostHeight(posts[index], contentWidth(), viewportWidth(), rootFontSize()),
 		overscan: 4,
-		useAnimationFrameWithResizeObserver: true,
+		useAnimationFrameWithResizeObserver: true
 	});
 
 	$effect(() => {
@@ -75,29 +94,30 @@
 		untrack(() => {
 			$virtualizer.setOptions({
 				count: postIds.length,
-				getItemKey: (index) => postIds[index] ?? index,
+				getItemKey: (index) => postIds[index] ?? index
 			});
 		});
 	});
 
 	$effect(() => {
 		const lastRow = $virtualizer.getVirtualItems().at(-1);
-		if (!canQueryPosts || !lastRow || lastRow.index < posts.length - 3) return;
+		if (!canQueryPosts || view === 'search' || !lastRow || lastRow.index < posts.length - 3) return;
 		if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
 	});
 
 	function viewportWidth(): number {
-		return typeof window === "undefined" ? 1024 : window.innerWidth;
+		return typeof window === 'undefined' ? 1024 : window.innerWidth;
 	}
 
 	function contentWidth(): number {
 		const viewport = viewportWidth();
-		const columnWidth = listElement?.clientWidth ?? Math.min(736, viewport - (viewport >= 640 ? 48 : 32));
+		const columnWidth =
+			listElement?.clientWidth ?? Math.min(736, viewport - (viewport >= 640 ? 48 : 32));
 		return Math.max(1, columnWidth - (viewport >= 640 ? 50 : 34));
 	}
 
 	function rootFontSize(): number {
-		if (typeof window === "undefined") return 16;
+		if (typeof window === 'undefined') return 16;
 		return Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
 	}
 
@@ -116,20 +136,23 @@
 		// Apply virtualizer measurements in the next frame, outside ResizeObserver delivery
 		const scheduleScrollMargin = () => {
 			if (frame) return;
-			frame = requestAnimationFrame(() => { frame = 0; updateScrollMargin(); });
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				updateScrollMargin();
+			});
 		};
 		const observer = new ResizeObserver(scheduleScrollMargin);
 		observer.observe(node.parentElement ?? node);
-		window.addEventListener("resize", scheduleScrollMargin);
+		window.addEventListener('resize', scheduleScrollMargin);
 		scheduleScrollMargin();
 
 		return {
 			destroy() {
 				cancelAnimationFrame(frame);
 				observer.disconnect();
-				window.removeEventListener("resize", scheduleScrollMargin);
+				window.removeEventListener('resize', scheduleScrollMargin);
 				if (listElement === node) listElement = undefined;
-			},
+			}
 		};
 	}
 
@@ -138,14 +161,20 @@
 	}
 </script>
 
-{#if view === "search" && searchTerm.length < 2}
-	<p class="rounded-[1.5rem] border border-dashed border-border bg-card/60 py-14 text-center text-sm text-muted-foreground" role="status">
+{#if view === 'search' && searchTerm.length < 2}
+	<p
+		class="rounded-[1.5rem] border border-dashed border-border bg-card/60 py-14 text-center text-sm text-muted-foreground"
+		role="status"
+	>
 		Enter at least two characters to search.
 	</p>
 {:else if query.isPending}
 	<div role="status" aria-label="Loading posts" class="space-y-4">
 		{#each [1, 2] as placeholder (placeholder)}
-			<div class="h-64 animate-pulse rounded-[1.5rem] border border-border bg-card p-6" aria-hidden="true">
+			<div
+				class="h-64 animate-pulse rounded-[1.5rem] border border-border bg-card p-6"
+				aria-hidden="true"
+			>
 				<div class="size-10 rounded-xl bg-muted"></div>
 				<div class="mt-6 h-4 w-3/4 rounded bg-muted"></div>
 				<div class="mt-3 h-4 w-1/2 rounded bg-muted"></div>
@@ -163,23 +192,45 @@
 		<div class="mx-auto grid size-14 place-items-center rounded-2xl bg-accent">
 			<BookmarkIcon class="size-6 text-accent-foreground" />
 		</div>
-		<p class="mt-5 text-xl font-bold tracking-tight">{feedEmptyTitle(view, feed)}</p>
-		<p class="mt-2 text-sm text-muted-foreground">{feedEmptyDescription(view, feed)}</p>
+		<p class="mt-5 text-xl font-bold tracking-tight">
+			{view === 'search' && query.hasNextPage
+				? 'No matches in these posts.'
+				: otherProfile
+					? 'No posts yet.'
+					: feedEmptyTitle(view, feed)}
+		</p>
+		<p class="mt-2 text-sm text-muted-foreground">
+			{view === 'search' && query.hasNextPage
+				? 'Continue searching older posts, or try another phrase or username.'
+				: otherProfile
+					? 'Posts shared by this account will appear here.'
+					: feedEmptyDescription(view, feed)}
+		</p>
 	</div>
 {:else}
 	<div
 		use:trackList
 		class="relative w-full"
-		style:height={$virtualizer.getTotalSize() + "px"}
+		style:height={`${$virtualizer.getTotalSize()}px`}
 		role="list"
-		aria-label={view === "saved" ? "Saved posts" : view === "profile" ? "Profile posts" : view === "search" ? "Search results" : "Posts"}
+		aria-label={view === 'saved'
+			? 'Saved posts'
+			: view === 'profile'
+				? 'Profile posts'
+				: view === 'search'
+					? 'Search results'
+					: 'Posts'}
 	>
-		{#each $virtualizer.getVirtualItems().filter((row) => row.index < posts.length) as row (posts[row.index].id)}
+		{#each $virtualizer
+			.getVirtualItems()
+			.filter((row) => row.index < posts.length) as row (posts[row.index].id)}
 			{@const post = posts[row.index]}
 			<div
 				data-index={row.index}
-				role="listitem" aria-posinset={row.index + 1} aria-setsize={query.hasNextPage ? -1 : posts.length}
-				class="absolute left-0 top-0 w-full pb-4"
+				role="listitem"
+				aria-posinset={row.index + 1}
+				aria-setsize={query.hasNextPage ? -1 : posts.length}
+				class="absolute top-0 left-0 w-full pb-4"
 				style:transform={`translateY(${row.start - $virtualizer.options.scrollMargin}px)`}
 				use:measurePost
 			>
@@ -190,7 +241,7 @@
 					{queryClient}
 					{onReply}
 					{onQuote}
-					onOpenPost={onOpenPost}
+					{onOpenPost}
 					{onReact}
 					{onFollow}
 					{onSave}
@@ -204,9 +255,23 @@
 	{#if query.isFetchingNextPage}
 		<p class="mt-3 text-center text-sm text-muted-foreground" role="status">Loading more…</p>
 	{/if}
-	{#if query.isFetchNextPageError}
+	{#if query.isFetchNextPageError && view !== 'search'}
 		<Button class="mt-3 w-full" variant="outline" onclick={() => void query.fetchNextPage()}>
 			Try loading more
 		</Button>
+	{/if}
+{/if}
+
+{#if view === 'search' && searchTerm.length >= 2 && query.hasNextPage}
+	<Button
+		class="mt-4 w-full"
+		variant="outline"
+		disabled={query.isFetchingNextPage}
+		onclick={() => void query.fetchNextPage()}
+	>
+		{query.isFetchingNextPage ? 'Searching older posts…' : 'Search older posts'}
+	</Button>
+	{#if query.isFetchNextPageError}
+		<p class="mt-2 text-sm text-destructive" role="alert">{query.error.message}</p>
 	{/if}
 {/if}

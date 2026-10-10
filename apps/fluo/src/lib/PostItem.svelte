@@ -9,14 +9,17 @@
 		ContextMenu,
 		DropdownMenu,
 		EllipsisIcon,
-		Trash2Icon,
+		Trash2Icon
 	} from '@kaordo/ui';
 	import { MediaGallery } from '@kaordo/media-ui';
 	import PostActions from './PostActions.svelte';
 	import QuotePreview from './QuotePreview.svelte';
-	import RichText from './RichText.svelte';
+	import { RichText } from '@kaordo/editor-ui';
 	import { postHashForId } from './fluo-model';
 	import type { FluoPostActionHandlers } from './post-actions';
+	import { UserAvatar } from '@kaordo/account-ui';
+	import ProfileLink from './ProfileLink.svelte';
+	import VerifiedBadge from './VerifiedBadge.svelte';
 
 	let {
 		post,
@@ -33,7 +36,7 @@
 		onFollow,
 		onSave,
 		onVisibilityChange,
-		onDelete,
+		onDelete
 	}: {
 		post: FluoPost;
 		viewerId: string;
@@ -55,15 +58,11 @@
 	let following = $state(false);
 	let visibilityChanging = $state(false);
 	const date = $derived(formatPostTime(post.createdAt));
-	const initials = $derived(authorInitials(post.author.displayName, post.author.username));
 
 	function formatPostTime(value: string): string {
-		return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
-	}
-
-	function authorInitials(displayName: string, username: string): string {
-		const initials = displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toLocaleUpperCase();
-		return initials || username[0]?.toLocaleUpperCase() || 'K';
+		return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+			new Date(value)
+		);
 	}
 
 	async function toggleFollow(): Promise<void> {
@@ -77,7 +76,8 @@
 	}
 
 	function openPostFromCard(event: MouseEvent): void {
-		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+			return;
 
 		event.preventDefault();
 		onOpenPost(post.id);
@@ -85,7 +85,12 @@
 
 	// Function bindings keep both menus tied to confirmed server visibility
 	async function changeVisibility(value: string): Promise<void> {
-		if (visibilityChanging || (value !== 'public' && value !== 'private') || value === post.visibility) return;
+		if (
+			visibilityChanging ||
+			(value !== 'public' && value !== 'private') ||
+			value === post.visibility
+		)
+			return;
 
 		visibilityChanging = true;
 		try {
@@ -100,34 +105,51 @@
 	<ContextMenu.Trigger
 		class="block w-full rounded-[1.5rem] select-text"
 		aria-label={`Post by @${post.author.username}`}
-		oncontextmenu={(event) => event.stopPropagation()}
+		oncontextmenu={(event: MouseEvent) => event.stopPropagation()}
 	>
 		<article
 			data-post-id={post.id}
-			class="fluo-post group/post-card relative isolate min-w-0 rounded-[1.5rem] border border-border bg-card px-[var(--media-gallery-edge-gutter)] pt-[var(--media-gallery-edge-gutter)] pb-1.5 sm:pb-2 shadow-[0_10px_32px_-25px_rgba(20,65,39,.5)]"
+			class="fluo-post group/post-card relative isolate min-w-0 rounded-[1.5rem] border border-border bg-card px-[var(--media-gallery-edge-gutter)] pt-[var(--media-gallery-edge-gutter)] pb-1.5 shadow-[0_10px_32px_-25px_rgba(20,65,39,.5)] sm:pb-2"
 			class:fluo-reply={compact}
 			aria-label={'Post by ' + post.author.username}
 		>
+			<!-- eslint-disable svelte/no-navigation-without-resolve -- Post hashes stay on the current route -->
 			<a
 				href={postHashForId(post.id)}
 				class="absolute inset-0 z-0 cursor-pointer rounded-[inherit] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
 				aria-label={`Open post by @${post.author.username}`}
 				onclick={openPostFromCard}
 			></a>
+			<!-- eslint-enable svelte/no-navigation-without-resolve -->
 			{@render threadContext?.()}
 			<header
 				id={focusTarget ? `fluo-focused-post-${post.id}` : undefined}
 				class="flex scroll-mt-20 items-start gap-3"
 			>
-				<div class="relative z-10 grid size-11 shrink-0 place-items-center rounded-2xl bg-accent text-sm font-bold text-accent-foreground" aria-hidden="true">{initials}</div>
+				<ProfileLink
+					username={post.author.username}
+					label={`Open profile of @${post.author.username}`}
+					class="relative z-10 shrink-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-ring"
+					><UserAvatar user={post.author} /></ProfileLink
+				>
 				<div class="min-w-0 flex-1">
 					<div class="flex flex-wrap items-baseline gap-x-2">
-						<span class="relative z-10 truncate text-sm font-bold text-foreground">{post.author.displayName}</span>
-						<span class="relative z-10 truncate text-xs text-muted-foreground">@{post.author.username}</span>
+						<ProfileLink
+							username={post.author.username}
+							class="relative z-10 inline-flex min-h-6 min-w-0 items-center gap-1.5 rounded text-sm font-bold text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-11"
+							><span class="truncate">{post.author.displayName}</span
+							>{#if post.author.verified}<VerifiedBadge />{/if}</ProfileLink
+						>
+						<span class="relative z-10 truncate text-xs text-muted-foreground"
+							>@{post.author.username}</span
+						>
 					</div>
 					<p class="mt-0.5 text-xs text-muted-foreground">
 						<time class="relative z-10" datetime={post.createdAt}>{date}</time>
-						{#if post.visibility === 'private'}<span class="relative z-10 ml-1.5 rounded-full bg-muted px-2 py-0.5 font-medium">Only me</span>{/if}
+						{#if post.visibility === 'private'}<span
+								class="relative z-10 ml-1.5 rounded-full bg-muted px-2 py-0.5 font-medium"
+								>Only me</span
+							>{/if}
 					</p>
 				</div>
 				{#if post.author.id !== viewerId && post.visibility === 'public'}
@@ -145,7 +167,7 @@
 					<DropdownMenu.Root>
 						<DropdownMenu.Trigger
 							aria-label="Post actions"
-							class="post-menu-trigger relative z-10 grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:pointer-events-none sm:opacity-0 sm:group-hover/post-card:pointer-events-auto sm:group-hover/post-card:opacity-100 sm:group-focus-within/post-card:pointer-events-auto sm:group-focus-within/post-card:opacity-100"
+							class="post-menu-trigger relative z-10 grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:pointer-events-none sm:opacity-0 sm:group-focus-within/post-card:pointer-events-auto sm:group-focus-within/post-card:opacity-100 sm:group-hover/post-card:pointer-events-auto sm:group-hover/post-card:opacity-100"
 						>
 							<EllipsisIcon class="size-4" />
 						</DropdownMenu.Trigger>
@@ -157,7 +179,7 @@
 							<DropdownMenu.Separator />
 							<DropdownMenu.Label>Change visibility</DropdownMenu.Label>
 							<DropdownMenu.RadioGroup
-								bind:value={() => post.visibility, (value) => void changeVisibility(value)}
+								bind:value={() => post.visibility, (value: string) => void changeVisibility(value)}
 							>
 								<DropdownMenu.RadioItem value="public" disabled={visibilityChanging}>
 									Public
@@ -200,7 +222,7 @@
 				{post}
 				onReply={() => onReply(post)}
 				onQuote={() => onQuote(post)}
-				onReact={(value) => onReact(post, value)}
+				onReact={(value: FluoPost['myReaction']) => onReact(post, value)}
 				onSave={() => onSave(post)}
 				{showReplyAction}
 			/>
@@ -218,7 +240,7 @@
 			<ContextMenu.Separator />
 			<ContextMenu.Label>Change visibility</ContextMenu.Label>
 			<ContextMenu.RadioGroup
-				bind:value={() => post.visibility, (value) => void changeVisibility(value)}
+				bind:value={() => post.visibility, (value: string) => void changeVisibility(value)}
 			>
 				<ContextMenu.RadioItem value="public" disabled={visibilityChanging}>
 					Public
@@ -238,18 +260,26 @@
 <style>
 	.fluo-post {
 		--media-gallery-edge-gutter: 1rem;
-		transition: border-color .2s ease, box-shadow .2s ease;
+		transition:
+			border-color 0.2s ease,
+			box-shadow 0.2s ease;
 	}
-	.fluo-post:hover { border-color: var(--input); box-shadow: 0 16px 40px -30px rgba(20, 65, 39, .55); }
+	.fluo-post:hover {
+		border-color: var(--input);
+		box-shadow: 0 16px 40px -30px rgba(20, 65, 39, 0.55);
+	}
 	.fluo-post.fluo-reply {
-		--media-gallery-edge-gutter: .75rem;
+		--media-gallery-edge-gutter: 0.75rem;
 		border-radius: 1rem;
 		box-shadow: none;
 	}
-	.fluo-post.fluo-reply:hover { box-shadow: none; }
+	.fluo-post.fluo-reply:hover {
+		box-shadow: none;
+	}
 
 	.post-card-single-media :global([data-pswp-item]),
-	.post-card-single-media :global(media-player) {
+	.post-card-single-media :global(media-player),
+	.post-card-single-media :global([data-slot='button']) {
 		position: relative;
 		z-index: 10;
 	}
@@ -258,8 +288,8 @@
 		pointer-events: none;
 	}
 
-	.post-card-carousel-media :global([aria-roledescription="slide"]),
-	.post-card-carousel-media :global([data-slot="button"]),
+	.post-card-carousel-media :global([aria-roledescription='slide']),
+	.post-card-carousel-media :global([data-slot='button']),
 	.post-card-carousel-media :global([data-pswp-item]) {
 		position: relative;
 		z-index: 10;
@@ -267,10 +297,15 @@
 	}
 
 	@media (hover: none) {
-		:global(.post-menu-trigger) { opacity: 1; pointer-events: auto; }
+		:global(.post-menu-trigger) {
+			opacity: 1;
+			pointer-events: auto;
+		}
 	}
 
 	@media (min-width: 40rem) {
-		.fluo-post { --media-gallery-edge-gutter: 1.5rem; }
+		.fluo-post {
+			--media-gallery-edge-gutter: 1.5rem;
+		}
 	}
 </style>

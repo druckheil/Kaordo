@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"regexp"
 	"time"
+
+	"github.com/druckheil/Kaordo/services/kerno/internal/encryption"
+	"github.com/google/uuid"
 )
 
 const maxEncodedCursorLength = 256
@@ -27,14 +29,14 @@ const (
 	VisibilityPrivate = "private"
 )
 
-var fluoIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
 var (
 	errCursorTooLong = errors.New("cursor is too long")
 	errInvalidCursor = errors.New("invalid cursor")
 )
 
-func ValidID(id string) bool { return fluoIDPattern.MatchString(id) }
+func ValidID(id string) bool {
+	return len(id) == 36 && uuid.Validate(id) == nil
+}
 
 func ValidVisibility(value string) bool {
 	return value == VisibilityPublic || value == VisibilityPrivate
@@ -45,6 +47,8 @@ type Author struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"displayName"`
 	Following   bool   `json:"following"`
+	Avatar      *Media `json:"avatar"`
+	Verified    bool   `json:"verified"`
 }
 
 type Quote struct {
@@ -92,6 +96,7 @@ type Post struct {
 }
 
 type NewPost struct {
+	ID            string            `json:"id"`
 	Content       json.RawMessage   `json:"content"`
 	Visibility    string            `json:"visibility"`
 	ParentID      *string           `json:"parentId"`
@@ -112,8 +117,8 @@ type Thread struct {
 type ListOptions struct {
 	ViewerID string
 	Feed     string
-	Search   string
 	ParentID *string
+	AuthorID *string
 	Cursor   *Cursor
 	Limit    int
 }
@@ -161,10 +166,13 @@ type Store interface {
 	Get(context.Context, string, string) (Post, error)
 	Thread(context.Context, string, string) (Thread, error)
 	List(context.Context, ListOptions) (Page, error)
-	SetVisibility(context.Context, string, string, string) error
+	SetVisibility(context.Context, string, string, string, json.RawMessage, string) error
 	Delete(context.Context, string, string) ([]string, error)
 	SetSaved(context.Context, string, string, bool) error
 	MediaReferenced(context.Context, string) (bool, error)
 	React(context.Context, string, string, *string) (Post, error)
 	Follow(context.Context, string, string, bool) error
+	KeyringState(context.Context, string) (KeyringState, error)
+	UpdateKeyring(context.Context, string, KeyringUpdate) (KeyringState, error)
+	Keys(context.Context, string, []encryption.KeyRef) ([]KeyMaterial, error)
 }

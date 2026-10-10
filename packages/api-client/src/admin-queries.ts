@@ -1,46 +1,119 @@
-// Defines independent, cancellable Regado cache entries and access-case pagination
+// Defines independent, cancellable Regado cache entries
 
-import type { AdminContentPage } from '@kaordo/contracts';
 import type { AdminApi } from './admin.ts';
 
 const readPolicy = { staleTime: 15_000, retry: false } as const;
-type ReadContext = { signal: AbortSignal };
+interface ReadContext {
+	signal: AbortSignal;
+}
 
 export function adminSummaryOptions(api: AdminApi) {
-  return { ...readPolicy, queryKey: ['regado', 'summary'] as const, queryFn: ({ signal }: ReadContext) => api.summary(signal) };
+	return {
+		...readPolicy,
+		queryKey: ['regado', 'summary'] as const,
+		queryFn: ({ signal }: ReadContext) => api.summary(signal)
+	};
 }
 
 export function adminSystemOptions(api: AdminApi) {
-  return { ...readPolicy, queryKey: ['regado', 'system'] as const, queryFn: ({ signal }: ReadContext) => api.system(signal) };
+	return {
+		...readPolicy,
+		queryKey: ['regado', 'system'] as const,
+		queryFn: ({ signal }: ReadContext) => api.system(signal)
+	};
 }
 
 export function adminMetricsOptions(api: AdminApi, window: '1h' | '24h' | '7d') {
-  return { ...readPolicy, queryKey: ['regado', 'metrics', window] as const, queryFn: ({ signal }: ReadContext) => api.metrics(window, signal) };
+	return {
+		...readPolicy,
+		queryKey: ['regado', 'metrics', window] as const,
+		queryFn: ({ signal }: ReadContext) => api.metrics(window, signal)
+	};
 }
 
 export function adminUsersOptions(api: AdminApi, search: string) {
-  return { ...readPolicy, queryKey: ['regado', 'users', search] as const, queryFn: ({ signal }: ReadContext) => api.users(search, signal) };
+	return {
+		...readPolicy,
+		queryKey: ['regado', 'users', search] as const,
+		queryFn: ({ signal }: ReadContext) => api.users(search, signal)
+	};
 }
 
 export function adminAuditOptions(api: AdminApi) {
-  return { ...readPolicy, queryKey: ['regado', 'audit'] as const, queryFn: ({ signal }: ReadContext) => api.audit(signal) };
+	return {
+		...readPolicy,
+		queryKey: ['regado', 'audit'] as const,
+		queryFn: ({ signal }: ReadContext) => api.audit(signal)
+	};
 }
 
 export function adminLogsOptions(api: AdminApi, service: string) {
-  return { ...readPolicy, queryKey: ['regado', 'logs', service] as const, queryFn: ({ signal }: ReadContext) => api.logs(service, signal) };
+	return {
+		...readPolicy,
+		queryKey: ['regado', 'logs', service] as const,
+		queryFn: ({ signal }: ReadContext) => api.logs(service, signal)
+	};
 }
 
-export function adminCaseContentOptions(api: AdminApi, id: string | null, kind: 'posts' | 'messages') {
-  return {
-    queryKey: ['regado', 'case', id, kind] as const,
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }: ReadContext & { pageParam: string | undefined }) => {
-      if (!id) throw new Error('An access case must be selected.');
-      return api.caseContent(id, kind, pageParam, signal);
-    },
-    getNextPageParam: (page: AdminContentPage) => page.nextCursor ?? undefined,
-    staleTime: 0,
-    gcTime: 0,
-    retry: false,
-  };
+// Host facts refresh quickly while an operation is converging the host
+export function adminHostOptions(api: Pick<AdminApi, 'host'>, host: string, active: boolean) {
+	return {
+		...readPolicy,
+		staleTime: 5_000,
+		refetchInterval: active ? 5_000 : 30_000,
+		queryKey: ['regado', 'hosts', host, 'facts'] as const,
+		queryFn: ({ signal }: ReadContext) => api.host(host, signal)
+	};
+}
+
+export function adminHostAlertsOptions(api: AdminApi, host: string) {
+	return {
+		...readPolicy,
+		staleTime: 10_000,
+		refetchInterval: 60_000,
+		queryKey: ['regado', 'hosts', host, 'alerts'] as const,
+		queryFn: ({ signal }: ReadContext) => api.hostAlerts(host, signal)
+	};
+}
+
+// Storage is measured hourly; a requested measurement is followed closely until it lands
+export function adminHostUsageOptions(
+	api: AdminApi,
+	host: string,
+	window: '1d' | '7d' | '30d' | '90d'
+) {
+	return {
+		...readPolicy,
+		queryKey: ['regado', 'hosts', host, 'usage', window] as const,
+		queryFn: ({ signal }: ReadContext) => api.hostUsage(host, window, signal),
+		refetchInterval: (query: { state: { data?: { measuring: boolean } } }) =>
+			query.state.data?.measuring ? 5_000 : 60_000
+	};
+}
+
+export function adminDataUsageOptions(api: AdminApi) {
+	return {
+		...readPolicy,
+		refetchInterval: 60_000,
+		queryKey: ['regado', 'usage'] as const,
+		queryFn: ({ signal }: ReadContext) => api.dataUsage(signal)
+	};
+}
+
+export function adminHostOperationsOptions(api: AdminApi, host: string, limit = 50) {
+	return {
+		...readPolicy,
+		staleTime: 2_000,
+		queryKey: ['regado', 'hosts', host, 'operations', limit] as const,
+		queryFn: ({ signal }: ReadContext) => api.hostOperations(host, limit, signal),
+		refetchInterval: 5_000
+	};
+}
+
+export function adminHostOperationOptions(api: AdminApi, host: string, operation: string) {
+	return {
+		...readPolicy,
+		queryKey: ['regado', 'hosts', host, 'operations', 'detail', operation] as const,
+		queryFn: ({ signal }: ReadContext) => api.hostOperation(host, operation, signal)
+	};
 }
