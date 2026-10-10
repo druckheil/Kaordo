@@ -24,8 +24,8 @@ type Inputs struct {
 	Operations []operation.Operation
 	// FullInDays projects the last week's growth onto the free space; nil when nothing grows
 	FullInDays *float64
-	// Deployment is the automatic deployment's state; nil when the host has none
-	Deployment *deployment.State
+	// Deployment is the newest production deployment; nil before the first one
+	Deployment *deployment.Record
 }
 
 // operationAlerts names the operations whose failure stays an alert until a later run succeeds
@@ -60,25 +60,22 @@ func Evaluate(in Inputs) []Condition {
 	return conditions
 }
 
-// deploymentConditions report a merged main that did not reach production
-func deploymentConditions(state *deployment.State) []Condition {
-	if state == nil {
+// deploymentConditions report a release from main that did not reach production
+func deploymentConditions(latest *deployment.Record) []Condition {
+	if latest == nil || latest.State != deployment.Failed {
 		return nil
 	}
-	revision, active := shortRevision(state.Revision()), shortRevision(state.ActiveCommit)
-	switch state.Phase {
-	case deployment.Failed:
-		return []Condition{{Key: "deploy.failed", Severity: Warning,
-			Summary: fmt.Sprintf("Automatic deployment of %s failed: %s Production still runs %s.", revision, state.Error, active)}}
-	case deployment.Halted:
-		return []Condition{{Key: "deploy.halted", Severity: Critical,
-			Summary: fmt.Sprintf("Automatic deployment of %s stopped: %s Inspect the host, then resume automatic deployment.", revision, state.Error)}}
+	subject := fmt.Sprintf("run %d", latest.Run)
+	if latest.Revision != "" {
+		subject += " (" + latest.Revision[:min(len(latest.Revision), 7)] + ")"
 	}
-	return nil
-}
-
-func shortRevision(revision string) string {
-	return revision[:min(len(revision), 7)]
+	// A failed rollback can leave production inconsistent; otherwise the previous release runs
+	severity := Warning
+	if latest.RollbackFailed {
+		severity = Critical
+	}
+	return []Condition{{Key: "deploy.failed", Severity: severity,
+		Summary: fmt.Sprintf("The deployment of %s failed: %s", subject, latest.Message)}}
 }
 
 func memberConditions(pool host.Pool, labels map[string]string) []Condition {

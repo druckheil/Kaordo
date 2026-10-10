@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/deployment"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
@@ -70,6 +71,7 @@ func NewHandler(service *Service, system http.Handler) http.Handler {
 		}
 		respond(w, map[string]bool{"measuring": true}, nil)
 	})
+	handleDeployments(mux, service.Deployments)
 	mux.HandleFunc("POST /operations", func(w http.ResponseWriter, r *http.Request) {
 		var check CheckRequest
 		if !decode(w, r, &check) {
@@ -126,7 +128,7 @@ func statusOf(err error) int {
 	case errors.Is(err, state.ErrConflict), errors.Is(err, ErrBusy), errors.Is(err, operation.ErrNotCancellable),
 		errors.Is(err, ErrCheckRunning):
 		return http.StatusConflict
-	case errors.Is(err, operation.ErrNotFound), errors.Is(err, state.ErrNotFound):
+	case errors.Is(err, operation.ErrNotFound), errors.Is(err, state.ErrNotFound), errors.Is(err, deployment.ErrUnknownRun):
 		return http.StatusNotFound
 	case errors.Is(err, ErrIncomplete), errors.Is(err, ErrUnknownCheck):
 		return http.StatusBadRequest

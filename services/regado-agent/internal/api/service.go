@@ -16,6 +16,7 @@ import (
 
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/alert"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/deployment"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/host"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/journal"
@@ -68,19 +69,18 @@ type ChangeResult struct {
 }
 
 type Service struct {
-	Run        command.Runner
-	Host       Host
-	Inventory  host.Options
-	States     *state.Store
-	Operations *operation.Manager
-	Executor   storage.Executor
-	Integrity  integrity.Checker
-	Journal    journal.Policy
-	Alerts     *alert.Tracker
-	Usage      *usage.Monitor
-	Health     host.HealthMonitor
-	// DeploymentState is the automatic deployment's state directory; empty when the host has none
-	DeploymentState string
+	Run         command.Runner
+	Host        Host
+	Inventory   host.Options
+	States      *state.Store
+	Operations  *operation.Manager
+	Executor    storage.Executor
+	Integrity   integrity.Checker
+	Journal     journal.Policy
+	Alerts      *alert.Tracker
+	Usage       *usage.Monitor
+	Health      host.HealthMonitor
+	Deployments deployment.Deployments
 
 	// mu serializes plans with the writes that act on them
 	mu sync.Mutex

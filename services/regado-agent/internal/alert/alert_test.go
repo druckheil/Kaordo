@@ -158,28 +158,27 @@ func TestEvaluateWarnsBeforeThePoolFills(t *testing.T) {
 	}
 }
 
-func TestEvaluateReportsAMainThatDidNotReachProduction(t *testing.T) {
-	attempt := "aaaaaaa1111111111111111111111111111111111:42:1"
+func TestEvaluateReportsAReleaseThatDidNotReachProduction(t *testing.T) {
 	for _, fixture := range []struct {
-		state *deployment.State
-		want  []string
+		record *deployment.Record
+		want   []string
 	}{
 		{nil, []string{}},
-		{&deployment.State{Phase: "idle"}, []string{}},
-		{&deployment.State{Phase: "activating", FailedAttempt: attempt}, []string{}},
-		{&deployment.State{Phase: deployment.Failed, FailedAttempt: attempt, ActiveCommit: "bbbbbbb2", Error: "The isolated build failed."},
+		{&deployment.Record{Run: 7, State: deployment.Succeeded}, []string{}},
+		{&deployment.Record{Run: 7, State: deployment.Deploying}, []string{}},
+		{&deployment.Record{Run: 7, Revision: "aaaaaaa1111", State: deployment.Failed, Message: "The release failed its checks."},
 			[]string{"warning deploy.failed"}},
-		{&deployment.State{Phase: deployment.Halted, FailedAttempt: attempt, Error: "The release failed and its rollback needs operator attention."},
-			[]string{"critical deploy.halted"}},
+		{&deployment.Record{Run: 7, State: deployment.Failed, RollbackFailed: true, Message: "The rollback needs operator attention."},
+			[]string{"critical deploy.failed"}},
 	} {
 		in := healthyInputs()
-		in.Deployment = fixture.state
+		in.Deployment = fixture.record
 		got := Evaluate(in)
 		if !slices.Equal(keys(got), fixture.want) {
-			t.Fatalf("deployment %+v raised %q", fixture.state, keys(got))
+			t.Fatalf("deployment %+v raised %q", fixture.record, keys(got))
 		}
-		if fixture.state != nil && fixture.state.Phase == deployment.Failed &&
-			got[0].Summary != "Automatic deployment of aaaaaaa failed: The isolated build failed. Production still runs bbbbbbb." {
+		if fixture.record != nil && fixture.record.Revision != "" &&
+			got[0].Summary != "The deployment of run 7 (aaaaaaa) failed: The release failed its checks." {
 			t.Fatalf("summary = %q", got[0].Summary)
 		}
 	}

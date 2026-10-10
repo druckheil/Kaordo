@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/deployment"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
@@ -108,5 +110,34 @@ func TestUsageRouteRequiresAKnownWindow(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/usage/measure", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("measure = %d", recorder.Code)
+	}
+}
+
+func TestDeploymentRoutesStartARunAndReportIt(t *testing.T) {
+	var commands []string
+	systemd := func(_ context.Context, args ...string) (string, error) {
+		commands = append(commands, strings.Join(args, " "))
+		return "inactive", nil
+	}
+	handler := NewHandler(&Service{Deployments: deployment.Deployments{Run: systemd, Directory: t.TempDir()}}, nil)
+	for _, fixture := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{http.MethodPost, "/deployments", `{"run":0}`, http.StatusBadRequest},
+		{http.MethodPost, "/deployments", `{"run":12,"sha":"x"}`, http.StatusBadRequest},
+		{http.MethodGet, "/deployments/latest", "", http.StatusBadRequest},
+		// An inactive unit without a record has not been deployed
+		{http.MethodGet, "/deployments/12", "", http.StatusNotFound},
+		{http.MethodPost, "/deployments", `{"run":12}`, http.StatusNotFound},
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(fixture.method, fixture.path, strings.NewReader(fixture.body)))
+		if recorder.Code != fixture.want {
+			t.Errorf("%s %s %s = %d", fixture.method, fixture.path, fixture.body, recorder.Code)
+		}
+	}
+	if !slices.Contains(commands, "systemctl start kaordo-deploy@12.service") {
+		t.Fatalf("commands = %q", commands)
 	}
 }
