@@ -101,6 +101,35 @@ The complete [Svelte dependency discovery run](https://github.com/druckheil/Kaor
 
 Job durations include dependency setup and cleanup. Every pnpm setup restored its package cache through a matching restore key; the Go and golangci-lint caches also hit. Browser installation and each fixture's Vite optimization were fresh. The unit suite measured both empty and reused Vite caches on the hosted runner, as shown below. No hosted run with empty pnpm and Go caches was measured for this change, so the workflow total is a warm dependency-cache result.
 
+### Deployment controller validation
+
+The complete [deployment controller run](https://github.com/druckheil/Kaordo/actions/runs/38080090476) on 2026-10-10 tested `4668087e1169e5a0d658ae01c8ed6bf7cc4d7a4c` through PR #31. All validation jobs passed; the final gate completed 7m25s after workflow creation. This includes 213 Node cases, seven isolated optimizer scans, 10 static artifact checks, all 69 browser scenarios with zero retries, five live journeys, Go race/host/database checks, actionlint and complete production payload verification. The production deployment job was skipped for this PR, so this run proves validation rather than a production installation.
+
+| Job                                  | Duration |
+| ------------------------------------ | -------- |
+| Frontend and unit tests              | 2m15s    |
+| Static app artifact                  | 1m41s    |
+| Production release payload           | 2m47s    |
+| Browser fixtures and accessibility 1 | 3m02s    |
+| Browser fixtures and accessibility 2 | 4m58s    |
+| Browser fixtures and accessibility 3 | 3m37s    |
+| Go services and PostgreSQL           | 3m23s    |
+| Identity, product and recovery       | 4m47s    |
+| Dependency advisories                | 45s      |
+| Final checks gate                    | 3s       |
+
+pnpm restored package caches, and Go and golangci-lint reported cache hits. Each optimizer probe separately measured an empty Vite cache and a cached restart in one isolated process. These cold/warm measurements do not represent empty pnpm/Go caches or production deployment durations.
+
+| App    | Hosted empty Vite cache | Hosted cached restart |
+| ------ | ----------------------- | --------------------- |
+| Portal | 2,013 ms                | 36 ms                 |
+| Fluo   | 2,213 ms                | 53 ms                 |
+| Ligo   | 2,249 ms                | 64 ms                 |
+| Rondo  | 2,196 ms                | 54 ms                 |
+| Regado | 2,112 ms                | 36 ms                 |
+| Lingvo | 2,122 ms                | 35 ms                 |
+| Memoro | 2,237 ms                | 60 ms                 |
+
 ## Optimizer measurements
 
 The Svelte-aware scan was measured on 2026-10-10 on macOS arm64 with Node 24.18.0, Vite 8.3.1 and Svelte 5.57.1. `pnpm test:unit` starts one Node process per app; the cold phase uses an empty optimizer cache, and the warm phase recreates the Vite server in that same process and verifies that all prepared dependencies were loaded from the cache. Timings include configuration and dependency preparation, exclude process startup and browser rendering, and are diagnostics rather than performance assertions.
