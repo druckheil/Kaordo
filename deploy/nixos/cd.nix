@@ -1,5 +1,5 @@
 # Installs the releases GitHub Actions builds when Kerno relays a trusted run's request
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 
 let
   # The only workflow whose push runs may deploy, as GitHub writes its OIDC workflow_ref claim
@@ -15,9 +15,14 @@ in
     # A deployment switches the system it runs on; that switch must not restart or stop it
     restartIfChanged = false;
     stopIfChanged = false;
-    # deploy-release.sh uses the system's tools, as in an operator's shell
+    # deploy-release.sh runs as in an operator's shell: the system's tools, and the NIX_PATH that
+    # nixos-rebuild needs to find <nixpkgs/nixos> and the host configuration
     path = [ "/run/current-system/sw" pkgs.unzip ];
-    environment.KAORDO_DEPLOY_WORKFLOW = workflow;
+    environment = {
+      inherit (config.environment.sessionVariables) NIX_PATH;
+      HOME = "/root";
+      KAORDO_DEPLOY_WORKFLOW = workflow;
+    };
     serviceConfig = {
       Type = "exec";
       # Runs queue behind each other; one whose revision is no longer the branch head is superseded
