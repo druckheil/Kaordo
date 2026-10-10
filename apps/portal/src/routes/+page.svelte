@@ -89,5 +89,5 @@
 		</p>
 	{/if}
 
-	<PortalApps />
+	<PortalApps isAdmin={user?.isAdmin === true} />
 </main>
