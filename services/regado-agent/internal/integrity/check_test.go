@@ -50,11 +50,13 @@ func TestSelfTestParsing(t *testing.T) {
 	}
 }
 
-// scriptedSMART answers smartctl like two ATA drives: the first passes, the second has a read failure
+// scriptedSMART answers smartctl like two ATA drives, with a failure on the selected device
 type scriptedSMART struct {
-	mu       sync.Mutex
-	polls    map[string]int
-	commands []string
+	mu           sync.Mutex
+	polls        map[string]int
+	commands     []string
+	failedDevice string
+	startFailure bool
 }
 
 func (smart *scriptedSMART) run(_ context.Context, args ...string) (string, error) {
@@ -64,6 +66,9 @@ func (smart *scriptedSMART) run(_ context.Context, args ...string) (string, erro
 	device := args[len(args)-1]
 	switch args[2] {
 	case "--test=long":
+		if smart.startFailure && device == smart.failedDevice {
+			return `{"smartctl":{"exit_status":4}}`, errors.New("a self-test is already running")
+		}
 		// smartctl reports drive health in the exit bitmask even when the command worked
 		return `{"smartctl":{"exit_status":64}}`, errors.New("exit status 64")
 	case "--capabilities":
@@ -72,7 +77,7 @@ func (smart *scriptedSMART) run(_ context.Context, args ...string) (string, erro
 			return `{"ata_smart_data":{"self_test":{"status":{"value":249,"remaining_percent":50}}}}`, nil
 		}
 		passed, result := "true", "Completed without error"
-		if device == "/dev/sdb" {
+		if device == smart.failedDevice {
 			passed, result = "false", "Completed: read failure"
 		}
 		return `{"ata_smart_data":{"self_test":{"status":{"value":0}}},"ata_smart_self_test_log":{"standard":{"table":[{"status":{"passed":` + passed + `,"string":"` + result + `"}}]}}}`, nil
@@ -81,32 +86,130 @@ func (smart *scriptedSMART) run(_ context.Context, args ...string) (string, erro
 }
 
 func TestSelfTestRunsEachDeviceAndReportsFailures(t *testing.T) {
-	smart := &scriptedSMART{polls: map[string]int{}}
-	checker := Checker{Run: smart.run, Poll: time.Millisecond}
-	devices := []host.Device{{ID: "wwn-a", Path: "/dev/sda", Serial: "WD-A"}, {ID: "wwn-b", Path: "/dev/sdb", Serial: "WD-B"}}
-	manager, err := operation.Open(t.TempDir(), time.Now)
-	if err != nil {
-		t.Fatal(err)
+	for _, fixture := range []struct {
+		name         string
+		failedDevice int
+		startFailure bool
+	}{
+		{name: "last disk fails", failedDevice: 1},
+		{name: "first disk fails", failedDevice: 0},
+		{name: "first disk cannot start", failedDevice: 0, startFailure: true},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			devices := []host.Device{{ID: "wwn-a", Path: "/dev/sda", Serial: "WD-A"}, {ID: "wwn-b", Path: "/dev/sdb", Serial: "WD-B"}}
+			failed := devices[fixture.failedDevice]
+			smart := &scriptedSMART{polls: map[string]int{}, failedDevice: failed.Path, startFailure: fixture.startFailure}
+			checker := Checker{Run: smart.run, Poll: time.Millisecond}
+			manager, err := operation.Open(t.TempDir(), time.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer manager.Close()
+			started, err := manager.Start(operation.Request{
+				Kind: KindSMARTLong, RequestedBy: "test", Cancellable: true, Stages: []string{"WD-A", "WD-B"},
+				Run: func(ctx context.Context, job *operation.Job) error {
+					return checker.SelfTest(ctx, job, KindSMARTLong, devices)
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			record := waitFinished(t, manager, started.ID)
+			if record.State != operation.Failed || record.Error != "the long self-test failed on "+failed.Serial {
+				t.Fatalf("record = %s %q", record.State, record.Error)
+			}
+			for index, stage := range record.Stages {
+				want := operation.Succeeded
+				if index == fixture.failedDevice {
+					want = operation.Failed
+					if stage.Detail == "" {
+						t.Fatal("the failed stage has no error detail")
+					}
+				}
+				if stage.State != want || stage.FinishedAt == nil {
+					t.Fatalf("stage %d = %+v, want %s", index, stage, want)
+				}
+			}
+			if smart.commands[0] != "smartctl --json --test=long /dev/sda" {
+				t.Fatalf("commands = %q", smart.commands)
+			}
+		})
 	}
-	defer manager.Close()
-	started, err := manager.Start(operation.Request{
-		Kind: KindSMARTLong, RequestedBy: "test", Cancellable: true, Stages: []string{"WD-A", "WD-B"},
-		Run: func(ctx context.Context, job *operation.Job) error {
-			return checker.SelfTest(ctx, job, KindSMARTLong, devices)
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := waitFinished(t, manager, started.ID)
-	if record.State != operation.Failed || record.Error != "the long self-test failed on WD-B" {
-		t.Fatalf("record = %s %q", record.State, record.Error)
-	}
-	if record.Stages[0].State != operation.Succeeded || record.Stages[1].State != operation.Failed {
-		t.Fatalf("stages = %+v", record.Stages)
-	}
-	if smart.commands[0] != "smartctl --json --test=long /dev/sda" || smart.commands[1] != "smartctl --json --capabilities --log=selftest /dev/sda" {
-		t.Fatalf("commands = %q", smart.commands)
+}
+
+func TestSelfTestShutdownAbortsAndWaitsForTheDrive(t *testing.T) {
+	for _, phase := range []string{"start", "poll", "wait"} {
+		t.Run(phase, func(t *testing.T) {
+			ready := make(chan struct{})
+			var signal sync.Once
+			aborted, abortPolls := false, 0
+			run := func(ctx context.Context, args ...string) (string, error) {
+				switch args[2] {
+				case "--test=long":
+					if phase == "start" {
+						signal.Do(func() { close(ready) })
+						<-ctx.Done()
+						return "", ctx.Err()
+					}
+					return `{}`, nil
+				case "--abort":
+					if ctx.Err() != nil {
+						return "", ctx.Err()
+					}
+					aborted = true
+					return `{}`, nil
+				case "--capabilities":
+					if aborted {
+						abortPolls++
+						if abortPolls > 1 {
+							return `{"ata_smart_data":{"self_test":{"status":{"value":16}}}}`, nil
+						}
+					} else {
+						signal.Do(func() { close(ready) })
+						if phase == "poll" {
+							<-ctx.Done()
+							return "", ctx.Err()
+						}
+					}
+					return `{"ata_smart_data":{"self_test":{"status":{"value":249,"remaining_percent":90}}}}`, nil
+				}
+				return "", errors.New("unexpected smartctl call")
+			}
+			checker := Checker{Run: run, Poll: time.Millisecond}
+			directory := t.TempDir()
+			manager, err := operation.Open(directory, time.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer manager.Close()
+			started, err := manager.Start(operation.Request{
+				Kind: KindSMARTLong, RequestedBy: "test", Cancellable: true, Stages: []string{"WD-A"},
+				Run: func(ctx context.Context, job *operation.Job) error {
+					return checker.SelfTest(ctx, job, KindSMARTLong, []host.Device{{ID: "wwn-a", Path: "/dev/sda", Serial: "WD-A"}})
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-ready:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the test did not start")
+			}
+			manager.Close()
+			if !aborted || abortPolls != 2 {
+				t.Fatalf("drive stop: aborted = %v, polls = %d", aborted, abortPolls)
+			}
+			reopened, err := operation.Open(directory, time.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reopened.Close()
+			record, err := reopened.Get(started.ID)
+			if err != nil || record.State != operation.Interrupted || record.Stages[0].State != operation.Interrupted {
+				t.Fatalf("interrupted record = %+v, %v", record, err)
+			}
+		})
 	}
 }
 

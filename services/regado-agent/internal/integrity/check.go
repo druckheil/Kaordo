@@ -197,10 +197,12 @@ func (checker Checker) SelfTest(ctx context.Context, job *operation.Job, kind st
 	var failed []string
 	for index, device := range devices {
 		job.Stage(index)
-		if err := checker.selfTest(ctx, job, test, device); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
+		err := checker.selfTest(ctx, job, test, device)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		job.FinishStage(err)
+		if err != nil {
 			job.Logf("%s: %v", device.ID, err)
 			failed = append(failed, device.Serial)
 			continue
@@ -214,16 +216,24 @@ func (checker Checker) SelfTest(ctx context.Context, job *operation.Job, kind st
 }
 
 func (checker Checker) selfTest(ctx context.Context, job *operation.Job, test string, device host.Device) error {
+	running := false
+	defer func() {
+		// Cancellation can happen inside a smartctl call as well as between polls
+		if running || ctx.Err() != nil {
+			if err := checker.stopSelfTest(ctx, device); err != nil {
+				job.Logf("%s: could not stop the self-test: %v", device.ID, err)
+			}
+		}
+	}()
 	if _, err := checker.smartctl(ctx, "--test="+test, device.Path); err != nil {
 		return err
 	}
+	running = true
 	ticker := time.NewTicker(checker.Poll)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			// Aborting is safe: the drive only stops reading itself
-			_, _ = checker.smartctl(context.WithoutCancel(ctx), "--abort", device.Path)
 			return ctx.Err()
 		case <-ticker.C:
 		}
@@ -231,10 +241,36 @@ func (checker Checker) selfTest(ctx context.Context, job *operation.Job, test st
 		if err != nil {
 			return err
 		}
-		running, percent := selfTestProgress(raw)
+		active, percent := selfTestProgress(raw)
 		job.Progress(percent, 100, "percent")
-		if !running {
+		if !active {
+			running = false
 			return selfTestVerdict(raw)
+		}
+	}
+}
+
+// stopSelfTest waits for the drive to stop before a new operation may use it.
+func (checker Checker) stopSelfTest(ctx context.Context, device host.Device) error {
+	stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	if _, err := checker.smartctl(stop, "--abort", device.Path); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(checker.Poll)
+	defer ticker.Stop()
+	for {
+		raw, err := checker.smartctl(stop, "--capabilities", "--log=selftest", device.Path)
+		if err != nil {
+			return err
+		}
+		if running, _ := selfTestProgress(raw); !running {
+			return nil
+		}
+		select {
+		case <-stop.Done():
+			return stop.Err()
+		case <-ticker.C:
 		}
 	}
 }

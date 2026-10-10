@@ -64,6 +64,22 @@ func (job *Job) Stage(index int) {
 	job.manager.saveLocked(job)
 }
 
+// FinishStage records a stage's own result when work continues after a failure.
+func (job *Job) FinishStage(err error) {
+	job.manager.mu.Lock()
+	defer job.manager.mu.Unlock()
+	if job.current < 0 || job.record.Stages[job.current].State != Running {
+		return
+	}
+	stage := &job.record.Stages[job.current]
+	now := job.manager.now()
+	stage.State, stage.FinishedAt = Succeeded, &now
+	if err != nil {
+		stage.State, stage.Detail = Failed, boundedMessage(err.Error())
+	}
+	job.manager.saveLocked(job)
+}
+
 // Progress records measured progress of the current stage; writes are throttled.
 func (job *Job) Progress(done, total int64, unit string) {
 	job.manager.mu.Lock()
