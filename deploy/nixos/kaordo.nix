@@ -10,13 +10,8 @@ let
   '';
 in
 {
-  # Hosts that still run the system outside the pool mount its top level here; storage.nix,
-  # imported once the system moved into the pool, mounts the @kaordo subvolume instead
-  fileSystems.${dataRoot} = lib.mkDefault {
-    device = "/dev/disk/by-label/Data1";
-    fsType = "btrfs";
-    options = [ "compress=zstd:3" "noatime" ];
-  };
+  # The system and data live in subvolumes of the pool; the host's own configuration may import it too
+  imports = [ ./storage.nix ];
 
   zramSwap.enable = true;
   zramSwap.memoryPercent = 100;

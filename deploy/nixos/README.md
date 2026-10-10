@@ -43,28 +43,11 @@ KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:pages:production
 
 Secrets never enter Git or the Nix store. `provision-secrets.sh` idempotently creates root-only files under `/srv/kaordo/secrets`. Provide the Namecheap password in `/srv/kaordo/secrets/namecheap-ddns` (mode 0600). A protected ntfy topic for Regado alerts needs `KAORDO_NTFY_TOKEN=<token>` in `/srv/kaordo/secrets/kerno.env`; public topics need none.
 
-## Moving the system into the pool
+## Storage layout
 
-Production's migration record, source revisions and verification limits are in [Production pool migration, 2026-10-10](../../docs/storage-migration-2026-10-10.md).
+`storage.nix` mounts the system and data from Btrfs subvolumes of `Data1`: `@root`, `@nix`, `@log` and `@kaordo`, with nested `postgresql`, `media`, `prometheus` and `releases` subvolumes. Every disk uses the same GPT template, a 2 MiB BIOS boot partition and one pool partition. GRUB is installed on every present pool disk named in regado-agent's desired state, so a pool of one or more disks boots from any of them. Mounts are not bound to a member device, so replacing a disk through Regado keeps services running. The `degraded` boot entry mounts the remaining copy when a member is missing.
 
-`storage.nix` mounts the system and data from Btrfs subvolumes of `Data1` (`@root`, `@nix`, `@log`, `@kaordo` with nested `postgresql`, `media`, `prometheus` and `releases`). It installs GRUB on every present pool disk named in the agent's desired state. Its `degraded` boot entry adds the Btrfs mount option for a missing member; production has not been booted with a disk physically absent. A legacy host that still boots from its ext4 root moves in place with `migrate-to-pool.sh`, run as root from `/etc/nixos/deploy/nixos`:
-
-1. `check` verifies two healthy RAID1 members and free space.
-2. `prepare` copies the running system into `@root`, `@nix` and `@log`, imports `storage.nix` into the copy's configuration and builds it. Services keep running.
-3. `cutover` stops the services, syncs the system again, and reflinks the data into `@kaordo`; the copy shares every block and its paths, sizes, ownership, permissions and timestamps are checked. It records the copied entries, validates the GRUB menu and arms one trial boot. A failure restarts the previously active services. The operator then reboots; physical or iLO access must be available if SSH does not return.
-4. `finalize`, on the recorded trial system, checks the subvolume mounts and service health, makes it the default and installs GRUB on every pool disk. If the trial boot hangs instead, power-cycling starts the old system. Its data is the copy from cutover: writes accepted by the trial system need reconciliation before a later rollback.
-5. `cleanup` requires successful finalization and removes only the pre-migration entries recorded during cutover. New entries and subvolumes remain intact. It permanently retires the old application's data copy.
-
-The stages share the production deployment lock. Do not deploy another release between preparation and finalization. Keep an encrypted recovery copy on an independent device before retiring the old root or reshaping partitions; the pool copy is not a backup.
-
-Afterwards the old ext4 partition only backs older boot entries. The in-place system migration itself leaves partition boundaries unchanged. A two-device RAID1 cannot remove one member while preserving two copies; do not drop and re-add a disk from this pool.
-
-`reshape-pool.sh` completes the uniform BIOS template (2 MiB BIOS boot plus one full-sized pool partition) for the legacy disks with 512-byte logical sectors. It requires the successful finalization marker, a whole-disk stable ID and its exact serial. It accepts a target that the kernel has already registered and verifies its kernel geometry against GPT before changing the pool. Keep the independently verified recovery copy before this step: the old ext4 fallback is overwritten.
-
-- On the disk with the old ext4 partition 2 and pool partition 3, run `move <disk-by-id> <serial>`. It shrinks the Btrfs member to fit partition 2, replaces partition 3 into partition 2 on the same physical disk, then retires partition 3 and expands partition 2. The other physical mirror stays present throughout.
-- On the disk whose pool is partition 2 after an unused front gap, run `renumber <disk-by-id> <serial>`. This changes only the GPT entry number to 3, preserving its offsets and unique GUID. Reboot so the kernel reads the new number, then run `move <disk-by-id> <serial>` as above.
-
-The operator script pauses the agent while it changes partitions, preserves the replacement's partition GUID, checks RAID1 profiles and device errors at each step and reinstalls GRUB. Run scrub and verify the system and application health after each disk. GPT checkpoints are kept under `/var/lib/kaordo-pool-reshape`; they are diagnostics, not a promise that restoring an old table reverses a completed replacement.
+Production moved into this layout on 2026-10-10; [the migration record](../../docs/storage-migration-2026-10-10.md) lists its steps, revisions and checks.
 
 ## Manual recovery
 

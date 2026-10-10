@@ -11,7 +11,7 @@ The authorized migration completed on 2026-10-10, moving the existing NixOS syst
 - Pool-root NixOS closure: `/nix/store/g8gz4gawrcrqi31fr8084mkq1jmads1d-nixos-system-hp-microserver-26.05.11045.774debe7a0d1`
 - Kernel: `6.18.54`; PostgreSQL: `18.6`
 
-The migration uses [`migrate-to-pool.sh`](../deploy/nixos/migrate-to-pool.sh) and [`reshape-pool.sh`](../deploy/nixos/reshape-pool.sh). The former records its stages and original data manifest. The latter replaces a member into a temporary partition on the same physical disk before extending that partition; the other physical mirror remains present. No member is dropped and re-added, and no profile is converted to `single`.
+The migration used two one-time scripts, `deploy/nixos/migrate-to-pool.sh` and `deploy/nixos/reshape-pool.sh` (last present in `a945c9e`; removed once production finished, since no other host runs the legacy layout). The former recorded its stages and original data manifest. The latter replaces a member into a temporary partition on the same physical disk before extending that partition; the other physical mirror remains present. No member is dropped and re-added, and no profile is converted to `single`.
 
 ## Recovery checkpoint
 
