@@ -79,6 +79,7 @@ function usageReport(measuring) {
 		logs: 3 * gib,
 		metrics: 600 * mib,
 		releases: 400 * mib,
+		deployment: 300 * mib,
 		temporary: 20 * mib,
 		other: 10 * mib,
 		metadata: 300 * mib,

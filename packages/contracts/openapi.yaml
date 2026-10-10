@@ -354,6 +354,7 @@ components:
               media,
               metrics,
               releases,
+              deployment,
               temporary,
               other,
               metadata,

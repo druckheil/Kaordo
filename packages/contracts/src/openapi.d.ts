@@ -1487,7 +1487,7 @@ export interface components {
         };
         HostUsageCategory: {
             /** @enum {string} */
-            key: "system" | "nix" | "logs" | "database" | "media" | "metrics" | "releases" | "temporary" | "other" | "metadata" | "unreferenced";
+            key: "system" | "nix" | "logs" | "database" | "media" | "metrics" | "releases" | "deployment" | "temporary" | "other" | "metadata" | "unreferenced";
             /** @description Logical file sizes; metadata is reported by the filesystem, unreferenced is the positive remainder of stored pool usage after subtracting file sizes and metadata, without determining its cause */
             bytes: number;
             files: number;

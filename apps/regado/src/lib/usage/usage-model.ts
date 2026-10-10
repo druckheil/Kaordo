@@ -59,6 +59,13 @@ export const categories: Record<
 		color: 'oklch(0.64 0.17 300)',
 		userDriven: false
 	},
+	deployment: {
+		label: 'Deployments',
+		description:
+			'The isolated build workspace and the encrypted checkpoints taken before each automatic deployment.',
+		color: 'oklch(0.52 0.1 215)',
+		userDriven: false
+	},
 	temporary: {
 		label: 'Temporary files',
 		description: 'Scratch space that services should clean up themselves.',
