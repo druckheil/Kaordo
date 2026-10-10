@@ -155,7 +155,10 @@ async function poll() {
 		throw new Error('Activation was interrupted; verify the host before retrying.');
 	}
 	const active = await activeRevision();
-	if (state.activeCommit !== active) state.activeCommit = active;
+	if (state.activeCommit !== active) {
+		state.activeCommit = active;
+		await saveState(state);
+	}
 	const revision = await mainRevision();
 	if (revision === state.baselineCommit || revision === state.activeCommit) return;
 	if (
