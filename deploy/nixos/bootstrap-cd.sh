@@ -54,5 +54,7 @@ JS
 nixos-rebuild switch
 systemctl enable --now kaordo-cd.timer
 systemctl start kaordo-cd.service
-systemctl is-active --quiet caddy keycloak postgresql livekit kerno nodo regado-agent kaordo-cd.timer
+for unit in caddy keycloak postgresql livekit kerno nodo regado-agent kaordo-cd.timer; do
+  systemctl is-active --quiet "$unit" || { echo "CD bootstrap health check failed: $unit" >&2; exit 1; }
+done
 echo 'Main-only pull deployment is active; the existing main baseline was not deployed.'

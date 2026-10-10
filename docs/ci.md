@@ -24,7 +24,9 @@ The host rebuilds that exact clean revision as `kaordo-build`. Each build starts
 
 The controller rechecks `main` and CI after the build and before activation. It verifies the archive checksum and clean manifest, takes a verified encrypted deployment checkpoint, and uses the same host lock as operator deployments. A separate transient activation unit survives newer commits and NixOS changes to the poller. Frontend, binaries, configuration and identity policy roll back on failed post-checks; forward-only database migrations remain. A failed attempt stays stopped until a new successful CI attempt or commit authorizes another try. An interrupted activation fails closed and needs host inspection.
 
-The bootstrap state records the existing `main` and the active production manifest, so installing CD does not deploy an older `main` over a newer scope release. The next merged `main` must include that production history. A merge into protected `main` is deployment authorization; version tags and public release notes remain separate operations. See [production](../deploy/nixos/README.md) for host status and recovery.
+The bootstrap state records the existing `main` and the active production manifest, so installing CD does not deploy an older `main` over a newer scope release. The next merged `main` must include that production history. Main protection requires an up-to-date PR and the GitHub Actions `checks` context, applies to administrators, and disallows force pushes and deletion. Merge commits preserve deployed ancestry; squash and rebase merging are disabled. No additional review approval is required. A merge into protected `main` is deployment authorization; version tags and public release notes remain separate operations. See [production](../deploy/nixos/README.md) for host status and recovery.
+
+While CI is pending, evidence queries are spaced by two minutes. A failed deployment checks for a new successful CI attempt once every ten minutes and never repeats the failed attempt. This bounds unauthenticated GitHub API requests while retaining automatic recovery through a new validated commit or run attempt.
 
 ## Local reproduction
 
@@ -94,6 +96,45 @@ The complete [Svelte dependency discovery run](https://github.com/druckheil/Kaor
 | Final checks gate                    | 3s       |
 
 Job durations include dependency setup and cleanup. Every pnpm setup restored its package cache through a matching restore key; the Go and golangci-lint caches also hit. Browser installation and each fixture's Vite optimization were fresh. The unit suite measured both empty and reused Vite caches on the hosted runner, as shown below. No hosted run with empty pnpm and Go caches was measured for this change, so the workflow total is a warm dependency-cache result.
+
+### Pull deployment validation
+
+The complete [CD validation run](https://github.com/druckheil/Kaordo/actions/runs/38057803549) on 2026-10-10 tested `28f40ee2583753649b95f2dc7047a7aaaff96ad5` on `scope-0.0.4`. All ten jobs passed in 9m23s from workflow creation to the final gate, including 38 seconds before the first job started. It ran 206 Node tests, 68 browser scenarios with zero retries, all five live journeys, the complete Linux production payload, Go/PostgreSQL/host checks and dependency audits.
+
+| Job                                  | Duration |
+| ------------------------------------ | -------- |
+| Frontend and unit tests              | 3m24s    |
+| Static app artifact                  | 1m16s    |
+| Production release payload           | 1m50s    |
+| Browser fixtures and accessibility 1 | 2m49s    |
+| Browser fixtures and accessibility 2 | 5m13s    |
+| Browser fixtures and accessibility 3 | 4m45s    |
+| Go services and PostgreSQL           | 4m20s    |
+| Identity, product and recovery       | 4m19s    |
+| Dependency advisories                | 53s      |
+| Final checks gate                    | 3s       |
+
+Pnpm, Go and golangci-lint restored dependency/build caches. Chromium installation and the browser fixtures' Vite caches were fresh. The Node scans independently measured empty and reused optimizer caches; these are preparation times, not page-load measurements:
+
+| App    | Hosted empty optimizer cache | Hosted cached restart |
+| ------ | ---------------------------- | --------------------- |
+| Portal | 3,568 ms                     | 59 ms                 |
+| Fluo   | 3,931 ms                     | 125 ms                |
+| Ligo   | 3,720 ms                     | 102 ms                |
+| Rondo  | 3,973 ms                     | 90 ms                 |
+| Regado | 3,730 ms                     | 57 ms                 |
+| Lingvo | 3,803 ms                     | 58 ms                 |
+| Memoro | 3,840 ms                     | 103 ms                |
+
+### Production commissioning
+
+On 2026-10-10, the checked CD infrastructure was activated on the existing NixOS host. Bootstrap recorded main `f87e9b3a4937a73360723c6f037115d1fcf3a735` and the active clean application revision `f723454fcd25272be6d8d4c0cf323e0a3f56eaeb`; it preserved the application release and enabled the timer. Every required application service remained active.
+
+A headless probe inside the deployed builder unit confirmed a non-root UID, `NoNewPrivs=1`, private temporary files, denied access to production secrets, media, PostgreSQL, recovery copies and runtime sockets, and denied writes outside its workspace. It checked access decisions without reading production content.
+
+That same unit built a complete clean payload from `28f40ee2583753649b95f2dc7047a7aaaff96ad5` in 9m51s, with empty pnpm and Go caches, 1.1 GiB peak resident memory and 412 MiB peak swap. The test selected the already checked scope revision through a temporary instance override; the production main guard remained unchanged. All seven static applications, three Linux binaries, the archive checksum and manifest passed. The override and probe scripts were removed, and the candidate was not activated.
+
+The installed checkpoint implementation completed a real encrypted capture and disposable restore of both application and Keycloak databases in 2m21s. Services resumed before backup and restore verification; all temporary databases, plaintext staging and read-only media snapshots were removed. The repository remained root-only with mode `0700`, and its password and checkpoint metadata used `0600`. No dump, credential or user file left the host. This verified a local release checkpoint, not an independent server-loss backup. Application activation through a future main push remains a separate deployment event.
 
 ## Optimizer measurements
 

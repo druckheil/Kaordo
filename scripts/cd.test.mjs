@@ -166,7 +166,7 @@ async function pollFixture({ stale = false, conclusion = 'success' } = {}) {
 	);
 	await writeFile(
 		join(root, 'fetch.mjs'),
-		`import{readFileSync}from'node:fs';globalThis.fetch=async()=>Response.json(JSON.parse(readFileSync(process.env.FIXTURE_ROOT+'/evidence.json')));`
+		`import{readFileSync,appendFileSync}from'node:fs';globalThis.fetch=async()=>{appendFileSync(process.env.FIXTURE_ROOT+'/events','fetch\\n');return Response.json(JSON.parse(readFileSync(process.env.FIXTURE_ROOT+'/evidence.json')));};`
 	);
 	const stub = `#!${process.execPath}
 const fs=require('node:fs'),path=require('node:path'),root=process.env.FIXTURE_ROOT,name=path.basename(process.argv[1]),args=process.argv.slice(2);
@@ -233,6 +233,46 @@ test('failed main checks never start a build or touch the active production revi
 			JSON.parse(await readFile(join(fixture.stateRoot, 'state.json'))).activeCommit,
 			active
 		);
+	} finally {
+		await fixture.close();
+	}
+});
+
+test('a failed deployment backs off evidence queries and accepts only a new successful attempt', async () => {
+	const fixture = await pollFixture();
+	try {
+		const stateFile = join(fixture.stateRoot, 'state.json');
+		await writeFile(
+			stateFile,
+			JSON.stringify({
+				baselineCommit: 'd'.repeat(40),
+				activeCommit: active,
+				phase: 'failed',
+				failedAttempt: `${revision}:${run.id}:${run.run_attempt}`,
+				lastEvidenceAt: 0
+			})
+		);
+		assert.equal(fixture.run().status, 0);
+		const checked = JSON.parse(await readFile(stateFile));
+		assert.ok(Date.now() - checked.lastEvidenceAt < 10_000);
+		assert.equal(fixture.run().status, 0);
+		const events = await readFile(join(fixture.root, 'events'), 'utf8');
+		assert.equal(events.split('\n').filter((event) => event === 'fetch').length, 2);
+		assert.doesNotMatch(events, /systemctl:start|systemd-run:/);
+		await writeFile(
+			stateFile,
+			JSON.stringify({ ...checked, lastEvidenceAt: Date.now() - 600_001 })
+		);
+		await writeFile(
+			join(fixture.root, 'evidence.json'),
+			JSON.stringify({
+				workflow_runs: [{ ...run, run_attempt: 2 }],
+				jobs,
+				total_count: jobs.length
+			})
+		);
+		assert.equal(fixture.run().status, 0);
+		assert.equal(JSON.parse(await readFile(stateFile)).phase, 'activating');
 	} finally {
 		await fixture.close();
 	}

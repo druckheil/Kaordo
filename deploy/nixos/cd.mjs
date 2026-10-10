@@ -161,9 +161,11 @@ async function poll() {
 	}
 	const revision = await mainRevision();
 	if (revision === state.baselineCommit || revision === state.activeCommit) return;
+	const failedRevision = state.failedAttempt?.startsWith(`${revision}:`);
+	const evidenceInterval = failedRevision ? 600_000 : 120_000;
 	if (
-		(state.waitingCommit === revision || state.failedAttempt?.startsWith(`${revision}:`)) &&
-		Date.now() - (state.lastEvidenceAt || 0) < 120_000
+		(state.waitingCommit === revision || failedRevision) &&
+		Date.now() - (state.lastEvidenceAt || 0) < evidenceInterval
 	)
 		return;
 	const proof = await evidence(revision);
@@ -175,7 +177,10 @@ async function poll() {
 		return;
 	}
 	const attempt = `${revision}:${proof.run}:${proof.attempt}`;
-	if (state.failedAttempt === attempt) return;
+	if (state.failedAttempt === attempt) {
+		await saveState({ ...state, lastEvidenceAt: Date.now() });
+		return;
+	}
 	try {
 		console.log(`Building checked main revision ${revision}; CI ${proof.url}.`);
 		await command('systemctl', [
