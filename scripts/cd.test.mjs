@@ -181,10 +181,10 @@ if(name==='systemctl'&&args[0]==='start')fs.writeFileSync(root+'/built','done');
 	return {
 		root,
 		stateRoot,
-		run: () =>
+		run: (action = 'poll') =>
 			spawnSync(
 				process.execPath,
-				['--import', join(root, 'fetch.mjs'), join(source, 'cd.mjs'), 'poll'],
+				['--import', join(root, 'fetch.mjs'), join(source, 'cd.mjs'), action],
 				{
 					encoding: 'utf8',
 					env: {
@@ -296,6 +296,164 @@ test('commissioning CD cannot deploy the older recorded main baseline', async ()
 		);
 	} finally {
 		await fixture.close();
+	}
+});
+
+test('bootstrap installs every file the controller and its units run, as one release set', async () => {
+	const read = (name) => readFile(new URL(`../deploy/nixos/${name}`, import.meta.url), 'utf8');
+	const [bootstrap, controller, units] = await Promise.all(
+		['bootstrap-cd.sh', 'cd.mjs', 'cd.nix'].map(read)
+	);
+	const installed = bootstrap.match(/^for file in (.+); do$/m)[1].split(' ');
+	const activation = controller
+		.match(/for \(const file of \[([^\]]+)\]\)/)[1]
+		.match(/'[^']+'/g)
+		.map((name) => name.slice(1, -1));
+	const referenced = [
+		...`${controller}\n${units}`.matchAll(/\/etc\/nixos\/deploy\/nixos\/([\w.-]+)/g)
+	].map(([, name]) => name);
+	assert.ok(activation.includes('deploy-release.sh'));
+	for (const file of [...activation, ...referenced])
+		assert.ok(installed.includes(file), `bootstrap installs ${file}`);
+});
+
+test('a failure stops mattering once production runs main or a newer main supersedes it', async () => {
+	for (const productionAtMain of [false, true]) {
+		const fixture = await pollFixture({ conclusion: 'failure' });
+		try {
+			const stateFile = join(fixture.stateRoot, 'state.json');
+			await writeFile(
+				stateFile,
+				JSON.stringify({
+					baselineCommit: 'd'.repeat(40),
+					activeCommit: active,
+					phase: 'failed',
+					failedAttempt: `${productionAtMain ? revision : 'f'.repeat(40)}:1:1`,
+					error: 'Synthetic failure'
+				})
+			);
+			if (productionAtMain)
+				await writeFile(
+					join(fixture.root, 'data/releases/current/manifest.json'),
+					JSON.stringify({ sourceCommit: revision, workingTreeDirty: false })
+				);
+			assert.equal(fixture.run().status, 0);
+			const state = JSON.parse(await readFile(stateFile));
+			assert.equal(state.phase, 'idle');
+			assert.equal(state.error, undefined);
+		} finally {
+			await fixture.close();
+		}
+	}
+});
+
+// Prepares the state a poll leaves for the transient activation unit
+async function activationFixture({ lockHeld = false, deployStatus = 0 } = {}) {
+	const fixture = await pollFixture();
+	const source = join(fixture.root, 'controller');
+	const data = join(fixture.root, 'data');
+	await rename(join(source, 'checkpoint.mjs'), join(source, 'checkpoint-real.mjs'));
+	await writeFile(
+		join(source, 'checkpoint.mjs'),
+		`import { appendFileSync } from 'node:fs';
+export { command } from './checkpoint-real.mjs';
+export async function checkpoint() { appendFileSync(process.env.FIXTURE_ROOT + '/events', 'checkpoint\\n'); }
+`
+	);
+	const activation = join(fixture.stateRoot, 'activation');
+	await mkdir(activation);
+	await cp(join(data, 'cd-build/candidate/release.tar.gz'), join(activation, 'release.tar.gz'));
+	await writeFile(join(fixture.root, 'manifest.json'), JSON.stringify(manifest));
+	// A successful release switches the active manifest, as deploy-release.sh does
+	await writeFile(
+		join(activation, 'deploy-release.sh'),
+		`echo deploy >> "$FIXTURE_ROOT/events"
+[[ ${deployStatus} -ne 0 ]] || cp "$FIXTURE_ROOT/manifest.json" "$FIXTURE_ROOT/data/releases/current/manifest.json"
+exit ${deployStatus}
+`
+	);
+	await mkdir(join(data, lockHeld ? 'tmp/production-deploy.lock' : 'tmp'), { recursive: true });
+	await writeFile(
+		join(fixture.stateRoot, 'state.json'),
+		JSON.stringify({
+			baselineCommit: 'd'.repeat(40),
+			activeCommit: active,
+			phase: 'activating',
+			candidate: JSON.parse(await readFile(join(data, 'cd-build/candidate/release.json'))),
+			attempt: `${revision}:${run.id}:${run.run_attempt}`
+		})
+	);
+	return {
+		...fixture,
+		state: async () => JSON.parse(await readFile(join(fixture.stateRoot, 'state.json'))),
+		events: async () => (await readFile(join(fixture.root, 'events'), 'utf8')).split('\n'),
+		locked: () =>
+			stat(join(data, 'tmp/production-deploy.lock')).then(
+				() => true,
+				() => false
+			)
+	};
+}
+
+test('a verified activation takes a checkpoint, deploys and records production at main', async () => {
+	const fixture = await activationFixture();
+	try {
+		const result = fixture.run('activate');
+		assert.equal(result.status, 0, result.stderr);
+		const state = await fixture.state();
+		assert.deepEqual([state.phase, state.activeCommit], ['idle', revision]);
+		const events = await fixture.events();
+		assert.ok(events.indexOf('checkpoint') < events.indexOf('deploy'));
+		assert.equal(await fixture.locked(), false, 'The activation releases its host lock');
+	} finally {
+		await fixture.close();
+	}
+});
+
+test('a held host lock fails the attempt before any checkpoint instead of rebuilding it', async () => {
+	const fixture = await activationFixture({ lockHeld: true });
+	try {
+		assert.equal(fixture.run('activate').status, 1);
+		const state = await fixture.state();
+		assert.equal(state.phase, 'failed');
+		assert.match(state.error, /holds the host lock/);
+		assert.equal(state.failedAttempt, `${revision}:${run.id}:${run.run_attempt}`);
+		assert.doesNotMatch((await fixture.events()).join('\n'), /checkpoint|deploy/);
+		assert.equal(await fixture.locked(), true, 'Another deployment keeps its lock');
+		// The same CI attempt is not built again
+		assert.equal(fixture.run().status, 0);
+		assert.doesNotMatch((await fixture.events()).join('\n'), /systemctl:start|systemd-run:/);
+	} finally {
+		await fixture.close();
+	}
+});
+
+test('a rejected release fails the attempt and a failed rollback halts deployment until resumed', async () => {
+	for (const [deployStatus, phase, error] of [
+		[1, 'failed', /keeps the previous release/],
+		[70, 'halted', /rollback needs operator attention/]
+	]) {
+		const fixture = await activationFixture({ deployStatus });
+		try {
+			assert.equal(fixture.run('activate').status, 1);
+			const state = await fixture.state();
+			assert.equal(state.phase, phase);
+			assert.match(state.error, error);
+			assert.equal(state.activeCommit, active);
+			assert.equal(await fixture.locked(), false);
+			if (phase !== 'halted') continue;
+			const before = (await fixture.events()).length;
+			assert.equal(fixture.run().status, 0);
+			assert.equal((await fixture.events()).length, before, 'A halted host polls nothing');
+			assert.equal(fixture.run('resume').status, 0);
+			assert.deepEqual(await fixture.state(), {
+				baselineCommit: 'd'.repeat(40),
+				activeCommit: active,
+				phase: 'idle'
+			});
+		} finally {
+			await fixture.close();
+		}
 	}
 });
 

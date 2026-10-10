@@ -19,9 +19,9 @@ Never forward PostgreSQL, 7880 or 8080–8082. Caddy issues certificates over TC
 
 Merging into protected `main` authorizes an automatic production deployment after a complete successful push CI run ([CI](../../docs/ci.md)). Scope branches and pull requests run tests only. The server pulls public Git source and checks evidence through outbound HTTPS; CD opens no additional port and places no SSH key, server secret, user data or device key in GitHub Actions.
 
-`cd.nix` runs a one-minute poller and an isolated `kaordo-build` user. The controller verifies the current main SHA, repository/workflow identity and every validation layer, then builds a clean revision without access to production data. It rechecks the SHA and CI before switching. Initial state records the current main and production manifest, so enabling CD does not downgrade a production scope release. Keep required validation job names stable; renaming them requires commissioning the updated controller before merging the workflow change.
+`cd.nix` runs a one-minute poller and an isolated `kaordo-build` user. The controller verifies the current main SHA, repository/workflow identity and every validation layer, then builds a clean revision without access to production data. The build yields to the services: it runs at idle CPU and disk priority, is pushed to swap above 1 GiB, is killed first under memory pressure, and leaves only the finished archive behind. It rechecks the SHA and CI before switching. Initial state records the current main and production manifest, so enabling CD does not downgrade a production scope release. Keep required validation job names stable; renaming them requires commissioning the updated controller before merging the workflow change.
 
-For initial commissioning, copy the tested `cd.nix`, `cd-build.sh`, `cd.mjs`, `checkpoint.mjs` and `bootstrap-cd.sh` together to the host, then run `sudo bash bootstrap-cd.sh`. The bootstrap records the current main and active manifest, adds a stable NixOS import, activates only the CD infrastructure, and restores the old configuration/closure if setup fails. It refuses to overwrite existing CD state. Subsequent updates travel through main. To prepare a complete release without contacting a server, use `node scripts/deploy-production.mjs --build-only /path/to/output` from a clean checkout.
+For initial commissioning, copy the tested `cd.nix`, `cd-build.sh`, `cd.mjs`, `checkpoint.mjs`, `deploy-release.sh`, `verify-release.mjs` and `bootstrap-cd.sh` together to the host, then run `sudo bash bootstrap-cd.sh`. The bootstrap records the current main and active manifest, adds a stable NixOS import, activates only the CD infrastructure, and restores the old configuration/closure if setup fails. It refuses to overwrite existing CD state. Subsequent updates travel through main. To prepare a complete release without contacting a server, use `node scripts/deploy-production.mjs --build-only /path/to/output` from a clean checkout.
 
 Check deployment state without displaying secrets:
 
@@ -32,7 +32,17 @@ sudo cat /var/lib/kaordo-cd/state.json
 sudo cat /var/lib/kaordo-cd/checkpoint.json
 ```
 
-State contains commit hashes, CI evidence, status and error summaries. An activation owns the shared host lock and continues through a newer push or poller rebuild. Failed attempts do not loop; a new successful CI attempt can retry. After a power loss or interrupted activation, inspect services and the active manifest before clearing its failure state or a stale lock. Never clear a lock held by a running deployment.
+State contains commit hashes, CI evidence, status and error summaries. An activation owns the shared host lock and continues through a newer push or poller rebuild. Regado alerts when the current main does not reach production:
+
+- `failed` (warning): the build, a checkpoint, the host lock or the release checks stopped the attempt and production keeps the previous release. A newer main or a new successful CI attempt retries; the same attempt never repeats.
+- `halted` (critical): an activation stopped without finishing, failed live verification or could not roll back, so production may be inconsistent. Nothing deploys until an operator inspects services and the active manifest, repairs the host (for example with a manual deployment) and resumes.
+
+A lock left by a power loss blocks every deployment; remove it only after confirming no deployment runs. Resuming clears a failed or halted state and retries the current main:
+
+```sh
+sudo rmdir /srv/kaordo/tmp/production-deploy.lock # only when it is stale
+sudo node /etc/nixos/deploy/nixos/cd.mjs resume
+```
 
 Manual commands remain available for an explicitly authorized recovery or release ([releases](../../docs/releases.md)). Both require a clean tree (`--allow-dirty` marks an intentional exception) and share the CD host lock. SSH uses `KAORDO_DEPLOY_SSH_KEY` or the default key, and the account needs non-interactive `sudo`.
 

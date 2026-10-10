@@ -15,10 +15,20 @@ source="$build_root/source"
 mkdir -p "$build_root"
 exec 9>"$build_root/build.lock"
 flock -n 9 || { echo 'another isolated release build is running' >&2; exit 1; }
-for entry in "$build_root"/* "$build_root"/.[!.]* "$build_root"/..?*; do
-  [[ -e "$entry" || -L "$entry" ]] || continue
-  [[ "$entry" == "$build_root/build.lock" ]] || rm -rf -- "$entry"
-done
+
+# Every build starts from nothing, so only the lock and a finished candidate are worth keeping.
+# Go marks its module cache read-only; restore write access before removing it
+clear_workspace() {
+  local keep=$1 entry
+  for entry in "$build_root"/* "$build_root"/.[!.]* "$build_root"/..?*; do
+    [[ -e "$entry" || -L "$entry" ]] || continue
+    [[ "$entry" == "$build_root/build.lock" || "$entry" == "$keep" ]] && continue
+    chmod -R u+w -- "$entry" 2>/dev/null || true
+    rm -rf -- "$entry"
+  done
+}
+clear_workspace ''
+trap 'if [[ $? -eq 0 ]]; then clear_workspace "$build_root/candidate"; else clear_workspace ""; fi' EXIT
 mkdir -p "$build_root/tools" "$build_root/candidate"
 export PATH="$build_root/tools:$PATH"
 export COREPACK_HOME="$build_root/cache/corepack"

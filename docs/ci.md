@@ -22,7 +22,7 @@ The NixOS `kaordo-cd.timer` checks public `main` once a minute, plus up to ten s
 
 The host rebuilds that exact clean revision as `kaordo-build`. Each build starts with a fresh checkout, dependency/toolchain workspace and outputs. Its systemd sandbox can write only `/srv/kaordo/cd-build`; production media, databases, runtime sockets, recovery copies, home directories and secrets are inaccessible. Pnpm follows `packageManager` and the lockfile; Go follows the checked-in toolchain and module sums. Existing migrations cannot change, and the candidate must contain the active production revision in its Git history. No dependency installation runs with production privileges.
 
-The controller rechecks `main` and CI after the build and before activation. It verifies the archive checksum and clean manifest, takes a verified encrypted deployment checkpoint, and uses the same host lock as operator deployments. A separate transient activation unit survives newer commits and NixOS changes to the poller. Frontend, binaries, configuration and identity policy roll back on failed post-checks; forward-only database migrations remain. A failed attempt stays stopped until a new successful CI attempt or commit authorizes another try. An interrupted activation fails closed and needs host inspection.
+The controller rechecks `main` and CI after the build and before activation. It verifies the archive checksum and clean manifest, takes a verified encrypted deployment checkpoint, and uses the same host lock as operator deployments. A separate transient activation unit survives newer commits and NixOS changes to the poller. Frontend, binaries, configuration and identity policy roll back on failed post-checks; forward-only database migrations remain. A failed attempt leaves production on the previous release and stays stopped until a newer main or successful CI attempt authorizes another try; a held host lock fails the attempt instead of rebuilding it. An activation that stops unfinished, fails live verification or cannot roll back halts automatic deployment until an operator resumes it. Regado alerts on both.
 
 The bootstrap state records the existing `main` and the active production manifest, so installing CD does not deploy an older `main` over a newer scope release. The next merged `main` must include that production history. Main protection requires an up-to-date PR and the GitHub Actions `checks` context, applies to administrators, and disallows force pushes and deletion. Merge commits preserve deployed ancestry; squash and rebase merging are disabled. No additional review approval is required. A merge into protected `main` is deployment authorization; version tags and public release notes remain separate operations. See [production](../deploy/nixos/README.md) for host status and recovery.
 
@@ -114,17 +114,7 @@ The complete [CD validation run](https://github.com/druckheil/Kaordo/actions/run
 | Dependency advisories                | 53s      |
 | Final checks gate                    | 3s       |
 
-Pnpm, Go and golangci-lint restored dependency/build caches. Chromium installation and the browser fixtures' Vite caches were fresh. The Node scans independently measured empty and reused optimizer caches; these are preparation times, not page-load measurements:
-
-| App    | Hosted empty optimizer cache | Hosted cached restart |
-| ------ | ---------------------------- | --------------------- |
-| Portal | 3,568 ms                     | 59 ms                 |
-| Fluo   | 3,931 ms                     | 125 ms                |
-| Ligo   | 3,720 ms                     | 102 ms                |
-| Rondo  | 3,973 ms                     | 90 ms                 |
-| Regado | 3,730 ms                     | 57 ms                 |
-| Lingvo | 3,803 ms                     | 58 ms                 |
-| Memoro | 3,840 ms                     | 103 ms                |
+Pnpm, Go and golangci-lint restored dependency/build caches. Chromium installation and the browser fixtures' Vite caches were fresh; optimizer preparation times are under [Optimizer measurements](#optimizer-measurements).
 
 ### Production commissioning
 

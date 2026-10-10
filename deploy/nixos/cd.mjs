@@ -119,6 +119,12 @@ async function activeRevision() {
 	return manifest.sourceCommit;
 }
 
+// Production may be inconsistent: nothing deploys until an operator inspects the host and resumes
+async function halt(state, message) {
+	await saveState({ ...state, phase: 'halted', failedAttempt: state.attempt, error: message });
+	throw new Error(message);
+}
+
 async function poll() {
 	const state = JSON.parse(await readFile(stateFile, 'utf8'));
 	if (!revisionPattern.test(state.baselineCommit) || !revisionPattern.test(state.activeCommit))
@@ -129,37 +135,41 @@ async function poll() {
 			quiet: true
 		}).catch(() => 'inactive');
 		if (['active', 'activating'].includes(active)) return;
-		if ((await activeRevision()) === state.candidate.sourceCommit) {
-			await command(process.execPath, [
-				'/etc/nixos/deploy/nixos/verify-release.mjs',
-				'live',
-				'/srv/kaordo/releases/current',
-				state.candidate.id,
-				'https://kaordo.link',
-				'kaordo'
-			]);
-			await saveState({
-				baselineCommit: state.baselineCommit,
-				activeCommit: state.candidate.sourceCommit,
-				phase: 'idle',
-				proof: state.proof
-			});
-			return;
-		}
+		if ((await activeRevision()) !== state.candidate.sourceCommit)
+			await halt(state, 'Activation stopped before it finished; production may be inconsistent.');
+		await command(process.execPath, [
+			'/etc/nixos/deploy/nixos/verify-release.mjs',
+			'live',
+			'/srv/kaordo/releases/current',
+			state.candidate.id,
+			'https://kaordo.link',
+			'kaordo'
+		]).catch(() => halt(state, 'The activated release failed its live verification.'));
 		await saveState({
-			...state,
-			phase: 'failed',
-			failedAttempt: state.attempt,
-			error: 'Activation was interrupted; verify the host before retrying.'
+			baselineCommit: state.baselineCommit,
+			activeCommit: state.candidate.sourceCommit,
+			phase: 'idle',
+			proof: state.proof
 		});
-		throw new Error('Activation was interrupted; verify the host before retrying.');
+		return;
 	}
+	// The manifest cannot prove a halted host consistent; only `cd.mjs resume` continues
+	if (state.phase === 'halted') return;
 	const active = await activeRevision();
 	if (state.activeCommit !== active) {
 		state.activeCommit = active;
 		await saveState(state);
 	}
 	const revision = await mainRevision();
+	// A failure matters while its revision is main and production does not run it
+	if (
+		state.phase === 'failed' &&
+		(revision === state.activeCommit || !state.failedAttempt?.startsWith(`${revision}:`))
+	) {
+		state.phase = 'idle';
+		delete state.error;
+		await saveState(state);
+	}
 	if (revision === state.baselineCommit || revision === state.activeCommit) return;
 	const failedRevision = state.failedAttempt?.startsWith(`${revision}:`);
 	const evidenceInterval = failedRevision ? 600_000 : 120_000;
@@ -183,10 +193,12 @@ async function poll() {
 	}
 	try {
 		console.log(`Building checked main revision ${revision}; CI ${proof.url}.`);
-		await command('systemctl', [
-			'start',
-			`kaordo-cd-build@${revision}-${state.activeCommit}.service`
-		]);
+		const build = `kaordo-cd-build@${revision}-${state.activeCommit}.service`;
+		await command('systemctl', ['start', build]).catch((error) => {
+			throw new Error('The isolated build failed; see journalctl -u "kaordo-cd-build@*".', {
+				cause: error
+			});
+		});
 		if ((await mainRevision()) !== revision || !(await evidence(revision))) {
 			console.log('Main or its checks changed during preparation; candidate deferred.');
 			return;
@@ -229,6 +241,8 @@ async function poll() {
 			'activate'
 		]);
 	} catch (error) {
+		// A newer main supersedes this attempt and is checked on the next poll
+		if ((await mainRevision().catch(() => revision)) !== revision) return;
 		await saveState({
 			...state,
 			phase: 'failed',
@@ -266,9 +280,8 @@ async function activate() {
 			locked = true;
 		} catch (error) {
 			if (error.code !== 'EEXIST') throw error;
-			await saveState({ ...state, phase: 'idle' });
-			console.log('Another host deployment owns the lock; deferring this candidate.');
-			return;
+			// Deferring would rebuild the same candidate every few minutes; a stale lock needs a person
+			throw new Error('Another deployment holds the host lock.', { cause: error });
 		}
 		if ((await activeRevision()) !== state.activeCommit)
 			throw new Error('Active production changed during preparation.');
@@ -301,7 +314,17 @@ async function activate() {
 				candidate.sourceCommit
 			],
 			{ env: { ...process.env, KAORDO_DEPLOY_LOCK_HELD: candidate.id } }
-		);
+		).catch((error) => {
+			// deploy-release.sh exits with 70 only when its rollback failed
+			if (error.exitCode !== 70)
+				throw new Error('The release failed its checks; production keeps the previous release.', {
+					cause: error
+				});
+			const halted = new Error('The release failed and its rollback needs operator attention.', {
+				cause: error
+			});
+			throw Object.assign(halted, { halt: true });
+		});
 		const active = JSON.parse(await readFile('/srv/kaordo/releases/current/manifest.json', 'utf8'));
 		validateCandidate(candidate, active, candidate.sourceCommit);
 		await saveState({
@@ -315,7 +338,7 @@ async function activate() {
 	} catch (error) {
 		await saveState({
 			...state,
-			phase: 'failed',
+			phase: error.halt ? 'halted' : 'failed',
 			failedAttempt: state.attempt,
 			lastEvidenceAt: Date.now(),
 			error: error.message
@@ -330,11 +353,22 @@ async function activate() {
 	}
 }
 
+// After inspecting the host, an operator retries the current main without waiting for new CI
+async function resume() {
+	const state = JSON.parse(await readFile(stateFile, 'utf8'));
+	if (!['failed', 'halted'].includes(state.phase))
+		throw new Error('Automatic deployment is neither failed nor halted.');
+	const active = await activeRevision();
+	await saveState({ baselineCommit: state.baselineCommit, activeCommit: active, phase: 'idle' });
+	console.log(`Automatic deployment resumes from ${active}.`);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
 	try {
 		if (process.argv[2] === 'poll') await poll();
 		else if (process.argv[2] === 'activate') await activate();
-		else throw new Error('Specify poll or activate.');
+		else if (process.argv[2] === 'resume') await resume();
+		else throw new Error('Specify poll, activate or resume.');
 	} catch (error) {
 		console.error(`Automatic deployment failed: ${error.message}`);
 		process.exitCode = 1;

@@ -25,7 +25,8 @@ restore_bootstrap() {
 }
 trap restore_bootstrap EXIT
 
-for file in cd.nix cd-build.sh cd.mjs checkpoint.mjs; do
+# The controller runs these from its own directory; a release later replaces them as one set
+for file in cd.nix cd-build.sh cd.mjs checkpoint.mjs deploy-release.sh verify-release.mjs; do
   install -o root -g root -m 0644 "$source_root/$file" "/etc/nixos/deploy/nixos/$file"
 done
 cat >/etc/nixos/kaordo-cd-bootstrap.nix <<'NIX'

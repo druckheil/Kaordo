@@ -28,7 +28,11 @@ export async function command(
 			});
 		child.on('error', () => reject(new Error(`${program} could not start.`)));
 		child.on('close', (code) =>
-			code === 0 ? accept(output.trim()) : reject(new Error(`${program} failed with code ${code}.`))
+			code === 0
+				? accept(output.trim())
+				: reject(
+						Object.assign(new Error(`${program} failed with code ${code}.`), { exitCode: code })
+					)
 		);
 	});
 }
@@ -219,9 +223,12 @@ export async function checkpoint(
 		await cleanup(() => rm(restored, { recursive: true, force: true }));
 	}
 	if (failures.length)
-		throw new Error('Checkpoint cleanup or service recovery needs operator attention.', {
-			cause: failure
-		});
+		throw Object.assign(
+			new Error('Checkpoint cleanup or service recovery needs operator attention.', {
+				cause: failure
+			}),
+			{ halt: true }
+		);
 	if (failure) throw failure;
 	return snapshot;
 }

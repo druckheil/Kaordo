@@ -31,8 +31,15 @@ in
       WorkingDirectory = buildRoot;
       UMask = "0077";
       TimeoutStartSec = "30min";
+      # The host serves users while it builds: the build takes idle CPU and disk time, is pushed
+      # to swap above 1 GiB instead of the services, and is the first process the kernel kills
+      Nice = 19;
+      IOSchedulingClass = "idle";
+      CPUWeight = "idle";
       CPUQuota = "150%";
-      MemoryMax = "2G";
+      MemoryHigh = "1G";
+      MemoryMax = "1536M";
+      OOMScoreAdjust = 1000;
       NoNewPrivileges = true;
       ProtectSystem = "strict";
       ProtectHome = true;

@@ -130,7 +130,10 @@ restore_release() {
     systemctl start regado-agent nodo kerno || rollback_failed=1
     wait_for_http http://127.0.0.1:8081/healthz &&
       wait_for_http http://127.0.0.1:8082/healthz && check_services || rollback_failed=1
-    if [[ "$rollback_failed" -eq 1 ]]; then echo 'Rollback needs operator attention; inspect the deployment log.' >&2;
+    # Exit code 70 tells automatic deployment that production may be inconsistent and it must halt
+    if [[ "$rollback_failed" -eq 1 ]]; then
+      echo 'Rollback needs operator attention; inspect the deployment log.' >&2
+      status=70
     else echo 'Previous release restored; forward-only database migrations are retained.' >&2; fi
   elif [[ "$status" -ne 0 ]]; then
     echo 'Release failed before changing the host.' >&2
