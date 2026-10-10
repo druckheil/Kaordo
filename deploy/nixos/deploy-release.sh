@@ -7,9 +7,14 @@ expected_hash=${2:?archive checksum required}
 origin_host=${3:?public hostname required}
 auth_realm=${4:?identity realm required}
 archive=${5:?release archive required}
+expected_revision=${6:-}
 
 if [[ ! "$release_id" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{12}-[0-9]{8}T[0-9]{6}Z(-dirty)?$ ]]; then
   echo 'invalid release ID' >&2
+  exit 2
+fi
+if [[ -n "$expected_revision" && ! "$expected_revision" =~ ^[a-f0-9]{40}$ ]]; then
+  echo 'invalid source revision' >&2
   exit 2
 fi
 if [[ ! "$expected_hash" =~ ^[a-f0-9]{64}$ || ! "$origin_host" =~ ^[A-Za-z0-9.-]+$ || ! "$auth_realm" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -40,9 +45,14 @@ previous_release=
 services=(caddy keycloak postgresql livekit kerno nodo regado-agent prometheus prometheus-node-exporter ddclient.timer)
 
 mkdir -p "$temporary_root" "$data_root/releases" "$data_root/rollbacks"
-if ! mkdir "$lock" 2>/dev/null; then
+lock_owned=0
+if [[ "${KAORDO_DEPLOY_LOCK_HELD:-}" == "$release_id" ]]; then
+  [[ -d "$lock" ]] || { echo 'coordinated deployment lock is missing' >&2; exit 1; }
+elif ! mkdir "$lock" 2>/dev/null; then
   echo 'another production deployment is already running' >&2
   exit 1
+else
+  lock_owned=1
 fi
 
 wait_for_http() {
@@ -127,10 +137,12 @@ restore_release() {
   fi
   rm -rf "$staging"
   rm -f "$archive"
-  rmdir "$lock" 2>/dev/null || true
+  if [[ "$lock_owned" -eq 1 ]]; then rmdir "$lock" 2>/dev/null || true; fi
   exit "$status"
 }
 trap restore_release EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 if [[ -e "$release_root" || -e "$backup_root" ]]; then
   echo 'release or rollback directory already exists' >&2
@@ -156,8 +168,20 @@ if tar -tzf "$archive" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null; then
   echo 'release archive contains an unsafe path' >&2
   exit 1
 fi
+if tar -tvzf "$archive" | grep -E '^[^d-]' >/dev/null; then
+  echo 'release archive contains a link or special file' >&2
+  exit 1
+fi
 mkdir "$staging"
 tar -xzf "$archive" -C "$staging" --no-same-owner
+if [[ -n "$expected_revision" ]]; then
+  node --input-type=module - "$staging/manifest.json" "$expected_revision" <<'JS'
+import {readFileSync} from 'node:fs';
+const manifest = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+if (manifest.sourceCommit !== process.argv[3] || manifest.workingTreeDirty !== false)
+  throw new Error('Release must match the tested clean source revision.');
+JS
+fi
 for path in bin/kerno bin/nodo bin/regado-agent manifest.json site/index.html \
   etc/nixos/deploy/nixos/kaordo.nix etc/nixos/deploy/nixos/verify-release.mjs \
   etc/nixos/deploy/nixos/sync-keycloak-production.mjs etc/nixos/scripts/sync-keycloak.mjs; do

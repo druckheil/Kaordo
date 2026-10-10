@@ -1,6 +1,6 @@
 # CI
 
-`.github/workflows/checks.yml` runs on pushes to `main` and `scope-*`, on pull requests and on manual dispatch. A new commit cancels the older run for the same ref. The workflow never deploys. Branch protection should require the final `checks` job. That job passes only when every layer below succeeded; a skipped or cancelled layer fails it.
+`.github/workflows/checks.yml` runs on pushes to `main` and `scope-*`, on pull requests and on manual dispatch. A new commit cancels the older run for the same ref. Branch protection requires the final `checks` job. That job passes only when every layer below succeeded; a skipped or cancelled layer fails it. `scope-*` runs validate only. Production's independent pull service deploys the current `main` after verifying its successful push run and every validation job. GitHub runners have no server credentials or connection to production data.
 
 ## Layers
 
@@ -8,12 +8,23 @@
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
 | Frontend and unit tests        | `check:front`, generated-contract diff, `format:check`, `lint`, `knip`, `test:unit`                                                                          | —                  |
 | Static app artifact            | `test:pages`: builds every app once and uploads the artifact                                                                                                 | —                  |
+| Production release payload     | Production-origin frontend checks, Linux backend build and complete release-manifest verification; the bundle stays on the disposable runner                 | —                  |
 | Browser fixtures (3 shards)    | `test:ui`: Playwright scenarios with synthetic data, accessibility and layout checks                                                                         | frontend, artifact |
 | Go services and PostgreSQL     | Go build/vet/race tests, `golangci-lint`, regado-agent host tests on loop devices (`test:host`), actionlint, `product-db.integration.mjs` on a disposable DB | —                  |
 | Identity, product and recovery | `test:integration`: real Keycloak, Kerno, Nodo, LiveKit and restic against the built artifact                                                                | frontend, artifact |
 | Dependency advisories          | `pnpm audit` and `govulncheck` per Go module                                                                                                                 | —                  |
 
-Browser and integration jobs use the **same run's** static artifact, built with local endpoints. Production-origin checks run only in `pnpm test:pages:production` and the deployment preflight.
+Browser and integration jobs use the **same run's** static artifact, built with local endpoints. The separate production payload job uses public production endpoints and verifies the same packaging path as the host builder. It never receives production secrets, uploads the production bundle or deploys.
+
+## Automatic deployment
+
+The NixOS `kaordo-cd.timer` checks public `main` once a minute, plus up to ten seconds of jitter. A matching successful `push` run of `checks.yml` must belong to repository ID `1333035875` and workflow ID `370320419`; its current attempt must include every named validation job with a successful conclusion. Pull requests, scope branches, manual-dispatch runs, forks, stale commits, failed/skipped jobs and older successful attempts cannot authorize deployment. An unchanged or waiting revision stays quiet after its first state update.
+
+The host rebuilds that exact clean revision as `kaordo-build`. Its systemd sandbox can write only `/srv/kaordo/cd-build`; production media, databases, runtime sockets, recovery copies, home directories and secrets are inaccessible. Pnpm follows `packageManager` and the lockfile; Go follows the checked-in toolchain and module sums. Existing migrations cannot change, and the candidate must contain the active production revision in its Git history. No dependency installation runs with production privileges.
+
+The controller rechecks `main` and CI after the build and before activation. It verifies the archive checksum and clean manifest, takes a verified encrypted deployment checkpoint, and uses the same host lock as operator deployments. A separate transient activation unit survives newer commits and NixOS changes to the poller. Frontend, binaries, configuration and identity policy roll back on failed post-checks; forward-only database migrations remain. A failed attempt stays stopped until a new successful CI attempt or commit authorizes another try. An interrupted activation fails closed and needs host inspection.
+
+The bootstrap state records the existing `main` and the active production manifest, so installing CD does not deploy an older `main` over a newer scope release. The next merged `main` must include that production history. A merge into protected `main` is deployment authorization; version tags and public release notes remain separate operations. See [production](../deploy/nixos/README.md) for host status and recovery.
 
 ## Local reproduction
 

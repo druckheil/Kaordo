@@ -13,11 +13,11 @@ Writing notes:
 
 ## Release procedure
 
-Only for an explicitly authorized release:
+Every merge into protected `main` authorizes automatic deployment after successful CI. Version notes, tags and GitHub release publication remain explicitly authorized release operations:
 
 1. Write the version module, including any privacy corrections to earlier notes.
 2. Push the scope branch and get a complete green `Checks` run for that exact commit (see [CI](ci.md)).
 3. Merge the scope into the latest `main`, push, and require a green `Checks` run on the merge commit.
-4. Deploy that clean revision with `pnpm deploy:production` ([production](../deploy/nixos/README.md)). Confirm the active manifest, services and public responses match the tested commit.
+4. Wait for the server's automatic deployment ([production](../deploy/nixos/README.md)). Its controller verifies the active manifest, services and public responses against the tested commit; check its recorded result. Use `pnpm deploy:production` only for an explicitly authorized manual recovery or release.
 5. Create an annotated `vX.Y.Z` tag at that revision and publish the GitHub release from the same notes. Do not attach deployment bundles. Record the CI run in `docs/ci.md`.
 6. Start `scope-NEXT` from the released `main`, bump the root `package.json` version, commit, and create the annotated scope tag on that commit. The branch and the tag share a name, so push with explicit `refs/heads/…` and `refs/tags/…`.

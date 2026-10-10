@@ -60,6 +60,10 @@ async function payloadFixture() {
 		'bin/nodo': 'new-nodo',
 		'bin/regado-agent': 'new-agent',
 		'etc/nixos/deploy/nixos/kaordo.nix': 'new-nix',
+		'etc/nixos/deploy/nixos/cd.nix': 'new-cd-module',
+		'etc/nixos/deploy/nixos/cd-build.sh': 'new-isolated-builder',
+		'etc/nixos/deploy/nixos/cd.mjs': 'new-deployment-controller',
+		'etc/nixos/deploy/nixos/checkpoint.mjs': 'new-private-checkpoint',
 		'etc/nixos/deploy/nixos/kaordo-realm.json': '{"rememberMe":true}',
 		'etc/nixos/deploy/nixos/sync-keycloak-production.mjs': 'new-sync',
 		'etc/nixos/scripts/sync-keycloak.mjs': 'new-shared-sync',
@@ -96,6 +100,10 @@ test('release verification rejects missing or corrupted components before activa
 	const fixture = await payloadFixture();
 	try {
 		await verifyPayload(fixture.directory, release, origin, 'kaordo');
+		await assert.rejects(
+			verifyPayload(fixture.directory, release, origin, 'kaordo', 'a'.repeat(40)),
+			/requested deployment/
+		);
 		await put(join(fixture.directory, 'bin/kerno'), 'old-kerno');
 		await assert.rejects(
 			verifyPayload(fixture.directory, release, origin, 'kaordo'),

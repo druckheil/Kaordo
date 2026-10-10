@@ -10,6 +10,10 @@ const requiredFiles = [
 	'bin/nodo',
 	'bin/regado-agent',
 	'etc/nixos/deploy/nixos/kaordo.nix',
+	'etc/nixos/deploy/nixos/cd.nix',
+	'etc/nixos/deploy/nixos/cd-build.sh',
+	'etc/nixos/deploy/nixos/cd.mjs',
+	'etc/nixos/deploy/nixos/checkpoint.mjs',
 	'etc/nixos/deploy/nixos/kaordo-realm.json',
 	'etc/nixos/deploy/nixos/sync-keycloak-production.mjs',
 	'etc/nixos/scripts/sync-keycloak.mjs',
@@ -24,14 +28,21 @@ const requiredFiles = [
 	'site/silent-check-sso.html'
 ];
 
-export async function verifyPayload(directory, expectedRelease, expectedOrigin, expectedRealm) {
+export async function verifyPayload(
+	directory,
+	expectedRelease,
+	expectedOrigin,
+	expectedRealm,
+	expectedCommit
+) {
 	const manifest = JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8'));
 	if (
 		manifest.format !== 1 ||
 		manifest.release !== expectedRelease ||
 		!/^[a-f0-9]{40}$/.test(manifest.sourceCommit) ||
 		manifest.origin !== expectedOrigin ||
-		manifest.realm !== expectedRealm
+		manifest.realm !== expectedRealm ||
+		(expectedCommit && manifest.sourceCommit !== expectedCommit)
 	) {
 		throw new Error('Release manifest does not match the requested deployment.');
 	}

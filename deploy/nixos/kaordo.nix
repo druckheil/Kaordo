@@ -11,7 +11,7 @@ let
 in
 {
   # The system and data live in subvolumes of the pool; the host's own configuration may import it too
-  imports = [ ./storage.nix ];
+  imports = [ ./storage.nix ./cd.nix ];
 
   zramSwap.enable = true;
   zramSwap.memoryPercent = 100;

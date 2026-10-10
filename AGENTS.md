@@ -33,7 +33,7 @@ Implemented applications are Portal authentication/account entry, Fluo social po
 - Use SvelteKit navigation APIs for router-owned history. Keep URL, selected object and dialog state synchronized.
 - Keep secrets, credentials, signing keys, dumps, user files and build output out of Git. Do not print ignored environment files.
 - Run tests when the user requests verification. Headless fixtures and live tests are preferred over manual browser interaction. Report limitations honestly; historical audit scores are not current certification.
-- Do not deploy, push or publish automatically during a refactor. Deployment instructions are operator workflows for an explicitly authorized release.
+- Do not merge, push or publish automatically during a refactor. Scope branches run tests only; a merge into protected `main` authorizes the server's automatic deployment after complete CI. Manual deployment and release publication remain explicitly authorized operator workflows.
 
 ## Verification
 

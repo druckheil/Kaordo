@@ -133,6 +133,13 @@ depends on the server; local pinning detects changes after first contact. The
 scheme does not protect against compromised devices, recipient copies or
 screenshots, or provide cryptographic deletion of keys already shared.
 
+Automatic deployment trusts protected `main` and complete CI for its exact Git
+revision. Build processes cannot read production data or server secrets, and
+GitHub runners receive no production credentials. Deployment checkpoints remain
+encrypted and private on the host. These controls preserve the current storage
+boundaries; they cannot prove that newly delivered application code is harmless.
+Repository write/administration access remains part of the trusted computing base.
+
 ## Code map
 
 - `packages/crypto`: keys, device storage, content/audience envelopes, private data, media and recovery

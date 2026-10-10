@@ -17,7 +17,24 @@ Never forward PostgreSQL, 7880 or 8080–8082. Caddy issues certificates over TC
 
 ## Deploy
 
-Deployments are operator actions for an explicitly authorized release ([releases](../../docs/releases.md)). Both commands require a clean tree (`--allow-dirty` marks an intentional exception) and share one host lock. SSH uses `KAORDO_DEPLOY_SSH_KEY` or the default key, and the account needs non-interactive `sudo`.
+Merging into protected `main` authorizes an automatic production deployment after a complete successful push CI run ([CI](../../docs/ci.md)). Scope branches and pull requests run tests only. The server pulls public Git source and checks evidence through outbound HTTPS; CD opens no additional port and places no SSH key, server secret, user data or device key in GitHub Actions.
+
+`cd.nix` runs a one-minute poller and an isolated `kaordo-build` user. The controller verifies the current main SHA, repository/workflow identity and every validation layer, then builds a clean revision without access to production data. It rechecks the SHA and CI before switching. Initial state records the current main and production manifest, so enabling CD does not downgrade a production scope release. Keep required validation job names stable; renaming them requires commissioning the updated controller before merging the workflow change.
+
+For initial commissioning, copy the tested `cd.nix`, `cd-build.sh`, `cd.mjs`, `checkpoint.mjs` and `bootstrap-cd.sh` together to the host, then run `sudo bash bootstrap-cd.sh`. The bootstrap records the current main and active manifest, adds a stable NixOS import, activates only the CD infrastructure, and restores the old configuration/closure if setup fails. It refuses to overwrite existing CD state. Subsequent updates travel through main. To prepare a complete release without contacting a server, use `node scripts/deploy-production.mjs --build-only /path/to/output` from a clean checkout.
+
+Check deployment state without displaying secrets:
+
+```sh
+sudo systemctl status kaordo-cd.timer kaordo-cd.service kaordo-cd-activate.service
+sudo journalctl -u kaordo-cd.service -u kaordo-cd-activate.service
+sudo cat /var/lib/kaordo-cd/state.json
+sudo cat /var/lib/kaordo-cd/checkpoint.json
+```
+
+State contains commit hashes, CI evidence, status and error summaries. An activation owns the shared host lock and continues through a newer push or poller rebuild. Failed attempts do not loop; a new successful CI attempt can retry. After a power loss or interrupted activation, inspect services and the active manifest before clearing its failure state or a stale lock. Never clear a lock held by a running deployment.
+
+Manual commands remain available for an explicitly authorized recovery or release ([releases](../../docs/releases.md)). Both require a clean tree (`--allow-dirty` marks an intentional exception) and share the CD host lock. SSH uses `KAORDO_DEPLOY_SSH_KEY` or the default key, and the account needs non-interactive `sudo`.
 
 ```sh
 KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:production
@@ -32,6 +49,12 @@ KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:production
 5. runs `verify-release.mjs`. This checks active services and timers, running binaries against installed ones, every app against the manifest, OIDC discovery, the login form and theme, and the LiveKit and Prometheus endpoints.
 
 Any failure restores the previous frontend, binaries, closure, configuration and Keycloak policy. Migrations are not rolled back, so they must stay compatible with the previous release. The active release is recorded in `/srv/kaordo/releases/current`.
+
+### Deployment checkpoints
+
+Automatic deployment first briefly stops Kerno, Nodo and Keycloak to drain writes, dumps both PostgreSQL databases and snapshots media read-only, then resumes the services. Restic encrypts the matching data, runtime secrets and NixOS configuration in `/srv/kaordo/deployment-backups`; its random password stays in the root-only secrets directory. The controller checks repository metadata, reads back both dumps and restores them into disposable databases before deployment. Restore errors block deployment; temporary databases, dumps and media snapshots are removed. Backup commands suppress output containing data or credentials. Five verified checkpoints are retained in this dedicated repository.
+
+These checkpoints share the production disks. They help recover from a release error but are **not an independent backup**. They do not continuously back up new writes, and the metadata check is not a full read of every historical media pack. Configure an independent encrypted destination and preserve its recovery password for server/disk-loss recovery. Checkpoints may contain clear account/profile metadata and server credentials inside restic encryption; account private keys and recovery secrets remain on user devices. Database restore is an operator recovery action, never an automatic rollback that could overwrite writes made after activation.
 
 ```sh
 KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:pages:production

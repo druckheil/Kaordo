@@ -33,8 +33,8 @@ export function run(command, args, { input, capture = false, cwd = root, env = p
 	});
 }
 
-export function validateTarget(host = process.env.KAORDO_DEPLOY_HOST) {
-	if (!host || !/^[A-Za-z0-9_.@:-]+$/.test(host)) {
+export function validateTarget(host = process.env.KAORDO_DEPLOY_HOST, { requireSSH = true } = {}) {
+	if (requireSSH && (!host || !/^[A-Za-z0-9_.@:-]+$/.test(host))) {
 		throw new Error('Set KAORDO_DEPLOY_HOST to a trusted SSH target such as nixos@192.168.178.81');
 	}
 

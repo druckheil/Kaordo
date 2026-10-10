@@ -111,6 +111,30 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
 
+  release:
+    name: Production release payload
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@479c3cd2084b8e20207344a47dc10bdabea95adb # v3
+        with:
+          runtime: node@24
+          cache: true
+          require-lockfile: true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            services/kerno/go.sum
+            services/nodo/go.sum
+            services/mediaauth/go.sum
+            services/regado-agent/go.sum
+      - name: Build and verify the complete production payload without server access
+        run: node scripts/deploy-production.mjs --build-only "$RUNNER_TEMP/kaordo-release"
+
   services:
     name: Go services and PostgreSQL
     runs-on: ubuntu-24.04
@@ -243,7 +267,7 @@ jobs:
 
   checks:
     name: checks
-    needs: [frontend, pages, browser, services, integration, security]
+    needs: [frontend, pages, browser, services, integration, security, release]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 1

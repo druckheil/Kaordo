@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { verifyPayload } from '../deploy/nixos/verify-release.mjs';
 import {
 	assertSourceState,
 	getSourceState,
@@ -26,9 +27,16 @@ const goModules = [
 ];
 
 function parseOptions(args) {
-	const unsupported = args.filter((argument) => argument !== '--allow-dirty');
-	if (unsupported.length) throw new Error(`unsupported argument: ${unsupported[0]}`);
-	return { allowDirty: args.includes('--allow-dirty') };
+	const options = { allowDirty: false, output: null };
+	for (let index = 0; index < args.length; index++) {
+		if (args[index] === '--allow-dirty') options.allowDirty = true;
+		else if (args[index] === '--build-only' && args[index + 1])
+			options.output = resolve(args[++index]);
+		else throw new Error(`unsupported argument: ${args[index]}`);
+	}
+	if (options.output && options.allowDirty)
+		throw new Error('Build-only releases require a clean Git revision.');
+	return options;
 }
 
 function releaseId(version, source) {
@@ -132,6 +140,7 @@ async function buildReleaseBundle(source, target) {
 			) + '\n'
 		);
 		await chmod(join(bundle, 'manifest.json'), 0o644);
+		await verifyPayload(bundle, id, target.origin.origin, target.realm, source.revision);
 		await assertSourceState(source);
 		await run(
 			'tar',
@@ -170,7 +179,8 @@ async function deployRelease(release, target, ssh) {
 		release.hash,
 		target.origin.hostname,
 		target.realm,
-		remoteArchive
+		remoteArchive,
+		...(release.id.endsWith('-dirty') ? [] : [release.sourceCommit])
 	].join(' ');
 
 	try {
@@ -182,30 +192,52 @@ async function deployRelease(release, target, ssh) {
 }
 
 async function main() {
-	const { allowDirty } = parseOptions(process.argv.slice(2));
-	const target = validateTarget();
+	const { allowDirty, output } = parseOptions(process.argv.slice(2));
+	const target = validateTarget(undefined, { requireSSH: !output });
 	if (target.origin.origin !== 'https://kaordo.link' || target.realm !== 'kaordo') {
 		throw new Error(
 			'The NixOS production configuration declares https://kaordo.link and the kaordo realm.'
 		);
 	}
 	const source = await getSourceState(allowDirty);
-	const ssh = await sshArguments();
-	await run('ssh', [...ssh, target.host, 'sudo -n true']);
+	const ssh = output ? null : await sshArguments();
+	if (ssh) await run('ssh', [...ssh, target.host, 'sudo -n true']);
 
 	process.stdout.write('Validating production frontend and building static assets…\n');
 	await run('pnpm', ['test:pages:production']);
-	process.stdout.write('Checking Go services…\n');
-	await run('go', ['test', '-race', ...goModules]);
-	await run('go', ['vet', ...goModules]);
-	await run('node', ['--check', join(root, 'scripts/deploy-production.mjs')]);
-	await run('node', ['--check', join(root, 'scripts/deploy-support.mjs')]);
-	await run('bash', ['-n', join(root, 'deploy/nixos/deploy-release.sh')]);
-	await run('pnpm', ['test:deploy']);
-	await run('pnpm', ['test:auth']);
+	if (!output) {
+		process.stdout.write('Checking Go services…\n');
+		await run('go', ['test', '-race', ...goModules]);
+		await run('go', ['vet', ...goModules]);
+		await run('node', ['--check', join(root, 'scripts/deploy-production.mjs')]);
+		await run('node', ['--check', join(root, 'scripts/deploy-support.mjs')]);
+		await run('bash', ['-n', join(root, 'deploy/nixos/deploy-release.sh')]);
+		await run('pnpm', ['test:deploy']);
+		await run('pnpm', ['test:auth']);
+	}
 
 	process.stdout.write('Building Linux backend release…\n');
 	const release = await buildReleaseBundle(source, target);
+	release.sourceCommit = source.revision;
+	if (output) {
+		try {
+			await mkdir(output, { recursive: true, mode: 0o700 });
+			await cp(release.artifact, join(output, 'release.tar.gz'));
+			await writeFile(
+				join(output, 'release.json'),
+				JSON.stringify({
+					id: release.id,
+					hash: release.hash,
+					sourceCommit: source.revision
+				}) + '\n',
+				{ mode: 0o600 }
+			);
+		} finally {
+			await rm(release.temporaryDirectory, { recursive: true, force: true });
+		}
+		process.stdout.write(`Prepared verified production release from ${source.revision}.\n`);
+		return;
+	}
 	process.stdout.write(`Deploying the complete release ${release.id} from ${source.revision}…\n`);
 	await deployRelease(release, target, ssh);
 	process.stdout.write(`Full production release ${release.id} is active on ${target.host}.\n`);
