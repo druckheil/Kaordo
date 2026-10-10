@@ -34,6 +34,10 @@ pnpm test:integration # Docker and restic installed; ports free; pnpm dev stoppe
 
 Finish `check:front` and `test:pages` before starting `test:ui`. SvelteKit sync and builds update files watched by fixture Vite servers and can reload an active browser scenario or invalidate optimized dependencies.
 
+All seven apps use `localViteDependencies` in `scripts/local-vite.mjs`. Vite normally scans only Svelte script blocks, losing template imports and functions called only by actions or events. A Rolldown `load` hook supplies the compiled JavaScript for linked Svelte source components, so the scanner follows the complete component graph, including template-level lazy imports. Components in `node_modules` remain owned by the Svelte optimizer plugin. The complete scan can publish prepared bundles without waiting for the browser's static crawl (`holdUntilCrawlEnd: false`). Linked workspace modules stay unbundled so auth and feature state retain one instance. Dependency bundles and static release builds retain their normal tree shaking.
+
+`vite-dependencies.test.mjs` starts every real app in a separate process with an empty temporary cache and asserts that its lazy libraries finish optimization before a browser request. It then restarts with the same cache, verifies reuse of the complete graph and reports measured cold/warm preparation times. `test:unit` runs these scans after the other Node suites so optimizer CPU work does not compete with deployment fixtures that spawn host-command stubs. Browser fixture teardown also rejects dependency-scan errors and optimizer-triggered page reloads, even when the interaction assertions happen to pass. The Playwright worker owns and removes each cache, so every hosted browser shard starts cold regardless of pnpm and Go cache hits.
+
 `test:product:db` creates a random database in the local `app-db` container (CI sets `KAORDO_TEST_DB_CONTAINER` and `KAORDO_DB_PASSWORD`), runs the Kerno PostgreSQL tests with `-race` against it and drops it. The tests apply the embedded migrations and fail when the generated Jet tables differ from the schema. It never touches the application database.
 
 Useful focused runs:
@@ -41,6 +45,7 @@ Useful focused runs:
 ```sh
 pnpm test:product:ui
 pnpm test:regado:ui
+node --test scripts/vite-dependencies.test.mjs
 pnpm exec playwright test --project=browser ui-quality.test.mjs
 pnpm exec playwright test --project=browser --repeat-each=3 --workers=1
 pnpm test:ui:browsers # optional WebKit/Firefox audit
@@ -64,3 +69,19 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/chec
 ## Hosted evidence
 
 The latest complete hosted run is [release 0.0.3 on main](https://github.com/druckheil/Kaordo/actions/runs/37694725134) at `a739666`. It passed all eight jobs in 6m46s with warm dependency caches. The format, lint, knip and golangci-lint steps were added afterwards and have not yet run on hosted runners. Record their first complete run here.
+
+## Optimizer measurements
+
+The Svelte-aware scan was measured on 2026-10-10 on macOS arm64 with Node 24.18.0, Vite 8.3.1 and Svelte 5.57.1. `pnpm test:unit` starts one Node process per app; the cold phase uses an empty optimizer cache, and the warm phase recreates the Vite server in that same process and verifies that all prepared dependencies were loaded from the cache. Timings include configuration and dependency preparation, exclude process startup and browser rendering, and are diagnostics rather than performance assertions.
+
+| App    | Empty cache | Cached server restart |
+| ------ | ----------- | --------------------- |
+| Portal | 1,187 ms    | 24 ms                 |
+| Fluo   | 1,293 ms    | 31 ms                 |
+| Ligo   | 1,247 ms    | 35 ms                 |
+| Rondo  | 1,335 ms    | 36 ms                 |
+| Regado | 1,222 ms    | 24 ms                 |
+| Lingvo | 1,227 ms    | 33 ms                 |
+| Memoro | 1,275 ms    | 41 ms                 |
+
+The complete browser suite passed locally as three independent cold fixture shards: 23 tests in 1.3m, 23 in 1.9m and 22 in 1.5m, with zero retries and no optimizer-triggered reloads. These macOS timings do not predict hosted Ubuntu job durations.

@@ -4,20 +4,13 @@ import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import { localViteServer, mediaDependencies } from '../../scripts/local-vite.mjs';
+import { localViteDependencies, localViteServer } from '../../scripts/local-vite.mjs';
 
 export default defineConfig({
 	envDir: '../..',
 	server: localViteServer('rondo'),
 	ssr: { noExternal: ['@kaordo/media-client'] },
-	optimizeDeps: {
-		include: [
-			'@kaordo/voice-client',
-			'@kaordo/voice-client > livekit-client',
-			// Rondo reaches the upload libraries through chat-ui; Vite resolves each step of the chain
-			...mediaDependencies.map((dependency) => `@kaordo/chat-ui > ${dependency}`)
-		]
-	},
+	optimizeDeps: localViteDependencies,
 	plugins: [
 		tailwindcss(),
 		sveltekit({

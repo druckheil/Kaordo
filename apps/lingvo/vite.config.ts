@@ -3,15 +3,12 @@ import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import { localViteServer } from '../../scripts/local-vite.mjs';
+import { localViteDependencies, localViteServer } from '../../scripts/local-vite.mjs';
 
 export default defineConfig({
 	envDir: '../..',
 	server: localViteServer('lingvo'),
-	// Include lazy dependencies through their owning workspace package before opening a dialog
-	optimizeDeps: {
-		include: ['@kaordo/lingvo-client > papaparse', '@kaordo/lingvo-client > ts-fsrs']
-	},
+	optimizeDeps: localViteDependencies,
 	plugins: [
 		tailwindcss(),
 		sveltekit({

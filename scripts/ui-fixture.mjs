@@ -203,8 +203,18 @@ export const test = base.extend({
 				return { page, origin: server.origin, errors };
 			});
 		} finally {
-			if (server && testInfo.status !== testInfo.expectedStatus) {
-				await testInfo.attach('Vite server log', { body: server.log(), contentType: 'text/plain' });
+			if (server) {
+				const output = server.log();
+				const dependencyFailure =
+					/optimized dependencies changed[^\n]*reloading|Failed to run dependency scan|Failed to resolve dependency/;
+				if (testInfo.status !== testInfo.expectedStatus || dependencyFailure.test(output)) {
+					await testInfo.attach('Vite server log', { body: output, contentType: 'text/plain' });
+				}
+				assert.doesNotMatch(
+					output,
+					dependencyFailure,
+					'Fixture dependencies must be discovered before interaction, without a page reload'
+				);
 			}
 		}
 	}

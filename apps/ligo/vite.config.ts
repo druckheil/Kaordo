@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import { localViteServer, mediaDependencies } from '../../scripts/local-vite.mjs';
+import { localViteDependencies, localViteServer } from '../../scripts/local-vite.mjs';
 
 function runesModeForFile(filename: string): boolean | undefined {
 	return filename.split(/[/\\]/).includes('node_modules') ? undefined : true;
@@ -14,10 +14,7 @@ export default defineConfig({
 	envDir: '../..',
 	server: localViteServer('ligo'),
 	ssr: { noExternal: ['@kaordo/media-client'] },
-	// Ligo reaches the upload libraries through chat-ui; Vite resolves each step of the chain
-	optimizeDeps: {
-		include: mediaDependencies.map((dependency) => `@kaordo/chat-ui > ${dependency}`)
-	},
+	optimizeDeps: localViteDependencies,
 	plugins: [
 		tailwindcss(),
 		sveltekit({

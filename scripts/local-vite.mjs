@@ -1,4 +1,7 @@
-// Defines local Vite topology and shared media dependency preparation
+// Defines local Vite topology and Svelte-aware dependency discovery
+
+import { readFileSync } from 'node:fs';
+import { compile } from 'svelte/compiler';
 
 export const localFrontendServers = [
 	{ id: 'portal', name: 'Portal', port: 8765, base: '', readyPath: '/login/' },
@@ -61,15 +64,33 @@ export function localViteServer(appId) {
 	};
 }
 
-// Prepare lazy upload libraries without bundling the workspace's in-memory auth module
-export const mediaDependencies = ['@uppy/core', '@uppy/tus', 'pica', 'tus-js-client'].map(
-	(dependency) => `@kaordo/media-client > ${dependency}`
-);
-
-// Prepare the shared editor so the first composer opening does not trigger a dependency reload
-export const editorDependencies = [
-	'@tiptap/core',
-	'@tiptap/extension-file-handler',
-	'@tiptap/extension-placeholder',
-	'@tiptap/starter-kit'
-].map((dependency) => `@kaordo/editor-ui > ${dependency}`);
+/** @type {import('vite').DepOptimizationOptions} */
+export const localViteDependencies = {
+	// The complete component graph is known to the scan; publish its bundles as soon as ready
+	holdUntilCrawlEnd: false,
+	rolldownOptions: {
+		plugins: [
+			{
+				name: 'kaordo:svelte-dependency-scan',
+				load: {
+					filter: { id: /\.svelte$/ },
+					handler(filename) {
+						// Vite normally scans only script blocks, losing template imports and
+						// functions called by actions. Compile linked source components for the scan;
+						// node_modules components remain owned by the Svelte optimizer plugin
+						if (filename.split(/[/\\]/).includes('node_modules')) return;
+						return {
+							code: compile(readFileSync(filename, 'utf8'), {
+								filename,
+								generate: 'client',
+								css: 'external',
+								runes: true
+							}).js.code,
+							moduleType: 'js'
+						};
+					}
+				}
+			}
+		]
+	}
+};
