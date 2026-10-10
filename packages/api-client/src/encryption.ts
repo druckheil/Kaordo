@@ -1,7 +1,7 @@
 // Provides owner-scoped public identities and signed device approvals
 import type { EncryptionApproval, EncryptionRegistration, paths } from '@kaordo/contracts';
 import createClient from 'openapi-fetch';
-import { requireResponseData, sessionFetch } from './http.ts';
+import { requireResponseData, requireResponseOk, sessionFetch } from './http.ts';
 
 export type AudienceModule = 'ligo' | 'ligo-history' | 'rondo';
 
@@ -53,6 +53,14 @@ export function createEncryptionApi(baseUrl: string) {
 				signal
 			});
 			return requireResponseData(data, error, response.status);
+		},
+		/** Records that the current sign-in session uses this device. */
+		async useDevice(id: string, signal?: AbortSignal) {
+			const { error, response } = await client.PUT('/v1/crypto/devices/{id}/session', {
+				params: { path: { id } },
+				signal
+			});
+			requireResponseOk(response, error);
 		},
 		async forgetDevice(id: string, signature: string, signal?: AbortSignal) {
 			const { data, error, response } = await client.DELETE('/v1/crypto/devices/{id}', {

@@ -13,7 +13,7 @@
 		{
 			href: agordojPaths.encryption,
 			label: 'Encryption & recovery',
-			description: 'Approve new devices and keep a recovery key.',
+			description: 'See signed-in sessions, approve devices and keep a recovery key.',
 			icon: KeyRoundIcon
 		}
 	] as const;

@@ -38,6 +38,13 @@ on both devices, and approve only the intended device. Account
 identities and previously encountered peer keys are pinned locally; an unexpected
 key change fails closed rather than resetting the account.
 
+The same page lists every signed-in session from Keycloak's account API (IP
+address, browser, operating system and times) and can end one or all others.
+Kerno records, per device, the Keycloak session (`sid`) that last used it and how
+it received the keys: by creating them, by another device's approval, or with the
+recovery key, which it derives when the device completes its own transfer in its
+own session. These are access metadata, not keys.
+
 Removing a device binding prevents that binding from reopening keys through the
 API. It cannot erase a key or content previously copied by that device. Signing
 out aborts key-scoped requests, clears caches, zeros live key buffers and revokes

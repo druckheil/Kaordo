@@ -15,6 +15,7 @@ export interface AuthSession {
 }
 
 let initialization: Promise<Keycloak> | undefined;
+let configuration: AuthConfig | undefined;
 
 export function authConfigFromEnv(env: Record<string, string | undefined>): AuthConfig {
 	const config = {
@@ -35,6 +36,7 @@ export async function initializeAuth(config: AuthConfig): Promise<AuthSession> {
 
 	const pending = initialization ?? createInitializedClient(config);
 	initialization = pending;
+	configuration = config;
 
 	try {
 		return toAuthSession(await pending);
@@ -68,6 +70,12 @@ export async function signUp(redirectUri?: string): Promise<void> {
 export async function signOut(redirectUri?: string): Promise<void> {
 	const client = await ready();
 	await client.logout({ redirectUri: redirectUri ?? applicationHomeUrl() });
+}
+
+/** Keycloak's REST API for the signed-in user's own account, such as their sessions. */
+export function accountApiUrl(): string {
+	if (!configuration) throw new Error('Authentication has not been initialized.');
+	return `${configuration.url.replace(/\/$/, '')}/realms/${encodeURIComponent(configuration.realm)}/account`;
 }
 
 export async function accessToken(): Promise<string> {

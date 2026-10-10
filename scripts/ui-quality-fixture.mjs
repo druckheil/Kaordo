@@ -2,6 +2,7 @@
 
 import { fluoAccountFixtureResponse } from './fluo-account-fixture.mjs';
 import {
+	currentSessionId,
 	encryptedCommunity,
 	encryptedMessage,
 	encryptedPost,
@@ -54,7 +55,66 @@ const post = (n, text, own = false) =>
 	encryptedPost(readablePost(n, text, own), { images: n === 10 ? [image] : [] });
 const members = [viewer.id, partner.id];
 
-export async function installQualityFixture(page, app, { uploadOrigin, waitingDevices } = {}) {
+// Keycloak's account API: this browser, a tablet and a laptop signed in to the same account
+async function installAccountSessions(page) {
+	const seconds = (offset) => Math.floor(Date.parse(now) / 1000) + offset;
+	const sessions = [
+		{
+			id: currentSessionId,
+			browser: 'Chrome/129.0.6668',
+			os: 'Mac OS X',
+			osVersion: '10.15.7',
+			device: 'Mac',
+			mobile: false,
+			current: true
+		},
+		{
+			id: 'session-tablet',
+			browser: 'Mobile Safari/18.0',
+			os: 'iOS',
+			osVersion: '18.0',
+			device: 'iPad',
+			mobile: true
+		},
+		{
+			id: 'session-laptop',
+			browser: 'Firefox/131.0',
+			os: 'Windows',
+			osVersion: '11',
+			device: 'Other',
+			mobile: false
+		}
+	].map((session, index) => ({
+		...session,
+		ipAddress: `192.0.2.${10 + index}`,
+		started: seconds(-86_400 * (index + 1)),
+		lastAccess: seconds(-600 * index),
+		expires: seconds(86_400 * 30)
+	}));
+	await page.route('**/realms/*/account/sessions**', async (route) => {
+		const request = route.request();
+		if (request.method() === 'GET') {
+			await route.fulfill({
+				json: sessions.map(({ os, osVersion, device, mobile, ...session }) => ({
+					os,
+					osVersion,
+					device,
+					mobile,
+					sessions: [session]
+				}))
+			});
+			return;
+		}
+		const ended = new URL(request.url()).pathname.split('/sessions/')[1];
+		const kept = sessions.filter((session) =>
+			ended ? session.id !== decodeURIComponent(ended) : session.current
+		);
+		sessions.splice(0, sessions.length, ...kept);
+		await route.fulfill({ status: 204 });
+	});
+}
+
+export async function installQualityFixture(page, app, { uploadOrigin, devices } = {}) {
 	const posts = [
 		post(10, 'A quiet moment between the mountains and the sky.'),
 		post(11, 'Small steps, shared ideas and a little time to learn.', true)
@@ -225,6 +285,7 @@ export async function installQualityFixture(page, app, { uploadOrigin, waitingDe
 	const memoroDays = new Map();
 	const failures = new Map();
 	const requests = [];
+	await installAccountSessions(page);
 	await page.route('**/v1/**', async (route) => {
 		const request = route.request();
 		const url = new URL(request.url());
@@ -263,7 +324,7 @@ export async function installQualityFixture(page, app, { uploadOrigin, waitingDe
 			viewerId: viewer.id,
 			privacy: settings.privacy,
 			records,
-			waitingDevices
+			devices
 		});
 		if (body) {
 			await route.fulfill({ json: body });

@@ -4,13 +4,13 @@ import { encryptionFixture } from './encryption-fixture.mjs';
 export function fluoAccountFixtureResponse(
 	request,
 	accounts,
-	{ viewerId, privacy, records, waitingDevices }
+	{ viewerId, privacy, records, devices }
 ) {
 	const path = new URL(request.url()).pathname;
 	const encrypted = encryptionFixture(request, accounts, viewerId, {
 		privacy,
 		records,
-		waitingDevices
+		devices
 	}).response();
 	if (encrypted) return encrypted;
 	const presentation = (account) => ({

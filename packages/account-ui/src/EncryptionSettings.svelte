@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Approves waiting devices and manages the personal recovery key from Agordoj
+	// Shows signed-in sessions with their device keys and manages the personal recovery key
 	import { onMount } from 'svelte';
 	import {
 		Button,
@@ -9,19 +9,14 @@
 		CheckIcon,
 		DownloadIcon,
 		KeyRoundIcon,
-		MonitorSmartphoneIcon,
 		ShieldCheckIcon,
 		TriangleAlertIcon
 	} from '@kaordo/ui';
-	import { deviceFingerprint } from '@kaordo/crypto';
+	import AccountSessions from './AccountSessions.svelte';
 	import { getEncryptionState } from './encryption-state.svelte';
 
 	const encryption = getEncryptionState();
-	let selected = $state<string | null>(null);
 	let savedRecovery = $state(false);
-	const devices = $derived(encryption.identity?.devices ?? []);
-	const pending = $derived(devices.filter((device) => !device.wrappedKeys));
-	const approved = $derived(devices.length - pending.length);
 
 	onMount(() => {
 		void encryption.loadRecoveryStatus();
@@ -43,53 +38,7 @@
 </script>
 
 <div class="grid gap-6">
-	<section
-		class="rounded-[1.5rem] border border-border bg-card p-5 shadow-sm"
-		aria-labelledby="encryption-devices"
-	>
-		<div class="flex items-start gap-3">
-			<span
-				class="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-link"
-				aria-hidden="true"><MonitorSmartphoneIcon class="size-5" /></span
-			>
-			<div>
-				<h2 id="encryption-devices" class="text-base font-semibold">Devices</h2>
-				<p class="mt-1 text-sm leading-5 text-muted-foreground">
-					{approved === 1 ? 'One approved device holds' : `${approved} approved devices hold`} your keys.
-					Approve a new device only when its fingerprint matches the one it shows.
-				</p>
-			</div>
-		</div>
-		<div class="mt-4 grid gap-3">
-			{#each pending as device (device.id)}
-				<div class="rounded-2xl border border-border p-4">
-					{#await deviceFingerprint(device.publicKey)}<p class="text-sm text-muted-foreground">
-							Loading fingerprint…
-						</p>{:then fingerprint}
-						<p class="font-mono text-base tracking-wide">{fingerprint}</p>
-						<p class="mt-1 text-xs text-muted-foreground">
-							Requested {new Date(device.createdAt).toLocaleString('en')}
-						</p>
-						{#if selected === device.id}
-							<p class="mt-4 text-sm">Does this fingerprint match your new device?</p>
-							<div class="mt-3 flex gap-2">
-								<Button disabled={encryption.busy} onclick={() => encryption.approve(device.id)}
-									><CheckIcon class="size-4" />Approve</Button
-								><Button variant="ghost" onclick={() => (selected = null)}>Cancel</Button>
-							</div>
-						{:else}<Button
-								class="mt-3"
-								size="sm"
-								variant="outline"
-								onclick={() => (selected = device.id)}>Compare fingerprint</Button
-							>{/if}
-					{/await}
-				</div>
-			{:else}<p role="status" class="text-sm text-muted-foreground">
-					All your devices are approved.
-				</p>{/each}
-		</div>
-	</section>
+	<AccountSessions />
 
 	<section
 		class="rounded-[1.5rem] border border-border bg-card p-5 shadow-sm"

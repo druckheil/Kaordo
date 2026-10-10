@@ -411,10 +411,23 @@ function deviceBundle(ownerId, devicePublicKey) {
 	return encode(sodium.crypto_box_seal(bundle, decode(devicePublicKey)));
 }
 
+/** Another browser of the owner, signed in to sessionId, that waits for or already holds the keys */
+export function otherDevice({ sessionId = '', approved = false } = {}) {
+	return {
+		id: randomUUID(),
+		publicKey: encode(sodium.crypto_box_keypair().publicKey),
+		sessionId,
+		approved
+	};
+}
+
 /** A browser that registered its key and waits for an approved device to transfer the account keys */
 export function waitingDevice() {
-	return { id: randomUUID(), publicKey: encode(sodium.crypto_box_keypair().publicKey) };
+	return otherDevice();
 }
+
+/** The fixture's own sign-in session, which Keycloak's account API reports as current */
+export const currentSessionId = 'session-current';
 
 const states = new WeakMap();
 /**
@@ -425,17 +438,19 @@ export function encryptionFixture(
 	request,
 	accountList,
 	viewerId,
-	{ privacy, records = [], waitingDevices = [] } = {}
+	{ privacy, records = [], devices = [] } = {}
 ) {
 	const context = request.frame().page().context();
 	let state = states.get(context);
 	if (!state) {
 		state = {
 			ownerId: viewerId,
-			devices: waitingDevices.map((device) => ({
+			devices: devices.map(({ approved, ...device }) => ({
 				...device,
-				wrappedKeys: '',
-				createdAt: '2026-10-07T09:00:00Z'
+				wrappedKeys: approved ? deviceBundle(viewerId, device.publicKey) : '',
+				createdAt: '2026-10-07T09:00:00Z',
+				unlockedWith: approved ? 'device' : '',
+				unlockedAt: approved ? '2026-10-07T09:30:00Z' : null
 			})),
 			versions: [],
 			records: new Map(records.map((item) => [item.tag, structuredClone(item)])),
@@ -472,8 +487,40 @@ function encryptionResponse(request, state, declared, privacy) {
 			id: input.id,
 			publicKey: input.publicKey,
 			wrappedKeys: deviceBundle(state.ownerId, input.publicKey),
-			createdAt: new Date().toISOString()
+			createdAt: new Date().toISOString(),
+			sessionId: currentSessionId,
+			unlockedWith: 'device',
+			unlockedAt: new Date().toISOString()
 		});
+		return identity();
+	}
+	const session = /^\/v1\/crypto\/devices\/([^/]+)\/session$/.exec(path);
+	if (session && method === 'PUT') {
+		const device = state.devices.find((item) => item.id === session[1]);
+		assert.ok(device, 'Only a registered device records its session');
+		device.sessionId = currentSessionId;
+		return { recorded: true };
+	}
+	const removal = /^\/v1\/crypto\/devices\/([^/]+)$/.exec(path);
+	if (removal && method === 'DELETE') {
+		const device = state.devices.find((item) => item.id === removal[1]);
+		const { signature } = request.postDataJSON();
+		const message = [
+			'kaordo-device-forget-v1',
+			state.ownerId,
+			device.id,
+			device.publicKey,
+			device.wrappedKeys
+		];
+		assert.ok(
+			sodium.crypto_sign_verify_detached(
+				decode(signature),
+				utf8(message.join('\n')),
+				syntheticAccount(state.ownerId).signing.publicKey
+			),
+			'Removing a device carries a valid account signature'
+		);
+		state.devices = state.devices.filter((item) => item !== device);
 		return identity();
 	}
 	const approval = /^\/v1\/crypto\/devices\/([^/]+)\/approve$/.exec(path);
@@ -491,6 +538,8 @@ function encryptionResponse(request, state, declared, privacy) {
 			'The approved device transfer carries a valid account signature'
 		);
 		device.wrappedKeys = wrappedKeys;
+		device.unlockedWith = 'device';
+		device.unlockedAt = new Date().toISOString();
 		return identity();
 	}
 	if (path.startsWith('/v1/crypto/users/')) {

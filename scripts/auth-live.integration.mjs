@@ -662,6 +662,36 @@ test('remembered OIDC sessions survive browser restart, rotate independently, an
 		fluo = await authorize(resumed, 'fluo');
 		ligo = await authorize(resumed, 'ligo');
 
+		// Agordoj reads and ends sessions through Keycloak's account API with an app's own token
+		const account = (path, method = 'GET') =>
+			fetch(`${identity}/realms/kaordo/account${path}`, {
+				method,
+				headers: { Authorization: `Bearer ${fluo.access_token}`, Accept: 'application/json' },
+				signal: AbortSignal.timeout(10_000)
+			});
+		const listed = await account('/sessions/devices');
+		assert.equal(listed.status, 200, 'App tokens may read the account sessions');
+		const devices = await listed.json();
+		const own = devices
+			.flatMap((device) => device.sessions)
+			.find((session) => session.id === claims(fluo.access_token).sid);
+		assert.ok(own?.current, 'The token session is listed as current');
+		for (const field of ['ipAddress', 'started', 'lastAccess', 'expires', 'browser'])
+			assert.ok(own[field], `Sessions report ${field}`);
+		assert.ok(
+			devices.every(
+				(device) => typeof device.os === 'string' && typeof device.mobile === 'boolean'
+			),
+			'Sessions report the operating system and device type'
+		);
+		assert.equal((await account('/sessions', 'DELETE')).status, 204, 'Other sessions can end');
+		const kept = await tokenRequest({
+			grant_type: 'refresh_token',
+			refresh_token: fluo.refresh_token
+		});
+		assert.equal(kept.status, 200, 'Ending other sessions keeps the current one');
+		fluo = await kept.json();
+
 		const logout = await fetch(`${identity}/realms/kaordo/protocol/openid-connect/logout`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1042,6 +1072,20 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
 					await page.getByRole('button', { name: 'Open my dictionary', exact: true }).click();
 					const createdDictionary = await dictionaryResponse;
 					await inspectCiphertextCommit(createdDictionary, 'Creating a language pair', 2);
+					// Kerno links each device to the Keycloak session (sid) that used it
+					const { stdout } = await run('docker', [
+						'exec',
+						'local-app-db-1',
+						'psql',
+						'-X',
+						'-U',
+						'kaordo',
+						'-d',
+						'kaordo',
+						'-tAc',
+						`SELECT count(*) FILTER (WHERE session_id = ''), count(*) FILTER (WHERE unlocked_with = 'account') FROM crypto_devices WHERE user_id = '${account.id}'`
+					]);
+					assert.equal(stdout.trim(), '0|1', 'The key-creating device records its session');
 					await page.getByRole('button', { name: 'Add card', exact: true }).click();
 					assert.match(
 						new URL(page.url()).searchParams.get('dictionary') ?? '',

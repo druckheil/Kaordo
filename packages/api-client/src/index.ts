@@ -73,6 +73,13 @@ export { createAdminApi, type AdminApi } from './admin.ts';
 export { bootstrapIdentity } from './session.ts';
 export { createEncryptionApi, type EncryptionApi } from './encryption.ts';
 export {
+	accountSessionsKey,
+	accountSessionsOptions,
+	createAccountSessionsApi,
+	type AccountSession,
+	type AccountSessionsApi
+} from './account-sessions.ts';
+export {
 	createMemoroApi,
 	memoroKeys,
 	memoroMonthOptions,

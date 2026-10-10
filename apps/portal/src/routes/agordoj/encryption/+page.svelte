@@ -7,7 +7,10 @@
 
 <svelte:head>
 	<title>Encryption &amp; recovery · Agordoj | Kaordo</title>
-	<meta name="description" content="Approve new devices and keep a recovery key." />
+	<meta
+		name="description"
+		content="See signed-in sessions, approve devices and keep a recovery key."
+	/>
 </svelte:head>
 
 <div class="max-w-2xl">

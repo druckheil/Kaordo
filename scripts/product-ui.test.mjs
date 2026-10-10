@@ -10,9 +10,11 @@ import {
 	encryptedPost,
 	openPost,
 	postText,
+	otherDevice,
 	privateRecords,
 	waitingDevice
 } from './encryption-fixture.mjs';
+import { assertAccessible } from './ui-accessibility.mjs';
 import { installQualityFixture } from './ui-quality-fixture.mjs';
 
 const id = (n) => `01999111-2222-7333-8444-${String(n).padStart(12, '0')}`;
@@ -911,24 +913,71 @@ for (const app of ['ligo', 'rondo']) {
 	});
 }
 
-test('Agordoj approves a waiting device and activates a recovery key', async ({
+test('Agordoj shows every session with its keys and approves, signs out and removes devices', async ({
 	startAppFixture
 }) => {
 	const { page, origin, errors } = await startAppFixture('portal');
-	await installQualityFixture(page, 'portal', { waitingDevices: [waitingDevice()] });
+	const tablet = otherDevice({ sessionId: 'session-tablet' });
+	await installQualityFixture(page, 'portal', {
+		devices: [tablet, otherDevice({ sessionId: 'session-gone', approved: true })]
+	});
 	await page.goto(origin + '/agordoj/');
 	await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor();
 	await page.getByRole('link', { name: /^Encryption & recovery/ }).click();
 	await page.getByRole('heading', { name: 'Encryption & recovery', level: 1 }).waitFor();
 
-	const devices = page.getByRole('region', { name: 'Devices' });
-	await devices.getByRole('button', { name: 'Compare fingerprint' }).click();
+	const sessions = page.getByRole('list', { name: 'Sessions', exact: true });
+	const current = sessions.getByRole('listitem', { name: 'Chrome 129 on Mac OS X 10.15.7' });
+	await expect(current.getByText('This device', { exact: true })).toBeVisible();
+	await expect(current.getByText('192.0.2.10')).toBeVisible();
+	await expect(current.getByText(/^Approved by another device on /)).toBeVisible();
+	await expect(current.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
+	const laptop = sessions.getByRole('listitem', { name: 'Firefox 131 on Windows 11' });
+	await expect(laptop.getByText('Has not opened private data in this session.')).toBeVisible();
+	await assertAccessible(page, 'Agordoj sessions');
+
+	// The tablet waits for approval inside its own session
+	const ipad = sessions.getByRole('listitem', { name: 'Mobile Safari 18 on iOS 18.0' });
+	await expect(ipad.getByText('Waiting for approval or the recovery key.')).toBeVisible();
+	await ipad.getByRole('button', { name: 'Compare fingerprint' }).click();
 	const approval = page.waitForResponse(
 		(response) => response.url().endsWith('/approve') && response.request().method() === 'POST'
 	);
-	await devices.getByRole('button', { name: 'Approve' }).click();
+	await ipad.getByRole('button', { name: 'Approve' }).click();
 	expect((await approval).status()).toBe(200);
-	await expect(devices.getByText('All your devices are approved.')).toBeVisible();
+	await expect(ipad.getByText(/^Approved by another device on /)).toBeVisible();
+
+	// Removing its keys asks first and signs the removal with the account key
+	await ipad.getByRole('button', { name: 'Remove keys' }).click();
+	const confirm = page.getByRole('alertdialog');
+	await expect(confirm.getByText('Remove the keys of Mobile Safari 18 on iOS 18.0?')).toBeVisible();
+	const removal = page.waitForResponse(
+		(response) =>
+			response.url().endsWith(`/v1/crypto/devices/${tablet.id}`) &&
+			response.request().method() === 'DELETE'
+	);
+	await confirm.getByRole('button', { name: 'Remove keys' }).click();
+	expect((await removal).status()).toBe(200);
+	await expect(ipad.getByText('Has not opened private data in this session.')).toBeVisible();
+
+	await laptop.getByRole('button', { name: 'Sign out' }).click();
+	const ended = page.waitForResponse(
+		(response) =>
+			response.url().endsWith('/account/sessions/session-laptop') &&
+			response.request().method() === 'DELETE'
+	);
+	await confirm.getByRole('button', { name: 'Sign out' }).click();
+	expect((await ended).status()).toBe(204);
+	await expect(laptop).toHaveCount(0);
+
+	// A signed-out browser that kept its keys is listed separately
+	const detached = page.getByRole('list', { name: 'Devices without a session' });
+	await expect(detached.getByText(/^Approved by another device on /)).toBeVisible();
+
+	await page.getByRole('button', { name: 'Sign out other sessions' }).click();
+	await confirm.getByRole('button', { name: 'Sign out others' }).click();
+	await expect(sessions.getByRole('listitem')).toHaveCount(1);
+	await expect(page.getByRole('button', { name: 'Sign out other sessions' })).toHaveCount(0);
 
 	const recovery = page.getByRole('region', { name: 'Recovery key' });
 	await expect(recovery.getByText(/No recovery key yet/)).toBeVisible();
@@ -952,7 +1001,7 @@ test('Agordoj approves a waiting device and activates a recovery key', async ({
 
 test('Apps point the settings link at waiting device approvals', async ({ startAppFixture }) => {
 	const { page, origin, errors } = await startAppFixture('memoro');
-	await installQualityFixture(page, 'memoro', { waitingDevices: [waitingDevice()] });
+	await installQualityFixture(page, 'memoro', { devices: [waitingDevice()] });
 	await page.goto(origin + '/memoro/?date=2026-10-01');
 	await expect(page.getByRole('heading', { name: 'Memoro', exact: true })).toBeVisible();
 	await expect(

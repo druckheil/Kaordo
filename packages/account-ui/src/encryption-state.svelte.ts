@@ -41,6 +41,8 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 	let device: LocalDevice | undefined;
 	let keys: AccountKeys | undefined;
 	let release: (() => void) | undefined;
+	// Kerno learns once per page which sign-in session this device works in
+	let sessionRecorded = false;
 	const lifetime = new AbortController();
 	let refreshing = false;
 	function lock() {
@@ -94,6 +96,12 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 			if (own?.publicKey !== toBase64(device.keys.publicKey)) {
 				lock();
 				throw new Error('This device identity has changed.');
+			}
+			if (!sessionRecorded) {
+				sessionRecorded = true;
+				void api.useDevice(currentDevice.id, lifetime.signal).catch(() => {
+					sessionRecorded = false;
+				});
 			}
 			if (
 				keys &&
@@ -259,6 +267,28 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 		}
 	}
 
+	/** Withdraws another device's keys; it needs an approval or the recovery key to open data again. */
+	async function remove(id: string) {
+		const target = identity?.devices.find((item) => item.id === id);
+		if (!keys || !target || id === device?.id || busy) return false;
+		busy = true;
+		error = '';
+		try {
+			identity = await api.forgetDevice(
+				id,
+				await signDeviceRemoval(keys, ownerId, target),
+				lifetime.signal
+			);
+			return true;
+		} catch (cause) {
+			if (!lifetime.signal.aborted)
+				error = cause instanceof Error ? cause.message : 'The device could not be removed.';
+			return false;
+		} finally {
+			busy = false;
+		}
+	}
+
 	onMount(() => {
 		void refresh();
 		let lastRefresh = 0;
@@ -312,6 +342,7 @@ export function createEncryptionState(baseUrl: string, ownerId: string) {
 		recover,
 		clearRecovery,
 		refresh,
-		approve
+		approve,
+		remove
 	};
 }

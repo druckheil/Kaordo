@@ -44,6 +44,8 @@ export { default as EllipsisIcon } from '@lucide/svelte/icons/ellipsis';
 export { default as XIcon } from '@lucide/svelte/icons/x';
 export { default as ShieldCheckIcon } from '@lucide/svelte/icons/shield-check';
 export { default as KeyRoundIcon } from '@lucide/svelte/icons/key-round';
+export { default as MonitorIcon } from '@lucide/svelte/icons/monitor';
+export { default as SmartphoneIcon } from '@lucide/svelte/icons/smartphone';
 export { default as MonitorSmartphoneIcon } from '@lucide/svelte/icons/monitor-smartphone';
 export { default as PaletteIcon } from '@lucide/svelte/icons/palette';
 export { default as TriangleAlertIcon } from '@lucide/svelte/icons/triangle-alert';
