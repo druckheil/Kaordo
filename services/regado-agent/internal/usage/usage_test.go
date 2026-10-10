@@ -103,11 +103,17 @@ func TestMeasureAttributesEveryFileOnceAndProjectsGrowth(t *testing.T) {
 			t.Fatalf("growth without history: %+v", category)
 		}
 	}
-	if bytes["media"] < 64<<10 || bytes["media"] >= 128<<10 {
+	if bytes["media"] != 64<<10 {
 		t.Fatalf("a hard link was counted twice: %d", bytes["media"])
 	}
-	if bytes["temporary"] < 16<<10 || bytes["other"] >= 16<<10 || bytes["logs"] < 32<<10 {
+	if bytes["temporary"] != 16<<10 || bytes["other"] != 4<<10 || bytes["logs"] != 32<<10 {
 		t.Fatalf("areas = %v", bytes)
+	}
+	// The fixture pool keeps 14 008 320 bytes of metadata and 16 384 of system data; the stored
+	// bytes no measured file explains are reported rather than hidden
+	files := int64(64<<10 + 32<<10 + 4<<10 + 16<<10)
+	if bytes["metadata"] != 14008320+16384 || bytes["unreferenced"] != 7505887232-files-bytes["metadata"] || len(report.Categories) != 6 {
+		t.Fatalf("filesystem share = %v", bytes)
 	}
 	// 15 011 774 464 raw bytes at a data ratio of 2 are 7 505 887 232 stored once
 	if report.Pool.Stored != 7505887232 || report.Pool.Free != 948171849728 || report.FullInDays != nil {
@@ -134,6 +140,13 @@ func TestMeasureAttributesEveryFileOnceAndProjectsGrowth(t *testing.T) {
 	}
 	if len(monitor.Report(time.Hour).History) != 1 {
 		t.Fatal("the window did not limit the history")
+	}
+	// A category an earlier sample did not measure has no growth rather than all of it
+	delete(monitor.history[0].Bytes, "metadata")
+	for _, category := range monitor.Report(30 * day).Categories {
+		if category.Key == "metadata" && category.GrowthWeek != nil {
+			t.Fatalf("metadata growth without an earlier measurement = %d", *category.GrowthWeek)
+		}
 	}
 
 	reopened, err := Open(directory, pool(t), "/srv/kaordo", areas, time0.Now)

@@ -6,7 +6,7 @@
 	import type { HostUsage } from '@kaordo/contracts';
 	import { ToggleGroup } from '@kaordo/ui';
 	import { formatBytes } from '../regado-model';
-	import { categories, usageWindows, type CategoryKey, type UsageWindow } from './usage-model';
+	import { categories, usageWindows, type UsageWindow } from './usage-model';
 
 	let { usage, window = $bindable() }: { usage: HostUsage; window: UsageWindow } = $props();
 
@@ -15,7 +15,7 @@
 	// The chart instance is imperative; only the module, history and areas drive the effect
 	let chart: uPlot | undefined;
 	let resizeFrame = 0;
-	const keys = $derived(usage.categories.map((category) => category.key as CategoryKey));
+	const keys = $derived(usage.categories.map((category) => category.key));
 	const data = $derived([
 		usage.history.map((sample) => Math.floor(new Date(sample.at).getTime() / 1000)),
 		...keys.map((key) => usage.history.map((sample) => (sample.bytes[key] ?? 0) / 1024 ** 3))

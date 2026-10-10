@@ -1329,6 +1329,8 @@ export interface components {
             used: number;
             freeEstimated: number;
             dataRatio: number;
+            /** @description One copy of the filesystem's metadata */
+            metadataUsed: number;
         };
         HostSnapshotPolicy: {
             /** @enum {string} */
@@ -1485,8 +1487,8 @@ export interface components {
         };
         HostUsageCategory: {
             /** @enum {string} */
-            key: "system" | "nix" | "logs" | "database" | "media" | "metrics" | "releases" | "temporary" | "other";
-            /** @description Allocated bytes of the files */
+            key: "system" | "nix" | "logs" | "database" | "media" | "metrics" | "releases" | "temporary" | "other" | "metadata" | "unreferenced";
+            /** @description File sizes; metadata is the filesystem's own, unreferenced is stored space no current file uses */
             bytes: number;
             files: number;
             /** @description Change since the measurement a day earlier */
@@ -1510,6 +1512,8 @@ export interface components {
             pool: {
                 stored: number;
                 free: number;
+                /** @description What shared blocks and compression save when files add up to more than is stored */
+                saved: number;
             };
             categories: components["schemas"]["HostUsageCategory"][];
             history: components["schemas"]["HostUsageSample"][];

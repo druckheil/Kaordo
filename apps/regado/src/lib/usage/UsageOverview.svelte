@@ -118,11 +118,10 @@
 				></span>
 			{/each}
 		</div>
-		{#if parts.compressionSaving > 0}
+		{#if usage.pool.saved > 0}
 			<p class="mt-2 text-xs text-muted-foreground">
-				Compression stores these files in {formatBytes(usage.pool.stored)}, saving {formatBytes(
-					parts.compressionSaving
-				)}.
+				Shared blocks and compression store these files in {formatBytes(usage.pool.stored)}, saving
+				{formatBytes(usage.pool.saved)}.
 			</p>
 		{/if}
 	</div>

@@ -80,7 +80,10 @@ function usageReport(measuring) {
 		metrics: 600 * mib,
 		releases: 400 * mib,
 		temporary: 20 * mib,
-		other: 10 * mib
+		other: 10 * mib,
+		metadata: 300 * mib,
+		// More than a fifth of the pool: what a service rewriting files in place leaves behind
+		unreferenced: 5 * gib
 	};
 	const growth = { logs: 1200 * mib, media: 300 * mib };
 	const at = (hours) => new Date(Date.now() - hours * 3600_000).toISOString();
@@ -88,7 +91,7 @@ function usageReport(measuring) {
 	return {
 		measuredAt: at(0.2),
 		measuring,
-		pool: { stored: total + 512 * mib, free: 900 * gib },
+		pool: { stored: total, free: 900 * gib, saved: 0 },
 		categories: Object.entries(bytes).map(([key, value]) => ({
 			key,
 			bytes: value,
@@ -234,7 +237,8 @@ export function createHostFixture(now) {
 				allocated: 429496729600,
 				used: 400000000000,
 				freeEstimated: 700000000000,
-				dataRatio: 2
+				dataRatio: 2,
+				metadataUsed: 1073741824
 			},
 			desired,
 			drift: { steps: [], issues: [] }

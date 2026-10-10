@@ -137,7 +137,8 @@ components:
           allocated,
           used,
           freeEstimated,
-          dataRatio
+          dataRatio,
+          metadataUsed
         ]
       properties:
         uuid: { type: string }
@@ -152,6 +153,12 @@ components:
         used: { type: integer }
         freeEstimated: { type: integer }
         dataRatio: { type: number }
+        metadataUsed:
+          {
+            type: integer,
+            description: One copy of the filesystem's metadata,
+            including inline small files
+          }
     HostSnapshotPolicy:
       type: object
       required: [schedule, keepHourly, keepDaily, keepWeekly, keepMonthly]
@@ -338,8 +345,23 @@ components:
       properties:
         key:
           type: string
-          enum: [system, nix, logs, database, media, metrics, releases, temporary, other]
-        bytes: { type: integer, description: Allocated bytes of the files, before compression }
+          enum:
+            [
+              system,
+              nix,
+              logs,
+              database,
+              media,
+              metrics,
+              releases,
+              temporary,
+              other,
+              metadata,
+              unreferenced
+            ]
+        bytes:
+          type: integer
+          description: File sizes; metadata is the filesystem's own, unreferenced is stored space no current file uses
         files: { type: integer }
         growthDay:
           { type: [integer, 'null'], description: Change since the measurement a day earlier }
@@ -360,11 +382,14 @@ components:
         measuring: { type: boolean }
         pool:
           type: object
-          required: [stored, free]
+          required: [stored, free, saved]
           description: One copy of each stored byte, after compression, and the space still free
           properties:
             stored: { type: integer }
             free: { type: integer }
+            saved:
+              type: integer
+              description: What shared blocks and compression save when files add up to more than is stored
         categories: { type: array, items: { $ref: '#/components/schemas/HostUsageCategory' } }
         history: { type: array, items: { $ref: '#/components/schemas/HostUsageSample' } }
         fullInDays:

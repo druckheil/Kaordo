@@ -107,6 +107,9 @@ func TestReadPoolMapsMembersProfilesAndErrors(t *testing.T) {
 	if len(pool.DataProfiles) != 2 || pool.MetadataProfiles[0] != "raid1" || pool.DataRatio != 2 {
 		t.Fatalf("profiles = %v %v %v", pool.DataProfiles, pool.MetadataProfiles, pool.DataRatio)
 	}
+	if pool.MetadataUsed != 14008320+16384 {
+		t.Fatalf("metadata = %d", pool.MetadataUsed)
+	}
 	if pool.Used != 15011774464 || pool.FreeEstimated != 948171849728 || pool.DeviceSize != 1931685355520 {
 		t.Fatalf("capacity = %+v", pool)
 	}

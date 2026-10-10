@@ -61,7 +61,16 @@ type Category struct {
 type Pool struct {
 	Stored int64 `json:"stored"`
 	Free   int64 `json:"free"`
+	// Saved is what shared blocks and compression save when files add up to more than is stored
+	Saved int64 `json:"saved"`
 }
+
+// The filesystem's own share: its metadata, and blocks it keeps that no current file uses,
+// such as parts of files rewritten in place
+const (
+	metadataKey     = "metadata"
+	unreferencedKey = "unreferenced"
+)
 
 type Sample struct {
 	At     time.Time        `json:"at"`
@@ -188,6 +197,13 @@ func (monitor *Monitor) measure(ctx context.Context) error {
 		ratio = 1
 	}
 	current := Pool{Stored: int64(float64(pool.Used) / ratio), Free: max(0, pool.FreeEstimated)}
+	var measured int64
+	for _, bytes := range sample.Bytes {
+		measured += bytes
+	}
+	remainder := current.Stored - measured - pool.MetadataUsed
+	sample.Bytes[metadataKey], sample.Bytes[unreferencedKey] = pool.MetadataUsed, max(0, remainder)
+	current.Saved = max(0, -remainder)
 	sample.At, sample.Stored = monitor.now().UTC(), current.Stored
 
 	monitor.mu.Lock()
@@ -209,7 +225,7 @@ func (monitor *Monitor) measure(ctx context.Context) error {
 
 type inode struct{ dev, ino uint64 }
 
-// walk sums allocated bytes under root without leaving its filesystem; Btrfs subvolumes are
+// walk sums file sizes under root without leaving its filesystem; Btrfs subvolumes are
 // separate filesystems here, so each area measures only its own. Vanished or unreadable
 // entries are skipped: a live host changes while it is measured.
 func walk(ctx context.Context, root string, exclude []string, seen map[inode]bool) (bytes, files int64, err error) {
@@ -260,8 +276,10 @@ func (counter *counter) visit(path string, entry fs.DirEntry, walkErr error) err
 		}
 		counter.seen[key] = true
 	}
-	counter.bytes += stat.Blocks * 512
+	// File sizes, not allocated blocks: Btrfs keeps small files inline in metadata, where a
+	// block count would round each one up to a whole block
 	if info.Mode().IsRegular() {
+		counter.bytes += info.Size()
 		counter.files++
 	}
 	return nil
@@ -298,16 +316,13 @@ func (monitor *Monitor) Report(window time.Duration) Report {
 	latest := *monitor.latest
 	report.MeasuredAt, report.Pool = &latest.At, monitor.pool
 	dayAgo, weekAgo := monitor.before(latest.At.Add(-day)), monitor.before(latest.At.Add(-7*day))
+	keys := make([]string, 0, len(monitor.areas)+2)
 	for _, area := range monitor.areas {
-		category := Category{Key: area.Key, Bytes: latest.Bytes[area.Key], Files: monitor.files[area.Key]}
-		if dayAgo != nil {
-			growth := category.Bytes - dayAgo.Bytes[area.Key]
-			category.GrowthDay = &growth
-		}
-		if weekAgo != nil {
-			growth := category.Bytes - weekAgo.Bytes[area.Key]
-			category.GrowthWeek = &growth
-		}
+		keys = append(keys, area.Key)
+	}
+	for _, key := range append(keys, metadataKey, unreferencedKey) {
+		category := Category{Key: key, Bytes: latest.Bytes[key], Files: monitor.files[key]}
+		category.GrowthDay, category.GrowthWeek = growth(dayAgo, key, category.Bytes), growth(weekAgo, key, category.Bytes)
 		report.Categories = append(report.Categories, category)
 	}
 	if weekAgo != nil {
@@ -323,6 +338,19 @@ func (monitor *Monitor) Report(window time.Duration) Report {
 		}
 	}
 	return report
+}
+
+// growth compares with an earlier sample; a category that sample did not measure has none
+func growth(earlier *Sample, key string, bytes int64) *int64 {
+	if earlier == nil {
+		return nil
+	}
+	before, measured := earlier.Bytes[key]
+	if !measured {
+		return nil
+	}
+	change := bytes - before
+	return &change
 }
 
 // before finds the newest sample taken at or before at

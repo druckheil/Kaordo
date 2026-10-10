@@ -49,14 +49,16 @@ type Pool struct {
 	Allocated        int64    `json:"allocated"`
 	Used             int64    `json:"used"`
 	FreeEstimated    int64    `json:"freeEstimated"`
-	DataRatio        float64  `json:"dataRatio"`
+	// MetadataUsed is one copy of the filesystem's own metadata, including small files kept inline
+	MetadataUsed int64   `json:"metadataUsed"`
+	DataRatio    float64 `json:"dataRatio"`
 }
 
 var (
 	showHeader   = regexp.MustCompile(`Label:\s+(?:'([^']*)'|none)\s+uuid:\s+([0-9a-f-]{36})`)
 	showMember   = regexp.MustCompile(`^\s*devid\s+(\d+)\s+size\s+(\d+)\s+used\s+(\d+)\s+path\s+(.+?)\s*$`)
 	usageValue   = regexp.MustCompile(`^\s*(Device size|Device allocated|Used|Free \(estimated\)|Data ratio):\s+([0-9.]+)`)
-	usageProfile = regexp.MustCompile(`^(Data|Metadata|System),([A-Za-z0-9]+):`)
+	usageProfile = regexp.MustCompile(`^(Data|Metadata|System),([A-Za-z0-9]+):.*Used:(\d+)`)
 	statsLine    = regexp.MustCompile(`^\[(.+)\]\.(write_io_errs|read_io_errs|flush_io_errs|corruption_errs|generation_errs)\s+(\d+)`)
 )
 
@@ -131,6 +133,10 @@ func parseUsage(raw string, pool *Pool) {
 			continue
 		}
 		if match := usageProfile.FindStringSubmatch(line); match != nil {
+			if match[1] != "Data" {
+				used, _ := strconv.ParseInt(match[3], 10, 64)
+				pool.MetadataUsed += used
+			}
 			profile := strings.ToLower(match[2])
 			target := &pool.DataProfiles
 			switch match[1] {

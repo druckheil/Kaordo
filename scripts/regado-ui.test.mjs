@@ -435,10 +435,10 @@ test('Regado usage shows the whole pool, runaway growth, heavy accounts and lagg
 	await openSection(page, 'Usage');
 	const overview = page.getByRole('region', { name: 'What fills the pool', exact: true });
 	await expect(
-		overview.getByRole('img', { name: /^Pool contents: Uploaded files 32\.\d%/ })
+		overview.getByRole('img', { name: /^Pool contents: Uploaded files 25\.\d%/ })
 	).toBeVisible();
 	const contents = overview.getByRole('list', { name: 'Pool contents', exact: true });
-	await expect(contents.getByRole('listitem')).toHaveCount(10);
+	await expect(contents.getByRole('listitem')).toHaveCount(11);
 	await expect(
 		contents.getByRole('listitem', { name: 'Logs', exact: true }).getByText(/^Unusual growth/)
 	).toBeVisible();
@@ -449,6 +449,11 @@ test('Regado usage shows the whole pool, runaway growth, heavy accounts and lagg
 	).toBeVisible();
 	await expect(
 		contents.getByRole('listitem', { name: 'Filesystem metadata', exact: true })
+	).toBeVisible();
+	await expect(
+		contents
+			.getByRole('listitem', { name: 'Space no file uses', exact: true })
+			.getByText('Larger than expected; a service may rewrite files in place', { exact: true })
 	).toBeVisible();
 	await expect(
 		overview.getByText('Full in about 120 days at last week’s pace', { exact: true })

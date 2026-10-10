@@ -7,7 +7,7 @@ import type {
 	HostUsageCategory
 } from '@kaordo/contracts';
 
-export type CategoryKey = HostUsageCategory['key'] | 'overhead';
+export type CategoryKey = HostUsageCategory['key'];
 export type UsageWindow = '1d' | '7d' | '30d' | '90d';
 export const usageWindows: UsageWindow[] = ['1d', '7d', '30d', '90d'];
 
@@ -71,10 +71,18 @@ export const categories: Record<
 		color: 'oklch(0.6 0.04 265)',
 		userDriven: false
 	},
-	overhead: {
+	metadata: {
 		label: 'Filesystem metadata',
-		description: 'Btrfs metadata and checksums that make every file verifiable.',
+		description:
+			'Btrfs metadata and checksums that make every file verifiable, including small files kept inline.',
 		color: 'oklch(0.55 0 0)',
+		userDriven: false
+	},
+	unreferenced: {
+		label: 'Space no file uses',
+		description:
+			'Blocks the pool keeps although no current file needs them, such as the old parts of files rewritten in place.',
+		color: 'oklch(0.45 0.02 20)',
 		userDriven: false
 	}
 };
@@ -94,7 +102,9 @@ const mebibyte = 1024 ** 2;
 const gibibyte = 1024 ** 3;
 
 // Growth that no account explains: system areas should stay steady between releases
-function growthWarning(category: HostUsageCategory): string {
+function growthWarning(category: HostUsageCategory, total: number): string {
+	if (category.key === 'unreferenced' && category.bytes > Math.max(gibibyte, total * 0.2))
+		return 'Larger than expected; a service may rewrite files in place';
 	const day = category.growthDay ?? 0;
 	const week = category.growthWeek ?? 0;
 	const fast =
@@ -107,41 +117,25 @@ function growthWarning(category: HostUsageCategory): string {
 }
 
 /**
- * The whole pool as 100%: every measured area, plus the filesystem's own metadata when the
- * pool stores more than the files take. Compression can make files larger than what is stored;
- * then the saving is reported instead.
+ * The whole pool as 100%: every measured area plus the filesystem's own share, which the agent
+ * reports as its metadata and the space no current file uses.
  */
-export function composition(usage: HostUsage): {
-	segments: Segment[];
-	total: number;
-	compressionSaving: number;
-} {
-	const files = usage.categories.reduce((sum, category) => sum + category.bytes, 0);
-	const overhead = Math.max(0, usage.pool.stored - files);
-	const total = files + overhead;
-	const segments: Segment[] = usage.categories.map((category) => ({
-		key: category.key,
-		label: categories[category.key].label,
-		color: categories[category.key].color,
-		bytes: category.bytes,
-		share: total > 0 ? category.bytes / total : 0,
-		growthDay: category.growthDay,
-		growthWeek: category.growthWeek,
-		warning: growthWarning(category)
-	}));
-	if (overhead > 0)
-		segments.push({
-			key: 'overhead',
-			label: categories.overhead.label,
-			color: categories.overhead.color,
-			bytes: overhead,
-			share: overhead / total,
-			growthDay: null,
-			growthWeek: null,
-			warning: ''
-		});
+export function composition(usage: HostUsage): { segments: Segment[]; total: number } {
+	const total = usage.categories.reduce((sum, category) => sum + category.bytes, 0);
+	const segments: Segment[] = usage.categories
+		.filter((category) => category.bytes > 0)
+		.map((category) => ({
+			key: category.key,
+			label: categories[category.key].label,
+			color: categories[category.key].color,
+			bytes: category.bytes,
+			share: total > 0 ? category.bytes / total : 0,
+			growthDay: category.growthDay,
+			growthWeek: category.growthWeek,
+			warning: growthWarning(category, total)
+		}));
 	segments.sort((a, b) => b.bytes - a.bytes);
-	return { segments, total, compressionSaving: Math.max(0, files - usage.pool.stored) };
+	return { segments, total };
 }
 
 /** Media on disk that no content references: uploads in progress or awaiting cleanup. */
