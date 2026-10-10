@@ -27,6 +27,8 @@ in
       Type = "exec";
       # Runs queue behind each other; one whose revision is no longer the branch head is superseded
       ExecStart = "${pkgs.util-linux}/bin/flock /run/kaordo-deploy.lock ${pkgs.nodejs_24}/bin/node /etc/nixos/deploy/nixos/deploy.mjs %i";
+      RuntimeMaxSec = "25min";
+      TimeoutStopSec = "5min";
       LoadCredential = "github-token:/srv/kaordo/secrets/github-actions-token";
       StateDirectory = "kaordo-deploy";
       StateDirectoryMode = "0700";

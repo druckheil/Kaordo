@@ -44,8 +44,11 @@ func (*agentStub) Usage(_ context.Context, window string) (json.RawMessage, erro
 func (*agentStub) MeasureUsage(context.Context) (json.RawMessage, error) {
 	return json.RawMessage(`{"measuring":true}`), nil
 }
-func (*agentStub) Deploy(context.Context, int64) (json.RawMessage, error) {
+func (*agentStub) Deploy(context.Context, DeploymentRequest) (json.RawMessage, error) {
 	return json.RawMessage(`{"state":"waiting"}`), nil
+}
+func (*agentStub) Deployments(context.Context) (json.RawMessage, error) {
+	return json.RawMessage(`{"items":[]}`), nil
 }
 func (*agentStub) Deployment(context.Context, int64) (json.RawMessage, error) {
 	return json.RawMessage(`{"state":"deploying"}`), nil

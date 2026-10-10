@@ -1,10 +1,32 @@
 // Defines independent, cancellable Regado cache entries
 
 import type { AdminApi } from './admin.ts';
+import type { Deployment } from '@kaordo/contracts';
 
 const readPolicy = { staleTime: 15_000, retry: false } as const;
 interface ReadContext {
 	signal: AbortSignal;
+}
+
+export function adminDeploymentsOptions(api: AdminApi, host: string) {
+	return {
+		...readPolicy,
+		staleTime: 2_000,
+		refetchInterval: 5_000,
+		queryKey: ['regado', 'hosts', host, 'deployments'] as const,
+		queryFn: ({ signal }: ReadContext) => api.deployments(host, signal)
+	};
+}
+
+export function adminDeploymentOptions(api: AdminApi, host: string, run: number, attempt = 0) {
+	return {
+		...readPolicy,
+		staleTime: 2_000,
+		queryKey: ['regado', 'hosts', host, 'deployments', run, attempt] as const,
+		queryFn: ({ signal }: ReadContext) => api.deployment(host, run, signal),
+		refetchInterval: (query: { state: { data?: Deployment } }) =>
+			!query.state.data || ['waiting', 'deploying'].includes(query.state.data.state) ? 5_000 : false
+	};
 }
 
 export function adminSummaryOptions(api: AdminApi) {

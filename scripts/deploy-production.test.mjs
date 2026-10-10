@@ -63,6 +63,7 @@ async function payloadFixture() {
 		'etc/nixos/deploy/nixos/kaordo.nix': 'new-nix',
 		'etc/nixos/deploy/nixos/cd.nix': 'new-deployment-module',
 		'etc/nixos/deploy/nixos/deploy.mjs': 'new-deployment-installer',
+		'etc/nixos/deploy/nixos/deployment-report.mjs': 'new-deployment-report',
 		'etc/nixos/deploy/nixos/deploy-release.sh': 'new-release-script',
 		'etc/nixos/deploy/nixos/kaordo-realm.json': '{"rememberMe":true}',
 		'etc/nixos/deploy/nixos/sync-keycloak-production.mjs': 'new-sync',
@@ -226,6 +227,12 @@ async function hostFixture(failure = '') {
 	await put(join(configuration, 'scripts/sync-keycloak.mjs'), 'old-sync');
 	await put(join(data, 'www/releases/old/index.html'), 'old-portal');
 	await symlink('releases/old', join(data, 'www/current'));
+	await put(join(data, 'releases/old-full/manifest.json'), '{"release":"previous-fixture"}');
+	await put(
+		join(data, 'releases/old-full/etc/nixos/deploy/nixos/verify-release.mjs'),
+		`import{appendFileSync}from'node:fs';appendFileSync(process.env.FIXTURE_ROOT+'/events','verify:rollback_live\\n');if(process.env.FIXTURE_FAIL==='rollback')process.exit(1);`
+	);
+	await symlink('old-full', join(data, 'releases/current'));
 	await put(join(bundle, 'site/index.html'), 'new-portal');
 	await put(join(bundle, 'manifest.json'), '{}');
 	await put(join(bundle, 'etc/nixos/deploy/nixos/kaordo.nix'), 'new-nix');
@@ -241,7 +248,7 @@ else writeFileSync(base+'/identity.json','{"rememberMe":true,"ssoSessionIdleTime
 	await put(join(bundle, 'etc/nixos/deploy/nixos/sync-keycloak-production.mjs'), identityScript);
 	await put(
 		join(bundle, 'etc/nixos/deploy/nixos/verify-release.mjs'),
-		`import{appendFileSync}from'node:fs';appendFileSync(process.env.FIXTURE_ROOT+'/events','verify:'+process.argv[2]+'\\n');if(process.env.FIXTURE_FAIL===process.argv[2])process.exit(1);`
+		`import{appendFileSync}from'node:fs';appendFileSync(process.env.FIXTURE_ROOT+'/events','verify:'+process.argv[2]+'\\n');if(process.env.FIXTURE_FAIL===process.argv[2] || (process.env.FIXTURE_FAIL==='rollback' && process.argv[2]==='live'))process.exit(1);`
 	);
 	const stub = `#!${process.execPath}
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
@@ -271,6 +278,7 @@ if(name==='sha256sum')console.log(crypto.createHash('sha256').update(fs.readFile
 		'mv',
 		'sha256sum',
 		'curl',
+		...(process.platform === 'linux' ? [] : ['flock']),
 		'btrfs'
 	]) {
 		const path = join(commands, command);
@@ -295,6 +303,10 @@ if(name==='sha256sum')console.log(crypto.createHash('sha256').update(fs.readFile
 		.replaceAll('/tmp/kaordo-', `${directory}/kaordo-`);
 	// Source payload paths stay relative to the release even when host paths are redirected.
 	script = script.replaceAll(`$release_root${configuration}`, '$release_root/etc/nixos');
+	script = script.replaceAll(
+		`$data_root/releases/current${configuration}`,
+		'$data_root/releases/current/etc/nixos'
+	);
 	const scriptPath = join(directory, 'deploy.sh');
 	await put(scriptPath, script);
 	const archive = join(directory, `kaordo-${release}-full.tar.gz`);
@@ -313,12 +325,25 @@ if(name==='sha256sum')console.log(crypto.createHash('sha256').update(fs.readFile
 		scriptPath,
 		archive,
 		checksum,
-		run: () =>
-			spawnSync('bash', [scriptPath, release, checksum, 'kaordo.link', 'kaordo', archive], {
-				env: environment,
-				encoding: 'utf8',
-				timeout: 20_000
-			}),
+		run: (attempt) =>
+			spawnSync(
+				'bash',
+				[
+					scriptPath,
+					release,
+					checksum,
+					'kaordo.link',
+					'kaordo',
+					archive,
+					'',
+					...(attempt ? [attempt] : [])
+				],
+				{
+					env: environment,
+					encoding: 'utf8',
+					timeout: 20_000
+				}
+			),
 		close: async () => {
 			await new Promise((close) => socket.close(close));
 			await rm(directory, { recursive: true, force: true });
@@ -454,6 +479,40 @@ test('failed NixOS activation reapplies the old closure even when current-system
 		);
 		assert.equal(await realpath(fixture.systemLink), await realpath(fixture.oldSystem));
 		assert.equal(await readFile(join(fixture.data, 'bin/kerno'), 'utf8'), 'old-kerno');
+	} finally {
+		await fixture.close();
+	}
+});
+
+test('a failed install can retry the same artifact in a new attempt without reusing partial directories', async () => {
+	const fixture = await hostFixture('live');
+	try {
+		const bytes = await readFile(fixture.archive);
+		const first = fixture.run('7-1');
+		assert.notEqual(first.status, 0);
+		assert.match(first.stdout, /KAORDO_DEPLOY_ROLLBACK=succeeded/);
+		assert.match(first.stderr, /KAORDO_DEPLOY_ERROR=Step live_verification failed/);
+		await writeFile(fixture.archive, bytes);
+		fixture.environment.FIXTURE_FAIL = '';
+		const second = fixture.run('7-2');
+		assert.equal(second.status, 0, second.stderr);
+		assert.match(await readlink(join(fixture.data, 'www/current')), /-full-7-2\/site$/);
+		assert.ok(
+			(await readdir(join(fixture.data, 'rollbacks'))).some((entry) => entry.endsWith('-7-1'))
+		);
+	} finally {
+		await fixture.close();
+	}
+});
+
+test('a rollback whose complete release cannot be verified reports a critical failure', async () => {
+	const fixture = await hostFixture('rollback');
+	try {
+		const result = fixture.run();
+		assert.equal(result.status, 70);
+		assert.match(result.stdout, /KAORDO_DEPLOY_ROLLBACK=failed/);
+		assert.doesNotMatch(result.stdout, /KAORDO_DEPLOY_ROLLBACK=succeeded/);
+		assert.ok((await readFile(fixture.events, 'utf8')).includes('verify:rollback_live'));
 	} finally {
 		await fixture.close();
 	}

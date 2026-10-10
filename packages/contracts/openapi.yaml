@@ -25,16 +25,51 @@ components:
     Deployment:
       type: object
       required: [run, state, updatedAt]
-      description: The last state the production deployment of one GitHub Actions run reported
+      description: Durable state, phase progress and the bounded journal of a production release attempt
       properties:
         run: { type: integer, format: int64 }
+        attempt: { type: integer, minimum: 1, description: Authenticated GitHub run attempt }
         revision: { type: string, description: The commit the run built }
         state: { type: string, enum: [waiting, deploying, succeeded, superseded, failed] }
         message: { type: string }
+        phase: { type: string, description: Current installation or rollback phase }
+        release: { type: string }
+        previousRelease: { type: string }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        progress:
+          type: object
+          required: [receivedBytes, totalBytes]
+          properties:
+            receivedBytes: { type: integer, minimum: 0 }
+            totalBytes: { type: integer, minimum: 1 }
+        error:
+          type: object
+          required: [phase, message]
+          properties:
+            phase: { type: string }
+            message: { type: string }
+        rollback: { type: string, enum: [not_needed, running, succeeded, failed] }
+        hostChanged:
+          type: boolean
+          description: Installation may have changed the host; an interrupted rollback needs inspection
+        events:
+          type: array
+          maxItems: 301
+          items: { $ref: '#/components/schemas/DeploymentEvent' }
         rollbackFailed:
           type: boolean
           description: The release failed and restoring the previous one did too; production may be inconsistent
         updatedAt: { type: string, format: date-time }
+    DeploymentEvent:
+      type: object
+      required: [sequence, at, phase, level, message]
+      properties:
+        sequence: { type: integer, minimum: 1 }
+        at: { type: string, format: date-time }
+        phase: { type: string }
+        level: { type: string, enum: [info, warning, error] }
+        message: { type: string, maxLength: 2000 }
     HostIdentity:
       type: object
       required: [name, machineId, firmware, poolMount]
@@ -3723,6 +3758,39 @@ paths:
         '200':
           description: Devices, pool, desired state and the steps needed to converge
           content: { application/json: { schema: { $ref: '#/components/schemas/HostFacts' } } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+
+  /v1/admin/hosts/{host}/deployments:
+    get:
+      operationId: listRegadoDeployments
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RegadoHost' }]
+      responses:
+        '200':
+          description: Latest production deployment attempts without their journals
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Deployment' } }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+
+  /v1/admin/hosts/{host}/deployments/{run}:
+    get:
+      operationId: getRegadoDeployment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/RegadoHost' }
+        - name: run
+          in: path
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        '200':
+          description: Production deployment progress, diagnostics and journal
+          content: { application/json: { schema: { $ref: '#/components/schemas/Deployment' } } }
         default: { $ref: '#/components/responses/RegadoHostError' }
 
   /v1/admin/hosts/{host}/state/plan:

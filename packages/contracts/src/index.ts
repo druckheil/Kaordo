@@ -7,6 +7,7 @@ type Schemas = components['schemas'];
 export type UserIdentity = Schemas['UserIdentity'];
 export type UserPresentation = Schemas['UserPresentation'];
 export type ApiError = Schemas['ApiError'];
+export type Deployment = Schemas['Deployment'];
 
 // Fluo posts and media
 // Wire posts carry encrypted envelopes and opaque attachments; presentation types hold what the device opened

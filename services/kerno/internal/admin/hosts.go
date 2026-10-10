@@ -27,8 +27,16 @@ type HostAgent interface {
 	Alerts(ctx context.Context, after int64) (json.RawMessage, error)
 	Usage(ctx context.Context, window string) (json.RawMessage, error)
 	MeasureUsage(context.Context) (json.RawMessage, error)
-	Deploy(ctx context.Context, run int64) (json.RawMessage, error)
+	Deploy(ctx context.Context, request DeploymentRequest) (json.RawMessage, error)
 	Deployment(ctx context.Context, run int64) (json.RawMessage, error)
+	Deployments(context.Context) (json.RawMessage, error)
+}
+
+// DeploymentRequest comes from verified workflow claims, never from an administrator's input.
+type DeploymentRequest struct {
+	Run      int64  `json:"run"`
+	Attempt  int    `json:"attempt"`
+	Revision string `json:"revision"`
 }
 
 // AgentError carries an agent's refusal: its HTTP status and operator-facing message.
@@ -214,12 +222,20 @@ func (hosts *Hosts) MeasureUsage(ctx context.Context, id string) (json.RawMessag
 }
 
 // Deploy asks the host to install the release that a trusted GitHub Actions run built.
-func (hosts *Hosts) Deploy(ctx context.Context, id string, run int64) (json.RawMessage, error) {
+func (hosts *Hosts) Deploy(ctx context.Context, id string, request DeploymentRequest) (json.RawMessage, error) {
 	agent, err := hosts.agent(id)
 	if err != nil {
 		return nil, err
 	}
-	return agent.Deploy(ctx, run)
+	return agent.Deploy(ctx, request)
+}
+
+func (hosts *Hosts) Deployments(ctx context.Context, id string) (json.RawMessage, error) {
+	agent, err := hosts.agent(id)
+	if err != nil {
+		return nil, err
+	}
+	return agent.Deployments(ctx)
 }
 
 func (hosts *Hosts) Deployment(ctx context.Context, id string, run int64) (json.RawMessage, error) {

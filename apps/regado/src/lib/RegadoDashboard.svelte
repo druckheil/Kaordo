@@ -21,6 +21,7 @@
 	import { AppHeader, Button } from '@kaordo/ui';
 	import AdminIntentDialog from './AdminIntentDialog.svelte';
 	import AuditPanel from './AuditPanel.svelte';
+	import DeploymentsView from './DeploymentsView.svelte';
 	import LogsPanel from './LogsPanel.svelte';
 	import OverviewPanel from './OverviewPanel.svelte';
 	import StorageView from './storage/StorageView.svelte';
@@ -209,7 +210,7 @@
 				>
 			</div>
 			<nav
-				class="mt-7 grid grid-cols-3 gap-1 border-b border-border sm:flex"
+				class="mt-7 grid grid-cols-2 gap-1 border-b border-border sm:flex sm:flex-wrap"
 				aria-label="Regado sections"
 			>
 				{#each tabs as item (item)}
@@ -258,6 +259,8 @@
 				/>
 			{:else if tab === 'Usage'}
 				<UsageView {api} {queryClient} />
+			{:else if tab === 'Deployments'}
+				<DeploymentsView {api} {queryClient} />
 			{:else if tab === 'Logs'}
 				<LogsPanel
 					{logs}

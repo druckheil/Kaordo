@@ -47,6 +47,59 @@ export const test = base.extend({
 		const staleLogStarted = new Promise((resolve) => (staleLogsStarted = resolve));
 		const now = new Date().toISOString();
 		const host = createHostFixture(now);
+		const deployments = [
+			{
+				run: 43,
+				attempt: 1,
+				revision: 'a'.repeat(40),
+				state: 'deploying',
+				phase: 'download',
+				message: 'Downloading the verified release artifact.',
+				startedAt: now,
+				updatedAt: now,
+				progress: { receivedBytes: 5242880, totalBytes: 20971520 },
+				rollback: 'not_needed',
+				events: [
+					{
+						sequence: 1,
+						at: now,
+						phase: 'download',
+						level: 'info',
+						message: 'Artifact transfer started.'
+					}
+				]
+			},
+			{
+				run: 42,
+				attempt: 2,
+				revision: 'b'.repeat(40),
+				state: 'failed',
+				phase: 'rollback',
+				message: 'Activation failed; the previous release was restored.',
+				startedAt: now,
+				updatedAt: now,
+				finishedAt: now,
+				rollback: 'succeeded',
+				error: { phase: 'activation', message: 'Kerno did not become ready.' },
+				events: [
+					{
+						sequence: 1,
+						at: now,
+						phase: 'activation',
+						level: 'error',
+						message: 'Kerno did not become ready.'
+					},
+					{
+						sequence: 2,
+						at: now,
+						phase: 'rollback',
+						level: 'info',
+						message: 'Previous release restored.'
+					}
+				]
+			}
+		];
+
 		let mediaState = 'complete';
 		let mediaReads = 0;
 		await page.route('**/v1/**', async (route) => {
@@ -58,7 +111,11 @@ export const test = base.extend({
 				await route.fulfill({ json: body });
 				return;
 			}
-			if (url.pathname === '/v1/session' || url.pathname === '/v1/me') body = actor;
+			if (url.pathname === '/v1/admin/hosts/local/deployments')
+				body = { items: deployments.map((item) => ({ ...item, events: undefined })) };
+			else if (/^\/v1\/admin\/hosts\/local\/deployments\/\d+$/.test(url.pathname))
+				body = deployments.find((item) => item.run === Number(url.pathname.split('/').at(-1)));
+			else if (url.pathname === '/v1/session' || url.pathname === '/v1/me') body = actor;
 			else if (url.pathname.endsWith('/summary'))
 				body = {
 					users: 2,
@@ -306,6 +363,7 @@ export const test = base.extend({
 				mutations,
 				systemActions,
 				host,
+				deployments,
 				staleLogStarted,
 				releaseStaleLogs
 			});

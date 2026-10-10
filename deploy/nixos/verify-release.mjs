@@ -12,6 +12,7 @@ const requiredFiles = [
 	'etc/nixos/deploy/nixos/kaordo.nix',
 	'etc/nixos/deploy/nixos/cd.nix',
 	'etc/nixos/deploy/nixos/deploy.mjs',
+	'etc/nixos/deploy/nixos/deployment-report.mjs',
 	'etc/nixos/deploy/nixos/deploy-release.sh',
 	'etc/nixos/deploy/nixos/kaordo-realm.json',
 	'etc/nixos/deploy/nixos/sync-keycloak-production.mjs',

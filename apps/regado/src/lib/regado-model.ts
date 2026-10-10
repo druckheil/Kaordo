@@ -7,6 +7,7 @@ export const dashboardTabs = [
 	'Overview',
 	'Storage',
 	'Usage',
+	'Deployments',
 	'Logs',
 	'Users',
 	'Audit',

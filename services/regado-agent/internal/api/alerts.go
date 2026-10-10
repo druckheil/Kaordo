@@ -32,7 +32,7 @@ func (service *Service) EvaluateAlerts(ctx context.Context) error {
 		inputs.FullInDays = service.Usage.Report(0).FullInDays
 	}
 	// An unreadable deployment record must not hide the host's other alerts
-	if inputs.Deployment, err = service.Deployments.Latest(); err != nil {
+	if inputs.Deployment, err = service.Deployments.Latest(ctx); err != nil {
 		slog.Warn("deployment record unavailable", "err", err)
 	}
 	return service.Alerts.Update(alert.Evaluate(inputs), time.Now())
