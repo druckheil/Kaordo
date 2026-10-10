@@ -89,12 +89,31 @@ async function capture(page, name) {
 	console.log(`UI snapshot: ${path}`);
 }
 
-function codeFor(secret) {
+function codeFor(secret, period = Math.floor(Date.now() / 30_000)) {
 	const counter = Buffer.alloc(8);
-	counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000)));
+	counter.writeBigUInt64BE(BigInt(period));
 	const digest = createHmac('sha1', Buffer.from(secret, 'utf8')).update(counter).digest();
 	const offset = digest.at(-1) & 15;
 	return String((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, '0');
+}
+
+// Submits Keycloak's TOTP setup and returns the secret with the period of the code it accepted.
+// Keycloak answers a rejected code with the setup form again, so the answer itself tells.
+async function configureTotp(page) {
+	const secret = await page.locator('[name=totpSecret]').inputValue();
+	const period = Math.floor(Date.now() / 30_000);
+	await page.locator('[name=totp]').fill(codeFor(secret, period));
+	const answer = page.waitForResponse(
+		(response) => response.request().isNavigationRequest() && response.request().method() === 'POST'
+	);
+	await page.locator('#kc-totp-settings-form input[type=submit]').click();
+	const response = await answer;
+	const body = response.status() === 200 ? await response.text() : '';
+	if (body.includes('id="kc-totp-settings-form"')) {
+		const message = /id="input-error[^"]*"[^>]*>\s*([^<]*)/.exec(body)?.[1].trim();
+		throw new Error(`Keycloak rejected the TOTP setup: ${message || 'no message'}`);
+	}
+	return { secret, period };
 }
 
 async function waitForRestoredScroll(page, target) {
@@ -527,9 +546,7 @@ test('remembered OIDC sessions survive browser restart, rotate independently, an
 			await page.locator('[name=password]').fill(password);
 			await page.locator('#kc-login').click();
 			await page.locator('[name=totpSecret]').waitFor({ state: 'attached' });
-			const secret = await page.locator('[name=totpSecret]').inputValue();
-			await page.locator('[name=totp]').fill(codeFor(secret));
-			await page.locator('#kc-totp-settings-form input[type=submit]').click();
+			await configureTotp(page);
 			await page.waitForLoadState('domcontentloaded');
 			if (await page.locator('#kc-recovery-codes-list').count()) {
 				await page.locator('[name=kcRecoveryCodesConfirmationCheck]').check();
@@ -758,9 +775,7 @@ test('identity OTP errors keep one input boundary in both color modes', async ({
 		await page.locator('#kc-register-form [name=password]').fill(password);
 		await page.locator('#kc-register-form input[type=submit]').click();
 		await page.locator('[name=totpSecret]').waitFor({ state: 'attached' });
-		const secret = await page.locator('[name=totpSecret]').inputValue();
-		await page.locator('[name=totp]').fill(codeFor(secret));
-		await page.locator('#kc-totp-settings-form input[type=submit]').click();
+		await configureTotp(page);
 		await page.locator('#kc-recovery-codes-list li').first().waitFor();
 		await page.locator('[name=kcRecoveryCodesConfirmationCheck]').check();
 		await page.locator('#saveRecoveryAuthnCodesBtn').click();
@@ -832,11 +847,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
 		await page.keyboard.press('Enter');
 		await page.locator('input[name=totpSecret]').waitFor({ state: 'attached' });
 		await checkAccessibility(page, 'TOTP setup');
-		const secret = await page.locator('input[name=totpSecret]').inputValue();
-		const setupCounter = Math.floor(Date.now() / 30_000);
-		await page.locator('input[name=totp]').fill(codeFor(secret));
-		await page.locator('#kc-totp-settings-form input[type=submit]').click();
-		await page.waitForLoadState('domcontentloaded');
+		const { secret, period: setupCounter } = await configureTotp(page);
 		await page.locator('#kc-recovery-codes-list li').first().waitFor();
 		await checkAccessibility(page, 'Recovery-code setup');
 		const firstCode = await page.locator('#kc-recovery-codes-list li').first().textContent();
