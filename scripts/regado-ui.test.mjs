@@ -491,7 +491,8 @@ test('Regado usage shows the whole pool, runaway growth, heavy accounts and lagg
 
 	await overview.getByRole('button', { name: 'Measure now', exact: true }).click();
 	await expect.poll(() => host.measurements()).toBe(1);
-	await expect(overview.getByRole('button', { name: 'Measure now', exact: true })).toBeEnabled();
+	// The agent reports the running measurement; the view checks again every 5 seconds
+	await expect(overview.getByRole('button', { name: 'Measuring…', exact: true })).toBeDisabled();
 	await accessibility(page, 'Usage');
 });
 
