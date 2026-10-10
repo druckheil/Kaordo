@@ -17,11 +17,14 @@ type cryptoDevicesTable struct {
 	postgres.Table
 
 	// Columns
-	UserID      postgres.ColumnString
-	ID          postgres.ColumnString
-	PublicKey   postgres.ColumnString
-	WrappedKeys postgres.ColumnString
-	CreatedAt   postgres.ColumnTimestampz
+	UserID       postgres.ColumnString
+	ID           postgres.ColumnString
+	PublicKey    postgres.ColumnString
+	WrappedKeys  postgres.ColumnString
+	CreatedAt    postgres.ColumnTimestampz
+	SessionID    postgres.ColumnString
+	UnlockedWith postgres.ColumnString
+	UnlockedAt   postgres.ColumnTimestampz
 
 	AllColumns     postgres.ColumnList
 	MutableColumns postgres.ColumnList
@@ -63,25 +66,31 @@ func newCryptoDevicesTable(schemaName, tableName, alias string) *CryptoDevicesTa
 
 func newCryptoDevicesTableImpl(schemaName, tableName, alias string) cryptoDevicesTable {
 	var (
-		UserIDColumn      = postgres.StringColumn("user_id")
-		IDColumn          = postgres.StringColumn("id")
-		PublicKeyColumn   = postgres.StringColumn("public_key")
-		WrappedKeysColumn = postgres.StringColumn("wrapped_keys")
-		CreatedAtColumn   = postgres.TimestampzColumn("created_at")
-		allColumns        = postgres.ColumnList{UserIDColumn, IDColumn, PublicKeyColumn, WrappedKeysColumn, CreatedAtColumn}
-		mutableColumns    = postgres.ColumnList{PublicKeyColumn, WrappedKeysColumn, CreatedAtColumn}
-		defaultColumns    = postgres.ColumnList{WrappedKeysColumn, CreatedAtColumn}
+		UserIDColumn       = postgres.StringColumn("user_id")
+		IDColumn           = postgres.StringColumn("id")
+		PublicKeyColumn    = postgres.StringColumn("public_key")
+		WrappedKeysColumn  = postgres.StringColumn("wrapped_keys")
+		CreatedAtColumn    = postgres.TimestampzColumn("created_at")
+		SessionIDColumn    = postgres.StringColumn("session_id")
+		UnlockedWithColumn = postgres.StringColumn("unlocked_with")
+		UnlockedAtColumn   = postgres.TimestampzColumn("unlocked_at")
+		allColumns         = postgres.ColumnList{UserIDColumn, IDColumn, PublicKeyColumn, WrappedKeysColumn, CreatedAtColumn, SessionIDColumn, UnlockedWithColumn, UnlockedAtColumn}
+		mutableColumns     = postgres.ColumnList{PublicKeyColumn, WrappedKeysColumn, CreatedAtColumn, SessionIDColumn, UnlockedWithColumn, UnlockedAtColumn}
+		defaultColumns     = postgres.ColumnList{WrappedKeysColumn, CreatedAtColumn, SessionIDColumn, UnlockedWithColumn}
 	)
 
 	return cryptoDevicesTable{
 		Table: postgres.NewTable(schemaName, tableName, alias, allColumns...),
 
 		//Columns
-		UserID:      UserIDColumn,
-		ID:          IDColumn,
-		PublicKey:   PublicKeyColumn,
-		WrappedKeys: WrappedKeysColumn,
-		CreatedAt:   CreatedAtColumn,
+		UserID:       UserIDColumn,
+		ID:           IDColumn,
+		PublicKey:    PublicKeyColumn,
+		WrappedKeys:  WrappedKeysColumn,
+		CreatedAt:    CreatedAtColumn,
+		SessionID:    SessionIDColumn,
+		UnlockedWith: UnlockedWithColumn,
+		UnlockedAt:   UnlockedAtColumn,
 
 		AllColumns:     allColumns,
 		MutableColumns: mutableColumns,

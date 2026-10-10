@@ -640,12 +640,21 @@ components:
         sealedKey: { type: string, minLength: 108, maxLength: 108 }
     EncryptionDevice:
       type: object
-      required: [id, publicKey, wrappedKeys, createdAt]
+      required: [id, publicKey, wrappedKeys, createdAt, sessionId, unlockedWith, unlockedAt]
       properties:
         id: { type: string, format: uuid }
         publicKey: { type: string, minLength: 44, maxLength: 44 }
         wrappedKeys: { type: string, maxLength: 4096 }
         createdAt: { type: string, format: date-time }
+        sessionId:
+          type: string
+          maxLength: 64
+          description: The identity provider session (the token's sid) that last used this device; empty before one did
+        unlockedWith:
+          type: string
+          enum: ['', account, device, recovery]
+          description: How the device received the account keys; empty while it waits or when unrecorded
+        unlockedAt: { type: [string, 'null'], format: date-time }
     EncryptionIdentity:
       type: object
       required: [encryptionPublicKey, signingPublicKey, devices]
@@ -2360,6 +2369,24 @@ paths:
             content:
               { application/json: { schema: { $ref: '#/components/schemas/EncryptionIdentity' } } }
           }
+        default:
+          {
+            description: Error,
+            content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+          }
+  /v1/crypto/devices/{id}/session:
+    put:
+      operationId: useEncryptionDevice
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      description: Records that the token's sign-in session uses this device of the account.
+      responses:
+        '200':
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                { type: object, required: [recorded], properties: { recorded: { type: boolean } } }
         default:
           {
             description: Error,

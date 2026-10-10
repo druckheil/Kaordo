@@ -218,6 +218,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/crypto/devices/{id}/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Records that the token's sign-in session uses this device of the account. */
+        put: operations["useEncryptionDevice"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/crypto/devices/{id}": {
         parameters: {
             query?: never;
@@ -1716,6 +1733,15 @@ export interface components {
             wrappedKeys: string;
             /** Format: date-time */
             createdAt: string;
+            /** @description The identity provider session (the token's sid) that last used this device; empty before one did */
+            sessionId: string;
+            /**
+             * @description How the device received the account keys; empty while it waits or when unrecorded
+             * @enum {string}
+             */
+            unlockedWith: "" | "account" | "device" | "recovery";
+            /** Format: date-time */
+            unlockedAt: string | null;
         };
         EncryptionIdentity: {
             encryptionPublicKey: string;
@@ -3169,6 +3195,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EncryptionIdentity"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    useEncryptionDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        recorded: boolean;
+                    };
                 };
             };
             /** @description Error */

@@ -19,11 +19,22 @@ var (
 	ErrLimit    = errors.New("device limit reached")
 )
 
+// How a device received the account keys
+const (
+	UnlockedByAccount  = "account"  // the device created the account keys
+	UnlockedByDevice   = "device"   // an approved device transferred them
+	UnlockedByRecovery = "recovery" // the device restored them with the recovery key itself
+)
+
 type Device struct {
 	ID          string    `json:"id"`
 	PublicKey   string    `json:"publicKey"`
 	WrappedKeys string    `json:"wrappedKeys"`
 	CreatedAt   time.Time `json:"createdAt"`
+	// SessionID is the identity provider session that last used the device; empty before one did
+	SessionID    string     `json:"sessionId"`
+	UnlockedWith string     `json:"unlockedWith"`
+	UnlockedAt   *time.Time `json:"unlockedAt"`
 }
 type Identity struct {
 	EncryptionPublicKey string   `json:"encryptionPublicKey"`
@@ -48,8 +59,10 @@ type Store interface {
 	PublicIdentity(context.Context, string) (PublicIdentity, error)
 	Audience(context.Context, string, string, string, bool) (Audience, error)
 	Identity(context.Context, string) (*Identity, error)
-	Register(context.Context, string, Registration) (Identity, error)
-	Approve(context.Context, string, string, Approval) (Identity, error)
+	// Register, Approve and UseDevice take the actor, then the session the request came from
+	Register(ctx context.Context, actorID, sessionID string, input Registration) (Identity, error)
+	Approve(ctx context.Context, actorID, sessionID, deviceID string, input Approval) (Identity, error)
+	UseDevice(ctx context.Context, actorID, sessionID, deviceID string) error
 	ForgetDevice(context.Context, string, string, DeviceRemoval) (Identity, error)
 	Recovery(context.Context, string) (string, error)
 	SetRecovery(context.Context, string, RecoveryUpdate) error

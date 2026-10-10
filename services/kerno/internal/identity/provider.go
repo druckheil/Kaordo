@@ -135,6 +135,8 @@ type Claims struct {
 	Subject  string `json:"sub"`
 	Username string `json:"preferred_username"`
 	Name     string `json:"name"`
+	// SessionID is the identity provider session the token belongs to
+	SessionID string `json:"sid"`
 }
 
 var (

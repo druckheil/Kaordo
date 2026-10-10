@@ -42,7 +42,7 @@ func registerTestAccount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 		t.Fatal(err)
 	}
 	deviceID := uuid.NewString()
-	_, err = NewEncryption(pool).Register(ctx, user.ID, encryption.Registration{
+	_, err = NewEncryption(pool).Register(ctx, user.ID, "session-first", encryption.Registration{
 		ID: deviceID, PublicKey: randomBase64(t, 32), EncryptionPublicKey: randomBase64(t, 32),
 		SigningPublicKey: base64.StdEncoding.EncodeToString(public), WrappedKeys: randomBase64(t, 128),
 	})
@@ -61,31 +61,65 @@ func TestEncryptionDeviceCustody(t *testing.T) {
 	if err != nil || identity == nil || len(identity.Devices) != 1 || identity.Devices[0].WrappedKeys == "" {
 		t.Fatalf("first device = %+v, %v", identity, err)
 	}
-	if _, err := store.Register(ctx, account.id, encryption.Registration{ID: firstDevice, PublicKey: randomBase64(t, 32)}); !errors.Is(err, encryption.ErrConflict) {
+	if _, err := store.Register(ctx, account.id, "session-first", encryption.Registration{ID: firstDevice, PublicKey: randomBase64(t, 32)}); !errors.Is(err, encryption.ErrConflict) {
 		t.Fatalf("device key replacement = %v", err)
 	}
 
 	// A new browser registers only its public key and waits for a signed transfer.
 	pending := encryption.Registration{ID: uuid.NewString(), PublicKey: randomBase64(t, 32)}
-	registered, err := store.Register(ctx, account.id, pending)
+	registered, err := store.Register(ctx, account.id, "session-pending", pending)
 	if err != nil || len(registered.Devices) != 2 {
 		t.Fatalf("pending device = %+v, %v", registered, err)
 	}
 	wrapped := randomBase64(t, 128)
 	forged := encryption.Approval{WrappedKeys: wrapped, Signature: randomBase64(t, 64)}
-	if _, err := store.Approve(ctx, account.id, pending.ID, forged); !errors.Is(err, encryption.ErrInvalid) {
+	if _, err := store.Approve(ctx, account.id, "session-first", pending.ID, forged); !errors.Is(err, encryption.ErrInvalid) {
 		t.Fatalf("unsigned approval = %v", err)
 	}
 	approval := encryption.Approval{WrappedKeys: wrapped,
 		Signature: account.sign(t, "kaordo-device-v1", account.id, pending.ID, pending.PublicKey, wrapped)}
-	approved, err := store.Approve(ctx, account.id, pending.ID, approval)
+	// The first device approves the new one from its own session
+	approved, err := store.Approve(ctx, account.id, "session-first", pending.ID, approval)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, device := range approved.Devices {
+		want := map[string][2]string{firstDevice: {"session-first", encryption.UnlockedByAccount},
+			pending.ID: {"session-pending", encryption.UnlockedByDevice}}[device.ID]
+		if device.SessionID != want[0] || device.UnlockedWith != want[1] || device.UnlockedAt == nil {
+			t.Fatalf("approved device %+v, want session and method %v", device, want)
+		}
 		if device.ID == pending.ID && device.WrappedKeys != wrapped {
 			t.Fatalf("approved device bundle = %q", device.WrappedKeys)
 		}
+	}
+
+	// A device that unlocks itself in its own session used the recovery key
+	restoring := encryption.Registration{ID: uuid.NewString(), PublicKey: randomBase64(t, 32)}
+	if _, err := store.Register(ctx, account.id, "session-old", restoring); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UseDevice(ctx, account.id, "session-restoring", restoring.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UseDevice(ctx, account.id, "session-restoring", uuid.NewString()); !errors.Is(err, encryption.ErrNotFound) {
+		t.Fatalf("use unknown device = %v", err)
+	}
+	restored := randomBase64(t, 128)
+	self := encryption.Approval{WrappedKeys: restored,
+		Signature: account.sign(t, "kaordo-device-v1", account.id, restoring.ID, restoring.PublicKey, restored)}
+	recovered, err := store.Approve(ctx, account.id, "session-restoring", restoring.ID, self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, device := range recovered.Devices {
+		if device.ID == restoring.ID && (device.UnlockedWith != encryption.UnlockedByRecovery || device.SessionID != "session-restoring") {
+			t.Fatalf("recovered device = %+v", device)
+		}
+	}
+	forget := encryption.DeviceRemoval{Signature: account.sign(t, "kaordo-device-forget-v1", account.id, restoring.ID, restoring.PublicKey, restored)}
+	if _, err := store.ForgetDevice(ctx, account.id, restoring.ID, forget); err != nil {
+		t.Fatal(err)
 	}
 
 	if _, err := store.ForgetDevice(ctx, account.id, uuid.NewString(), encryption.DeviceRemoval{Signature: randomBase64(t, 64)}); !errors.Is(err, encryption.ErrNotFound) {
@@ -98,11 +132,11 @@ func TestEncryptionDeviceCustody(t *testing.T) {
 	}
 
 	for len(remaining.Devices) < 20 {
-		if remaining, err = store.Register(ctx, account.id, encryption.Registration{ID: uuid.NewString(), PublicKey: randomBase64(t, 32)}); err != nil {
+		if remaining, err = store.Register(ctx, account.id, "", encryption.Registration{ID: uuid.NewString(), PublicKey: randomBase64(t, 32)}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := store.Register(ctx, account.id, encryption.Registration{ID: uuid.NewString(), PublicKey: randomBase64(t, 32)}); !errors.Is(err, encryption.ErrLimit) {
+	if _, err := store.Register(ctx, account.id, "", encryption.Registration{ID: uuid.NewString(), PublicKey: randomBase64(t, 32)}); !errors.Is(err, encryption.ErrLimit) {
 		t.Fatalf("21st device = %v", err)
 	}
 }

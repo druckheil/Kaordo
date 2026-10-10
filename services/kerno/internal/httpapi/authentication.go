@@ -23,24 +23,30 @@ var authFailureMessages = map[string]string{
 }
 
 func authenticatedActor(w http.ResponseWriter, r *http.Request, verify VerifyFunc, users account.Store, missingSessionMessage string) (account.User, bool) {
+	actor, _, ok := authenticatedSession(w, r, verify, users, missingSessionMessage)
+	return actor, ok
+}
+
+// authenticatedSession also returns the identity provider session the request belongs to
+func authenticatedSession(w http.ResponseWriter, r *http.Request, verify VerifyFunc, users account.Store, missingSessionMessage string) (account.User, string, bool) {
 	claims, ok := authenticate(w, r, verify)
 	if !ok {
-		return account.User{}, false
+		return account.User{}, "", false
 	}
 	actor, err := users.BySubject(r.Context(), claims.Subject)
 	if errors.Is(err, account.ErrNotFound) {
 		writeError(w, http.StatusConflict, missingSessionMessage)
-		return account.User{}, false
+		return account.User{}, "", false
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Could not load your account.")
-		return account.User{}, false
+		return account.User{}, "", false
 	}
 	if actor.DisabledAt != nil {
 		writeError(w, http.StatusForbidden, "This account is disabled.")
-		return account.User{}, false
+		return account.User{}, "", false
 	}
-	return actor, true
+	return actor, claims.SessionID, true
 }
 
 func authenticate(w http.ResponseWriter, r *http.Request, verify VerifyFunc) (identity.Claims, bool) {

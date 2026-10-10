@@ -28,6 +28,7 @@ func mountEncryption(router chi.Router, verify VerifyFunc, users account.Store, 
 		r.Get("/audience/{module}/{id}", h.audience)
 		r.Post("/devices", h.register)
 		r.Post("/devices/{id}/approve", h.approve)
+		r.Put("/devices/{id}/session", h.useDevice)
 		r.Delete("/devices/{id}", h.forgetDevice)
 	})
 }
@@ -69,7 +70,27 @@ func (h encryptionHandler) setRecovery(w http.ResponseWriter, r *http.Request) {
 	encryptionResponse(w, map[string]bool{"saved": err == nil}, err)
 }
 func (h encryptionHandler) actor(w http.ResponseWriter, r *http.Request) (account.User, bool) {
-	return authenticatedActor(w, r, h.verify, h.users, "Start an account session before managing encryption devices.")
+	actor, _, ok := h.session(w, r)
+	return actor, ok
+}
+
+// session is the actor and the identity provider session that device requests are recorded under
+func (h encryptionHandler) session(w http.ResponseWriter, r *http.Request) (account.User, string, bool) {
+	return authenticatedSession(w, r, h.verify, h.users, "Start an account session before managing encryption devices.")
+}
+
+func (h encryptionHandler) useDevice(w http.ResponseWriter, r *http.Request) {
+	actor, session, ok := h.session(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !encryption.ValidID(id) {
+		writeError(w, http.StatusBadRequest, "Use a valid device ID.")
+		return
+	}
+	err := h.store.UseDevice(r.Context(), actor.ID, session, id)
+	encryptionResponse(w, map[string]bool{"recorded": err == nil}, err)
 }
 func (h encryptionHandler) identity(w http.ResponseWriter, r *http.Request) {
 	actor, ok := h.actor(w, r)
@@ -80,7 +101,7 @@ func (h encryptionHandler) identity(w http.ResponseWriter, r *http.Request) {
 	encryptionResponse(w, map[string]any{"identity": identity}, err)
 }
 func (h encryptionHandler) register(w http.ResponseWriter, r *http.Request) {
-	actor, ok := h.actor(w, r)
+	actor, session, ok := h.session(w, r)
 	if !ok {
 		return
 	}
@@ -88,11 +109,11 @@ func (h encryptionHandler) register(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &input) {
 		return
 	}
-	identity, err := h.store.Register(r.Context(), actor.ID, input)
+	identity, err := h.store.Register(r.Context(), actor.ID, session, input)
 	encryptionResponse(w, identity, err)
 }
 func (h encryptionHandler) approve(w http.ResponseWriter, r *http.Request) {
-	actor, ok := h.actor(w, r)
+	actor, session, ok := h.session(w, r)
 	if !ok {
 		return
 	}
@@ -105,7 +126,7 @@ func (h encryptionHandler) approve(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &input) {
 		return
 	}
-	identity, err := h.store.Approve(r.Context(), actor.ID, id, input)
+	identity, err := h.store.Approve(r.Context(), actor.ID, session, id, input)
 	encryptionResponse(w, identity, err)
 }
 func encryptionResponse(w http.ResponseWriter, value any, err error) {
