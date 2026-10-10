@@ -66,6 +66,50 @@ function member(devid, id, path) {
 	};
 }
 
+const gib = 1024 ** 3;
+const mib = 1024 ** 2;
+
+// A pool whose logs run away while accounts stay quiet, over a week of hourly samples
+function usageReport(measuring) {
+	const bytes = {
+		media: 6 * gib,
+		database: 2 * gib,
+		nix: 5 * gib,
+		system: gib,
+		logs: 3 * gib,
+		metrics: 600 * mib,
+		releases: 400 * mib,
+		temporary: 20 * mib,
+		other: 10 * mib
+	};
+	const growth = { logs: 1200 * mib, media: 300 * mib };
+	const at = (hours) => new Date(Date.now() - hours * 3600_000).toISOString();
+	const total = Object.values(bytes).reduce((sum, value) => sum + value, 0);
+	return {
+		measuredAt: at(0.2),
+		measuring,
+		pool: { stored: total + 512 * mib, free: 900 * gib },
+		categories: Object.entries(bytes).map(([key, value]) => ({
+			key,
+			bytes: value,
+			files: 1000,
+			growthDay: growth[key] ? growth[key] / 2 : 0,
+			growthWeek: growth[key] ?? 0
+		})),
+		history: [168, 96, 24, 0].map((hours) => ({
+			at: at(hours),
+			stored: total,
+			bytes: Object.fromEntries(
+				Object.entries(bytes).map(([key, value]) => [
+					key,
+					value - ((growth[key] ?? 0) * hours) / 168
+				])
+			)
+		})),
+		fullInDays: 120
+	};
+}
+
 export function createHostFixture(now) {
 	const health = {
 		state: 'passed',
@@ -97,6 +141,9 @@ export function createHostFixture(now) {
 	const changes = [];
 	const checks = [];
 	const tests = [];
+	const usageWindows = [];
+	let measurements = 0;
+	let measuring = false;
 	const plans = [];
 	// Each read of a running operation advances it, so polling drives it to completion
 	let operationReads = 0;
@@ -232,6 +279,17 @@ export function createHostFixture(now) {
 			operationReads = 0;
 			return { document: desired, previous, operation };
 		}
+		if (path === '/usage/measure') {
+			measuring = true;
+			measurements++;
+			return { measuring: true };
+		}
+		if (path === '/usage') {
+			usageWindows.push(url.searchParams.get('window'));
+			const report = usageReport(measuring);
+			measuring = false;
+			return report;
+		}
 		if (path === '/alerts')
 			return {
 				alerts: [
@@ -290,5 +348,14 @@ export function createHostFixture(now) {
 		return undefined;
 	}
 
-	return { handle, changes, plans, checks, tests, desired: () => desired };
+	return {
+		handle,
+		changes,
+		plans,
+		checks,
+		tests,
+		usageWindows,
+		measurements: () => measurements,
+		desired: () => desired
+	};
 }

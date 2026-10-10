@@ -133,6 +133,67 @@ export const test = base.extend({
 							: {})
 					}))
 				};
+			} else if (url.pathname === '/v1/admin/usage') {
+				body = {
+					users: [
+						{
+							id: target.id,
+							username: 'member',
+							displayName: 'Member',
+							media: {
+								posts: 0,
+								messages: 2.5 * 1024 ** 3,
+								channels: 0,
+								profile: 0,
+								journal: 0,
+								learning: 0
+							},
+							records: {
+								posts: 0,
+								messages: 40 * 1024 ** 2,
+								channels: 0,
+								profile: 0,
+								journal: 0,
+								learning: 0
+							},
+							total: 2.5 * 1024 ** 3 + 40 * 1024 ** 2,
+							addedWeek: 2 * 1024 ** 3
+						},
+						{
+							id: actor.id,
+							username: 'operator',
+							displayName: 'Operator',
+							media: {
+								posts: 300 * 1024 ** 2,
+								messages: 0,
+								channels: 0,
+								profile: 1024 ** 2,
+								journal: 0,
+								learning: 0
+							},
+							records: {
+								posts: 2 * 1024 ** 2,
+								messages: 0,
+								channels: 0,
+								profile: 0,
+								journal: 5 * 1024 ** 2,
+								learning: 1024 ** 2
+							},
+							total: 309 * 1024 ** 2,
+							addedWeek: 10 * 1024 ** 2
+						}
+					],
+					databases: [
+						{ name: 'kaordo', bytes: 1.5 * 1024 ** 3 },
+						{ name: 'keycloak', bytes: 400 * 1024 ** 2 }
+					],
+					tables: [
+						{ name: 'ligo_messages', bytes: 900 * 1024 ** 2, rows: 100000, deadRows: 50000 },
+						{ name: 'fluo_posts', bytes: 300 * 1024 ** 2, rows: 20000, deadRows: 10 }
+					],
+					referencedMedia: 5 * 1024 ** 3,
+					referencedUploads: 1200
+				};
 			} else if (url.pathname.endsWith('/metrics')) {
 				const values = Array.from({ length: 20 }, (_, i) => ({
 					time: Math.floor(Date.now() / 1000) - (20 - i) * 15,

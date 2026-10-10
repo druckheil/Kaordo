@@ -24,6 +24,7 @@
 	import LogsPanel from './LogsPanel.svelte';
 	import OverviewPanel from './OverviewPanel.svelte';
 	import StorageView from './storage/StorageView.svelte';
+	import UsageView from './usage/UsageView.svelte';
 	import SystemPanel from './SystemPanel.svelte';
 	import UsersPanel from './UsersPanel.svelte';
 	import { createAdminActionState } from './admin-action-state.svelte';
@@ -255,6 +256,8 @@
 					mediaDisabled={busy}
 					onMediaAction={commands.requestMediaAction}
 				/>
+			{:else if tab === 'Usage'}
+				<UsageView {api} {queryClient} />
 			{:else if tab === 'Logs'}
 				<LogsPanel
 					{logs}

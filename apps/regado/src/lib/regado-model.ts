@@ -3,7 +3,15 @@
 import type { AdminApi } from '@kaordo/api-client';
 import type { AdminLogs, AdminLogRetentionDays } from '@kaordo/contracts';
 
-export const dashboardTabs = ['Overview', 'Storage', 'Logs', 'Users', 'Audit', 'System'] as const;
+export const dashboardTabs = [
+	'Overview',
+	'Storage',
+	'Usage',
+	'Logs',
+	'Users',
+	'Audit',
+	'System'
+] as const;
 
 export type DashboardTab = (typeof dashboardTabs)[number];
 export const metricsWindows = ['1h', '24h', '7d'] as const;

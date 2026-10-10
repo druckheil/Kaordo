@@ -147,6 +147,12 @@ Implemented cleanup:
 
 Planned: snapshot and backup retention, Nix generation retention and garbage collection, release directories beyond `releasesKeep` (preserving active and previous releases), and reports of reclaimed space. The migration's selective retirement of ext4 boot generations is an operator step, not an implemented retention scheduler.
 
+## Usage
+
+The agent measures every hour, and on request, what fills the pool: the operating system, the Nix store, logs, the database, uploaded files, metrics, app versions, temporary files and other server data. Each area is walked within its own subvolume, hard-linked files count once, and Btrfs metadata is whatever the pool stores beyond the files. Measurements are kept for 92 days in `/var/lib/regado-agent/usage`, giving each area's growth over a day and a week and a projection of when the pool fills; a projection under 30 days raises an alert, under 7 days a critical one.
+
+Kerno adds what only the database knows: each account's uploaded files and encrypted records by application, what it added this week, the databases and their largest tables with dead rows. Content is encrypted on devices, so Regado shows sizes and applications, never what a file shows. Regado's Usage tab draws the pool as 100%, flags an area that grows fast (a system area growing on its own points at a service bug), an account that added at least 512 MiB this week and more than everyone else together, and a table whose dead rows exceed a fifth of its live rows.
+
 ## Alerts
 
 The agent evaluates its facts into alerts every minute. Each alert has a stable key, a severity (`warning` or `critical`), a summary and the times it was first seen, last seen and resolved. Every transition (opened, escalated, resolved) gets a sequence number in `/var/lib/regado-agent/alerts`.

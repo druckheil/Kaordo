@@ -60,7 +60,7 @@ test('Regado charts follow repeated viewport changes without resize feedback', a
 	}
 });
 
-for (const section of ['Storage', 'Logs', 'Users', 'Audit', 'System']) {
+for (const section of ['Storage', 'Usage', 'Logs', 'Users', 'Audit', 'System']) {
 	test(`Regado ${section} has accessible desktop and mobile layouts`, async ({
 		regado: { page }
 	}, testInfo) => {
@@ -427,6 +427,67 @@ test('Regado alerts are listed and push notifications are configured and tested'
 		dialog.getByText('Test notice sent to Saved messages · ntfy: sent', { exact: true })
 	).toBeVisible();
 	expect(host.tests).toEqual([{ url: 'https://ntfy.sh', topic }]);
+});
+
+test('Regado usage shows the whole pool, runaway growth, heavy accounts and lagging tables', async ({
+	regado: { page, host }
+}) => {
+	await openSection(page, 'Usage');
+	const overview = page.getByRole('region', { name: 'What fills the pool', exact: true });
+	await expect(
+		overview.getByRole('img', { name: /^Pool contents: Uploaded files 32\.\d%/ })
+	).toBeVisible();
+	const contents = overview.getByRole('list', { name: 'Pool contents', exact: true });
+	await expect(contents.getByRole('listitem')).toHaveCount(10);
+	await expect(
+		contents.getByRole('listitem', { name: 'Logs', exact: true }).getByText(/^Unusual growth/)
+	).toBeVisible();
+	await expect(
+		contents
+			.getByRole('listitem', { name: 'Uploaded files', exact: true })
+			.getByText(/1\.0 GiB are not linked to any content/)
+	).toBeVisible();
+	await expect(
+		contents.getByRole('listitem', { name: 'Filesystem metadata', exact: true })
+	).toBeVisible();
+	await expect(
+		overview.getByText('Full in about 120 days at last week’s pace', { exact: true })
+	).toBeVisible();
+
+	const history = page.getByRole('region', { name: 'How it grew', exact: true });
+	await expect(history.getByRole('img', { name: /over the last 7d/ })).toBeVisible();
+	await history.getByRole('radio', { name: '30d', exact: true }).click();
+	await expect(history.getByRole('img', { name: /over the last 30d/ })).toBeVisible();
+	expect(host.usageWindows).toContain('30d');
+
+	const accounts = page.getByRole('region', { name: 'Accounts', exact: true });
+	await expect(
+		accounts
+			.getByRole('list', { name: 'Accounts by size', exact: true })
+			.getByRole('listitem')
+			.first()
+	).toHaveAccessibleName('@member');
+	await expect(
+		accounts
+			.getByRole('listitem', { name: '@member', exact: true })
+			.getByText('Unusual this week: 2.0 GiB added', { exact: true })
+	).toBeVisible();
+	await expect(
+		accounts.getByRole('listitem', { name: '@operator', exact: true }).getByText(/^Unusual/)
+	).toHaveCount(0);
+
+	const database = page.getByRole('region', { name: 'Database', exact: true });
+	await expect(
+		database.getByRole('row', { name: /ligo_messages/ }).getByLabel('Cleanup lags behind updates')
+	).toBeVisible();
+	await expect(
+		database.getByRole('row', { name: /fluo_posts/ }).getByLabel('Cleanup lags behind updates')
+	).toHaveCount(0);
+
+	await overview.getByRole('button', { name: 'Measure now', exact: true }).click();
+	await expect.poll(() => host.measurements()).toBe(1);
+	await expect(overview.getByRole('button', { name: 'Measure now', exact: true })).toBeEnabled();
+	await accessibility(page, 'Usage');
 });
 
 test('Regado media checks and cleanup are confirmed and report progress', async ({
