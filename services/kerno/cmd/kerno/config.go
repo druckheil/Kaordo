@@ -26,6 +26,8 @@ type config struct {
 	LiveKitAPISecret string
 	// NtfyToken authorizes publishing to protected ntfy topics; public topics need none
 	NtfyToken string
+	// DeployWorkflow is the GitHub workflow_ref whose push runs may deploy; empty disables deployments
+	DeployWorkflow string
 }
 
 func loadConfig() (config, error) {
@@ -56,6 +58,7 @@ func readConfig() config {
 		LiveKitAPISecret: os.Getenv("LIVEKIT_API_SECRET"),
 		AllowedOrigins:   splitOrigins(os.Getenv("KAORDO_ALLOWED_ORIGINS")),
 		NtfyToken:        os.Getenv("KAORDO_NTFY_TOKEN"),
+		DeployWorkflow:   os.Getenv("KAORDO_DEPLOY_WORKFLOW"),
 	}
 }
 

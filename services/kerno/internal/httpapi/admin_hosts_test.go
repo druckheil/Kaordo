@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,12 @@ func (stub hostAgentStub) Usage(_ context.Context, window string) (json.RawMessa
 }
 func (stub hostAgentStub) MeasureUsage(context.Context) (json.RawMessage, error) {
 	return json.RawMessage(`{"measuring":true}`), stub.err
+}
+func (stub hostAgentStub) Deploy(_ context.Context, run int64) (json.RawMessage, error) {
+	return json.RawMessage(`{"run":` + strconv.FormatInt(run, 10) + `,"state":"waiting"}`), stub.err
+}
+func (stub hostAgentStub) Deployment(_ context.Context, run int64) (json.RawMessage, error) {
+	return json.RawMessage(`{"run":` + strconv.FormatInt(run, 10) + `,"state":"deploying"}`), stub.err
 }
 func (stub hostAgentStub) StartCheck(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return json.RawMessage(`{"id":"op-1","kind":"integrity.scrub"}`), stub.err

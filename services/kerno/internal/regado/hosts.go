@@ -51,6 +51,18 @@ func (client *SystemClient) MeasureUsage(ctx context.Context) (json.RawMessage, 
 	return client.call(ctx, http.MethodPost, "/usage/measure", nil)
 }
 
+func (client *SystemClient) Deploy(ctx context.Context, run int64) (json.RawMessage, error) {
+	body, err := json.Marshal(map[string]int64{"run": run})
+	if err != nil {
+		return nil, err
+	}
+	return client.call(ctx, http.MethodPost, "/deployments", body)
+}
+
+func (client *SystemClient) Deployment(ctx context.Context, run int64) (json.RawMessage, error) {
+	return client.call(ctx, http.MethodGet, "/deployments/"+strconv.FormatInt(run, 10), nil)
+}
+
 func (client *SystemClient) StartCheck(ctx context.Context, check json.RawMessage) (json.RawMessage, error) {
 	return client.call(ctx, http.MethodPost, "/operations", check)
 }

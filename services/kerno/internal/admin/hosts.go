@@ -27,6 +27,8 @@ type HostAgent interface {
 	Alerts(ctx context.Context, after int64) (json.RawMessage, error)
 	Usage(ctx context.Context, window string) (json.RawMessage, error)
 	MeasureUsage(context.Context) (json.RawMessage, error)
+	Deploy(ctx context.Context, run int64) (json.RawMessage, error)
+	Deployment(ctx context.Context, run int64) (json.RawMessage, error)
 }
 
 // AgentError carries an agent's refusal: its HTTP status and operator-facing message.
@@ -209,6 +211,23 @@ func (hosts *Hosts) MeasureUsage(ctx context.Context, id string) (json.RawMessag
 		return nil, err
 	}
 	return agent.MeasureUsage(ctx)
+}
+
+// Deploy asks the host to install the release that a trusted GitHub Actions run built.
+func (hosts *Hosts) Deploy(ctx context.Context, id string, run int64) (json.RawMessage, error) {
+	agent, err := hosts.agent(id)
+	if err != nil {
+		return nil, err
+	}
+	return agent.Deploy(ctx, run)
+}
+
+func (hosts *Hosts) Deployment(ctx context.Context, id string, run int64) (json.RawMessage, error) {
+	agent, err := hosts.agent(id)
+	if err != nil {
+		return nil, err
+	}
+	return agent.Deployment(ctx, run)
 }
 
 // DiffDocuments lists changed leaves between two JSON documents; arrays compare as whole values.

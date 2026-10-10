@@ -72,6 +72,7 @@ func newHTTPRouter(ctx context.Context, cfg config, pool *pgxpool.Pool, verify t
 			Vault:      httpapi.VaultDependencies{Store: postgres.NewVault(pool)},
 			Memoro: httpapi.MemoroDependencies{Store: postgres.NewMemoro(pool), Media: mediaClient,
 				MediaBaseURL: cfg.NodoPublicURL, MediaSignKey: cfg.MediaSigningKey},
+			Deployments: deploymentDependencies(ctx, cfg, admins.Hosts),
 		},
 		cfg.AllowedOrigins,
 	)
@@ -126,6 +127,17 @@ func adminDependencies(cfg config, pool *pgxpool.Pool) httpapi.AdminDependencies
 		Media:   nodoclient.Client{BaseURL: cfg.NodoInternalURL, InternalKey: cfg.MediaSigningKey},
 		Hosts:   hosts,
 		Alerts:  admin.NewAlertDelivery(hosts, store, push, time.Now),
+	}
+}
+
+// GitHub Actions tokens are issued for Kerno's public origin, the first allowed origin
+func deploymentDependencies(ctx context.Context, cfg config, hosts *admin.Hosts) httpapi.DeploymentDependencies {
+	if cfg.DeployWorkflow == "" || len(cfg.AllowedOrigins) == 0 {
+		return httpapi.DeploymentDependencies{}
+	}
+	return httpapi.DeploymentDependencies{
+		Verify: identity.NewGitHubVerifier(ctx, cfg.AllowedOrigins[0], cfg.DeployWorkflow),
+		Hosts:  hosts,
 	}
 }
 

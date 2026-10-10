@@ -9,13 +9,14 @@ import (
 )
 
 type Modules struct {
-	Vault      VaultDependencies
-	Fluo       FluoDependencies
-	Ligo       LigoDependencies
-	Rondo      RondoDependencies
-	Admin      AdminDependencies
-	Encryption EncryptionDependencies
-	Memoro     MemoroDependencies
+	Vault       VaultDependencies
+	Fluo        FluoDependencies
+	Ligo        LigoDependencies
+	Rondo       RondoDependencies
+	Admin       AdminDependencies
+	Encryption  EncryptionDependencies
+	Memoro      MemoroDependencies
+	Deployments DeploymentDependencies
 }
 
 func NewRouter(verify VerifyFunc, users account.Store, modules Modules, allowedOrigins []string) http.Handler {
@@ -44,6 +45,9 @@ func NewRouter(verify VerifyFunc, users account.Store, modules Modules, allowedO
 	}
 	if modules.Memoro.Store != nil {
 		mountMemoro(router, verify, users, modules.Memoro)
+	}
+	if modules.Deployments.Verify != nil && modules.Deployments.Hosts != nil {
+		mountDeployments(router, modules.Deployments)
 	}
 	return router
 }
