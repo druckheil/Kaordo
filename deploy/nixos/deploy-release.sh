@@ -45,14 +45,9 @@ previous_release=
 services=(caddy keycloak postgresql livekit kerno nodo regado-agent prometheus prometheus-node-exporter ddclient.timer)
 
 mkdir -p "$temporary_root" "$data_root/releases" "$data_root/rollbacks"
-lock_owned=0
-if [[ "${KAORDO_DEPLOY_LOCK_HELD:-}" == "$release_id" ]]; then
-  [[ -d "$lock" ]] || { echo 'coordinated deployment lock is missing' >&2; exit 1; }
-elif ! mkdir "$lock" 2>/dev/null; then
+if ! mkdir "$lock" 2>/dev/null; then
   echo 'another production deployment is already running' >&2
   exit 1
-else
-  lock_owned=1
 fi
 
 wait_for_http() {
@@ -140,7 +135,7 @@ restore_release() {
   fi
   rm -rf "$staging"
   rm -f "$archive"
-  if [[ "$lock_owned" -eq 1 ]]; then rmdir "$lock" 2>/dev/null || true; fi
+  rmdir "$lock" 2>/dev/null || true
   exit "$status"
 }
 trap restore_release EXIT
@@ -190,6 +185,19 @@ for path in bin/kerno bin/nodo bin/regado-agent manifest.json site/index.html \
   etc/nixos/deploy/nixos/sync-keycloak-production.mjs etc/nixos/scripts/sync-keycloak.mjs; do
   [[ -s "$staging/$path" ]] || { printf 'release is missing %s\n' "$path" >&2; exit 1; }
 done
+
+# Read-only snapshots of the databases and uploads let an operator undo this release's data
+# changes. They share unchanged blocks with the live data; the newest three are kept
+snapshot="$data_root/snapshots/$(date -u +%Y%m%dT%H%M%SZ)-$release_id"
+mkdir -p "$snapshot"
+for volume in postgresql media; do
+  btrfs subvolume snapshot -r "$data_root/$volume" "$snapshot/$volume" >/dev/null
+done
+for old in $(find "$data_root/snapshots" -mindepth 1 -maxdepth 1 -type d | sort -r | tail -n +4); do
+  btrfs subvolume delete "$old"/* >/dev/null
+  rmdir "$old"
+done
+
 mv "$staging" "$release_root"
 chmod 0755 "$data_root/releases" "$release_root"
 mkdir -m 0700 "$backup_root"

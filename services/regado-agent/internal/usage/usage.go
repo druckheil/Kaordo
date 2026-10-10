@@ -35,19 +35,16 @@ func Areas(mount string) []Area {
 		}
 		return paths
 	}
-	// Automatic deployment builds in the pool and keeps its controller state on the system
-	const deploymentState = "/var/lib/kaordo-cd"
 	return []Area{
-		{Key: "system", Paths: []string{"/"}, Exclude: []string{"/tmp", "/var/tmp", deploymentState}},
+		{Key: "system", Paths: []string{"/"}, Exclude: []string{"/tmp", "/var/tmp"}},
 		{Key: "nix", Paths: []string{"/nix"}},
 		{Key: "logs", Paths: []string{"/var/log"}},
 		{Key: "database", Paths: app("postgresql")},
 		{Key: "media", Paths: app("media")},
 		{Key: "metrics", Paths: app("prometheus")},
 		{Key: "releases", Paths: app("releases", "rollbacks", "www", "bin")},
-		{Key: "deployment", Paths: append(app("cd-build", "deployment-backups"), deploymentState)},
 		{Key: "temporary", Paths: append([]string{"/tmp", "/var/tmp"}, app("tmp")...)},
-		{Key: "other", Paths: []string{mount}, Exclude: app("postgresql", "media", "prometheus", "releases", "rollbacks", "www", "bin", "cd-build", "deployment-backups", "tmp")},
+		{Key: "other", Paths: []string{mount}, Exclude: app("postgresql", "media", "prometheus", "releases", "rollbacks", "www", "bin", "tmp")},
 	}
 }
 

@@ -16,7 +16,25 @@ components:
       in: header
       name: X-Kaordo-Internal-Token
       description: Derived token shared only by the local Kerno and Nodo processes.
+    githubActions:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: GitHub Actions OIDC token for Kerno's public origin, minted by a push run of the configured deployment workflow
   schemas:
+    Deployment:
+      type: object
+      required: [run, state, updatedAt]
+      description: The last state the production deployment of one GitHub Actions run reported
+      properties:
+        run: { type: integer, format: int64 }
+        revision: { type: string, description: The commit the run built }
+        state: { type: string, enum: [waiting, deploying, succeeded, superseded, failed] }
+        message: { type: string }
+        rollbackFailed:
+          type: boolean
+          description: The release failed and restoring the previous one did too; production may be inconsistent
+        updatedAt: { type: string, format: date-time }
     HostIdentity:
       type: object
       required: [name, machineId, firmware, poolMount]
@@ -354,7 +372,6 @@ components:
               media,
               metrics,
               releases,
-              deployment,
               temporary,
               other,
               metadata,
@@ -2007,6 +2024,30 @@ components:
       description: An agent refusal (400, 404, 409, 422) with its operator-facing message, or 503 when the agent is unavailable
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 paths:
+  /v1/deployments:
+    post:
+      operationId: requestDeployment
+      description: Installs the release the calling run built, once that run's revision is still the branch head
+      security: [{ githubActions: [] }]
+      responses:
+        '200':
+          description: The deployment is waiting for another one or running
+          content: { application/json: { schema: { $ref: '#/components/schemas/Deployment' } } }
+        '401': { description: The token is not a trusted workflow run's }
+        default: { $ref: '#/components/responses/RegadoHostError' }
+  /v1/deployments/{run}:
+    get:
+      operationId: getDeployment
+      security: [{ githubActions: [] }]
+      parameters:
+        - { name: run, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: The run's deployment
+          content: { application/json: { schema: { $ref: '#/components/schemas/Deployment' } } }
+        '401': { description: The token is not a trusted workflow run's }
+        '403': { description: A run reads only its own deployment }
+        default: { $ref: '#/components/responses/RegadoHostError' }
   /v1/fluo/keyring:
     get:
       operationId: getFluoKeyring

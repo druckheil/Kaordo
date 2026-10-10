@@ -438,8 +438,7 @@ test('Regado usage shows the whole pool, runaway growth, heavy accounts and lagg
 		overview.getByRole('img', { name: /^Pool contents: Uploaded files 25\.\d%/ })
 	).toBeVisible();
 	const contents = overview.getByRole('list', { name: 'Pool contents', exact: true });
-	await expect(contents.getByRole('listitem')).toHaveCount(12);
-	await expect(contents.getByRole('listitem', { name: 'Deployments', exact: true })).toBeVisible();
+	await expect(contents.getByRole('listitem')).toHaveCount(11);
 	await expect(
 		contents.getByRole('listitem', { name: 'Logs', exact: true }).getByText(/^Unusual growth/)
 	).toBeVisible();

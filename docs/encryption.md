@@ -134,11 +134,11 @@ scheme does not protect against compromised devices, recipient copies or
 screenshots, or provide cryptographic deletion of keys already shared.
 
 Automatic deployment trusts protected `main` and complete CI for its exact Git
-revision. Build processes cannot read production data or server secrets, and
-GitHub runners receive no production credentials. Deployment checkpoints remain
-encrypted and private on the host. These controls preserve the current storage
-boundaries; they cannot prove that newly delivered application code is harmless.
-Repository write/administration access remains part of the trusted computing base.
+revision. GitHub runners build releases without production credentials or data;
+the server accepts only the deployment job's OIDC token and installs the run's
+own artifact. These controls preserve the current storage boundaries; they
+cannot prove that newly delivered application code is harmless. Repository
+write/administration access remains part of the trusted computing base.
 
 ## Code map
 

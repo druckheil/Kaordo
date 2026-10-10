@@ -17,34 +17,16 @@ Never forward PostgreSQL, 7880 or 8080–8082. Caddy issues certificates over TC
 
 ## Deploy
 
-Merging into protected `main` authorizes an automatic production deployment after a complete successful push CI run ([CI](../../docs/ci.md)). Scope branches and pull requests run tests only. The server pulls public Git source and checks evidence through outbound HTTPS; CD opens no additional port and places no SSH key, server secret, user data or device key in GitHub Actions.
-
-`cd.nix` runs a one-minute poller and an isolated `kaordo-build` user. The controller verifies the current main SHA, repository/workflow identity and every validation layer, then builds a clean revision without access to production data. The build yields to the services: it runs at idle CPU and disk priority, is pushed to swap above 1 GiB, is killed first under memory pressure, and leaves only the finished archive behind. It rechecks the SHA and CI before switching. Initial state records the current main and production manifest, so enabling CD does not downgrade a production scope release. Keep required validation job names stable; renaming them requires commissioning the updated controller before merging the workflow change.
-
-For initial commissioning, copy the tested `cd.nix`, `cd-build.sh`, `cd.mjs`, `checkpoint.mjs`, `deploy-release.sh`, `verify-release.mjs` and `bootstrap-cd.sh` together to the host, then run `sudo bash bootstrap-cd.sh`. The bootstrap records the current main and active manifest, adds a stable NixOS import, activates only the CD infrastructure, and restores the old configuration/closure if setup fails. It refuses to overwrite existing CD state. Subsequent updates travel through main. To prepare a complete release without contacting a server, use `node scripts/deploy-production.mjs --build-only /path/to/output` from a clean checkout.
-
-Check deployment state without displaying secrets:
+Merging into `main` deploys: GitHub Actions builds and verifies the release, and its final job asks Kerno at `https://kaordo.link/v1/deployments` to install it ([CI](../../docs/ci.md)). The request carries only a GitHub OIDC token; no SSH key, server secret or user data reaches GitHub, and the server builds nothing. Kerno relays a trusted run to regado-agent, which starts `kaordo-deploy@<run>` from `cd.nix`. That unit downloads the run's artifact with the read-only token in `/srv/kaordo/secrets/github-actions-token` (fine-grained, Actions read on this repository) and runs `deploy-release.sh`. Each run's state is in `/var/lib/kaordo-deploy/<run>.json`:
 
 ```sh
-sudo systemctl status kaordo-cd.timer kaordo-cd.service kaordo-cd-activate.service
-sudo journalctl -u kaordo-cd.service -u kaordo-cd-activate.service
-sudo cat /var/lib/kaordo-cd/state.json
-sudo cat /var/lib/kaordo-cd/checkpoint.json
+sudo journalctl -u 'kaordo-deploy@*'
+sudo cat /var/lib/kaordo-deploy/<run>.json
 ```
 
-State contains commit hashes, CI evidence, status and error summaries. An activation owns the shared host lock and continues through a newer push or poller rebuild. Regado alerts when the current main does not reach production:
+A failed deployment fails the GitHub job and raises a Regado alert; production keeps the previous release unless the alert is critical because the rollback failed too. Re-run the job to retry. A lock left at `/srv/kaordo/tmp/production-deploy.lock` by a power loss blocks every deployment; remove it only after confirming none runs.
 
-- `failed` (warning): the build, a checkpoint, the host lock or the release checks stopped the attempt and production keeps the previous release. A newer main or a new successful CI attempt retries; the same attempt never repeats.
-- `halted` (critical): an activation stopped without finishing, failed live verification or could not roll back, so production may be inconsistent. Nothing deploys until an operator inspects services and the active manifest, repairs the host (for example with a manual deployment) and resumes.
-
-A lock left by a power loss blocks every deployment; remove it only after confirming no deployment runs. Resuming clears a failed or halted state and retries the current main:
-
-```sh
-sudo rmdir /srv/kaordo/tmp/production-deploy.lock # only when it is stale
-sudo node /etc/nixos/deploy/nixos/cd.mjs resume
-```
-
-Manual commands remain available for an explicitly authorized recovery or release ([releases](../../docs/releases.md)). Both require a clean tree (`--allow-dirty` marks an intentional exception) and share the CD host lock. SSH uses `KAORDO_DEPLOY_SSH_KEY` or the default key, and the account needs non-interactive `sudo`.
+Manual commands remain available for an explicitly authorized recovery or release ([releases](../../docs/releases.md)). Both require a clean tree (`--allow-dirty` marks an intentional exception) and share the host lock with automatic deployments. SSH uses `KAORDO_DEPLOY_SSH_KEY` or the default key, and the account needs non-interactive `sudo`.
 
 ```sh
 KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:production
@@ -52,7 +34,7 @@ KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:production
 
 `deploy:production` runs the frontend, deployment and Go checks, cross-builds Kerno, Nodo and regado-agent for Linux amd64, and uploads one checksummed bundle. The bundle holds the apps, NixOS configuration, and Keycloak policy and theme; migrations are embedded in Kerno. A source change during the build aborts. On the host, `deploy-release.sh`:
 
-1. builds the NixOS closure and verifies the manifest;
+1. snapshots the database and media subvolumes read-only into `/srv/kaordo/snapshots`, keeping the newest three, then builds the NixOS closure and verifies the manifest;
 2. snapshots the current Keycloak policy for rollback;
 3. installs the binaries and switches NixOS; Kerno applies pending migrations as it starts;
 4. reconciles Keycloak and activates the frontend;
@@ -60,11 +42,9 @@ KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:production
 
 Any failure restores the previous frontend, binaries, closure, configuration and Keycloak policy. Migrations are not rolled back, so they must stay compatible with the previous release. The active release is recorded in `/srv/kaordo/releases/current`.
 
-### Deployment checkpoints
+### Data snapshots
 
-Automatic deployment first briefly stops Kerno, Nodo and Keycloak to drain writes, dumps both PostgreSQL databases and snapshots media read-only, then resumes the services. Restic encrypts the matching data, runtime secrets and NixOS configuration in `/srv/kaordo/deployment-backups`; its random password stays in the root-only secrets directory. The controller checks repository metadata, reads back both dumps and restores them into disposable databases before deployment. Restore errors block deployment; temporary databases, dumps and media snapshots are removed. Backup commands suppress output containing data or credentials. Five verified checkpoints are retained in this dedicated repository.
-
-These checkpoints share the production disks. They help recover from a release error but are **not an independent backup**. They do not continuously back up new writes, and the metadata check is not a full read of every historical media pack. Configure an independent encrypted destination and preserve its recovery password for server/disk-loss recovery. Checkpoints may contain clear account/profile metadata and server credentials inside restic encryption; account private keys and recovery secrets remain on user devices. Database restore is an operator recovery action, never an automatic rollback that could overwrite writes made after activation.
+The snapshots are instant and stop nothing; they share unchanged blocks with the live data on the same disks and are **not a backup**. They undo a release's data changes: stop Kerno, Nodo and Keycloak, then PostgreSQL, replace the live subvolume with a writable snapshot of its copy, and start the services. Doing so discards every write made since.
 
 ```sh
 KAORDO_DEPLOY_HOST=nixos@192.168.178.81 pnpm deploy:pages:production

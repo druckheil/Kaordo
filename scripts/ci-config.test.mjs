@@ -156,3 +156,21 @@ test('browser engine audit preserves every synthetic scenario without credential
 		assert.ok(!project.testMatch.includes('auth-live.integration.mjs'));
 	}
 });
+
+test('only the deployment job after the checks gate of a main push can request production', () => {
+	const workflow = readFileSync(
+		new URL('../.github/workflows/checks.yml', import.meta.url),
+		'utf8'
+	);
+	const deploy = workflow.slice(workflow.indexOf('\n  deploy:'));
+	assert.match(
+		deploy,
+		/needs: \[checks\]\n\s+if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/
+	);
+	assert.equal(workflow.match(/id-token: write/g)?.length, 1, 'One job may mint OIDC tokens');
+	assert.match(deploy, /id-token: write/);
+	assert.match(
+		workflow,
+		/if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\n\s+uses: actions\/upload-artifact@[a-f0-9]{40} # v7\n\s+with:\n\s+name: production-release/
+	);
+});

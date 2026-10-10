@@ -4,6 +4,39 @@
  */
 
 export interface paths {
+    "/v1/deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Installs the release the calling run built, once that run's revision is still the branch head */
+        post: operations["requestDeployment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/deployments/{run}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getDeployment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/fluo/keyring": {
         parameters: {
             query?: never;
@@ -1250,6 +1283,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The last state the production deployment of one GitHub Actions run reported */
+        Deployment: {
+            /** Format: int64 */
+            run: number;
+            /** @description The commit the run built */
+            revision?: string;
+            /** @enum {string} */
+            state: "waiting" | "deploying" | "succeeded" | "superseded" | "failed";
+            message?: string;
+            /** @description The release failed and restoring the previous one did too; production may be inconsistent */
+            rollbackFailed?: boolean;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         HostIdentity: {
             name: string;
             machineId: string;
@@ -1487,7 +1534,7 @@ export interface components {
         };
         HostUsageCategory: {
             /** @enum {string} */
-            key: "system" | "nix" | "logs" | "database" | "media" | "metrics" | "releases" | "deployment" | "temporary" | "other" | "metadata" | "unreferenced";
+            key: "system" | "nix" | "logs" | "database" | "media" | "metrics" | "releases" | "temporary" | "other" | "metadata" | "unreferenced";
             /** @description Logical file sizes; metadata is reported by the filesystem, unreferenced is the positive remainder of stored pool usage after subtracting file sizes and metadata, without determining its cause */
             bytes: number;
             files: number;
@@ -2602,6 +2649,71 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    requestDeployment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deployment is waiting for another one or running */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Deployment"];
+                };
+            };
+            /** @description The token is not a trusted workflow run's */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    getDeployment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run's deployment */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Deployment"];
+                };
+            };
+            /** @description The token is not a trusted workflow run's */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A run reads only its own deployment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
     getFluoKeyring: {
         parameters: {
             query?: never;

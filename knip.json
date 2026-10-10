@@ -29,6 +29,6 @@
 			"project": ["src/**/*.{ts,svelte}"]
 		}
 	},
-	"ignoreBinaries": ["go", "restic", "runuser"],
+	"ignoreBinaries": ["go", "restic"],
 	"ignoreDependencies": ["tailwindcss"]
 }

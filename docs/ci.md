@@ -1,6 +1,6 @@
 # CI
 
-`.github/workflows/checks.yml` runs on pushes to `main` and `scope-*`, on pull requests and on manual dispatch. A new commit cancels the older run for the same ref. Branch protection requires the final `checks` job. That job passes only when every layer below succeeded; a skipped or cancelled layer fails it. `scope-*` runs validate only. Production's independent pull service deploys the current `main` after verifying its successful push run and every validation job. GitHub runners have no server credentials or connection to production data.
+`.github/workflows/checks.yml` runs on pushes to `main` and `scope-*`, on pull requests and on manual dispatch. A new commit cancels the older run for the same ref. Branch protection requires the final `checks` job. That job passes only when every layer below succeeded; a skipped or cancelled layer fails it. `scope-*` runs validate only. On a push to `main`, a final job asks production to install the release that run built.
 
 ## Layers
 
@@ -8,25 +8,21 @@
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
 | Frontend and unit tests        | `check:front`, generated-contract diff, `format:check`, `lint`, `knip`, `test:unit`                                                                          | —                  |
 | Static app artifact            | `test:pages`: builds every app once and uploads the artifact                                                                                                 | —                  |
-| Production release payload     | Production-origin frontend checks, Linux backend build and complete release-manifest verification; the bundle stays on the disposable runner                 | —                  |
+| Production release payload     | Production-origin frontend checks, Linux backend build and complete release-manifest verification; kept as the `production-release` artifact on `main`       | —                  |
 | Browser fixtures (3 shards)    | `test:ui`: Playwright scenarios with synthetic data, accessibility and layout checks                                                                         | frontend, artifact |
 | Go services and PostgreSQL     | Go build/vet/race tests, `golangci-lint`, regado-agent host tests on loop devices (`test:host`), actionlint, `product-db.integration.mjs` on a disposable DB | —                  |
 | Identity, product and recovery | `test:integration`: real Keycloak, Kerno, Nodo, LiveKit and restic against the built artifact                                                                | frontend, artifact |
 | Dependency advisories          | `pnpm audit` and `govulncheck` per Go module                                                                                                                 | —                  |
 
-Browser and integration jobs use the **same run's** static artifact, built with local endpoints. The separate production payload job uses public production endpoints and verifies the same packaging path as the host builder. It never receives production secrets, uploads the production bundle or deploys.
+Browser and integration jobs use the **same run's** static artifact, built with local endpoints. The separate production payload job uses public production endpoints and the same packaging path as `pnpm deploy:production`. It never receives production secrets.
 
 ## Automatic deployment
 
-The NixOS `kaordo-cd.timer` checks public `main` once a minute, plus up to ten seconds of jitter. A matching successful `push` run of `checks.yml` must belong to repository ID `1333035875` and workflow ID `370320419`; its current attempt must include every named validation job with a successful conclusion. Pull requests, scope branches, manual-dispatch runs, forks, stale commits, failed/skipped jobs and older successful attempts cannot authorize deployment. An unchanged or waiting revision stays quiet after its first state update.
+GitHub builds; the server only installs. After `checks` passes on a push to `main`, the `deploy` job, the only one allowed to mint an OIDC token, sends that token to `https://kaordo.link/v1/deployments`. Kerno accepts it only when GitHub signed it for that origin and its `workflow_ref` is the one `cd.nix` names, then asks regado-agent to start `kaordo-deploy@<run>`. The job polls the run's state and fails when the deployment fails, so the `production` environment in GitHub shows each result.
 
-The host rebuilds that exact clean revision as `kaordo-build`. Each build starts with a fresh checkout, dependency/toolchain workspace and outputs. Its systemd sandbox can write only `/srv/kaordo/cd-build`; production media, databases, runtime sockets, recovery copies, home directories and secrets are inaccessible. Pnpm follows `packageManager` and the lockfile; Go follows the checked-in toolchain and module sums. Existing migrations cannot change, and the candidate must contain the active production revision in its Git history. No dependency installation runs with production privileges.
+The unit downloads the run's `production-release` artifact with a read-only token and installs it with `deploy-release.sh` only if the run is that workflow's push to `main`, passed `checks`, is still the branch head, contains the revision production runs, and its download and archive match GitHub's digest and the clean manifest. Deployments queue behind each other; an older run ends `superseded`. A rejected release leaves the previous one running; re-running the deploy job retries it. Regado alerts on a failed deployment, critically when the rollback failed too. See [production](../deploy/nixos/README.md).
 
-The controller rechecks `main` and CI after the build and before activation. It verifies the archive checksum and clean manifest, takes a verified encrypted deployment checkpoint, and uses the same host lock as operator deployments. A separate transient activation unit survives newer commits and NixOS changes to the poller. Frontend, binaries, configuration and identity policy roll back on failed post-checks; forward-only database migrations remain. A failed attempt leaves production on the previous release and stays stopped until a newer main or successful CI attempt authorizes another try; a held host lock fails the attempt instead of rebuilding it. An activation that stops unfinished, fails live verification or cannot roll back halts automatic deployment until an operator resumes it. Regado alerts on both.
-
-The bootstrap state records the existing `main` and the active production manifest, so installing CD does not deploy an older `main` over a newer scope release. The next merged `main` must include that production history. Main protection requires an up-to-date PR and the GitHub Actions `checks` context, applies to administrators, and disallows force pushes and deletion. Merge commits preserve deployed ancestry; squash and rebase merging are disabled. No additional review approval is required. A merge into protected `main` is deployment authorization; version tags and public release notes remain separate operations. See [production](../deploy/nixos/README.md) for host status and recovery.
-
-While CI is pending, evidence queries are spaced by two minutes. A failed deployment checks for a new successful CI attempt once every ten minutes and never repeats the failed attempt. This bounds unauthenticated GitHub API requests while retaining automatic recovery through a new validated commit or run attempt.
+Main protection requires an up-to-date PR and the `checks` context, applies to administrators, and disallows force pushes and deletion; squash and rebase merging are disabled. A merge into `main` is deployment authorization; version tags and release notes remain separate operations.
 
 ## Local reproduction
 
@@ -96,35 +92,6 @@ The complete [Svelte dependency discovery run](https://github.com/druckheil/Kaor
 | Final checks gate                    | 3s       |
 
 Job durations include dependency setup and cleanup. Every pnpm setup restored its package cache through a matching restore key; the Go and golangci-lint caches also hit. Browser installation and each fixture's Vite optimization were fresh. The unit suite measured both empty and reused Vite caches on the hosted runner, as shown below. No hosted run with empty pnpm and Go caches was measured for this change, so the workflow total is a warm dependency-cache result.
-
-### Pull deployment validation
-
-The complete [CD validation run](https://github.com/druckheil/Kaordo/actions/runs/38057803549) on 2026-10-10 tested `28f40ee2583753649b95f2dc7047a7aaaff96ad5` on `scope-0.0.4`. All ten jobs passed in 9m23s from workflow creation to the final gate, including 38 seconds before the first job started. It ran 206 Node tests, 68 browser scenarios with zero retries, all five live journeys, the complete Linux production payload, Go/PostgreSQL/host checks and dependency audits.
-
-| Job                                  | Duration |
-| ------------------------------------ | -------- |
-| Frontend and unit tests              | 3m24s    |
-| Static app artifact                  | 1m16s    |
-| Production release payload           | 1m50s    |
-| Browser fixtures and accessibility 1 | 2m49s    |
-| Browser fixtures and accessibility 2 | 5m13s    |
-| Browser fixtures and accessibility 3 | 4m45s    |
-| Go services and PostgreSQL           | 4m20s    |
-| Identity, product and recovery       | 4m19s    |
-| Dependency advisories                | 53s      |
-| Final checks gate                    | 3s       |
-
-Pnpm, Go and golangci-lint restored dependency/build caches. Chromium installation and the browser fixtures' Vite caches were fresh; optimizer preparation times are under [Optimizer measurements](#optimizer-measurements).
-
-### Production commissioning
-
-On 2026-10-10, the checked CD infrastructure was activated on the existing NixOS host. Bootstrap recorded main `f87e9b3a4937a73360723c6f037115d1fcf3a735` and the active clean application revision `f723454fcd25272be6d8d4c0cf323e0a3f56eaeb`; it preserved the application release and enabled the timer. Every required application service remained active.
-
-A headless probe inside the deployed builder unit confirmed a non-root UID, `NoNewPrivs=1`, private temporary files, denied access to production secrets, media, PostgreSQL, recovery copies and runtime sockets, and denied writes outside its workspace. It checked access decisions without reading production content.
-
-That same unit built a complete clean payload from `28f40ee2583753649b95f2dc7047a7aaaff96ad5` in 9m51s, with empty pnpm and Go caches, 1.1 GiB peak resident memory and 412 MiB peak swap. The test selected the already checked scope revision through a temporary instance override; the production main guard remained unchanged. All seven static applications, three Linux binaries, the archive checksum and manifest passed. The override and probe scripts were removed, and the candidate was not activated.
-
-The installed checkpoint implementation completed a real encrypted capture and disposable restore of both application and Keycloak databases in 2m21s. Services resumed before backup and restore verification; all temporary databases, plaintext staging and read-only media snapshots were removed. The repository remained root-only with mode `0700`, and its password and checkpoint metadata used `0600`. No dump, credential or user file left the host. This verified a local release checkpoint, not an independent server-loss backup. Application activation through a future main push remains a separate deployment event.
 
 ## Optimizer measurements
 

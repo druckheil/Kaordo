@@ -9,6 +9,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readFile,
+	readdir,
 	readlink,
 	realpath,
 	rm,
@@ -60,10 +61,9 @@ async function payloadFixture() {
 		'bin/nodo': 'new-nodo',
 		'bin/regado-agent': 'new-agent',
 		'etc/nixos/deploy/nixos/kaordo.nix': 'new-nix',
-		'etc/nixos/deploy/nixos/cd.nix': 'new-cd-module',
-		'etc/nixos/deploy/nixos/cd-build.sh': 'new-isolated-builder',
-		'etc/nixos/deploy/nixos/cd.mjs': 'new-deployment-controller',
-		'etc/nixos/deploy/nixos/checkpoint.mjs': 'new-private-checkpoint',
+		'etc/nixos/deploy/nixos/cd.nix': 'new-deployment-module',
+		'etc/nixos/deploy/nixos/deploy.mjs': 'new-deployment-installer',
+		'etc/nixos/deploy/nixos/deploy-release.sh': 'new-release-script',
 		'etc/nixos/deploy/nixos/kaordo-realm.json': '{"rememberMe":true}',
 		'etc/nixos/deploy/nixos/sync-keycloak-production.mjs': 'new-sync',
 		'etc/nixos/scripts/sync-keycloak.mjs': 'new-shared-sync',
@@ -259,6 +259,8 @@ if(name==='systemctl' && args[0]==='show')console.log(100+['kerno','nodo','regad
 if(name==='systemctl' && ['restart','start'].includes(args[0]))for(const item of args.slice(1)){let index=['kerno','nodo','regado-agent'].indexOf(item);if(index>=0)fs.copyFileSync(base+'/data/bin/'+item,base+'/proc/'+(100+index)+'/exe')}
 if(name==='install')fs.copyFileSync(args[args.length-2],args[args.length-1]);
 if(name==='mv')fs.renameSync(args[args.length-2],args[args.length-1]);
+if(name==='btrfs'&&args[1]==='snapshot')fs.mkdirSync(args[args.length-1]);
+if(name==='btrfs'&&args[1]==='delete')for(const item of args.slice(2))fs.rmSync(item,{recursive:true});
 if(name==='sha256sum')console.log(crypto.createHash('sha256').update(fs.readFileSync(args[0])).digest('hex')+'  '+args[0]);
 `;
 	for (const command of [
@@ -268,7 +270,8 @@ if(name==='sha256sum')console.log(crypto.createHash('sha256').update(fs.readFile
 		'install',
 		'mv',
 		'sha256sum',
-		'curl'
+		'curl',
+		'btrfs'
 	]) {
 		const path = join(commands, command);
 		await put(path, stub);
@@ -326,6 +329,9 @@ if(name==='sha256sum')console.log(crypto.createHash('sha256').update(fs.readFile
 test('full deployment activates one snapshot and verifies every declared service', async () => {
 	const fixture = await hostFixture();
 	try {
+		const snapshots = join(fixture.data, 'snapshots');
+		for (const old of ['20261001T000000Z-a', '20261002T000000Z-b', '20261003T000000Z-c'])
+			await mkdir(join(snapshots, old, 'postgresql'), { recursive: true });
 		const result = fixture.run();
 		assert.equal(result.status, 0, result.stderr);
 		assert.match(await readlink(join(fixture.data, 'www/current')), /-full\/site$/);
@@ -337,7 +343,12 @@ test('full deployment activates one snapshot and verifies every declared service
 		const events = await readFile(fixture.events, 'utf8');
 		for (const service of ['livekit', 'prometheus', 'prometheus-node-exporter', 'ddclient.timer'])
 			assert.ok(events.includes(`systemctl:is-active --quiet ${service}`));
+		const kept = (await readdir(snapshots)).sort();
+		assert.deepEqual(kept.slice(0, 2), ['20261002T000000Z-b', '20261003T000000Z-c']);
+		assert.match(kept[2], /^\d{8}T\d{6}Z-v/, 'The release snapshots data before it activates');
+		assert.deepEqual((await readdir(join(snapshots, kept[2]))).sort(), ['media', 'postgresql']);
 		const phases = [
+			'btrfs:subvolume snapshot -r',
 			'verify:payload',
 			'identity:--snapshot',
 			'nixos-rebuild:switch',
