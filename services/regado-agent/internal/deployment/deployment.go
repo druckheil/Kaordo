@@ -4,6 +4,7 @@ package deployment
 // Owns idempotent deployment requests, bounded history and interrupted-unit failure reporting
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -89,6 +90,20 @@ type Deployments struct {
 	Run       command.Runner
 	Directory string
 	mu        sync.Mutex
+}
+
+// Prepare verifies atomic queue writes inside the actual service sandbox before it serves requests.
+func (deployments *Deployments) Prepare() error {
+	name := ".queue-check-" + rand.Text()
+	if err := deployments.store(name, []byte("queue writable\n")); err != nil {
+		return fmt.Errorf("prepare durable deployment queue: %w", err)
+	}
+	root, err := os.OpenRoot(deployments.Directory)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return root.Remove(name)
 }
 
 func unit(run int64, attempt int) string {
@@ -309,11 +324,15 @@ func (deployments *Deployments) record(run int64) (Record, bool, error) {
 }
 
 func (deployments *Deployments) write(record Record) error {
-	if err := os.MkdirAll(deployments.Directory, 0o700); err != nil {
-		return err
-	}
 	data, err := json.Marshal(record)
 	if err != nil {
+		return err
+	}
+	return deployments.store(strconv.FormatInt(record.Run, 10)+".json", append(data, '\n'))
+}
+
+func (deployments *Deployments) store(name string, data []byte) error {
+	if err := os.MkdirAll(deployments.Directory, 0o700); err != nil {
 		return err
 	}
 	root, err := os.OpenRoot(deployments.Directory)
@@ -321,12 +340,11 @@ func (deployments *Deployments) write(record Record) error {
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	name := strconv.FormatInt(record.Run, 10) + ".json"
 	file, err := root.OpenFile(name+".new", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	if _, err := file.Write(append(data, '\n')); err != nil {
+	if _, err := file.Write(data); err != nil {
 		_ = file.Close()
 		return err
 	}

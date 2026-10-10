@@ -81,7 +81,8 @@ in
       RestartSec = 5;
       RuntimeDirectory = "regado-agent";
       RuntimeDirectoryMode = "0750";
-      StateDirectory = "regado-agent";
+      # Accepting a deployment persists its queue before the installer unit starts
+      StateDirectory = [ "regado-agent" "kaordo-deploy" ];
       StateDirectoryMode = "0700";
       NoNewPrivileges = true;
       PrivateNetwork = true;

@@ -55,19 +55,21 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	path := socketPath()
-	listener, err := listenOnUnixSocket(ctx, path)
-	if err != nil {
-		return err
-	}
-	defer listener.Close()
-
 	directory := environment("REGADO_STATE_DIR", defaultStateDir)
 	service, closeService, err := openService(ctx, directory)
 	if err != nil {
 		return err
 	}
 	defer closeService()
+	if err := service.Deployments.Prepare(); err != nil {
+		return err
+	}
+	path := socketPath()
+	listener, err := listenOnUnixSocket(ctx, path)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
 	// Background readers stop before the service closes, even when serving fails
 	watch, stopWatching := context.WithCancel(ctx)
 	var watchers sync.WaitGroup

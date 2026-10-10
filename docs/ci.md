@@ -28,6 +28,8 @@ The installer reports preflight, checksum verification, snapshots, configuration
 
 Regado's administrator-only **Deployments** view shows the latest attempt for each release run, transfer progress, timestamps, errors, rollback result and the newest 300 journal entries. Twenty runs appear in the list; the server keeps 50 run records. API and agent restarts do not discard them. Failed deployments also raise host alerts, critically if rollback failed. See [production](../deploy/nixos/README.md).
 
+Regado-agent declares both its own state and the deployment queue as systemd `StateDirectory` entries. This creates the queue before the first accepted request and grants that directory a write exception under `ProtectSystem=strict`. Before opening its socket, the agent verifies the same atomic write/fsync/rename operation used for queued requests. Linux host tests reproduce a read-only mount with the queue exception and confirm that the surrounding filesystem stays read-only.
+
 The first upgrade from the earlier run-only controller requires an explicitly authorized full production installation. Scope/PR validation does not install this controller or change the currently running release.
 
 Main protection requires an up-to-date PR and the `checks` context, applies to administrators, and disallows force pushes and deletion; squash and rebase merging are disabled. A merge into `main` is deployment authorization; version tags and release notes remain separate operations.

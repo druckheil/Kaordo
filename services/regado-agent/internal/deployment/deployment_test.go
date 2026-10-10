@@ -51,6 +51,23 @@ func TestStoppedUnitCannotRemainDeploying(t *testing.T) {
 	}
 }
 
+func TestQueuePreparationCreatesNoDeploymentAndRejectsAnInvalidDirectory(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "queue")
+	deployments := Deployments{Directory: directory}
+	if err := deployments.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	files, err := os.ReadDir(directory)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("queue probe left files: %v, %v", files, err)
+	}
+	write(t, directory, "not-a-directory", "occupied")
+	deployments.Directory = filepath.Join(directory, "not-a-directory")
+	if err := deployments.Prepare(); err == nil {
+		t.Fatal("an unwritable queue passed startup verification")
+	}
+}
+
 func TestAttemptIsQueuedOnceAndRetryNeedsANewAttempt(t *testing.T) {
 	ctx := context.Background()
 	var started []string
