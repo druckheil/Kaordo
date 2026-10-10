@@ -14,7 +14,10 @@ export default defineConfig({
 	envDir: '../..',
 	server: localViteServer('ligo'),
 	ssr: { noExternal: ['@kaordo/media-client'] },
-	optimizeDeps: { include: mediaDependencies },
+	// Ligo reaches the upload libraries through chat-ui; Vite resolves each step of the chain
+	optimizeDeps: {
+		include: mediaDependencies.map((dependency) => `@kaordo/chat-ui > ${dependency}`)
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

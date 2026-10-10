@@ -11,7 +11,12 @@ export default defineConfig({
 	server: localViteServer('rondo'),
 	ssr: { noExternal: ['@kaordo/media-client'] },
 	optimizeDeps: {
-		include: ['@kaordo/voice-client', '@kaordo/voice-client > livekit-client', ...mediaDependencies]
+		include: [
+			'@kaordo/voice-client',
+			'@kaordo/voice-client > livekit-client',
+			// Rondo reaches the upload libraries through chat-ui; Vite resolves each step of the chain
+			...mediaDependencies.map((dependency) => `@kaordo/chat-ui > ${dependency}`)
+		]
 	},
 	plugins: [
 		tailwindcss(),
