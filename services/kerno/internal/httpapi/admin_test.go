@@ -1,5 +1,6 @@
 package httpapi
 
+// Checks current administrator access and account mutations with optional audit reasons
 import (
 	"context"
 	"net/http"
@@ -86,6 +87,20 @@ func TestAdminStatusAndRoleRequireExplicitValues(t *testing.T) {
 		handler.ServeHTTP(response, request)
 		if response.Code != 400 {
 			t.Fatalf("%s accepted a missing value: %d", path, response.Code)
+		}
+	}
+	for _, test := range []struct{ path, body string }{
+		{"status", `{"disabled":true}`},
+		{"status", `{"disabled":false,"reason":"x"}`},
+		{"role", `{"isAdmin":true}`},
+		{"role", `{"isAdmin":false,"reason":""}`},
+	} {
+		request := httptest.NewRequest(http.MethodPatch, "/v1/admin/users/01999111-2222-7333-8444-555555555552/"+test.path, strings.NewReader(test.body))
+		request.Header.Set("Authorization", "Bearer valid")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s rejected an optional reason: %d %s", test.path, response.Code, response.Body.String())
 		}
 	}
 }

@@ -68,9 +68,12 @@ func TestSettingsChangesStoreWithoutReadingDisks(t *testing.T) {
 
 	weekly := stored
 	weekly.Integrity.Scrub = "weekly"
-	result, err := service.Apply(context.Background(), Change{Document: weekly, Reason: "Scrub weekly", RequestedBy: "admin"})
+	result, err := service.Apply(context.Background(), Change{Document: weekly, RequestedBy: "admin"})
 	if err != nil || result.Document.Revision != 2 || result.Operation != nil || result.Previous.Integrity.Scrub != "monthly" {
 		t.Fatalf("settings change = %+v, %v", result, err)
+	}
+	if _, err := service.Apply(context.Background(), Change{Document: result.Document}); !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("change without a requesting account = %v", err)
 	}
 
 	shorter := result.Document

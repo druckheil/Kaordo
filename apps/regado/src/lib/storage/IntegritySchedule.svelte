@@ -3,7 +3,6 @@
 	import { untrack } from 'svelte';
 	import type { HostFacts, HostState } from '@kaordo/contracts';
 	import { Button, Dialog, Textarea, ToggleGroup } from '@kaordo/ui';
-	import { minimumReasonLength } from '../regado-model';
 	import type { StorageState } from './storage-state.svelte';
 	import { checks } from './storage-model';
 
@@ -36,9 +35,7 @@
 	const changed = $derived(
 		checks.some((check) => schedule[check.setting] !== facts.desired.integrity[check.setting])
 	);
-	const reasonValid = $derived(
-		reason.trim().length >= minimumReasonLength && reason.trim().length <= 500
-	);
+	const reasonValid = $derived(reason.trim().length <= 500);
 
 	function choose(setting: keyof Integrity, value: string) {
 		// A single toggle group reports an empty value when its pressed item is pressed again
@@ -93,7 +90,7 @@
 			bind:value={reason}
 			maxlength={500}
 			rows={3}
-			placeholder="Why the schedule changes, for the audit log"
+			placeholder="Optional reason for changing the schedule"
 		/>
 		{#if error}<p class="text-sm text-destructive" role="alert">{error}</p>{/if}
 		<Dialog.Footer>

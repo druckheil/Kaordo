@@ -2,7 +2,7 @@
 	// Shows each integrity check's schedule and latest result and starts a check on request
 	import type { HostFacts } from '@kaordo/contracts';
 	import { Button, Dialog, Textarea } from '@kaordo/ui';
-	import { formatDateTime, minimumReasonLength } from '../regado-model';
+	import { formatDateTime } from '../regado-model';
 	import IntegritySchedule from './IntegritySchedule.svelte';
 	import type { StorageState } from './storage-state.svelte';
 	import { checkHistory, checks, type CheckKind } from './storage-model';
@@ -22,7 +22,7 @@
 	};
 	const descriptions: Record<CheckKind, string> = {
 		'integrity.scrub':
-			'Reads every copy of every file and metadata block and checks it against its checksum. A damaged copy is rewritten from a good one. Services stay available, with disk reads limited while it runs.',
+			'Reads stored data and metadata across the entire pool, including the operating system, Nix store, databases and media, and verifies their available checksums. A damaged copy is rewritten from a good one. Data without checksums is checked for read errors only. Services stay available, with disk reads limited while it runs.',
 		'integrity.smart-short':
 			'Each pool disk tests its own electronics and a sample of its surface. It takes a few minutes per disk.',
 		'integrity.smart-long':
@@ -33,9 +33,7 @@
 	let reason = $state('');
 	let error = $state('');
 	let scheduling = $state(false);
-	const reasonValid = $derived(
-		reason.trim().length >= minimumReasonLength && reason.trim().length <= 500
-	);
+	const reasonValid = $derived(reason.trim().length <= 500);
 
 	function request(kind: CheckKind) {
 		requested = kind;
@@ -63,6 +61,10 @@
 			<h2 id="integrity-title" class="text-lg font-semibold">Integrity checks</h2>
 			<p class="mt-1 text-sm text-muted-foreground">
 				Scheduled checks start between 02:00 and 06:00 server time, one at a time.
+			</p>
+			<p class="mt-1 text-sm text-muted-foreground">
+				Verification covers the entire storage pool, including system files and databases even when
+				there are no media uploads.
 			</p>
 		</div>
 		<Button variant="outline" size="sm" onclick={() => (scheduling = true)}>Change schedule…</Button
@@ -114,7 +116,7 @@
 			bind:value={reason}
 			maxlength={500}
 			rows={3}
-			placeholder="Why the check runs now, for the audit log"
+			placeholder="Optional reason for running the check now"
 		/>
 		{#if error}<p class="text-sm text-destructive" role="alert">{error}</p>{/if}
 		<Dialog.Footer>

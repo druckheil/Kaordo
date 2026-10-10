@@ -71,7 +71,7 @@ func TestAdminActionsAuthorizeAndAuditBeforeReachingWorkers(t *testing.T) {
 				return identity.Claims{Subject: "operator"}, nil
 			}
 			handler := NewRouter(verify, users, Modules{Fluo: FluoDependencies{}, Ligo: LigoDependencies{}, Rondo: RondoDependencies{}, Admin: AdminDependencies{Store: store, System: fixture, Media: fixture}}, nil)
-			request := httptest.NewRequest("POST", "/v1/admin/actions/"+test.action, strings.NewReader(`{"reason":"Routine maintenance check"}`))
+			request := httptest.NewRequest("POST", "/v1/admin/actions/"+test.action, strings.NewReader(`{}`))
 			request.Header.Set("Authorization", "Bearer valid")
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)

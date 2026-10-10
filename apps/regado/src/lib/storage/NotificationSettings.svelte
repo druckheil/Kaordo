@@ -3,7 +3,6 @@
 	import { untrack } from 'svelte';
 	import type { HostAlertTest, HostFacts } from '@kaordo/contracts';
 	import { Button, Checkbox, CheckIcon, Dialog, Input, Textarea } from '@kaordo/ui';
-	import { minimumReasonLength } from '../regado-model';
 	import type { StorageState } from './storage-state.svelte';
 
 	let {
@@ -58,9 +57,7 @@
 			return 'The topic needs 8 to 64 letters, digits, dashes or underscores.';
 		return '';
 	});
-	const reasonValid = $derived(
-		reason.trim().length >= minimumReasonLength && reason.trim().length <= 500
-	);
+	const reasonValid = $derived(reason.trim().length <= 500);
 
 	async function save() {
 		error = '';
@@ -141,7 +138,7 @@
 				bind:value={reason}
 				maxlength={500}
 				rows={2}
-				placeholder="Why the settings change, for the audit log"
+				placeholder="Optional reason for changing the settings"
 			/>
 		</div>
 

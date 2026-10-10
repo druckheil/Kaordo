@@ -121,7 +121,7 @@ func openService(ctx context.Context, directory string) (*api.Service, func(), e
 	service := &api.Service{
 		Run: command.Run, Host: described, States: states, Operations: operations, Alerts: alerts,
 		Executor:  storage.Executor{Run: command.Run, Mount: described.PoolMount, Poll: time.Second, EFI: described.Firmware == "efi"},
-		Integrity: integrity.Checker{Run: command.Run, Mount: described.PoolMount, Poll: 30 * time.Second, ScrubLimit: scrubLimit},
+		Integrity: integrity.Checker{Run: command.Run, Mount: described.PoolMount, Poll: 5 * time.Second, ScrubLimit: scrubLimit},
 		Journal:   journal.Policy{Link: journal.DefaultLink, Path: filepath.Join(directory, "journald-retention.conf")},
 	}
 	// Hosts with the system in the pool give every new member the bootloader

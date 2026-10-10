@@ -149,8 +149,8 @@ func TestHostAPIRunsChecksOnRequest(t *testing.T) {
 	if code := call(t, handler, http.MethodPost, "/operations", CheckRequest{Kind: "integrity.reboot", Reason: "Check", RequestedBy: "admin"}, nil); code != http.StatusBadRequest {
 		t.Fatalf("unknown check = %d", code)
 	}
-	if code := call(t, handler, http.MethodPost, "/operations", CheckRequest{Kind: integrity.KindScrub, RequestedBy: "admin"}, nil); code != http.StatusBadRequest {
-		t.Fatalf("check without a reason = %d", code)
+	if code := call(t, handler, http.MethodPost, "/operations", CheckRequest{Kind: integrity.KindScrub}, nil); code != http.StatusBadRequest {
+		t.Fatalf("check without a requesting account = %d", code)
 	}
 	// Loop devices have no SMART, so once read they are excluded from self-tests
 	devices, err := host.Inventory(context.Background(), command.Run, "", service.Inventory)
@@ -175,7 +175,7 @@ func TestHostAPIRunsChecksOnRequest(t *testing.T) {
 	}
 
 	var started operation.Operation
-	if code := call(t, handler, http.MethodPost, "/operations", CheckRequest{Kind: integrity.KindScrub, Reason: "Verify copies", RequestedBy: "admin"}, &started); code != http.StatusOK {
+	if code := call(t, handler, http.MethodPost, "/operations", CheckRequest{Kind: integrity.KindScrub, RequestedBy: "admin"}, &started); code != http.StatusOK {
 		t.Fatalf("scrub = %d", code)
 	}
 	if started.Kind != integrity.KindScrub || started.RequestedBy != "admin" || started.Target != mount {

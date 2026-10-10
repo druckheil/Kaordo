@@ -242,7 +242,7 @@ test('Regado storage adds a device through a planned, confirmed pool change', as
 	).toBeVisible();
 	await expect(dialog.getByText('Rewrite files with three copies', { exact: true })).toBeVisible();
 	const apply = dialog.getByRole('button', { name: 'Apply', exact: true });
-	await dialog.getByLabel('Reason', { exact: true }).fill('Add the third disk for three copies');
+	await expect(dialog.getByLabel('Reason', { exact: true })).toHaveValue('');
 	await expect(apply, 'Erasing needs the typed serial').toBeDisabled();
 	await dialog.getByLabel('Type WD-C to confirm', { exact: true }).fill('WD-C');
 	await accessibility(page, 'Pool change dialog');
@@ -267,7 +267,7 @@ test('Regado storage adds a device through a planned, confirmed pool change', as
 				}
 			}),
 			confirmations: ['WD-C'],
-			reason: 'Add the third disk for three copies',
+			reason: '',
 			converge: true
 		}
 	]);
@@ -325,12 +325,11 @@ test('Regado integrity checks run on request and follow an audited schedule', as
 	await scrub.getByRole('button', { name: 'Run now', exact: true }).click();
 	const run = page.getByRole('dialog', { name: 'Verify every copy', exact: true });
 	await expect(run.getByText(/A damaged copy is rewritten from a good one/)).toBeVisible();
-	await run.getByLabel('Reason', { exact: true }).fill('Verify copies after a power cut');
+	await expect(run.getByLabel('Reason', { exact: true })).toHaveValue('');
+	await expect(run.getByRole('button', { name: 'Run now', exact: true })).toBeEnabled();
 	await run.getByRole('button', { name: 'Run now', exact: true }).click();
 	await expect(run).toBeHidden();
-	expect(host.checks).toEqual([
-		{ kind: 'integrity.scrub', reason: 'Verify copies after a power cut' }
-	]);
+	expect(host.checks).toEqual([{ kind: 'integrity.scrub', reason: '' }]);
 	await expect(
 		integrity.getByRole('button', { name: 'Run now', exact: true }).first(),
 		'Only one check runs at a time'
@@ -341,7 +340,7 @@ test('Regado integrity checks run on request and follow an audited schedule', as
 	const schedule = page.getByRole('dialog', { name: 'Integrity schedule', exact: true });
 	await accessibility(page, 'Integrity schedule dialog');
 	const save = schedule.getByRole('button', { name: 'Save', exact: true });
-	await schedule.getByLabel('Reason', { exact: true }).fill('Verify copies every week');
+	await schedule.getByLabel('Reason', { exact: true }).fill('x');
 	await expect(save, 'An unchanged schedule is not saved').toBeDisabled();
 	await schedule
 		.getByRole('group', { name: 'Verify every copy', exact: true })
@@ -355,7 +354,7 @@ test('Regado integrity checks run on request and follow an audited schedule', as
 				integrity: { scrub: 'weekly', smartShort: 'weekly', smartLong: 'monthly' }
 			}),
 			confirmations: [],
-			reason: 'Verify copies every week'
+			reason: 'x'
 		}
 	]);
 	await expect(scrub.getByText(/^Weekly · Passed /)).toBeVisible();
@@ -381,7 +380,7 @@ test('Regado alerts are listed and push notifications are configured and tested'
 	await dialog.getByLabel('Warning at %', { exact: true }).fill('95');
 	await expect(dialog.getByText(/Thresholds must satisfy/)).toBeVisible();
 	await dialog.getByLabel('Warning at %', { exact: true }).fill('75');
-	await dialog.getByLabel('Reason', { exact: true }).fill('Push alerts to the operator phone');
+	await expect(dialog.getByLabel('Reason', { exact: true })).toHaveValue('');
 	await accessibility(page, 'Notifications dialog');
 	await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(dialog).toBeHidden();
@@ -395,7 +394,7 @@ test('Regado alerts are listed and push notifications are configured and tested'
 				}
 			}),
 			confirmations: [],
-			reason: 'Push alerts to the operator phone'
+			reason: ''
 		}
 	]);
 	await expect(alerts.getByText(`on ntfy topic ${topic}.`, { exact: false })).toBeVisible();
@@ -419,16 +418,15 @@ test('Regado media checks and cleanup are confirmed and report progress', async 
 	await expect(
 		page.getByRole('dialog').getByText(/removes uploads older than 24 hours/)
 	).toBeVisible();
-	await page
-		.getByRole('textbox', { name: 'Reason', exact: true })
-		.fill('Remove unused uploads now');
+	await expect(page.getByRole('textbox', { name: 'Reason', exact: true })).toHaveValue('');
+	await expect(page.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled();
 	await page.getByRole('button', { name: 'Confirm', exact: true }).click();
 	await expect(media.getByText('Cleaning up · Checking references', { exact: true })).toBeVisible();
 	await expect(media.getByRole('button', { name: 'Check', exact: true })).toBeEnabled({
 		timeout: maintenanceTimeout
 	});
 	expect(systemActions).toEqual([
-		{ path: '/v1/admin/actions/clean-media', change: { reason: 'Remove unused uploads now' } }
+		{ path: '/v1/admin/actions/clean-media', change: { reason: '' } }
 	]);
 });
 

@@ -50,8 +50,8 @@ func (h adminHandler) setStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if body.Disabled == nil || !admin.ValidReason(body.Reason, 10, 500) {
-		writeError(w, http.StatusBadRequest, "A reason of 10 to 500 characters is required.")
+	if body.Disabled == nil || !admin.ValidReason(body.Reason) {
+		writeError(w, http.StatusBadRequest, "Select an account status and use at most 500 characters for the optional reason.")
 		return
 	}
 	item, err := h.deps.Store.SetDisabled(r.Context(), adminActor(r).ID, id, *body.Disabled, body.Reason)
@@ -81,8 +81,8 @@ func (h adminHandler) setRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
-	if !fluo.ValidID(id) || body.IsAdmin == nil || !admin.ValidReason(body.Reason, 10, 500) {
-		writeError(w, http.StatusBadRequest, "Select an account, a role and a reason of 10 to 500 characters.")
+	if !fluo.ValidID(id) || body.IsAdmin == nil || !admin.ValidReason(body.Reason) {
+		writeError(w, http.StatusBadRequest, "Select an account, a role and use at most 500 characters for the optional reason.")
 		return
 	}
 	item, err := h.deps.Store.SetAdmin(r.Context(), adminActor(r).ID, id, *body.IsAdmin, body.Reason)

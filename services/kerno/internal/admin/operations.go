@@ -36,13 +36,12 @@ func (command SystemAction) Validate() error {
 	if !ValidSystemAction(command.Name) {
 		return invalid.Input(ErrInvalidOperation, "Unsupported system action.")
 	}
-	if !ValidReason(command.Reason, 10, 500) {
-		return invalid.Input(ErrInvalidOperation, "A reason of 10 to 500 characters is required.")
+	if !ValidReason(command.Reason) {
+		return invalid.Input(ErrInvalidOperation, "The reason must be at most 500 characters.")
 	}
 	return nil
 }
 
-func ValidReason(reason string, minimum, maximum int) bool {
-	length := utf8.RuneCountInString(reason)
-	return length >= minimum && length <= maximum
+func ValidReason(reason string) bool {
+	return utf8.RuneCountInString(reason) <= 500
 }

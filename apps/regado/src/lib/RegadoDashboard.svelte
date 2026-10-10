@@ -82,7 +82,7 @@
 				!refreshable
 					? false
 					: ['checking', 'repairing'].includes(query.state.data?.mediaMaintenance?.state ?? '')
-						? 2_000
+						? 5_000
 						: 30_000
 		}),
 		() => queryClient

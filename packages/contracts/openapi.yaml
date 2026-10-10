@@ -334,18 +334,18 @@ components:
         ntfy: { type: string, description: 'sent, not configured, or failed: <reason>' }
     HostCheckRequest:
       type: object
-      required: [kind, reason]
+      required: [kind]
       additionalProperties: false
       properties:
         kind: { type: string, enum: [integrity.scrub, integrity.smart-short, integrity.smart-long] }
-        reason: { type: string, minLength: 10, maxLength: 500 }
+        reason: { type: string, maxLength: 500, description: Optional reason recorded in the audit }
     HostStateChange:
       type: object
-      required: [document, confirmations, reason]
+      required: [document, confirmations]
       properties:
         document: { $ref: '#/components/schemas/HostState' }
         confirmations: { type: array, maxItems: 64, items: { type: string, maxLength: 128 } }
-        reason: { type: string, minLength: 10, maxLength: 500 }
+        reason: { type: string, maxLength: 500, description: Optional reason recorded in the audit }
         converge:
           {
             type: boolean,
@@ -3342,12 +3342,9 @@ paths:
                 schema:
                   {
                     type: object,
-                    required: [disabled, reason],
+                    required: [disabled],
                     properties:
-                      {
-                        disabled: { type: boolean },
-                        reason: { type: string, minLength: 10, maxLength: 500 }
-                      }
+                      { disabled: { type: boolean }, reason: { type: string, maxLength: 500 } }
                   }
               }
           }
@@ -3408,12 +3405,9 @@ paths:
                 schema:
                   {
                     type: object,
-                    required: [isAdmin, reason],
+                    required: [isAdmin],
                     properties:
-                      {
-                        isAdmin: { type: boolean },
-                        reason: { type: string, minLength: 10, maxLength: 500 }
-                      }
+                      { isAdmin: { type: boolean }, reason: { type: string, maxLength: 500 } }
                   }
               }
           }
@@ -3497,10 +3491,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [reason]
               additionalProperties: false
               properties:
-                reason: { type: string, minLength: 10, maxLength: 500 }
+                reason:
+                  {
+                    type: string,
+                    maxLength: 500,
+                    description: Optional reason recorded in the audit
+                  }
       responses:
         '202':
           description: Audited system operation accepted

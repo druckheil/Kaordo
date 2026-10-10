@@ -70,7 +70,7 @@ func (service *Service) selfTestDevices(ctx context.Context) ([]host.Device, err
 
 // StartCheck runs an integrity check now, unless another one is still running.
 func (service *Service) StartCheck(ctx context.Context, check CheckRequest) (operation.Operation, error) {
-	if strings.TrimSpace(check.Reason) == "" || check.RequestedBy == "" {
+	if check.RequestedBy == "" {
 		return operation.Operation{}, ErrIncomplete
 	}
 	recent, err := service.Operations.List(50)

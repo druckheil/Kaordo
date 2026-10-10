@@ -94,8 +94,6 @@ export function filterLogs(logs: AdminLogs | null, priority: LogPriority, search
 	});
 }
 
-export const minimumReasonLength = 10;
-
 export function intentDescription(intent: AdminIntent | null): string {
 	switch (intent?.type) {
 		case 'log-retention':

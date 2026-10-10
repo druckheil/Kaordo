@@ -60,7 +60,7 @@ export function adminHostOptions(api: Pick<AdminApi, 'host'>, host: string, acti
 	return {
 		...readPolicy,
 		staleTime: 5_000,
-		refetchInterval: active ? 3_000 : 30_000,
+		refetchInterval: active ? 5_000 : 30_000,
 		queryKey: ['regado', 'hosts', host, 'facts'] as const,
 		queryFn: ({ signal }: ReadContext) => api.host(host, signal)
 	};
@@ -82,10 +82,7 @@ export function adminHostOperationsOptions(api: AdminApi, host: string, limit = 
 		staleTime: 2_000,
 		queryKey: ['regado', 'hosts', host, 'operations', limit] as const,
 		queryFn: ({ signal }: ReadContext) => api.hostOperations(host, limit, signal),
-		refetchInterval: (query: { state: { data?: { items: { state: string }[] } } }) =>
-			query.state.data?.items.some((item) => item.state === 'queued' || item.state === 'running')
-				? 1_500
-				: 30_000
+		refetchInterval: 5_000
 	};
 }
 

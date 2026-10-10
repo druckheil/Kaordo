@@ -76,7 +76,7 @@ func (checker Checker) Scrub(ctx context.Context, job *operation.Job) error {
 	if err != nil && result.Corrected == 0 {
 		return err
 	}
-	job.Logf("Every copy matches its checksum")
+	job.Logf("Scrub completed without uncorrectable errors")
 	return nil
 }
 

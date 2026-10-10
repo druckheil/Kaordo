@@ -83,13 +83,20 @@ func TestHostRoutesProxyAgentsAndMapRefusals(t *testing.T) {
 	if response.Code != 422 || !strings.Contains(response.Body.String(), "serial number") {
 		t.Fatalf("refusal = %d %s", response.Code, response.Body)
 	}
-	if response := hostRequest(hostRouter(nil), http.MethodPut, "/v1/admin/hosts/local/state", `{"document":{},"reason":"short"}`); response.Code != 400 || !strings.Contains(response.Body.String(), "reason") {
-		t.Fatalf("short reason = %d %s", response.Code, response.Body)
+	oversized, err := json.Marshal(map[string]any{"document": map[string]any{}, "reason": strings.Repeat("x", 501)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodPut, "/v1/admin/hosts/local/state", string(oversized)); response.Code != 400 || !strings.Contains(response.Body.String(), "reason") {
+		t.Fatalf("oversized reason = %d %s", response.Code, response.Body)
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodPut, "/v1/admin/hosts/local/state", `{"document":{},"confirmations":[]}`); response.Code != 200 {
+		t.Fatalf("change without a reason = %d %s", response.Code, response.Body)
 	}
 	if response := hostRequest(hostRouter(nil), http.MethodPut, "/v1/admin/hosts/local/state", `{"document":{},"unexpected":1}`); response.Code != 400 {
 		t.Fatalf("unknown field = %d", response.Code)
 	}
-	if response := hostRequest(hostRouter(nil), http.MethodPost, "/v1/admin/hosts/local/operations", `{"kind":"integrity.scrub","reason":"Verify every copy now"}`); response.Code != 200 || !strings.Contains(response.Body.String(), "op-1") {
+	if response := hostRequest(hostRouter(nil), http.MethodPost, "/v1/admin/hosts/local/operations", `{"kind":"integrity.scrub"}`); response.Code != 200 || !strings.Contains(response.Body.String(), "op-1") {
 		t.Fatalf("start check = %d %s", response.Code, response.Body)
 	}
 	busy := hostRouter(&admin.AgentError{Status: 409, Message: "another integrity check is still running"})

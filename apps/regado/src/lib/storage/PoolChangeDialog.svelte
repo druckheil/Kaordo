@@ -13,7 +13,7 @@
 		Textarea,
 		TriangleAlertIcon
 	} from '@kaordo/ui';
-	import { formatBytes, minimumReasonLength } from '../regado-model';
+	import { formatBytes } from '../regado-model';
 	import type { StorageState } from './storage-state.svelte';
 	import {
 		classLabels,
@@ -79,9 +79,7 @@
 		(plan?.steps ?? []).flatMap((step) => (step.confirm ? [step.confirm] : []))
 	);
 	const confirmed = $derived(confirmations.every((serial) => typed[serial] === serial));
-	const reasonValid = $derived(
-		reason.trim().length >= minimumReasonLength && reason.trim().length <= 500
-	);
+	const reasonValid = $derived(reason.trim().length <= 500);
 	const canApply = $derived(
 		!!plan &&
 			plan.issues.length === 0 &&
@@ -240,10 +238,10 @@
 				bind:value={reason}
 				maxlength={500}
 				rows={3}
-				placeholder="Why the pool changes, for the audit log"
+				placeholder="Optional reason for changing the pool"
 			/>
 			<p class="text-xs text-muted-foreground">
-				{reason.trim().length}/500 characters · {minimumReasonLength} minimum
+				Optional · {reason.trim().length}/500 characters
 			</p>
 		</div>
 

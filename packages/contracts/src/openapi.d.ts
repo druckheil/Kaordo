@@ -1438,12 +1438,14 @@ export interface components {
         HostCheckRequest: {
             /** @enum {string} */
             kind: "integrity.scrub" | "integrity.smart-short" | "integrity.smart-long";
-            reason: string;
+            /** @description Optional reason recorded in the audit */
+            reason?: string;
         };
         HostStateChange: {
             document: components["schemas"]["HostState"];
             confirmations: string[];
-            reason: string;
+            /** @description Optional reason recorded in the audit */
+            reason?: string;
             /** @description Start pool steps even when the pool section is unchanged; other settings never touch disks */
             converge?: boolean;
         };
@@ -4850,7 +4852,7 @@ export interface operations {
             content: {
                 "application/json": {
                     disabled: boolean;
-                    reason: string;
+                    reason?: string;
                 };
             };
         };
@@ -4919,7 +4921,7 @@ export interface operations {
             content: {
                 "application/json": {
                     isAdmin: boolean;
-                    reason: string;
+                    reason?: string;
                 };
             };
         };
@@ -5047,7 +5049,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    reason: string;
+                    /** @description Optional reason recorded in the audit */
+                    reason?: string;
                 };
             };
         };

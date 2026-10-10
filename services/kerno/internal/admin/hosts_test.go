@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/druckheil/Kaordo/services/kerno/internal/invalid"
@@ -79,7 +81,7 @@ func TestApplyAuditsTheRequestAndTheResultingDiff(t *testing.T) {
 	}
 }
 
-func TestApplyRecordsRefusalsAndRequiresAReason(t *testing.T) {
+func TestApplyRecordsRefusalsAndBoundsOptionalReasons(t *testing.T) {
 	refusal := &AgentError{Status: 422, Message: "Erasing a device needs its serial number."}
 	audit := &auditStub{}
 	hosts := NewHosts(map[string]HostAgent{"local": &agentStub{err: refusal}}, audit)
@@ -87,10 +89,10 @@ func TestApplyRecordsRefusalsAndRequiresAReason(t *testing.T) {
 	if !errors.As(err, &refusal) || len(audit.events) != 2 || audit.events[1].event != "host.state.failed" {
 		t.Fatalf("refusal = %v, audit %+v", err, audit.events)
 	}
-	if _, err := hosts.Apply(context.Background(), "actor-1", "local", StateChange{Reason: "short"}); !errors.Is(err, ErrInvalidOperation) {
-		t.Fatalf("short reason = %v", err)
+	if _, err := hosts.Apply(context.Background(), "actor-1", "local", StateChange{Reason: strings.Repeat("x", 501)}); !errors.Is(err, ErrInvalidOperation) {
+		t.Fatalf("oversized reason = %v", err)
 	} else if message, ok := invalid.Message(err); !ok || message == "" {
-		t.Fatalf("short reason has no message: %v", err)
+		t.Fatalf("oversized reason has no message: %v", err)
 	}
 	if _, err := hosts.Facts(context.Background(), "elsewhere"); !errors.Is(err, ErrUnknownHost) {
 		t.Fatalf("unknown host = %v", err)
@@ -101,8 +103,8 @@ func TestStartCheckAuditsBeforeForwardingTheActor(t *testing.T) {
 	agent := &agentStub{}
 	audit := &auditStub{}
 	hosts := NewHosts(map[string]HostAgent{"local": agent}, audit)
-	if _, err := hosts.StartCheck(context.Background(), "actor-1", "local", CheckRequest{Kind: "integrity.scrub", Reason: "short"}); !errors.Is(err, ErrInvalidOperation) || agent.started != nil {
-		t.Fatalf("short reason = %v, forwarded %s", err, agent.started)
+	if _, err := hosts.StartCheck(context.Background(), "actor-1", "local", CheckRequest{Kind: "integrity.scrub", Reason: strings.Repeat("x", 501)}); !errors.Is(err, ErrInvalidOperation) || agent.started != nil {
+		t.Fatalf("oversized reason = %v, forwarded %s", err, agent.started)
 	}
 	if _, err := hosts.StartCheck(context.Background(), "actor-1", "local", CheckRequest{Kind: "integrity.scrub", Reason: " Verify copies after a power cut "}); err != nil {
 		t.Fatal(err)
@@ -113,6 +115,31 @@ func TestStartCheckAuditsBeforeForwardingTheActor(t *testing.T) {
 	}
 	if len(audit.events) != 1 || audit.events[0].event != "host.operation.start" || audit.events[0].details["kind"] != "integrity.scrub" {
 		t.Fatalf("audit = %+v", audit.events)
+	}
+}
+
+func TestOptionalHostReasonsPreserveActorAndAudit(t *testing.T) {
+	for _, reason := range []string{"", "x", "  "} {
+		t.Run(fmt.Sprintf("reason_%q", reason), func(t *testing.T) {
+			agent := &agentStub{result: json.RawMessage(`{"previous":{},"document":{}}`)}
+			audit := &auditStub{}
+			hosts := NewHosts(map[string]HostAgent{"local": agent}, audit)
+			if _, err := hosts.Apply(context.Background(), "actor-1", "local", StateChange{Document: json.RawMessage(`{}`), Reason: reason}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := hosts.StartCheck(context.Background(), "actor-1", "local", CheckRequest{Kind: "integrity.scrub", Reason: reason}); err != nil {
+				t.Fatal(err)
+			}
+			for _, raw := range []json.RawMessage{agent.applied, agent.started} {
+				var request map[string]any
+				if json.Unmarshal(raw, &request) != nil || request["requestedBy"] != "actor-1" || request["reason"] != strings.TrimSpace(reason) {
+					t.Fatalf("forwarded request = %s", raw)
+				}
+			}
+			if len(audit.events) != 3 || audit.events[0].event != "host.state.requested" || audit.events[1].event != "host.state.changed" || audit.events[2].event != "host.operation.start" {
+				t.Fatalf("audit = %+v", audit.events)
+			}
+		})
 	}
 }
 

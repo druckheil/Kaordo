@@ -105,7 +105,7 @@ func TestScrubRepairsOneBadCopyAndReportsDataWithoutAGoodCopy(t *testing.T) {
 	unmount()
 
 	clean := scrub(t, mount())
-	if clean.State != operation.Succeeded || clean.Log[len(clean.Log)-1].Message != "Every copy matches its checksum" {
+	if clean.State != operation.Succeeded || clean.Log[len(clean.Log)-1].Message != "Scrub completed without uncorrectable errors" {
 		t.Fatalf("clean scrub = %s %q %+v", clean.State, clean.Error, clean.Log)
 	}
 	if progress := clean.Stages[0].Progress; progress == nil || progress.Done != progress.Total {
@@ -115,7 +115,7 @@ func TestScrubRepairsOneBadCopyAndReportsDataWithoutAGoodCopy(t *testing.T) {
 
 	corrupt(t, first, 100)
 	repaired := scrub(t, mount())
-	if repaired.State != operation.Succeeded || repaired.Log[0].Message == "Every copy matches its checksum" {
+	if repaired.State != operation.Succeeded || repaired.Log[0].Message == "Scrub completed without uncorrectable errors" {
 		t.Fatalf("repairing scrub = %s %q %+v", repaired.State, repaired.Error, repaired.Log)
 	}
 	unmount()

@@ -20,7 +20,7 @@
 	const record = createQuery(
 		() => ({
 			...adminHostOperationOptions(api, host, operation),
-			refetchInterval: running ? 2_000 : false
+			refetchInterval: running ? 5_000 : false
 		}),
 		() => queryClient
 	);

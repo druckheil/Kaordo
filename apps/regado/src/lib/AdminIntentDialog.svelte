@@ -2,7 +2,7 @@
 	// Confirms administrator actions with an auditable reason
 
 	import { Button, Dialog, Textarea } from '@kaordo/ui';
-	import { intentDescription, minimumReasonLength, type AdminIntent } from './regado-model';
+	import { intentDescription, type AdminIntent } from './regado-model';
 
 	let {
 		intent,
@@ -20,7 +20,6 @@
 		onClose: () => void;
 	} = $props();
 
-	const requiredReasonLength = minimumReasonLength;
 	const reasonLength = $derived(reason.trim().length);
 </script>
 
@@ -41,14 +40,14 @@
 			bind:value={reason}
 			maxlength={500}
 			rows={4}
-			placeholder="Describe why this action is necessary"
+			placeholder="Optional reason for the audit log"
 		/>
 		<p class="text-xs text-muted-foreground">
-			{reasonLength}/500 characters · {requiredReasonLength} minimum
+			Optional · {reasonLength}/500 characters
 		</p>
 		<Dialog.Footer>
 			<Button variant="outline" disabled={busy} onclick={onClose}>Cancel</Button>
-			<Button disabled={busy || reasonLength < requiredReasonLength} onclick={onConfirm}>
+			<Button disabled={busy || reasonLength > 500} onclick={onConfirm}>
 				{busy ? 'Working…' : 'Confirm'}
 			</Button>
 		</Dialog.Footer>

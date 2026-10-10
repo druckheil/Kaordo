@@ -31,7 +31,7 @@ var (
 	ErrBusy        = errors.New("another pool change is still running")
 	ErrNotReady    = errors.New("the desired state cannot be applied")
 	ErrUnconfirmed = errors.New("erasing a device needs its serial number")
-	ErrIncomplete  = errors.New("a reason and the requesting account are required")
+	ErrIncomplete  = errors.New("the requesting account is required")
 )
 
 // Host describes the machine the agent manages.
@@ -182,7 +182,7 @@ func (service *Service) Plan(ctx context.Context, document state.Document) (stor
 // Apply stores the document and starts one operation for its pool steps. Settings outside the
 // pool are stored without touching disks, so they never wait on or trigger pool work.
 func (service *Service) Apply(ctx context.Context, change Change) (ChangeResult, error) {
-	if strings.TrimSpace(change.Reason) == "" || change.RequestedBy == "" {
+	if change.RequestedBy == "" {
 		return ChangeResult{}, ErrIncomplete
 	}
 	if err := change.Document.Validate(); err != nil {

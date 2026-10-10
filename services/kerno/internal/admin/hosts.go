@@ -119,8 +119,8 @@ func (hosts *Hosts) Apply(ctx context.Context, actorID, id string, change StateC
 		return nil, err
 	}
 	change.Reason = strings.TrimSpace(change.Reason)
-	if !ValidReason(change.Reason, 10, 500) {
-		return nil, invalid.Input(ErrInvalidOperation, "A reason of 10 to 500 characters is required.")
+	if !ValidReason(change.Reason) {
+		return nil, invalid.Input(ErrInvalidOperation, "The reason must be at most 500 characters.")
 	}
 	if err := hosts.audit.Record(ctx, actorID, "", "host.state.requested", change.Reason, map[string]any{"host": id}); err != nil {
 		return nil, err
@@ -177,8 +177,8 @@ func (hosts *Hosts) StartCheck(ctx context.Context, actorID, id string, check Ch
 		return nil, err
 	}
 	check.Reason = strings.TrimSpace(check.Reason)
-	if !ValidReason(check.Reason, 10, 500) {
-		return nil, invalid.Input(ErrInvalidOperation, "A reason of 10 to 500 characters is required.")
+	if !ValidReason(check.Reason) {
+		return nil, invalid.Input(ErrInvalidOperation, "The reason must be at most 500 characters.")
 	}
 	details := map[string]any{"host": id, "kind": check.Kind}
 	if err := hosts.audit.Record(ctx, actorID, "", "host.operation.start", check.Reason, details); err != nil {
