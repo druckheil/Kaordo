@@ -68,20 +68,36 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/chec
 
 ## Hosted evidence
 
-The latest complete hosted run is [release 0.0.3 on main](https://github.com/druckheil/Kaordo/actions/runs/37694725134) at `a739666`. It passed all eight jobs in 6m46s with warm dependency caches. The format, lint, knip and golangci-lint steps were added afterwards and have not yet run on hosted runners. Record their first complete run here.
+The complete [Svelte dependency discovery run](https://github.com/druckheil/Kaordo/actions/runs/38052661311) on 2026-10-10 tested `120054e5ef1a0de0bbc6c5463459c24b9b93972d` on `scope-0.0.4`. All nine jobs passed in 7m55s, measured from workflow creation to completion of the final gate. This includes formatting, ESLint, knip, golangci-lint, actionlint, all 198 Node tests, 10 static artifact checks, 68 browser scenarios and all five live journeys. Browser scenarios used zero retries; the optimizer reload guard remained clean.
+
+| Job                                  | Duration |
+| ------------------------------------ | -------- |
+| Frontend and unit tests              | 2m44s    |
+| Static app artifact                  | 1m43s    |
+| Browser fixtures and accessibility 1 | 3m55s    |
+| Browser fixtures and accessibility 2 | 4m59s    |
+| Browser fixtures and accessibility 3 | 4m24s    |
+| Go services and PostgreSQL           | 3m36s    |
+| Identity, product and recovery       | 4m42s    |
+| Dependency advisories                | 42s      |
+| Final checks gate                    | 3s       |
+
+Job durations include dependency setup and cleanup. Every pnpm setup restored its package cache through a matching restore key; the Go and golangci-lint caches also hit. Browser installation and each fixture's Vite optimization were fresh. The unit suite measured both empty and reused Vite caches on the hosted runner, as shown below. No hosted run with empty pnpm and Go caches was measured for this change, so the workflow total is a warm dependency-cache result.
 
 ## Optimizer measurements
 
 The Svelte-aware scan was measured on 2026-10-10 on macOS arm64 with Node 24.18.0, Vite 8.3.1 and Svelte 5.57.1. `pnpm test:unit` starts one Node process per app; the cold phase uses an empty optimizer cache, and the warm phase recreates the Vite server in that same process and verifies that all prepared dependencies were loaded from the cache. Timings include configuration and dependency preparation, exclude process startup and browser rendering, and are diagnostics rather than performance assertions.
 
-| App    | Empty cache | Cached server restart |
-| ------ | ----------- | --------------------- |
-| Portal | 1,187 ms    | 24 ms                 |
-| Fluo   | 1,293 ms    | 31 ms                 |
-| Ligo   | 1,247 ms    | 35 ms                 |
-| Rondo  | 1,335 ms    | 36 ms                 |
-| Regado | 1,222 ms    | 24 ms                 |
-| Lingvo | 1,227 ms    | 33 ms                 |
-| Memoro | 1,275 ms    | 41 ms                 |
+The same test in the hosted run above measured the following on Ubuntu 24.04 x64. Package downloads were cached in both environments; the cold column specifically means an empty Vite optimizer cache.
+
+| App    | Local empty cache | Local cached restart | Hosted empty cache | Hosted cached restart |
+| ------ | ----------------- | -------------------- | ------------------ | --------------------- |
+| Portal | 1,187 ms          | 24 ms                | 2,580 ms           | 48 ms                 |
+| Fluo   | 1,293 ms          | 31 ms                | 2,985 ms           | 61 ms                 |
+| Ligo   | 1,247 ms          | 35 ms                | 2,805 ms           | 72 ms                 |
+| Rondo  | 1,335 ms          | 36 ms                | 2,914 ms           | 73 ms                 |
+| Regado | 1,222 ms          | 24 ms                | 2,857 ms           | 45 ms                 |
+| Lingvo | 1,227 ms          | 33 ms                | 2,720 ms           | 44 ms                 |
+| Memoro | 1,275 ms          | 41 ms                | 2,823 ms           | 80 ms                 |
 
 The complete browser suite passed locally as three independent cold fixture shards: 23 tests in 1.3m, 23 in 1.9m and 22 in 1.5m, with zero retries and no optimizer-triggered reloads. These macOS timings do not predict hosted Ubuntu job durations.
