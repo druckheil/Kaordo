@@ -1150,6 +1150,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/hosts/{host}/deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRegadoDeployments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{host}/deployments/{run}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRegadoDeployment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/hosts/{host}/state/plan": {
         parameters: {
             query?: never;
@@ -1300,19 +1332,51 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description The last state the production deployment of one GitHub Actions run reported */
+        /** @description Durable state, phase progress and the bounded journal of a production release attempt */
         Deployment: {
             /** Format: int64 */
             run: number;
+            /** @description Authenticated GitHub run attempt */
+            attempt?: number;
             /** @description The commit the run built */
             revision?: string;
             /** @enum {string} */
             state: "waiting" | "deploying" | "succeeded" | "superseded" | "failed";
             message?: string;
+            /** @description Current installation or rollback phase */
+            phase?: string;
+            release?: string;
+            previousRelease?: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            progress?: {
+                receivedBytes: number;
+                totalBytes: number;
+            };
+            error?: {
+                phase: string;
+                message: string;
+            };
+            /** @enum {string} */
+            rollback?: "not_needed" | "running" | "succeeded" | "failed";
+            /** @description Installation may have changed the host; an interrupted rollback needs inspection */
+            hostChanged?: boolean;
+            events?: components["schemas"]["DeploymentEvent"][];
             /** @description The release failed and restoring the previous one did too; production may be inconsistent */
             rollbackFailed?: boolean;
             /** Format: date-time */
             updatedAt: string;
+        };
+        DeploymentEvent: {
+            sequence: number;
+            /** Format: date-time */
+            at: string;
+            phase: string;
+            /** @enum {string} */
+            level: "info" | "warning" | "error";
+            message: string;
         };
         HostIdentity: {
             name: string;
@@ -5436,6 +5500,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HostFacts"];
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    listRegadoDeployments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Latest production deployment attempts without their journals */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Deployment"][];
+                    };
+                };
+            };
+            default: components["responses"]["RegadoHostError"];
+        };
+    };
+    getRegadoDeployment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host: components["parameters"]["RegadoHost"];
+                run: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Production deployment progress, diagnostics and journal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Deployment"];
                 };
             };
             default: components["responses"]["RegadoHostError"];

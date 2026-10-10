@@ -4,6 +4,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strconv"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -12,10 +13,12 @@ import (
 const githubIssuer = "https://token.actions.githubusercontent.com"
 
 var ErrUntrustedWorkflow = errors.New("the token was not minted by a push run of the trusted workflow")
+var githubRevision = regexp.MustCompile(`^[a-f0-9]{40}$`)
 
 // GitHubRun is the workflow run an Actions token speaks for.
 type GitHubRun struct {
 	ID       int64
+	Attempt  int
 	Revision string
 }
 
@@ -40,15 +43,17 @@ func newGitHubVerifier(issuer string, keys oidc.KeySet, audience, workflow strin
 			WorkflowRef string `json:"workflow_ref"`
 			Event       string `json:"event_name"`
 			RunID       string `json:"run_id"`
+			Attempt     string `json:"run_attempt"`
 			SHA         string `json:"sha"`
 		}
 		if err := token.Claims(&claims); err != nil {
 			return GitHubRun{}, err
 		}
 		run, err := strconv.ParseInt(claims.RunID, 10, 64)
-		if err != nil || run < 1 || claims.WorkflowRef != workflow || claims.Event != "push" {
+		attempt, attemptErr := strconv.Atoi(claims.Attempt)
+		if err != nil || run < 1 || attemptErr != nil || attempt < 1 || !githubRevision.MatchString(claims.SHA) || claims.WorkflowRef != workflow || claims.Event != "push" {
 			return GitHubRun{}, ErrUntrustedWorkflow
 		}
-		return GitHubRun{ID: run, Revision: claims.SHA}, nil
+		return GitHubRun{ID: run, Attempt: attempt, Revision: claims.SHA}, nil
 	}
 }

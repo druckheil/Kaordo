@@ -6,6 +6,7 @@ import type {
 	AdminMetrics,
 	AdminSummary,
 	AdminSystem,
+	Deployment,
 	AdminUser,
 	HostFacts,
 	HostOperation,
@@ -28,6 +29,23 @@ export function createAdminApi(apiBaseUrl: string, fetcher: typeof fetch = sessi
 	const client = createClient<paths>({ baseUrl: apiBaseUrl, fetch: fetcher });
 
 	return {
+		async deployments(host: string, signal?: AbortSignal): Promise<{ items: Deployment[] }> {
+			const { data, error, response } = await client.GET('/v1/admin/hosts/{host}/deployments', {
+				params: { path: { host } },
+				signal
+			});
+			return requireResponseData(data, error, response.status);
+		},
+		async deployment(host: string, run: number, signal?: AbortSignal): Promise<Deployment> {
+			const { data, error, response } = await client.GET(
+				'/v1/admin/hosts/{host}/deployments/{run}',
+				{
+					params: { path: { host, run } },
+					signal
+				}
+			);
+			return requireResponseData(data, error, response.status);
+		},
 		async summary(signal?: AbortSignal): Promise<AdminSummary> {
 			const { data, error, response } = await client.GET('/v1/admin/summary', { signal });
 			return requireResponseData(data, error, response.status);

@@ -298,34 +298,22 @@ jobs:
     needs: [checks]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     environment:
       name: production
       url: https://kaordo.link
     # Only this job can mint the OIDC token that Kerno accepts as this run's deployment request
     permissions:
+      contents: read
       id-token: write
     env:
       ORIGIN: https://kaordo.link
     steps:
-      - name: Ask production to install this run's release and wait for the result
-        run: |
-          token() {
-            curl -fsS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$ORIGIN" | jq -r .value
-          }
-          # Kerno restarts while a release installs; transient failures are retried
-          deployment() {
-            curl -fsS --retry 12 --retry-delay 10 --retry-connrefused -X "$1" \
-              -H "Authorization: Bearer $(token)" "$ORIGIN/v1/deployments$2"
-          }
-          deployment POST "" >/dev/null
-          while sleep 15; do
-            report=$(deployment GET "/$GITHUB_RUN_ID")
-            state=$(jq -r .state <<<"$report")
-            echo "$state: $(jq -r '.message // ""' <<<"$report")"
-            case "$state" in
-              succeeded | superseded) exit 0 ;;
-              failed) echo "::error::$(jq -r .message <<<"$report")"; exit 1 ;;
-            esac
-          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Request production deployment and follow phases, progress and rollback
+        run: node scripts/watch-deployment.mjs

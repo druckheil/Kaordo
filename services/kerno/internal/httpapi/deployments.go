@@ -50,7 +50,7 @@ func (h deploymentsHandler) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("deployment requested", "run", run.ID, "revision", run.Revision)
-	result, err := h.Hosts.Deploy(r.Context(), productionHost, run.ID)
+	result, err := h.Hosts.Deploy(r.Context(), productionHost, admin.DeploymentRequest{Run: run.ID, Attempt: run.Attempt, Revision: run.Revision})
 	writeHostResult(w, result, err)
 }
 

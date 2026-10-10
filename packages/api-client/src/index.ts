@@ -8,6 +8,8 @@ export {
 	adminUsersOptions,
 	adminAuditOptions,
 	adminLogsOptions,
+	adminDeploymentsOptions,
+	adminDeploymentOptions,
 	adminHostOptions,
 	adminHostAlertsOptions,
 	adminHostUsageOptions,

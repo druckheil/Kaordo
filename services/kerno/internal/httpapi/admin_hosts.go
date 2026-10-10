@@ -30,11 +30,28 @@ func mountAdminHosts(r chi.Router, hosts *admin.Hosts, alerts *admin.AlertDelive
 	r.Get("/hosts/{host}/operations/{operation}", h.operation)
 	r.Post("/hosts/{host}/operations/{operation}/cancel", h.cancel)
 	r.Get("/hosts/{host}/usage", h.usage)
+	r.Get("/hosts/{host}/deployments", h.deployments)
+	r.Get("/hosts/{host}/deployments/{run}", h.deployment)
 	r.Post("/hosts/{host}/usage/measure", h.measureUsage)
 	if alerts != nil {
 		r.Get("/hosts/{host}/alerts", h.listAlerts)
 		r.Post("/hosts/{host}/alerts/test", h.testAlerts)
 	}
+}
+
+func (h hostsHandler) deployments(w http.ResponseWriter, r *http.Request) {
+	result, err := h.hosts.Deployments(r.Context(), chi.URLParam(r, "host"))
+	writeHostResult(w, result, err)
+}
+
+func (h hostsHandler) deployment(w http.ResponseWriter, r *http.Request) {
+	run, err := strconv.ParseInt(chi.URLParam(r, "run"), 10, 64)
+	if err != nil || run < 1 {
+		writeError(w, http.StatusBadRequest, "A GitHub Actions run is required.")
+		return
+	}
+	result, err := h.hosts.Deployment(r.Context(), chi.URLParam(r, "host"), run)
+	writeHostResult(w, result, err)
 }
 
 type hostsHandler struct {

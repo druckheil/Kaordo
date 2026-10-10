@@ -555,3 +555,44 @@ test('Regado keeps failed role changes editable', async ({ regado: { page, mutat
 	await settleInterface(page);
 	await accessibility(page, 'Dark users');
 });
+
+test('Regado shows deployment byte progress, detailed failures and rollback journals with URL selection', async ({
+	regado: { page, deployments }
+}) => {
+	await openSection(page, 'Deployments');
+	await expect(
+		page.getByRole('status').filter({ hasText: 'Downloading the release' })
+	).toBeVisible();
+	await expect(page.getByRole('progressbar', { name: 'Artifact download' })).toHaveAttribute(
+		'aria-valuenow',
+		'25'
+	);
+	await expect(page.getByText('5.0 MiB / 20.0 MiB · 25%')).toBeVisible();
+	await expect(page.getByRole('list', { name: 'Deployment journal' })).toContainText(
+		'Artifact transfer started.'
+	);
+	await page.getByRole('button', { name: 'Deployment 42', exact: true }).click();
+	await expect(page).toHaveURL(/run=42/);
+	await expect(page.getByRole('alert')).toContainText('Failed phase: Activating the system');
+	await expect(page.getByRole('alert')).toContainText('Kerno did not become ready.');
+	await expect(page.getByText('Rollback: Previous release restored')).toBeVisible();
+	await expect(page.getByRole('list', { name: 'Deployment journal' })).toContainText(
+		'Previous release restored.'
+	);
+	await page.reload();
+	await expect(page.getByRole('alert')).toContainText('Kerno did not become ready.');
+	await accessibility(page, 'Deployment failure details');
+	await page.setViewportSize({ width: 390, height: 844 });
+	await settleInterface(page);
+	await assertInterfaceGeometry(page, 'Deployment failure mobile');
+	deployments[0].state = 'succeeded';
+	deployments[0].phase = 'complete';
+	deployments[0].message = 'Production passed live verification.';
+	delete deployments[0].progress;
+	await page.getByRole('button', { name: 'Deployment 43', exact: true }).click();
+	await page.getByRole('button', { name: 'Refresh deployments', exact: true }).click();
+	await expect(
+		page.getByRole('status').filter({ hasText: 'Succeeded · Deployment complete' })
+	).toBeVisible();
+	await expect(page.getByRole('progressbar')).toHaveCount(0);
+});

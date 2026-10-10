@@ -46,8 +46,11 @@ func (stub hostAgentStub) Usage(_ context.Context, window string) (json.RawMessa
 func (stub hostAgentStub) MeasureUsage(context.Context) (json.RawMessage, error) {
 	return json.RawMessage(`{"measuring":true}`), stub.err
 }
-func (stub hostAgentStub) Deploy(_ context.Context, run int64) (json.RawMessage, error) {
-	return json.RawMessage(`{"run":` + strconv.FormatInt(run, 10) + `,"state":"waiting"}`), stub.err
+func (stub hostAgentStub) Deploy(_ context.Context, request admin.DeploymentRequest) (json.RawMessage, error) {
+	return json.RawMessage(`{"run":` + strconv.FormatInt(request.Run, 10) + `,"state":"waiting"}`), stub.err
+}
+func (stub hostAgentStub) Deployments(context.Context) (json.RawMessage, error) {
+	return json.RawMessage(`{"items":[]}`), stub.err
 }
 func (stub hostAgentStub) Deployment(_ context.Context, run int64) (json.RawMessage, error) {
 	return json.RawMessage(`{"run":` + strconv.FormatInt(run, 10) + `,"state":"deploying"}`), stub.err
@@ -134,5 +137,23 @@ func TestHostRoutesProxyAgentsAndMapRefusals(t *testing.T) {
 	unavailable := hostRouter(errors.New("dial unix: no such file"))
 	if response := hostRequest(unavailable, http.MethodGet, "/v1/admin/hosts/local/operations", ""); response.Code != 503 || strings.Contains(response.Body.String(), "dial") {
 		t.Fatalf("agent failure = %d %s", response.Code, response.Body)
+	}
+}
+
+func TestDeploymentHistoryRequiresAdministratorAccess(t *testing.T) {
+	verify := func(context.Context, string) (identity.Claims, error) { return identity.Claims{Subject: "member"}, nil }
+	users := &fakeUsers{user: account.User{ID: "01999111-2222-7333-8444-555555555551", IsAdmin: false}}
+	hosts := admin.NewHosts(map[string]admin.HostAgent{"local": hostAgentStub{}}, &adminStub{})
+	router := NewRouter(verify, users, Modules{Admin: AdminDependencies{Store: &adminStub{}, Hosts: hosts}}, nil)
+	for _, path := range []string{"/v1/admin/hosts/local/deployments", "/v1/admin/hosts/local/deployments/42"} {
+		if response := hostRequest(router, http.MethodGet, path, ""); response.Code != http.StatusForbidden {
+			t.Fatalf("member reads %s = %d", path, response.Code)
+		}
+		if response := hostRequest(hostRouter(nil), http.MethodGet, path, ""); response.Code != http.StatusOK {
+			t.Fatalf("administrator reads %s = %d %s", path, response.Code, response.Body)
+		}
+	}
+	if response := hostRequest(hostRouter(nil), http.MethodGet, "/v1/admin/hosts/local/deployments/not-a-run", ""); response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid run = %d", response.Code)
 	}
 }

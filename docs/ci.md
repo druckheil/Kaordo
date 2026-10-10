@@ -18,9 +18,17 @@ Browser and integration jobs use the **same run's** static artifact, built with 
 
 ## Automatic deployment
 
-GitHub builds; the server only installs. After `checks` passes on a push to `main`, the `deploy` job, the only one allowed to mint an OIDC token, sends that token to `https://kaordo.link/v1/deployments`. Kerno accepts it only when GitHub signed it for that origin and its `workflow_ref` is the one `cd.nix` names, then asks regado-agent to start `kaordo-deploy@<run>`. The job polls the run's state and fails when the deployment fails, so the `production` environment in GitHub shows each result.
+GitHub builds; the server installs. After `checks` passes on a push to `main`, the `deploy` job, the only one allowed to mint an OIDC token, sends that token to `https://kaordo.link/v1/deployments`. Kerno verifies the origin, workflow, push event, revision and `run_attempt`. Regado-agent persists the queued request before starting `kaordo-deploy@<run>-<attempt>`. Repeating the same request returns the same attempt, including its final result; re-running the deployment job creates a new authenticated attempt.
 
-The unit downloads the run's `production-release` artifact with a read-only token and installs it with `deploy-release.sh` only if the run is that workflow's push to `main`, passed `checks`, is still the branch head, contains the revision production runs, and its download and archive match GitHub's digest and the clean manifest. Deployments queue behind each other; an older run ends `superseded`. A rejected release leaves the previous one running; re-running the deploy job retries it. Regado alerts on a failed deployment, critically when the rollback failed too. See [production](../deploy/nixos/README.md).
+`scripts/watch-deployment.mjs` follows phases and received/total artifact bytes, prints new journal entries and a heartbeat, and writes an Actions summary with the revision, release, failed phase and rollback result. Each status request obtains a fresh OIDC token. API restarts reconnect within a bounded five-minute window; authentication and protocol errors stop immediately. A monitoring deadline explicitly says that the last server state is unknown rather than reporting a failed installation. The monitor has a 32-minute deadline inside a 35-minute job.
+
+The unit streams the `production-release` artifact to disk with a read-only token. Downloads have a 15-minute deadline and a 60-second inactivity limit, report byte progress, and allow at most three attempts for transport failures. Size and SHA-256 must match GitHub before extraction. Only the trusted push whose revision contains production and whose latest `checks` passed can install; a deployment-only retry may reuse that unchanged run's latest gate. Main is checked again after downloading, so an older run ends `superseded` before activation.
+
+The installer reports preflight, checksum verification, snapshots, configuration, NixOS build, identity snapshot, activation, identity reconciliation, service/binary checks, publication, public verification and rollback. A kernel file lock releases after process exit; attempt-specific installation directories allow retrying the same artifact. The systemd unit has a 25-minute runtime limit and five minutes to stop/roll back. Regado-agent reconciles stopped, timed-out or killed units into durable failures, including the failed phase and whether an interrupted rollback requires operator inspection. Success follows full live verification; an already installed revision is verified again.
+
+Regado's administrator-only **Deployments** view shows the latest attempt for each release run, transfer progress, timestamps, errors, rollback result and the newest 300 journal entries. Twenty runs appear in the list; the server keeps 50 run records. API and agent restarts do not discard them. Failed deployments also raise host alerts, critically if rollback failed. See [production](../deploy/nixos/README.md).
+
+The first upgrade from the earlier run-only controller requires an explicitly authorized full production installation. Scope/PR validation does not install this controller or change the currently running release.
 
 Main protection requires an up-to-date PR and the `checks` context, applies to administrators, and disallows force pushes and deletion; squash and rebase merging are disabled. A merge into `main` is deployment authorization; version tags and release notes remain separate operations.
 
@@ -92,6 +100,35 @@ The complete [Svelte dependency discovery run](https://github.com/druckheil/Kaor
 | Final checks gate                    | 3s       |
 
 Job durations include dependency setup and cleanup. Every pnpm setup restored its package cache through a matching restore key; the Go and golangci-lint caches also hit. Browser installation and each fixture's Vite optimization were fresh. The unit suite measured both empty and reused Vite caches on the hosted runner, as shown below. No hosted run with empty pnpm and Go caches was measured for this change, so the workflow total is a warm dependency-cache result.
+
+### Deployment controller validation
+
+The complete [deployment controller run](https://github.com/druckheil/Kaordo/actions/runs/38080090476) on 2026-10-10 tested `4668087e1169e5a0d658ae01c8ed6bf7cc4d7a4c` through PR #31. All validation jobs passed; the final gate completed 7m25s after workflow creation. This includes 213 Node cases, seven isolated optimizer scans, 10 static artifact checks, all 69 browser scenarios with zero retries, five live journeys, Go race/host/database checks, actionlint and complete production payload verification. The production deployment job was skipped for this PR, so this run proves validation rather than a production installation.
+
+| Job                                  | Duration |
+| ------------------------------------ | -------- |
+| Frontend and unit tests              | 2m15s    |
+| Static app artifact                  | 1m41s    |
+| Production release payload           | 2m47s    |
+| Browser fixtures and accessibility 1 | 3m02s    |
+| Browser fixtures and accessibility 2 | 4m58s    |
+| Browser fixtures and accessibility 3 | 3m37s    |
+| Go services and PostgreSQL           | 3m23s    |
+| Identity, product and recovery       | 4m47s    |
+| Dependency advisories                | 45s      |
+| Final checks gate                    | 3s       |
+
+pnpm restored package caches, and Go and golangci-lint reported cache hits. Each optimizer probe separately measured an empty Vite cache and a cached restart in one isolated process. These cold/warm measurements do not represent empty pnpm/Go caches or production deployment durations.
+
+| App    | Hosted empty Vite cache | Hosted cached restart |
+| ------ | ----------------------- | --------------------- |
+| Portal | 2,013 ms                | 36 ms                 |
+| Fluo   | 2,213 ms                | 53 ms                 |
+| Ligo   | 2,249 ms                | 64 ms                 |
+| Rondo  | 2,196 ms                | 54 ms                 |
+| Regado | 2,112 ms                | 36 ms                 |
+| Lingvo | 2,122 ms                | 35 ms                 |
+| Memoro | 2,237 ms                | 60 ms                 |
 
 ## Optimizer measurements
 

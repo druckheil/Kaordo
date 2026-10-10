@@ -27,7 +27,8 @@ rollback_root=/srv/kaordo/rollbacks
 previous_target=
 
 mkdir -p "$temporary_root" "$metadata_root" "$rollback_root"
-if ! mkdir "$lock" 2>/dev/null; then
+exec 9>"$lock"
+if ! flock -n 9; then
   echo 'another static deployment is already running' >&2
   exit 1
 fi
@@ -40,7 +41,6 @@ restore_on_failure() {
     mv -Tf "$web_root/.rollback-$release_id" "$web_root/current"
     printf 'Deployment checks failed; restored %s\n' "$previous_target" >&2
   fi
-  rmdir "$lock" 2>/dev/null || true
   exit "$status"
 }
 trap restore_on_failure EXIT
@@ -56,7 +56,7 @@ if [[ ! -L "$web_root/current" ]]; then
   exit 1
 fi
 previous_target=$(readlink "$web_root/current")
-if [[ ( "$previous_target" != releases/* && "$previous_target" != ../releases/*-full/site ) || ! -d "$web_root/$previous_target" ]]; then
+if [[ ( "$previous_target" != releases/* && "$previous_target" != ../releases/*-full*/site ) || ! -d "$web_root/$previous_target" ]]; then
   echo 'current site does not point to a valid release' >&2
   exit 1
 fi

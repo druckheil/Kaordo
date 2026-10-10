@@ -17,14 +17,18 @@ Never forward PostgreSQL, 7880 or 8080–8082. Caddy issues certificates over TC
 
 ## Deploy
 
-Merging into `main` deploys: GitHub Actions builds and verifies the release, and its final job asks Kerno at `https://kaordo.link/v1/deployments` to install it ([CI](../../docs/ci.md)). The request carries only a GitHub OIDC token; no SSH key, server secret or user data reaches GitHub, and the server builds nothing. Kerno relays a trusted run to regado-agent, which starts `kaordo-deploy@<run>` from `cd.nix`. That unit downloads the run's artifact with the read-only token in `/srv/kaordo/secrets/github-actions-token` (fine-grained, Actions read on this repository) and runs `deploy-release.sh`. Each run's state is in `/var/lib/kaordo-deploy/<run>.json`:
+Merging into `main` deploys: GitHub Actions builds and verifies the release, and its final job asks Kerno at `https://kaordo.link/v1/deployments` to install it ([CI](../../docs/ci.md)). The request carries only a GitHub OIDC token; no SSH key, server secret or user data reaches GitHub. The server installs prebuilt application binaries and builds the NixOS configuration. Kerno relays a trusted run to regado-agent, which starts `kaordo-deploy@<run>-<attempt>` from `cd.nix`. That unit downloads the run's artifact with the read-only token in `/srv/kaordo/secrets/github-actions-token` (fine-grained, Actions read on this repository) and runs `deploy-release.sh`. The latest attempt for each run is in `/var/lib/kaordo-deploy/<run>.json`:
 
 ```sh
 sudo journalctl -u 'kaordo-deploy@*'
 sudo cat /var/lib/kaordo-deploy/<run>.json
 ```
 
-A failed deployment fails the GitHub job and raises a Regado alert; production keeps the previous release unless the alert is critical because the rollback failed too. Re-run the job to retry. A lock left at `/srv/kaordo/tmp/production-deploy.lock` by a power loss blocks every deployment; remove it only after confirming none runs.
+Actions displays phases, byte progress, new installer output and a status heartbeat. Its summary and Regado's administrator-only **Deployments** view show the release/revision, error phase and rollback result. Records keep the latest 300 journal entries and survive API/agent restarts. Re-running a deployment job creates a new attempt; repeating its HTTP request does not start another installation.
+
+A failed deployment fails the GitHub job and raises a Regado alert. Production keeps the previous release after a verified rollback; a failed/interrupted rollback needs operator inspection. Downloads stream to disk, verify GitHub's size and digest, and distinguish a stalled transfer from a slow one. The automatic unit is bounded to 25 minutes plus five minutes to stop/roll back. The shared `/srv/kaordo/tmp/production-deploy.lock` is now a kernel file lock and releases when its process exits. A leftover directory from the earlier implementation must be inspected and removed by an operator only after confirming that no deployment runs.
+
+Upgrading an existing run-only controller requires an explicitly authorized full deployment before the new workflow monitor can use attempt-aware status. Validation of a branch/PR does not install it on production.
 
 Manual commands remain available for an explicitly authorized recovery or release ([releases](../../docs/releases.md)). Both require a clean tree (`--allow-dirty` marks an intentional exception) and share the host lock with automatic deployments. SSH uses `KAORDO_DEPLOY_SSH_KEY` or the default key, and the account needs non-interactive `sudo`.
 

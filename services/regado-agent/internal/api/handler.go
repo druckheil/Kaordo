@@ -71,7 +71,7 @@ func NewHandler(service *Service, system http.Handler) http.Handler {
 		}
 		respond(w, map[string]bool{"measuring": true}, nil)
 	})
-	handleDeployments(mux, service.Deployments)
+	handleDeployments(mux, &service.Deployments)
 	mux.HandleFunc("POST /operations", func(w http.ResponseWriter, r *http.Request) {
 		var check CheckRequest
 		if !decode(w, r, &check) {
@@ -125,12 +125,12 @@ func statusOf(err error) int {
 	case errors.Is(err, state.ErrInvalid), errors.Is(err, ErrNotReady), errors.Is(err, ErrUnconfirmed),
 		errors.Is(err, integrity.ErrNothingToCheck):
 		return http.StatusUnprocessableEntity
-	case errors.Is(err, state.ErrConflict), errors.Is(err, ErrBusy), errors.Is(err, operation.ErrNotCancellable),
+	case errors.Is(err, state.ErrConflict), errors.Is(err, ErrBusy), errors.Is(err, operation.ErrNotCancellable), errors.Is(err, deployment.ErrAttemptActive),
 		errors.Is(err, ErrCheckRunning):
 		return http.StatusConflict
 	case errors.Is(err, operation.ErrNotFound), errors.Is(err, state.ErrNotFound), errors.Is(err, deployment.ErrUnknownRun):
 		return http.StatusNotFound
-	case errors.Is(err, ErrIncomplete), errors.Is(err, ErrUnknownCheck):
+	case errors.Is(err, ErrIncomplete), errors.Is(err, ErrUnknownCheck), errors.Is(err, deployment.ErrInvalid):
 		return http.StatusBadRequest
 	default:
 		return http.StatusBadGateway

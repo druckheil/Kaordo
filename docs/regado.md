@@ -17,6 +17,12 @@ This document describes the implemented operations and the remaining design. Quo
 
 The agent's copy is authoritative for its host. Kerno can rebuild its view from the agents at any time. Integrity schedules and alert evaluation keep running when Kerno is down; notification delivery resumes through Kerno.
 
+## Production deployments
+
+The **Deployments** view reads the local host's latest 20 release runs through administrator-authorized Kerno routes. It shows the current phase, received/total download bytes, revision and release identifiers, timestamps, exact failure details, rollback outcome and the latest 300 journal entries. Selecting a run updates the URL, so Actions summaries can link to it. The view keeps the last known result during an API restart and reports connection failures without replacing an installation result.
+
+GitHub OIDC alone starts release attempts; this view has no manual deployment or arbitrary command endpoint. The agent records acceptance before asking systemd to start an attempt and reconciles unexpected process termination into a failure. The detailed protocol and runtime bounds are in [CI](ci.md).
+
 ## Desired state document
 
 Stored at `/var/lib/regado-agent/state/current.json`, together with the last 50 revisions. Every write carries the expected revision. A mismatch is rejected (optimistic concurrency), and Kerno audits the actor, reason and JSON diff.

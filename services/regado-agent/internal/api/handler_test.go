@@ -129,7 +129,7 @@ func TestDeploymentRoutesStartARunAndReportIt(t *testing.T) {
 		{http.MethodGet, "/deployments/latest", "", http.StatusBadRequest},
 		// An inactive unit without a record has not been deployed
 		{http.MethodGet, "/deployments/12", "", http.StatusNotFound},
-		{http.MethodPost, "/deployments", `{"run":12}`, http.StatusNotFound},
+		{http.MethodPost, "/deployments", `{"run":12,"attempt":1,"revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`, http.StatusOK},
 	} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(fixture.method, fixture.path, strings.NewReader(fixture.body)))
@@ -137,7 +137,7 @@ func TestDeploymentRoutesStartARunAndReportIt(t *testing.T) {
 			t.Errorf("%s %s %s = %d", fixture.method, fixture.path, fixture.body, recorder.Code)
 		}
 	}
-	if !slices.Contains(commands, "systemctl start kaordo-deploy@12.service") {
+	if !slices.Contains(commands, "systemctl start --no-block kaordo-deploy@12-1.service") {
 		t.Fatalf("commands = %q", commands)
 	}
 }
