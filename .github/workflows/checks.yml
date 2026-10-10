@@ -74,7 +74,7 @@ jobs:
           retention-days: 1
 
   browser:
-    name: Browser fixtures and accessibility (${{ matrix.shard }}/2)
+    name: Browser fixtures and accessibility (${{ matrix.shard }}/3)
     needs: [frontend, pages]
     runs-on: ubuntu-24.04
     # Include fresh Chromium installation and leave time to upload failure diagnostics
@@ -82,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -101,7 +101,7 @@ jobs:
       - name: Check isolated product interactions and public screens
         timeout-minutes: 5
         # Test-level sharding runs on separate machines; each owns one Vite-generating worker
-        run: pnpm test:ui --fully-parallel --workers=1 --shard=${{ matrix.shard }}/2
+        run: pnpm test:ui --fully-parallel --workers=1 --shard=${{ matrix.shard }}/3
       - name: Keep failure traces, screenshots and the HTML report
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

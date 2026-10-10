@@ -8,7 +8,7 @@
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
 | Frontend and unit tests        | `check:front`, generated-contract diff, `format:check`, `lint`, `knip`, `test:unit`                                                                          | —                  |
 | Static app artifact            | `test:pages`: builds every app once and uploads the artifact                                                                                                 | —                  |
-| Browser fixtures (2 shards)    | `test:ui`: Playwright scenarios with synthetic data, accessibility and layout checks                                                                         | frontend, artifact |
+| Browser fixtures (3 shards)    | `test:ui`: Playwright scenarios with synthetic data, accessibility and layout checks                                                                         | frontend, artifact |
 | Go services and PostgreSQL     | Go build/vet/race tests, `golangci-lint`, regado-agent host tests on loop devices (`test:host`), actionlint, `product-db.integration.mjs` on a disposable DB | —                  |
 | Identity, product and recovery | `test:integration`: real Keycloak, Kerno, Nodo, LiveKit and restic against the built artifact                                                                | frontend, artifact |
 | Dependency advisories          | `pnpm audit` and `govulncheck` per Go module                                                                                                                 | —                  |

@@ -28,10 +28,10 @@ test('hosted browser shards use native test-level distribution with one fixture 
 		new URL('../.github/workflows/checks.yml', import.meta.url),
 		'utf8'
 	);
-	assert.match(workflow, /fail-fast: false\s+matrix:\s+shard: \[1, 2\]/);
+	assert.match(workflow, /fail-fast: false\s+matrix:\s+shard: \[1, 2, 3\]/);
 	assert.match(
 		workflow,
-		/run: pnpm test:ui --fully-parallel --workers=1 --shard=\$\{\{ matrix\.shard \}\}\/2/
+		/run: pnpm test:ui --fully-parallel --workers=1 --shard=\$\{\{ matrix\.shard \}\}\/3/
 	);
 	assert.match(workflow, /name: browser-failure-\$\{\{ matrix\.shard \}\}/);
 });
