@@ -25,8 +25,9 @@ run([
 	image,
 	'sh',
 	'-c',
-	// A real host's devtmpfs creates partition nodes; a container's /dev is a static tmpfs
-	'mount -t devtmpfs devtmpfs /dev && exec go test -tags hosttest -count=1 "$@" ./...',
+	// A real host's devtmpfs creates partition nodes; a container's /dev is a static tmpfs.
+	// Packages run one at a time because loop devices and the Btrfs device cache are kernel-wide.
+	'mount -t devtmpfs devtmpfs /dev && exec go test -tags hosttest -count=1 -p 1 "$@" ./...',
 	'host-test',
 	...process.argv.slice(2)
 ]);

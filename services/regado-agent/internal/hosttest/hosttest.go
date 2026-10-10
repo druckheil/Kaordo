@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/command"
 )
@@ -53,10 +54,21 @@ func Mount(t *testing.T, device string, options ...string) string {
 	return target
 }
 
-// Forget drops a loop device from the Btrfs device cache and detaches it to simulate a lost
-// disk. Only this device is forgotten: a bare --forget would unregister other tests' pools too.
+// Forget detaches a loop device and drops it from the Btrfs device cache to simulate a lost
+// disk. A host's udev may still probe the freshly written device, which defers the detach and
+// can register the device again, so it is forgotten only once it is gone. Only this device is
+// forgotten: a bare --forget would unregister other pools too.
 func Forget(t *testing.T, device string) {
 	t.Helper()
-	MustRun(t, "btrfs", "device", "scan", "--forget", device)
 	MustRun(t, "losetup", "--detach", device)
+	backing := filepath.Join("/sys/block", filepath.Base(device), "loop", "backing_file")
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if _, err := os.Stat(backing); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s is still attached", device)
+		}
+	}
+	MustRun(t, "btrfs", "device", "scan", "--forget", device)
 }
