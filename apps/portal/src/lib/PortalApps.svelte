@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Lists the independent Kaordo applications
+	// Lists Kaordo applications according to the verified account role
 
 	import { appPaths } from '@kaordo/links';
 	import {
@@ -8,8 +8,11 @@
 		HouseIcon,
 		LanguagesIcon,
 		MessageCircleIcon,
+		ShieldCheckIcon,
 		UsersIcon
 	} from '@kaordo/ui';
+
+	let { isAdmin = false }: { isAdmin?: boolean } = $props();
 
 	const applications = [
 		{
@@ -46,8 +49,20 @@
 			category: 'Diary',
 			href: appPaths.memoro,
 			icon: CalendarDaysIcon
+		},
+		{
+			name: 'Regado',
+			description: 'Manage accounts, monitor services and maintain the system.',
+			category: 'Administration',
+			href: appPaths.regado,
+			icon: ShieldCheckIcon,
+			adminOnly: true
 		}
 	];
+
+	const visibleApplications = $derived(
+		applications.filter((application) => !application.adminOnly || isAdmin)
+	);
 </script>
 
 <section class="mt-8" aria-label="Applications">
@@ -56,7 +71,7 @@
 		<h2 class="mt-1 text-2xl font-bold tracking-[-0.04em]">Choose an app</h2>
 	</div>
 	<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-		{#each applications as application (application.name)}
+		{#each visibleApplications as application (application.name)}
 			{@const Icon = application.icon}
 			<a
 				href={application.href}

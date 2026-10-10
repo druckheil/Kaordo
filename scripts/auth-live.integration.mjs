@@ -5,6 +5,7 @@ import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { parseEnv, promisify } from 'node:util';
 import { assertAccessible as checkAccessibility } from './ui-accessibility.mjs';
 import { openPublishedPost } from './encryption-fixture.mjs';
@@ -13,6 +14,9 @@ import { test, expect } from '@playwright/test';
 const run = promisify(execFile);
 const site = 'http://localhost:8765';
 const identity = 'http://localhost:8080';
+const totpPeriodMs = 30_000;
+const totpSubmissionBudgetMs = 5_000;
+const totpClockMarginMs = 500;
 
 test.afterEach(async ({ browser }) => {
 	await Promise.all(browser.contexts().map((context) => context.close()));
@@ -89,7 +93,7 @@ async function capture(page, name) {
 	console.log(`UI snapshot: ${path}`);
 }
 
-function codeFor(secret, period = Math.floor(Date.now() / 30_000)) {
+function codeFor(secret, period) {
 	const counter = Buffer.alloc(8);
 	counter.writeBigUInt64BE(BigInt(period));
 	const digest = createHmac('sha1', Buffer.from(secret, 'utf8')).update(counter).digest();
@@ -97,12 +101,24 @@ function codeFor(secret, period = Math.floor(Date.now() / 30_000)) {
 	return String((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, '0');
 }
 
+async function fillTotp(page, selector, secret, usedPeriod = -1) {
+	const now = Date.now();
+	const currentPeriod = Math.floor(now / totpPeriodMs);
+	const nextPeriod = (Math.max(currentPeriod, usedPeriod) + 1) * totpPeriodMs;
+	if (currentPeriod <= usedPeriod || nextPeriod - now < totpSubmissionBudgetMs) {
+		// TOTP validity is time-based: wait for a fresh period before expiry or reuse of a setup code
+		await delay(nextPeriod - now + totpClockMarginMs);
+	}
+	const period = Math.floor(Date.now() / totpPeriodMs);
+	await page.locator(selector).fill(codeFor(secret, period));
+	return period;
+}
+
 // Submits Keycloak's TOTP setup and returns the secret with the period of the code it accepted.
 // Keycloak answers a rejected code with the setup form again, so the answer itself tells.
 async function configureTotp(page) {
 	const secret = await page.locator('[name=totpSecret]').inputValue();
-	const period = Math.floor(Date.now() / 30_000);
-	await page.locator('[name=totp]').fill(codeFor(secret, period));
+	const period = await fillTotp(page, '[name=totp]', secret);
 	const answer = page.waitForResponse(
 		(response) => response.request().isNavigationRequest() && response.request().method() === 'POST'
 	);
@@ -1008,9 +1024,7 @@ test('registration, TOTP and recovery login, Kerno account, Fluo posting, Rondo,
 		await page.locator('input[name=password]').fill(password);
 		await page.locator('#kc-login').click();
 		await page.locator('input[name=otp]').waitFor();
-		const nextPeriod = (setupCounter + 1) * 30_000 + 500 - Date.now();
-		if (nextPeriod > 0) await new Promise((resolve) => setTimeout(resolve, nextPeriod));
-		await page.locator('input[name=otp]').fill(codeFor(secret));
+		await fillTotp(page, 'input[name=otp]', secret, setupCounter);
 		const totpResponse = page.waitForResponse((response) =>
 			isApiResponse(response, '/v1/session', 'POST')
 		);
