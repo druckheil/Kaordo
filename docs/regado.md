@@ -171,6 +171,7 @@ Alerts cover:
 - pool usage above the warning (default 80%) and critical (default 90%) thresholds;
 - a pool that differs from its desired state, or mixes profiles, while no pool change is running;
 - a failed pool change, copy verification or self-test, until a later run succeeds;
+- an automatic deployment of `main` that failed (warning; production keeps the previous release) or halted with production possibly inconsistent (critical; see [production](../deploy/nixos/README.md));
 - no backup target.
 
 Still to come: a backup older than its policy, failed systemd units and certificate expiry.

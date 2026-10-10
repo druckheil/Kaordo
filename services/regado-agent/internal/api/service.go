@@ -79,6 +79,8 @@ type Service struct {
 	Alerts     *alert.Tracker
 	Usage      *usage.Monitor
 	Health     host.HealthMonitor
+	// DeploymentState is the automatic deployment's state directory; empty when the host has none
+	DeploymentState string
 
 	// mu serializes plans with the writes that act on them
 	mu sync.Mutex

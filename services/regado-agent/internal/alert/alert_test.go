@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/deployment"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/host"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
@@ -153,6 +154,33 @@ func TestEvaluateWarnsBeforeThePoolFills(t *testing.T) {
 		in.FullInDays = fixture.days
 		if got := keys(Evaluate(in)); !slices.Equal(got, fixture.want) {
 			t.Errorf("full in %v days = %q", fixture.days, got)
+		}
+	}
+}
+
+func TestEvaluateReportsAMainThatDidNotReachProduction(t *testing.T) {
+	attempt := "aaaaaaa1111111111111111111111111111111111:42:1"
+	for _, fixture := range []struct {
+		state *deployment.State
+		want  []string
+	}{
+		{nil, []string{}},
+		{&deployment.State{Phase: "idle"}, []string{}},
+		{&deployment.State{Phase: "activating", FailedAttempt: attempt}, []string{}},
+		{&deployment.State{Phase: deployment.Failed, FailedAttempt: attempt, ActiveCommit: "bbbbbbb2", Error: "The isolated build failed."},
+			[]string{"warning deploy.failed"}},
+		{&deployment.State{Phase: deployment.Halted, FailedAttempt: attempt, Error: "The release failed and its rollback needs operator attention."},
+			[]string{"critical deploy.halted"}},
+	} {
+		in := healthyInputs()
+		in.Deployment = fixture.state
+		got := Evaluate(in)
+		if !slices.Equal(keys(got), fixture.want) {
+			t.Fatalf("deployment %+v raised %q", fixture.state, keys(got))
+		}
+		if fixture.state != nil && fixture.state.Phase == deployment.Failed &&
+			got[0].Summary != "Automatic deployment of aaaaaaa failed: The isolated build failed. Production still runs bbbbbbb." {
+			t.Fatalf("summary = %q", got[0].Summary)
 		}
 	}
 }

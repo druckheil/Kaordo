@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/deployment"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/host"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
@@ -23,6 +24,8 @@ type Inputs struct {
 	Operations []operation.Operation
 	// FullInDays projects the last week's growth onto the free space; nil when nothing grows
 	FullInDays *float64
+	// Deployment is the automatic deployment's state; nil when the host has none
+	Deployment *deployment.State
 }
 
 // operationAlerts names the operations whose failure stays an alert until a later run succeeds
@@ -49,11 +52,33 @@ func Evaluate(in Inputs) []Condition {
 	conditions = append(conditions, fillingConditions(in.FullInDays)...)
 	conditions = append(conditions, driftConditions(in, latest)...)
 	conditions = append(conditions, operationConditions(latest)...)
+	conditions = append(conditions, deploymentConditions(in.Deployment)...)
 	if len(in.Desired.Backups.Targets) == 0 {
 		conditions = append(conditions, Condition{Key: "backup.none", Severity: Warning,
 			Summary: "No backup target is configured. Two copies survive a failed disk, not deletion or losing the host."})
 	}
 	return conditions
+}
+
+// deploymentConditions report a merged main that did not reach production
+func deploymentConditions(state *deployment.State) []Condition {
+	if state == nil {
+		return nil
+	}
+	revision, active := shortRevision(state.Revision()), shortRevision(state.ActiveCommit)
+	switch state.Phase {
+	case deployment.Failed:
+		return []Condition{{Key: "deploy.failed", Severity: Warning,
+			Summary: fmt.Sprintf("Automatic deployment of %s failed: %s Production still runs %s.", revision, state.Error, active)}}
+	case deployment.Halted:
+		return []Condition{{Key: "deploy.halted", Severity: Critical,
+			Summary: fmt.Sprintf("Automatic deployment of %s stopped: %s Inspect the host, then resume automatic deployment.", revision, state.Error)}}
+	}
+	return nil
+}
+
+func shortRevision(revision string) string {
+	return revision[:min(len(revision), 7)]
 }
 
 func memberConditions(pool host.Pool, labels map[string]string) []Condition {

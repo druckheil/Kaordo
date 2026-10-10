@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/alert"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/deployment"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
 )
 
@@ -30,6 +31,12 @@ func (service *Service) EvaluateAlerts(ctx context.Context) error {
 	inputs := alert.Inputs{Devices: facts.Devices, Pool: facts.Pool, Desired: facts.Desired, Drift: facts.Drift, Operations: recent}
 	if service.Usage != nil {
 		inputs.FullInDays = service.Usage.Report(0).FullInDays
+	}
+	if service.DeploymentState != "" {
+		// An unreadable deployment state must not hide the host's other alerts
+		if inputs.Deployment, err = deployment.Read(service.DeploymentState); err != nil {
+			slog.Warn("deployment state unavailable", "err", err)
+		}
 	}
 	return service.Alerts.Update(alert.Evaluate(inputs), time.Now())
 }
