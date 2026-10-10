@@ -16,9 +16,10 @@ let
   present = builtins.filter (id: builtins.pathExists "/dev/disk/by-id/${id}") desired.pool.devices;
 in
 {
+  # A pool of any size boots; GRUB needs at least one of its disks to be present
   assertions = [{
-    assertion = builtins.length desired.pool.devices >= 2 && present != [ ];
-    message = "Pool boot requires two desired disks and at least one present bootloader device";
+    assertion = present != [ ];
+    message = "No pool disk named in regado-agent's desired state is present to carry GRUB";
   }];
 
   boot.supportedFilesystems = [ "btrfs" ];
