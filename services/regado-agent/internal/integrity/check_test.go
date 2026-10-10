@@ -230,3 +230,33 @@ func waitFinished(t *testing.T, manager *operation.Manager, id string) operation
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+func TestSelfTestEstimateStaysWithinTheDrivesStep(t *testing.T) {
+	// A WD drive reports "90% remaining" until a tenth of its 262-minute long test is done
+	ata := `{"ata_smart_data":{"self_test":{"status":{"value":249,"remaining_percent":90},"polling_minutes":{"short":2,"extended":262}}}}`
+	for _, fixture := range []struct {
+		raw     string
+		test    string
+		elapsed time.Duration
+		percent int64
+		known   bool
+	}{
+		{ata, "long", 0, 10, true},                 // the drive already reports 10%
+		{ata, "long", 39 * time.Minute, 14, true},  // the estimate moves inside the step
+		{ata, "long", 200 * time.Minute, 19, true}, // but never claims the next step early
+		{ata, "short", time.Minute, 19, true},      // the short test has its own estimate
+		{`{"ata_smart_data":{"self_test":{"status":{"value":249,"remaining_percent":90}}}}`, "long", time.Hour, 10, false},
+		{`{"nvme_self_test_log":{"current_self_test_operation":{"value":2},"current_self_test_completion_percent":37}}`, "long", time.Hour, 37, false},
+	} {
+		percent, _, known := selfTestEstimate(fixture.raw, fixture.test, fixture.elapsed)
+		if percent != fixture.percent || known != fixture.known {
+			t.Errorf("%s after %s = %d%% (known %v), want %d%%", fixture.test, fixture.elapsed, percent, known, fixture.percent)
+		}
+	}
+	if _, left, _ := selfTestEstimate(ata, "long", 62*time.Minute); remainingText(left) != "About 3 h 20 min left" {
+		t.Errorf("remaining = %q", remainingText(left))
+	}
+	if remainingText(0) != "Taking longer than the drive's estimate" || remainingText(30*time.Second) != "Less than a minute left" {
+		t.Error("edge texts")
+	}
+}

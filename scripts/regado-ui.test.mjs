@@ -17,7 +17,7 @@ async function openSection(page, section) {
 }
 
 // Background maintenance deliberately polls rather than tying its lifetime to the action request
-const maintenanceTimeout = 15_000;
+const maintenanceTimeout = 25_000;
 
 test('Regado overview explains charts and supports both appearances', async ({
 	regado: { page }
@@ -322,6 +322,14 @@ test('Regado integrity checks run on request and follow an audited schedule', as
 	const scrub = integrity.getByRole('listitem', { name: 'Verify every copy', exact: true });
 	await expect(scrub.getByText('Monthly · Not run yet', { exact: true })).toBeVisible();
 
+	const polls = [];
+	page.on('request', (request) => {
+		if (
+			request.method() === 'GET' &&
+			new URL(request.url()).pathname.endsWith('/hosts/local/operations')
+		)
+			polls.push(Date.now());
+	});
 	await scrub.getByRole('button', { name: 'Run now', exact: true }).click();
 	const run = page.getByRole('dialog', { name: 'Verify every copy', exact: true });
 	await expect(run.getByText(/A damaged copy is rewritten from a good one/)).toBeVisible();
@@ -334,7 +342,21 @@ test('Regado integrity checks run on request and follow an audited schedule', as
 		integrity.getByRole('button', { name: 'Run now', exact: true }).first(),
 		'Only one check runs at a time'
 	).toBeDisabled();
+	await expect(scrub.getByText(/^Monthly · Running · \d+%$/)).toBeVisible();
+	const activity = page.getByRole('region', { name: 'Activity', exact: true });
+	const bar = activity.getByRole('progressbar');
+	await expect(activity.getByText(/^\d+% · Updated \d+ s ago$/)).toBeVisible();
+	const first = Number(await bar.getAttribute('aria-valuenow'));
+	await expect
+		.poll(async () => Number(await bar.getAttribute('aria-valuenow')), {
+			message: 'The progress bar follows each five-second poll',
+			timeout: 7_000
+		})
+		.toBeGreaterThan(first);
 	await expect(scrub.getByText(/^Monthly · Passed /)).toBeVisible({ timeout: maintenanceTimeout });
+	const gaps = polls.slice(1).map((time, index) => time - polls[index]);
+	expect(polls.length, 'Operations were polled while the check ran').toBeGreaterThanOrEqual(3);
+	expect(Math.max(...gaps), 'No poll gap exceeds the five-second interval').toBeLessThan(6_500);
 
 	await integrity.getByRole('button', { name: 'Change schedule…', exact: true }).click();
 	const schedule = page.getByRole('dialog', { name: 'Integrity schedule', exact: true });

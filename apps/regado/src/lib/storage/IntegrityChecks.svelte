@@ -1,11 +1,11 @@
 <script lang="ts">
 	// Shows each integrity check's schedule and latest result and starts a check on request
-	import type { HostFacts } from '@kaordo/contracts';
+	import type { HostFacts, HostOperation } from '@kaordo/contracts';
 	import { Button, Dialog, Textarea } from '@kaordo/ui';
 	import { formatDateTime } from '../regado-model';
 	import IntegritySchedule from './IntegritySchedule.svelte';
 	import type { StorageState } from './storage-state.svelte';
-	import { checkHistory, checks, type CheckKind } from './storage-model';
+	import { checkHistory, checks, currentStep, type CheckKind } from './storage-model';
 
 	let { facts, storage }: { facts: HostFacts; storage: StorageState } = $props();
 
@@ -34,6 +34,17 @@
 	let error = $state('');
 	let scheduling = $state(false);
 	const reasonValid = $derived(reason.trim().length <= 500);
+
+	function status(last: HostOperation | undefined): string {
+		if (!last) return 'Not run yet';
+		const step = last.state === 'running' ? currentStep(last) : undefined;
+		if (step) {
+			const where = step.count > 1 ? ` · disk ${step.number} of ${step.count}` : '';
+			const done = step.percent === undefined ? '' : ` · ${step.percent.toFixed(0)}%`;
+			return `Running${where}${done}`;
+		}
+		return `${outcomes[last.state]} ${formatDateTime(last.finishedAt ?? last.createdAt)}`;
+	}
 
 	function request(kind: CheckKind) {
 		requested = kind;
@@ -80,9 +91,7 @@
 				<div class="min-w-0">
 					<p class="font-medium">{check.title}</p>
 					<p class="text-sm text-muted-foreground">
-						{frequencies[facts.desired.integrity[check.setting]]} · {last
-							? `${outcomes[last.state]} ${formatDateTime(last.finishedAt ?? last.createdAt)}`
-							: 'Not run yet'}
+						{frequencies[facts.desired.integrity[check.setting]]} · {status(last)}
 					</p>
 					{#if last?.error}<p class="text-sm text-destructive">{last.error}</p>{/if}
 				</div>

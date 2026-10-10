@@ -122,6 +122,11 @@ type selfTestReport struct {
 				Value            int  `json:"value"`
 				RemainingPercent *int `json:"remaining_percent"`
 			} `json:"status"`
+			// The drive's own estimate of each test's duration
+			PollingMinutes struct {
+				Short    int `json:"short"`
+				Extended int `json:"extended"`
+			} `json:"polling_minutes"`
 		} `json:"self_test"`
 	} `json:"ata_smart_data"`
 	ATALog struct {
@@ -165,6 +170,41 @@ func selfTestProgress(raw string) (running bool, percent int64) {
 		return true, done
 	}
 	return false, 100
+}
+
+// selfTestEstimate refines ATA progress, which drives report in 10% steps, by the time passed
+// against the drive's own duration estimate. It never leaves the step the drive reports, and
+// known is false when the drive gives no estimate or reports exact progress itself.
+func selfTestEstimate(raw, test string, elapsed time.Duration) (percent int64, left time.Duration, known bool) {
+	_, reported := selfTestProgress(raw)
+	var report selfTestReport
+	if json.Unmarshal([]byte(raw), &report) != nil || report.ATA.SelfTest.Status.RemainingPercent == nil {
+		return reported, 0, false
+	}
+	minutes := report.ATA.SelfTest.PollingMinutes.Short
+	if test == "long" {
+		minutes = report.ATA.SelfTest.PollingMinutes.Extended
+	}
+	if minutes <= 0 {
+		return reported, 0, false
+	}
+	expected := time.Duration(minutes) * time.Minute
+	estimated := int64(elapsed * 100 / expected)
+	percent = min(max(estimated, reported), reported+9, 99)
+	return percent, max(0, expected-elapsed), true
+}
+
+func remainingText(left time.Duration) string {
+	switch {
+	case left <= 0:
+		return "Taking longer than the drive's estimate"
+	case left < time.Minute:
+		return "Less than a minute left"
+	case left < time.Hour:
+		return fmt.Sprintf("About %d min left", int(left.Minutes()))
+	default:
+		return fmt.Sprintf("About %d h %d min left", int(left.Hours()), int(left.Minutes())%60)
+	}
 }
 
 // selfTestVerdict reads the newest self-test log entry
@@ -230,6 +270,8 @@ func (checker Checker) selfTest(ctx context.Context, job *operation.Job, test st
 		return err
 	}
 	running = true
+	started := time.Now()
+	detail := ""
 	ticker := time.NewTicker(checker.Poll)
 	defer ticker.Stop()
 	for {
@@ -242,8 +284,13 @@ func (checker Checker) selfTest(ctx context.Context, job *operation.Job, test st
 		if err != nil {
 			return err
 		}
-		active, percent := selfTestProgress(raw)
+		active, _ := selfTestProgress(raw)
+		percent, left, known := selfTestEstimate(raw, test, time.Since(started))
 		job.Progress(percent, 100, "percent")
+		if text := remainingText(left); known && active && text != detail {
+			detail = text
+			job.Detail(detail)
+		}
 		if !active {
 			running = false
 			return selfTestVerdict(raw)

@@ -132,10 +132,11 @@ export function createHostFixture(now) {
 		const running = operations.find((item) => item.state === 'running');
 		if (!running) return;
 		operationReads++;
+		// A check advances a quarter per read, so polling shows measured progress before it passes
 		if (running.kind !== 'pool.apply') {
 			const [stage] = running.stages;
-			stage.progress = { done: 50, total: 100, unit: 'percent' };
-			if (operationReads > 1) {
+			stage.progress = { done: operationReads * 25, total: 100, unit: 'percent' };
+			if (operationReads > 3) {
 				stage.state = running.state = 'succeeded';
 				delete stage.progress;
 				running.finishedAt = new Date().toISOString();

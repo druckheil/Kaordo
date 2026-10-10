@@ -18,6 +18,23 @@
 
 	let expanded = $state<string | null>(null);
 	const operations = $derived(storage.operations.data?.items ?? []);
+	const anyActive = $derived(
+		operations.some((item) => item.state === 'running' || item.state === 'queued')
+	);
+	// A ticking clock shows how fresh the five-second status is while work runs
+	let now = $state(Date.now());
+	$effect(() => {
+		if (!anyActive) return;
+		const timer = setInterval(() => (now = Date.now()), 1_000);
+		return () => clearInterval(timer);
+	});
+	const updatedSeconds = $derived(
+		Math.max(0, Math.round((now - storage.operations.dataUpdatedAt) / 1_000))
+	);
+	function freshness(percent: number | undefined): string {
+		const updated = `Updated ${updatedSeconds} s ago`;
+		return percent === undefined ? updated : `${percent.toFixed(0)}% · ${updated}`;
+	}
 	const date = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' });
 	const stateLabels: Record<HostOperation['state'], string> = {
 		queued: 'Queued',
@@ -106,6 +123,9 @@
 									value={percent}
 									aria-label={`${stage.name} ${percent.toFixed(0)}%`}
 								/>
+							{/if}
+							{#if stage.state === 'running'}
+								<p class="mt-1 text-xs text-muted-foreground">{freshness(percent)}</p>
 							{/if}
 						</li>
 					{/each}

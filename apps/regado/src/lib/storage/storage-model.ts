@@ -189,3 +189,16 @@ export function stageProgress(stage: HostOperation['stages'][number]): number | 
 	if (!stage.progress || stage.progress.total <= 0) return undefined;
 	return Math.min(100, (stage.progress.done / stage.progress.total) * 100);
 }
+
+// Where a running operation is: its current step and that step's measured progress
+export function currentStep(
+	operation: HostOperation
+): { number: number; count: number; percent: number | undefined } | undefined {
+	const index = operation.stages.findIndex((stage) => stage.state === 'running');
+	if (index < 0) return undefined;
+	return {
+		number: index + 1,
+		count: operation.stages.length,
+		percent: stageProgress(operation.stages[index])
+	};
+}
