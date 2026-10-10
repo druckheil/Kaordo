@@ -25,6 +25,7 @@ import (
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/storage"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/usage"
 )
 
 const (
@@ -34,6 +35,7 @@ const (
 	defaultStateDir   = "/var/lib/regado-agent"
 	healthInterval    = 15 * time.Minute
 	alertInterval     = time.Minute
+	usageInterval     = time.Hour
 	scheduleInterval  = 10 * time.Minute
 	// Scrub limit per device keeps services responsive while every copy is read
 	scrubLimit = "64m"
@@ -72,6 +74,7 @@ func run() error {
 	defer stopWatching()
 	watchers.Go(func() { service.WatchHealth(watch, healthInterval) })
 	watchers.Go(func() { service.WatchAlerts(watch, alertInterval) })
+	watchers.Go(func() { service.Usage.Watch(watch, usageInterval) })
 	scheduler := &integrity.Scheduler{
 		Operations: service.Operations, States: service.States, Request: service.IntegrityRequest,
 		Now: time.Now, Window: maintenanceWindow,
@@ -117,9 +120,17 @@ func openService(ctx context.Context, directory string) (*api.Service, func(), e
 		states.Close()
 		return nil, nil, err
 	}
-	described := api.DescribeHost(environment("REGADO_POOL_MOUNT", defaultPoolMount))
+	poolMount := environment("REGADO_POOL_MOUNT", defaultPoolMount)
+	usages, err := usage.Open(filepath.Join(directory, "usage"), command.Run, poolMount, usage.Areas(poolMount), time.Now)
+	if err != nil {
+		alerts.Close()
+		operations.Close()
+		states.Close()
+		return nil, nil, err
+	}
+	described := api.DescribeHost(poolMount)
 	service := &api.Service{
-		Run: command.Run, Host: described, States: states, Operations: operations, Alerts: alerts,
+		Run: command.Run, Host: described, States: states, Operations: operations, Alerts: alerts, Usage: usages,
 		Executor:  storage.Executor{Run: command.Run, Mount: described.PoolMount, Poll: time.Second, EFI: described.Firmware == "efi"},
 		Integrity: integrity.Checker{Run: command.Run, Mount: described.PoolMount, Poll: 5 * time.Second, ScrubLimit: scrubLimit},
 		Journal:   journal.Policy{Link: journal.DefaultLink, Path: filepath.Join(directory, "journald-retention.conf")},
@@ -136,7 +147,7 @@ func openService(ctx context.Context, directory string) (*api.Service, func(), e
 		slog.Error("could not reconcile the journal retention", "err", err)
 	}
 	// Operations stop first so running jobs record interruption before the state store closes
-	return service, func() { operations.Close(); alerts.Close(); states.Close() }, nil
+	return service, func() { operations.Close(); usages.Close(); alerts.Close(); states.Close() }, nil
 }
 
 func environment(name, fallback string) string {

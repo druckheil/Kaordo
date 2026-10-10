@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
@@ -15,6 +16,8 @@ import (
 )
 
 const bodyLimit = 64 << 10
+
+var usageWindows = map[string]time.Duration{"1d": 24 * time.Hour, "7d": 7 * 24 * time.Hour, "30d": 30 * 24 * time.Hour, "90d": 90 * 24 * time.Hour}
 
 // NewHandler serves the declarative host API and passes telemetry, journal and service routes to system.
 func NewHandler(service *Service, system http.Handler) http.Handler {
@@ -51,6 +54,21 @@ func NewHandler(service *Service, system http.Handler) http.Handler {
 		after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
 		report, err := service.AlertReport(max(0, after))
 		respond(w, report, err)
+	})
+	mux.HandleFunc("GET /usage", func(w http.ResponseWriter, r *http.Request) {
+		window, ok := usageWindows[r.URL.Query().Get("window")]
+		if !ok {
+			writeError(w, http.StatusBadRequest, "The window must be 1d, 7d, 30d or 90d.")
+			return
+		}
+		respond(w, service.Usage.Report(window), nil)
+	})
+	mux.HandleFunc("POST /usage/measure", func(w http.ResponseWriter, _ *http.Request) {
+		if !service.Usage.Measure() {
+			writeError(w, http.StatusConflict, "A measurement is already running.")
+			return
+		}
+		respond(w, map[string]bool{"measuring": true}, nil)
 	})
 	mux.HandleFunc("POST /operations", func(w http.ResponseWriter, r *http.Request) {
 		var check CheckRequest

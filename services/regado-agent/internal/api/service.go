@@ -22,6 +22,7 @@ import (
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/storage"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/usage"
 )
 
 // AgentRequester marks operations the agent starts itself to converge the host.
@@ -76,6 +77,7 @@ type Service struct {
 	Integrity  integrity.Checker
 	Journal    journal.Policy
 	Alerts     *alert.Tracker
+	Usage      *usage.Monitor
 	Health     host.HealthMonitor
 
 	// mu serializes plans with the writes that act on them

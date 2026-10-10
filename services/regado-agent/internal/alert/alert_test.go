@@ -138,3 +138,23 @@ func TestEvaluateReportsOnlyActionableConditions(t *testing.T) {
 		t.Fatal("drift was reported while a pool change converges")
 	}
 }
+
+func TestEvaluateWarnsBeforeThePoolFills(t *testing.T) {
+	for _, fixture := range []struct {
+		days *float64
+		want []string
+	}{
+		{nil, []string{}},
+		{ptr(45.0), []string{}},
+		{ptr(20.0), []string{"warning pool.filling"}},
+		{ptr(3.0), []string{"critical pool.filling"}},
+	} {
+		in := healthyInputs()
+		in.FullInDays = fixture.days
+		if got := keys(Evaluate(in)); !slices.Equal(got, fixture.want) {
+			t.Errorf("full in %v days = %q", fixture.days, got)
+		}
+	}
+}
+
+func ptr[T any](value T) *T { return &value }

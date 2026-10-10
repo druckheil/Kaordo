@@ -27,9 +27,11 @@ func (service *Service) EvaluateAlerts(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return service.Alerts.Update(alert.Evaluate(alert.Inputs{
-		Devices: facts.Devices, Pool: facts.Pool, Desired: facts.Desired, Drift: facts.Drift, Operations: recent,
-	}), time.Now())
+	inputs := alert.Inputs{Devices: facts.Devices, Pool: facts.Pool, Desired: facts.Desired, Drift: facts.Drift, Operations: recent}
+	if service.Usage != nil {
+		inputs.FullInDays = service.Usage.Report(0).FullInDays
+	}
+	return service.Alerts.Update(alert.Evaluate(inputs), time.Now())
 }
 
 // WatchAlerts evaluates alerts every interval until ctx ends.

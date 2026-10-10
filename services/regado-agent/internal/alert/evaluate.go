@@ -21,6 +21,8 @@ type Inputs struct {
 	Drift   storage.Plan
 	// Operations are recent operations, newest first
 	Operations []operation.Operation
+	// FullInDays projects the last week's growth onto the free space; nil when nothing grows
+	FullInDays *float64
 }
 
 // operationAlerts names the operations whose failure stays an alert until a later run succeeds
@@ -44,6 +46,7 @@ func Evaluate(in Inputs) []Condition {
 	conditions := memberConditions(in.Pool, labels)
 	conditions = append(conditions, healthConditions(in.Devices, labels)...)
 	conditions = append(conditions, usageConditions(in.Pool, in.Desired.Alerts)...)
+	conditions = append(conditions, fillingConditions(in.FullInDays)...)
 	conditions = append(conditions, driftConditions(in, latest)...)
 	conditions = append(conditions, operationConditions(latest)...)
 	if len(in.Desired.Backups.Targets) == 0 {
@@ -104,6 +107,18 @@ func usageConditions(pool host.Pool, thresholds state.Alerts) []Condition {
 		return []Condition{{Key: "pool.usage", Severity: Warning, Summary: summary}}
 	default:
 		return nil
+	}
+}
+
+// fillingConditions warns ahead of a full pool, while there is still time to add a disk
+func fillingConditions(days *float64) []Condition {
+	switch {
+	case days == nil || *days >= 30:
+		return nil
+	case *days < 7:
+		return []Condition{{Key: "pool.filling", Severity: Critical, Summary: fmt.Sprintf("At last week's growth the pool is full in %.0f days.", *days)}}
+	default:
+		return []Condition{{Key: "pool.filling", Severity: Warning, Summary: fmt.Sprintf("At last week's growth the pool is full in %.0f days.", *days)}}
 	}
 }
 

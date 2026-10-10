@@ -85,8 +85,8 @@ in
       StateDirectoryMode = "0700";
       NoNewPrivileges = true;
       PrivateNetwork = true;
-      PrivateTmp = true;
-      ProtectHome = true;
+      # The agent measures /tmp, /home and /root; it reads them and writes none
+      ProtectHome = "read-only";
       ProtectSystem = "strict";
       ReadWritePaths = [ dataRoot "/run/regado-agent" "/var/lib/btrfs" "/var/lib/regado-agent" "-/boot" "-/var/log/journal" "-/run/log/journal" ];
       RestrictAddressFamilies = [ "AF_UNIX" ];

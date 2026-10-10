@@ -14,6 +14,7 @@ import (
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/integrity"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/operation"
 	"github.com/druckheil/Kaordo/services/regado-agent/internal/state"
+	"github.com/druckheil/Kaordo/services/regado-agent/internal/usage"
 )
 
 func TestErrorsMapToStatuses(t *testing.T) {
@@ -86,5 +87,26 @@ func TestSettingsChangesStoreWithoutReadingDisks(t *testing.T) {
 	converge := result.Document
 	if _, err := service.Apply(context.Background(), Change{Document: converge, Reason: "Finish the change", RequestedBy: "admin", Converge: true}); err == nil {
 		t.Fatal("convergence did not read the disks")
+	}
+}
+
+func TestUsageRouteRequiresAKnownWindow(t *testing.T) {
+	monitor, err := usage.Open(t.TempDir(), nil, "/srv/kaordo", nil, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer monitor.Close()
+	handler := NewHandler(&Service{Usage: monitor}, nil)
+	for window, want := range map[string]int{"7d": http.StatusOK, "90d": http.StatusOK, "2y": http.StatusBadRequest, "": http.StatusBadRequest} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/usage?window="+window, nil))
+		if recorder.Code != want {
+			t.Errorf("window %q = %d", window, recorder.Code)
+		}
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/usage/measure", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("measure = %d", recorder.Code)
 	}
 }
