@@ -79,9 +79,9 @@ export const categories: Record<
 		userDriven: false
 	},
 	unreferenced: {
-		label: 'Space no file uses',
+		label: 'Unattributed pool usage',
 		description:
-			'Blocks the pool keeps although no current file needs them, such as the old parts of files rewritten in place.',
+			'Pool usage beyond counted file sizes and filesystem metadata. Its cause needs further investigation.',
 		color: 'oklch(0.45 0.02 20)',
 		userDriven: false
 	}
@@ -104,7 +104,7 @@ const gibibyte = 1024 ** 3;
 // Growth that no account explains: system areas should stay steady between releases
 function growthWarning(category: HostUsageCategory, total: number): string {
 	if (category.key === 'unreferenced' && category.bytes > Math.max(gibibyte, total * 0.2))
-		return 'Larger than expected; a service may rewrite files in place';
+		return 'Large difference; inspect filesystem accounting';
 	const day = category.growthDay ?? 0;
 	const week = category.growthWeek ?? 0;
 	const fast =
@@ -117,8 +117,8 @@ function growthWarning(category: HostUsageCategory, total: number): string {
 }
 
 /**
- * The whole pool as 100%: every measured area plus the filesystem's own share, which the agent
- * reports as its metadata and the space no current file uses.
+ * Measured file sizes, filesystem metadata and the unattributed remainder as 100% of the
+ * accounting total. Shared extents and compression can make this exceed stored pool usage.
  */
 export function composition(usage: HostUsage): { segments: Segment[]; total: number } {
 	const total = usage.categories.reduce((sum, category) => sum + category.bytes, 0);

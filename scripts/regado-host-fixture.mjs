@@ -82,7 +82,7 @@ function usageReport(measuring) {
 		temporary: 20 * mib,
 		other: 10 * mib,
 		metadata: 300 * mib,
-		// More than a fifth of the pool: what a service rewriting files in place leaves behind
+		// More than a fifth of the pool remains unexplained by the file-size measurement
 		unreferenced: 5 * gib
 	};
 	const growth = { logs: 1200 * mib, media: 300 * mib };

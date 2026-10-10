@@ -452,8 +452,8 @@ test('Regado usage shows the whole pool, runaway growth, heavy accounts and lagg
 	).toBeVisible();
 	await expect(
 		contents
-			.getByRole('listitem', { name: 'Space no file uses', exact: true })
-			.getByText('Larger than expected; a service may rewrite files in place', { exact: true })
+			.getByRole('listitem', { name: 'Unattributed pool usage', exact: true })
+			.getByText('Large difference; inspect filesystem accounting', { exact: true })
 	).toBeVisible();
 	await expect(
 		overview.getByText('Full in about 120 days at last week’s pace', { exact: true })

@@ -57,7 +57,7 @@
 				{highlighted}
 				label={`Pool contents: ${summary}`}
 				total={formatBytes(parts.total)}
-				caption="of data in the pool"
+				caption="of accounted data"
 			/>
 		</div>
 		<ul class="grid min-w-0 grid-cols-1 gap-1.5" aria-label="Pool contents">
@@ -94,6 +94,10 @@
 			{/each}
 		</ul>
 	</div>
+	<p class="mt-3 text-xs text-muted-foreground">
+		Category sizes count files; compression, shared extents and allocation can affect their disk
+		usage. Pool capacity uses the filesystem's reported usage.
+	</p>
 
 	<div class="mt-6">
 		<div class="flex flex-wrap items-baseline justify-between gap-2 text-sm">
@@ -120,8 +124,9 @@
 		</div>
 		{#if usage.pool.saved > 0}
 			<p class="mt-2 text-xs text-muted-foreground">
-				Shared blocks and compression store these files in {formatBytes(usage.pool.stored)}, saving
-				{formatBytes(usage.pool.saved)}.
+				Counted file sizes and metadata exceed reported pool usage by {formatBytes(
+					usage.pool.saved
+				)}. Compression and shared extents can reduce stored usage.
 			</p>
 		{/if}
 	</div>

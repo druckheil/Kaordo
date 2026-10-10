@@ -1488,7 +1488,7 @@ export interface components {
         HostUsageCategory: {
             /** @enum {string} */
             key: "system" | "nix" | "logs" | "database" | "media" | "metrics" | "releases" | "temporary" | "other" | "metadata" | "unreferenced";
-            /** @description File sizes; metadata is the filesystem's own, unreferenced is stored space no current file uses */
+            /** @description Logical file sizes; metadata is reported by the filesystem, unreferenced is the positive remainder of stored pool usage after subtracting file sizes and metadata, without determining its cause */
             bytes: number;
             files: number;
             /** @description Change since the measurement a day earlier */
@@ -1512,7 +1512,7 @@ export interface components {
             pool: {
                 stored: number;
                 free: number;
-                /** @description What shared blocks and compression save when files add up to more than is stored */
+                /** @description Positive difference between counted file sizes plus filesystem metadata and stored pool usage; an estimate rather than a measurement of compression or shared extents */
                 saved: number;
             };
             categories: components["schemas"]["HostUsageCategory"][];

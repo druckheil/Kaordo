@@ -61,12 +61,12 @@ type Category struct {
 type Pool struct {
 	Stored int64 `json:"stored"`
 	Free   int64 `json:"free"`
-	// Saved is what shared blocks and compression save when files add up to more than is stored
+	// Saved is the excess of counted file sizes plus metadata over stored usage, not an extent measurement
 	Saved int64 `json:"saved"`
 }
 
-// The filesystem's own share: its metadata, and blocks it keeps that no current file uses,
-// such as parts of files rewritten in place
+// Filesystem metadata and usage unexplained by counted file sizes; the remainder does not
+// establish that blocks are unreferenced. Keep the wire key stable for stored history
 const (
 	metadataKey     = "metadata"
 	unreferencedKey = "unreferenced"

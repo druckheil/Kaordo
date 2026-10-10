@@ -361,7 +361,7 @@ components:
             ]
         bytes:
           type: integer
-          description: File sizes; metadata is the filesystem's own, unreferenced is stored space no current file uses
+          description: Logical file sizes; metadata is reported by the filesystem, unreferenced is the positive remainder of stored pool usage after subtracting file sizes and metadata, without determining its cause
         files: { type: integer }
         growthDay:
           { type: [integer, 'null'], description: Change since the measurement a day earlier }
@@ -389,7 +389,7 @@ components:
             free: { type: integer }
             saved:
               type: integer
-              description: What shared blocks and compression save when files add up to more than is stored
+              description: Positive difference between counted file sizes plus filesystem metadata and stored pool usage; an estimate rather than a measurement of compression or shared extents
         categories: { type: array, items: { $ref: '#/components/schemas/HostUsageCategory' } }
         history: { type: array, items: { $ref: '#/components/schemas/HostUsageSample' } }
         fullInDays:
